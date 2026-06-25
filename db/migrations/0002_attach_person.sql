@@ -1,0 +1,1 @@
+ALTER TYPE "public"."attachable_type" ADD VALUE 'person';

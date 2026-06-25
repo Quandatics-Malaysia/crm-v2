@@ -1,0 +1,86 @@
+# Internet-exposed self-host: caddy (HTTPS) → web (Next standalone) → db (Postgres).
+# Postgres is never published; only Caddy binds 80/443. Run: docker compose up -d --build
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: crm
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # One-shot: applies migrations + RLS + views, sets crm_app password, seeds.
+  migrate:
+    build:
+      context: .
+      target: migrator
+    environment:
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
+      CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:-change_me_crm_app}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me-please}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
+      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@demo.local}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Password123!}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      target: runner
+    environment:
+      NODE_ENV: production
+      # App connects as the RLS-enforced crm_app role.
+      DATABASE_URL: postgres://crm_app:${CRM_APP_PASSWORD:-change_me_crm_app}@db:5432/crm
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me-please}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
+      APP_URL: ${APP_URL:-${BETTER_AUTH_URL:-http://localhost}}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /data/uploads
+    volumes:
+      - appfiles:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  appfiles:
+  caddydata:
+  caddyconfig:

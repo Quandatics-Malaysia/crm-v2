@@ -1,0 +1,10 @@
+// Barrel of the full Drizzle schema. Import from "@/db/schema".
+export * from "./auth"
+export * from "./rbac"
+export * from "./crm"
+export * from "./pipeline"
+export * from "./approvals"
+export * from "./quotations"
+export * from "./system"
+export * from "./activities"
+export * from "./projects"

@@ -104,6 +104,91 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.AUDIT_VIEW,
 ]
 
+/** Grouped, human-labeled catalog for the role permission-matrix UI. */
+export const PERMISSION_GROUPS: {
+  group: string
+  items: { key: PermissionKey; label: string }[]
+}[] = [
+  {
+    group: "Leads",
+    items: [
+      { key: PERMISSIONS.LEAD_VIEW, label: "View leads" },
+      { key: PERMISSIONS.LEAD_CREATE, label: "Create leads" },
+      { key: PERMISSIONS.LEAD_UPDATE, label: "Edit leads" },
+      { key: PERMISSIONS.LEAD_DELETE, label: "Delete leads" },
+      { key: PERMISSIONS.LEAD_CONVERT, label: "Convert leads" },
+    ],
+  },
+  {
+    group: "Accounts",
+    items: [
+      { key: PERMISSIONS.ACCOUNT_VIEW, label: "View accounts" },
+      { key: PERMISSIONS.ACCOUNT_CREATE, label: "Create accounts" },
+      { key: PERMISSIONS.ACCOUNT_UPDATE, label: "Edit accounts" },
+      { key: PERMISSIONS.ACCOUNT_DELETE, label: "Delete accounts" },
+    ],
+  },
+  {
+    group: "Contacts",
+    items: [
+      { key: PERMISSIONS.PERSON_VIEW, label: "View contacts" },
+      { key: PERMISSIONS.PERSON_CREATE, label: "Create contacts" },
+      { key: PERMISSIONS.PERSON_UPDATE, label: "Edit contacts" },
+      { key: PERMISSIONS.PERSON_DELETE, label: "Delete contacts" },
+    ],
+  },
+  {
+    group: "Funnel",
+    items: [
+      { key: PERMISSIONS.OPPORTUNITY_VIEW, label: "View funnels" },
+      { key: PERMISSIONS.OPPORTUNITY_CREATE, label: "Create funnels" },
+      { key: PERMISSIONS.OPPORTUNITY_UPDATE, label: "Edit funnels" },
+      { key: PERMISSIONS.OPPORTUNITY_DELETE, label: "Delete funnels" },
+      { key: PERMISSIONS.STAGE_ADVANCE, label: "Advance stages" },
+      { key: PERMISSIONS.STAGE_ADVANCE_APPROVE, label: "Approve stage advances" },
+      { key: PERMISSIONS.FUNNEL_MANAGE, label: "Manage funnels & stages" },
+    ],
+  },
+  {
+    group: "Quotations & Tax",
+    items: [
+      { key: PERMISSIONS.QUOTATION_VIEW, label: "View quotations" },
+      { key: PERMISSIONS.QUOTATION_CREATE, label: "Create quotations" },
+      { key: PERMISSIONS.QUOTATION_UPDATE, label: "Edit quotations" },
+      { key: PERMISSIONS.QUOTATION_DELETE, label: "Delete quotations" },
+      { key: PERMISSIONS.QUOTATION_SEND, label: "Send quotations" },
+      { key: PERMISSIONS.QUOTATION_ACCEPT, label: "Accept quotations" },
+      { key: PERMISSIONS.TAX_VIEW, label: "View tax settings" },
+      { key: PERMISSIONS.TAX_CONFIGURE, label: "Configure tax" },
+    ],
+  },
+  {
+    group: "Projects",
+    items: [
+      { key: PERMISSIONS.PROJECT_VIEW, label: "View projects" },
+      { key: PERMISSIONS.PROJECT_CREATE, label: "Create projects" },
+      { key: PERMISSIONS.PROJECT_UPDATE, label: "Edit projects" },
+      { key: PERMISSIONS.PROJECT_DELETE, label: "Delete projects" },
+    ],
+  },
+  {
+    group: "Reporting",
+    items: [
+      { key: PERMISSIONS.FORECAST_VIEW, label: "View forecast" },
+      { key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" },
+    ],
+  },
+  {
+    group: "Administration",
+    items: [
+      { key: PERMISSIONS.TENANT_MANAGE_USERS, label: "Manage users" },
+      { key: PERMISSIONS.TENANT_MANAGE_ROLES, label: "Manage roles" },
+      { key: PERMISSIONS.TENANT_SETTINGS, label: "Manage settings" },
+      { key: PERMISSIONS.CUSTOM_FIELD_MANAGE, label: "Manage custom fields" },
+    ],
+  },
+]
+
 export type RoleTemplate = {
   name: string
   description: string

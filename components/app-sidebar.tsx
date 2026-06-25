@@ -14,6 +14,7 @@ import {
   FolderKanbanIcon,
   TrendingUpIcon,
   ScrollTextIcon,
+  ShieldCheckIcon,
   Settings2Icon,
   ChevronsUpDownIcon,
   LogOutIcon,
@@ -89,6 +90,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Admin",
     items: [
+      { title: "Team", url: "/team", icon: ShieldCheckIcon, permission: PERMISSIONS.TENANT_MANAGE_USERS },
       { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TAX_VIEW },
     ],
   },

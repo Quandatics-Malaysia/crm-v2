@@ -1,0 +1,514 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
+import { MoreHorizontal } from "lucide-react"
+import type { ColumnDef } from "@tanstack/react-table"
+
+import { DataTable, SortableHeader } from "@/components/data-table"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { formatDate } from "@/lib/format"
+import type { Option, FunnelWithStages } from "@/lib/lookups"
+
+import { LeadForm } from "./lead-form"
+import { ConvertDialog } from "./convert-dialog"
+import {
+  createLead,
+  updateLead,
+  deleteLead,
+  disqualifyLead,
+  type Lead,
+  type LeadInput,
+} from "./actions"
+
+const STATUS_META: Record<
+  Lead["status"],
+  { label: string; variant: React.ComponentProps<typeof Badge>["variant"]; className?: string }
+> = {
+  new: {
+    label: "New",
+    variant: "secondary",
+    className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  },
+  contacted: {
+    label: "Contacted",
+    variant: "secondary",
+    className:
+      "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  },
+  qualified: {
+    label: "Qualified",
+    variant: "secondary",
+    className:
+      "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  },
+  disqualified: {
+    label: "Disqualified",
+    variant: "destructive",
+  },
+  converted: {
+    label: "Converted",
+    variant: "secondary",
+    className:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  },
+}
+
+function StatusBadge({ status }: { status: Lead["status"] }) {
+  const meta = STATUS_META[status]
+  return (
+    <Badge variant={meta.variant} className={meta.className}>
+      {meta.label}
+    </Badge>
+  )
+}
+
+export function LeadsTable({
+  data,
+  accountOptions,
+  funnels,
+}: {
+  data: Lead[]
+  accountOptions: Option[]
+  funnels: FunnelWithStages[]
+}) {
+  const router = useRouter()
+
+  const [newOpen, setNewOpen] = React.useState(false)
+  const [editLead, setEditLead] = React.useState<Lead | null>(null)
+  const [convertLead, setConvertLead] = React.useState<Lead | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<Lead | null>(null)
+  const [disqualifyTarget, setDisqualifyTarget] = React.useState<Lead | null>(null)
+
+  // Resolve a stage id to its name for the Stage column.
+  const stageNameById = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const f of funnels) for (const s of f.stages) m.set(s.id, s.name)
+    return m
+  }, [funnels])
+
+  async function handleCreate(values: LeadInput) {
+    try {
+      await createLead(values)
+      toast.success("Lead created")
+      setNewOpen(false)
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create lead")
+    }
+  }
+
+  async function handleUpdate(values: LeadInput) {
+    if (!editLead) return
+    try {
+      await updateLead(editLead.id, values)
+      toast.success("Lead updated")
+      setEditLead(null)
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update lead")
+    }
+  }
+
+  const columns = React.useMemo<ColumnDef<Lead>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => <SortableHeader column={column} title="Name" />,
+        cell: ({ row }) => (
+          <Link
+            href={`/leads/${row.original.id}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {row.original.name}
+          </Link>
+        ),
+      },
+      {
+        id: "company",
+        accessorKey: "companyName",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Company" />
+        ),
+        cell: ({ row }) => {
+          const lead = row.original
+          // When converted, link the company to the new account.
+          if (lead.convertedAccountId) {
+            return (
+              <Link
+                href={`/accounts/${lead.convertedAccountId}`}
+                className="text-primary hover:underline"
+              >
+                {lead.companyName || "Account"}
+              </Link>
+            )
+          }
+          return lead.companyName || "—"
+        },
+      },
+      {
+        accessorKey: "email",
+        header: "Email",
+        cell: ({ row }) =>
+          row.original.email ? (
+            <a
+              className="text-muted-foreground underline-offset-4 hover:underline"
+              href={`mailto:${row.original.email}`}
+            >
+              {row.original.email}
+            </a>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: "stage",
+        header: "Stage",
+        cell: ({ row }) => {
+          const lead = row.original
+          const name = lead.currentStageId
+            ? stageNameById.get(lead.currentStageId)
+            : null
+          if (!name) return <span className="text-muted-foreground">—</span>
+          // Link the stage to the converted funnel when one exists.
+          const badge = (
+            <Badge variant="outline" className="font-normal">
+              {name}
+            </Badge>
+          )
+          return lead.convertedOpportunityId ? (
+            <Link href={`/funnel/${lead.convertedOpportunityId}`}>{badge}</Link>
+          ) : (
+            badge
+          )
+        },
+      },
+      {
+        id: "converted",
+        header: "Converted to",
+        cell: ({ row }) => {
+          const lead = row.original
+          if (
+            !lead.convertedAccountId &&
+            !lead.convertedPersonId &&
+            !lead.convertedOpportunityId
+          ) {
+            return <span className="text-muted-foreground">—</span>
+          }
+          return (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+              {lead.convertedAccountId ? (
+                <Link
+                  href={`/accounts/${lead.convertedAccountId}`}
+                  className="text-primary hover:underline"
+                >
+                  Account
+                </Link>
+              ) : null}
+              {lead.convertedPersonId ? (
+                <Link
+                  href={`/persons/${lead.convertedPersonId}`}
+                  className="text-primary hover:underline"
+                >
+                  Contact
+                </Link>
+              ) : null}
+              {lead.convertedOpportunityId ? (
+                <Link
+                  href={`/funnel/${lead.convertedOpportunityId}`}
+                  className="text-primary hover:underline"
+                >
+                  Funnel
+                </Link>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: "createdAt",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Created" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {formatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableHiding: false,
+        cell: ({ row }) => {
+          const lead = row.original
+          const isConverted = lead.status === "converted"
+          return (
+            <div className="flex justify-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button variant="ghost" size="icon-sm">
+                      <MoreHorizontal className="size-4" />
+                      <span className="sr-only">Open menu</span>
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem
+                    nativeButton={false} render={<Link href={`/leads/${lead.id}`} />}
+                  >
+                    View
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setEditLead(lead)}>
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={isConverted}
+                    onClick={() => setConvertLead(lead)}
+                  >
+                    Convert
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={isConverted || lead.status === "disqualified"}
+                    onClick={() => setDisqualifyTarget(lead)}
+                  >
+                    Disqualify
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteTarget(lead)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )
+        },
+      },
+    ],
+    [stageNameById]
+  )
+
+  return (
+    <>
+      <DataTable
+        columns={columns}
+        data={data}
+        searchColumn="name"
+        searchPlaceholder="Search leads…"
+        emptyMessage="No leads yet. Create your first one."
+        toolbar={
+          <Dialog open={newOpen} onOpenChange={setNewOpen}>
+            <DialogTrigger render={<Button size="sm">New lead</Button>} />
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New lead</DialogTitle>
+                <DialogDescription>
+                  Capture an inbound contact to work and qualify.
+                </DialogDescription>
+              </DialogHeader>
+              <LeadForm
+                funnels={funnels}
+                onSubmit={handleCreate}
+                submitLabel="Create lead"
+              />
+            </DialogContent>
+          </Dialog>
+        }
+      />
+
+      {/* Edit dialog */}
+      <Dialog
+        open={!!editLead}
+        onOpenChange={(o) => !o && setEditLead(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit lead</DialogTitle>
+            <DialogDescription>Update this lead’s details.</DialogDescription>
+          </DialogHeader>
+          {editLead ? (
+            <LeadForm
+              key={editLead.id}
+              lead={editLead}
+              funnels={funnels}
+              onSubmit={handleUpdate}
+              submitLabel="Save changes"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Convert dialog */}
+      {convertLead ? (
+        <ConvertDialog
+          lead={convertLead}
+          open={!!convertLead}
+          onOpenChange={(o) => !o && setConvertLead(null)}
+          accountOptions={accountOptions}
+        />
+      ) : null}
+
+      {/* Disqualify dialog */}
+      {disqualifyTarget ? (
+        <DisqualifyDialog
+          lead={disqualifyTarget}
+          onOpenChange={(o) => !o && setDisqualifyTarget(null)}
+          onDone={() => {
+            setDisqualifyTarget(null)
+            router.refresh()
+          }}
+        />
+      ) : null}
+
+      {/* Delete confirmation */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove “{deleteTarget?.name}” from your lead list. This
+              action can’t be undone here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={async () => {
+                if (!deleteTarget) return
+                try {
+                  await deleteLead(deleteTarget.id)
+                  toast.success("Lead deleted")
+                  setDeleteTarget(null)
+                  router.refresh()
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error ? err.message : "Failed to delete lead"
+                  )
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+function DisqualifyDialog({
+  lead,
+  onOpenChange,
+  onDone,
+}: {
+  lead: Lead
+  onOpenChange: (open: boolean) => void
+  onDone: () => void
+}) {
+  const [reason, setReason] = React.useState("")
+  const [submitting, setSubmitting] = React.useState(false)
+
+  async function handleDisqualify() {
+    if (!reason.trim()) {
+      toast.error("A reason is required")
+      return
+    }
+    setSubmitting(true)
+    try {
+      await disqualifyLead(lead.id, reason)
+      toast.success("Lead disqualified")
+      onDone()
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to disqualify lead"
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Disqualify lead</DialogTitle>
+          <DialogDescription>
+            Record why “{lead.name}” is no longer a fit.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Label htmlFor="disqualify-reason">Reason</Label>
+          <Input
+            id="disqualify-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="No budget, wrong fit…"
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleDisqualify}
+            disabled={submitting}
+          >
+            {submitting ? "Saving…" : "Disqualify"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

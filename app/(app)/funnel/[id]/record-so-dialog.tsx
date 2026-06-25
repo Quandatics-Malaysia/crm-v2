@@ -17,38 +17,34 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
-import { setSoNumber } from "../actions"
+import { recordSo } from "../actions"
 
 export function RecordSoDialog({
   opportunityId,
-  currentSoNumber,
   trigger,
 }: {
   opportunityId: string
-  currentSoNumber?: string | null
   trigger?: React.ReactElement
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
-  const [soNumber, setSoNumberValue] = React.useState(currentSoNumber ?? "")
   const [file, setFile] = React.useState<File | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
-  // Business rule: an SO cannot be recorded without BOTH a number AND a
+  // The SO number is system-assigned; recording one only requires its
   // supporting document (the PO or signed-back quotation).
-  const canSubmit = soNumber.trim().length > 0 && file !== null
+  const canSubmit = file !== null
 
   function reset() {
-    setSoNumberValue(currentSoNumber ?? "")
     setFile(null)
     setSubmitting(false)
     if (inputRef.current) inputRef.current.value = ""
   }
 
   async function onSubmit() {
-    if (!canSubmit || !file) {
-      toast.error("An SO number and a supporting document are both required")
+    if (!file) {
+      toast.error("A supporting document is required")
       return
     }
     setSubmitting(true)
@@ -61,9 +57,9 @@ export function RecordSoDialog({
       fd.set("revalidate", `/funnel/${opportunityId}`)
       await uploadEntityAttachment(fd)
 
-      await setSoNumber(opportunityId, soNumber)
+      const soNumber = await recordSo(opportunityId)
 
-      toast.success("SO recorded")
+      toast.success(`SO recorded: ${soNumber}`)
       setOpen(false)
       reset()
       router.refresh()
@@ -87,26 +83,12 @@ export function RecordSoDialog({
         <DialogHeader>
           <DialogTitle>Record SO</DialogTitle>
           <DialogDescription>
-            A Sales Order requires both an SO number and a supporting document
-            (the PO or signed-back quotation). You cannot record an SO without a
-            file.
+            The SO number is assigned automatically. Attach the supporting
+            document to record it.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="so-number">
-              SO Number <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="so-number"
-              placeholder="e.g. SO-2026-0142"
-              value={soNumber}
-              onChange={(e) => setSoNumberValue(e.target.value)}
-              disabled={submitting}
-            />
-          </div>
-
           <div className="grid gap-2">
             <Label htmlFor="so-file">
               Attach signed PO / quotation{" "}

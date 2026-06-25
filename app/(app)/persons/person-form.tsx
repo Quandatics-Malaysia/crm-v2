@@ -12,7 +12,6 @@ import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -145,11 +144,6 @@ export function PersonForm({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{editing ? "Edit contact" : "New contact"}</DialogTitle>
-          <DialogDescription>
-            {editing
-              ? "Update this contact's details."
-              : "Add a contact under an account."}
-          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

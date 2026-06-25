@@ -42,10 +42,7 @@ export default async function NewProjectPage({
     <>
       <SiteHeader title="New project" />
       <PageBody>
-        <PageHeader
-          title="New project"
-          description="Spin up a delivery project from an account or funnel."
-        />
+        <PageHeader title="New project" />
         <ProjectCreateForm
           accounts={accounts}
           opportunities={opportunities}

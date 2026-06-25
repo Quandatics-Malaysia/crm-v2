@@ -5,7 +5,7 @@ import {
   listFunnelsWithStages,
 } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { listOpportunities, listPersonsWithAccount } from "./actions"
 import { OpportunitiesBoard } from "./opportunities-board"
@@ -37,25 +37,23 @@ export default async function OpportunitiesPage() {
     <>
       <SiteHeader title="Funnel" />
       <PageBody>
-        <PageHeader
-          title="Funnel"
-          description="Track deals across your pipeline."
-        >
-          {newButton}
-        </PageHeader>
-
         <Tabs defaultValue="board" className="w-full">
-          <TabsList>
-            <TabsTrigger value="board">Board</TabsTrigger>
-            <TabsTrigger value="list">List</TabsTrigger>
-          </TabsList>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TabsList>
+              <TabsTrigger value="board">Board</TabsTrigger>
+              <TabsTrigger value="list">List</TabsTrigger>
+            </TabsList>
+            <TabsContent value="board" className="contents">
+              {newButton}
+            </TabsContent>
+          </div>
 
           <TabsContent value="board" className="pt-2">
             <OpportunitiesBoard data={rows} funnels={funnels} />
           </TabsContent>
 
           <TabsContent value="list" className="pt-2">
-            <OpportunitiesTable data={rows} />
+            <OpportunitiesTable data={rows} toolbar={newButton} />
           </TabsContent>
         </Tabs>
       </PageBody>

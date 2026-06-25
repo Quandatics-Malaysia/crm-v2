@@ -2,11 +2,10 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -113,134 +112,156 @@ export default async function LeadDetailPage({
 
   return (
     <>
-      <SiteHeader title="Lead" />
+      <SiteHeader
+        title={lead.name}
+        breadcrumbs={[
+          { label: "Leads", href: "/leads" },
+          { label: lead.name },
+        ]}
+      />
       <PageBody>
-        <PageHeader
-          title={lead.name}
-          description={lead.companyName ?? "Lead details"}
-        >
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <h2 className="text-lg font-semibold tracking-tight">
+              {lead.name}
+            </h2>
+            {lead.companyName ? (
+              <p className="text-sm text-muted-foreground">
+                {lead.companyName}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             {stageName ? (
               <Badge variant="outline" className="font-normal">
                 {stageName}
               </Badge>
             ) : null}
             <LeadEditButton lead={lead} funnels={funnels} />
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/leads" />}
+            >
+              Back to leads
+            </Button>
           </div>
-        </PageHeader>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Progress</CardTitle>
-            <CardDescription>
-              Lead status{funnelProgress ? " and pipeline stage" : ""}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6">
-            <StageProgress {...buildLeadSteps(lead.status)} />
-            {funnelProgress ? (
-              <div className="border-t pt-6">
-                <StageProgress {...funnelProgress} />
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Overview</CardTitle>
-            <CardDescription>Key details for this lead.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {detail.map((d) => (
-                <div key={d.label} className="grid gap-1">
-                  <dt className="text-xs text-muted-foreground">{d.label}</dt>
-                  <dd className="text-sm">{d.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </CardContent>
-        </Card>
-
-        {isConverted ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Converted</CardTitle>
-              <CardDescription>
-                Records created when this lead was converted.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {lead.convertedAccountId ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    nativeButton={false} render={<Link href={`/accounts/${lead.convertedAccountId}`} />}
-                  >
-                    Account{accountName ? `: ${accountName}` : ""}
-                  </Button>
-                ) : null}
-                {lead.convertedPersonId ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    nativeButton={false} render={<Link href={`/persons/${lead.convertedPersonId}`} />}
-                  >
-                    Contact{personName ? `: ${personName}` : ""}
-                  </Button>
-                ) : null}
-                {lead.convertedOpportunityId ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    render={
-                      <Link href={`/funnel/${lead.convertedOpportunityId}`} />
-                    }
-                  >
-                    Funnel{funnelName ? `: ${funnelName}` : ""}
-                  </Button>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ActivityTimeline
-                entityType="lead"
-                entityId={id}
-                items={activity}
-                revalidate={`/leads/${id}`}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Attachments</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AttachmentsPanel
-                attachableType="lead"
-                attachableId={id}
-                items={files}
-                revalidate={`/leads/${id}`}
-              />
-            </CardContent>
-          </Card>
         </div>
 
-        <div>
-          <Button variant="outline" nativeButton={false} render={<Link href="/leads" />}>
-            Back to leads
-          </Button>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Overview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {detail.map((d) => (
+                    <div key={d.label} className="grid gap-1">
+                      <dt className="text-xs text-muted-foreground">
+                        {d.label}
+                      </dt>
+                      <dd className="text-sm">{d.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Progress</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-6">
+                <StageProgress {...buildLeadSteps(lead.status)} />
+                {funnelProgress ? (
+                  <div className="border-t pt-6">
+                    <StageProgress {...funnelProgress} />
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            {isConverted ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Converted</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {lead.convertedAccountId ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link href={`/accounts/${lead.convertedAccountId}`} />
+                        }
+                      >
+                        Account{accountName ? `: ${accountName}` : ""}
+                      </Button>
+                    ) : null}
+                    {lead.convertedPersonId ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link href={`/persons/${lead.convertedPersonId}`} />
+                        }
+                      >
+                        Contact{personName ? `: ${personName}` : ""}
+                      </Button>
+                    ) : null}
+                    {lead.convertedOpportunityId ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link
+                            href={`/funnel/${lead.convertedOpportunityId}`}
+                          />
+                        }
+                      >
+                        Funnel{funnelName ? `: ${funnelName}` : ""}
+                      </Button>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Activity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ActivityTimeline
+                  entityType="lead"
+                  entityId={id}
+                  items={activity}
+                  revalidate={`/leads/${id}`}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Documents</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AttachmentsPanel
+                  attachableType="lead"
+                  attachableId={id}
+                  items={files}
+                  revalidate={`/leads/${id}`}
+                />
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </PageBody>
     </>

@@ -1,5 +1,5 @@
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import { listQuotations, listOpportunityOptions } from "./actions"
 import { QuotationsTable } from "./quotations-table"
 
@@ -12,10 +12,6 @@ export default async function QuotationsPage() {
     <>
       <SiteHeader title="Quotations" />
       <PageBody>
-        <PageHeader
-          title="Quotations"
-          description="Priced proposals under your funnels."
-        />
         <QuotationsTable data={rows} opportunities={opportunities} />
       </PageBody>
     </>

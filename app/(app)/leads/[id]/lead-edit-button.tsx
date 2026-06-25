@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -52,7 +51,6 @@ export function LeadEditButton({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit lead</DialogTitle>
-          <DialogDescription>Update this lead’s details.</DialogDescription>
         </DialogHeader>
         <LeadForm
           lead={lead}

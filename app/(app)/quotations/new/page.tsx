@@ -20,10 +20,7 @@ export default async function NewQuotationPage({
     <>
       <SiteHeader title="New quotation" />
       <PageBody>
-        <PageHeader
-          title="New quotation"
-          description="Start a priced proposal for a funnel."
-        />
+        <PageHeader title="New quotation" />
         <QuotationCreateForm
           opportunities={opportunities}
           defaultOpportunityId={defaultOpportunityId}

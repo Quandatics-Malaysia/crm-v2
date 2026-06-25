@@ -22,7 +22,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -39,7 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatDate } from "@/lib/format"
-import type { Option, FunnelWithStages } from "@/lib/lookups"
+import type { Option, FunnelWithStages, MemberOption } from "@/lib/lookups"
 
 import { LeadForm } from "./lead-form"
 import { ConvertDialog } from "./convert-dialog"
@@ -98,12 +97,21 @@ export function LeadsTable({
   data,
   accountOptions,
   funnels,
+  members,
 }: {
   data: Lead[]
   accountOptions: Option[]
   funnels: FunnelWithStages[]
+  members: MemberOption[]
 }) {
   const router = useRouter()
+
+  // Resolve an owner member id to its display name for the Owner column/facet.
+  const ownerNameById = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const mem of members) m.set(mem.memberId, mem.name)
+    return m
+  }, [members])
 
   const [newOpen, setNewOpen] = React.useState(false)
   const [editLead, setEditLead] = React.useState<Lead | null>(null)
@@ -198,6 +206,36 @@ export function LeadsTable({
           <SortableHeader column={column} title="Status" />
         ),
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        accessorKey: "source",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Source" />
+        ),
+        cell: ({ row }) =>
+          row.original.source ? (
+            <span className="capitalize">{row.original.source}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        id: "ownerName",
+        // Return the resolved owner name (raw string) so the faceted Owner
+        // filter groups by person rather than by opaque member id.
+        accessorFn: (lead) =>
+          (lead.ownerMemberId && ownerNameById.get(lead.ownerMemberId)) || "",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Owner" />
+        ),
+        cell: ({ getValue }) => {
+          const name = getValue<string>()
+          return name ? (
+            name
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )
+        },
       },
       {
         id: "stage",
@@ -326,7 +364,7 @@ export function LeadsTable({
         },
       },
     ],
-    [stageNameById]
+    [stageNameById, ownerNameById]
   )
 
   return (
@@ -334,6 +372,12 @@ export function LeadsTable({
       <DataTable
         columns={columns}
         data={data}
+        tableId="leads"
+        facets={[
+          { columnId: "status", title: "Status" },
+          { columnId: "source", title: "Source" },
+          { columnId: "ownerName", title: "Owner" },
+        ]}
         searchColumn="name"
         searchPlaceholder="Search leads…"
         emptyMessage="No leads yet. Create your first one."
@@ -343,9 +387,6 @@ export function LeadsTable({
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>New lead</DialogTitle>
-                <DialogDescription>
-                  Capture an inbound contact to work and qualify.
-                </DialogDescription>
               </DialogHeader>
               <LeadForm
                 funnels={funnels}
@@ -365,7 +406,6 @@ export function LeadsTable({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit lead</DialogTitle>
-            <DialogDescription>Update this lead’s details.</DialogDescription>
           </DialogHeader>
           {editLead ? (
             <LeadForm
@@ -477,9 +517,6 @@ function DisqualifyDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Disqualify lead</DialogTitle>
-          <DialogDescription>
-            Record why “{lead.name}” is no longer a fit.
-          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
           <Label htmlFor="disqualify-reason">Reason</Label>

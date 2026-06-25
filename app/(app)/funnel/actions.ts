@@ -20,6 +20,7 @@ import {
 import { writeAudit } from "@/server/audit"
 import { requestStageAdvance } from "@/server/services/stage"
 import { logActivity } from "@/server/services/activity"
+import { nextSoNumber } from "@/server/services/numbering"
 
 export type OpportunityListRow = {
   id: string
@@ -404,20 +405,16 @@ export async function listPersonsWithAccount(): Promise<
 }
 
 /**
- * Record the Sales Order number for an opportunity. Per the billing-forecast
- * process, recording an SO requires an attached document (PO / signed-back
- * quotation) — the caller must upload that file before invoking this.
+ * Record the Sales Order number for an opportunity. The number is
+ * auto-generated per entity ({EntityCode}SO-0001); it is never typed. Per the
+ * billing-forecast process, recording an SO requires an attached document
+ * (PO / signed-back quotation) — the caller must upload that file before
+ * invoking this. Returns the generated SO number.
  */
-export async function setSoNumber(
-  opportunityId: string,
-  soNumber: string
-): Promise<void> {
-  const trimmed = soNumber.trim()
-  if (!trimmed) throw new Error("SO number is required")
-
-  await withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
+export async function recordSo(opportunityId: string): Promise<string> {
+  return withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
     const [existing] = await tx
-      .select({ id: opportunities.id })
+      .select({ id: opportunities.id, soNumber: opportunities.soNumber })
       .from(opportunities)
       .where(
         and(
@@ -427,27 +424,32 @@ export async function setSoNumber(
       )
       .limit(1)
     if (!existing) throw new Error("Funnel not found")
+    if (existing.soNumber?.trim()) throw new Error("SO already recorded")
+
+    const soNumber = await nextSoNumber(tx, ctx)
 
     await tx
       .update(opportunities)
-      .set({ soNumber: trimmed, updatedAt: new Date() })
+      .set({ soNumber, updatedAt: new Date() })
       .where(eq(opportunities.id, opportunityId))
 
     await logActivity(tx, ctx, {
       entityType: "opportunity",
       entityId: opportunityId,
       type: "system",
-      subject: `SO recorded: ${trimmed}`,
+      subject: `SO recorded: ${soNumber}`,
     })
 
     await writeAudit(tx, ctx, {
       action: "opportunity.so_recorded",
       entityType: "opportunity",
       entityId: opportunityId,
-      after: { soNumber: trimmed },
+      after: { soNumber },
     })
+
+    revalidatePath(`/funnel/${opportunityId}`)
+    return soNumber
   })
-  revalidatePath(`/funnel/${opportunityId}`)
 }
 
 export type OpportunityProjectRow = {

@@ -29,6 +29,8 @@ export type TenantSettingsView = {
   quotePrefix: string
   quoteNextNumber: number
   quotePadWidth: number
+  soNextNumber: number
+  soPadWidth: number
   projectNextNumber: number
   projectPadWidth: number
   industries: string[]
@@ -57,6 +59,8 @@ export type UpdateNumberingInput = {
   quotePrefix: string
   quoteNextNumber: number
   quotePadWidth: number
+  soNextNumber: number
+  soPadWidth: number
   projectNextNumber: number
   projectPadWidth: number
 }
@@ -107,6 +111,8 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
     quotePrefix: row.quotePrefix,
     quoteNextNumber: row.quoteNextNumber,
     quotePadWidth: row.quotePadWidth,
+    soNextNumber: row.soNextNumber,
+    soPadWidth: row.soPadWidth,
     projectNextNumber: row.projectNextNumber,
     projectPadWidth: row.projectPadWidth,
     industries: row.industries ?? [],
@@ -177,6 +183,7 @@ export async function updateNumbering(
   }
   for (const [label, n] of [
     ["Quotation next number", input.quoteNextNumber],
+    ["SO next number", input.soNextNumber],
     ["Project next number", input.projectNextNumber],
   ] as const) {
     if (!Number.isInteger(n) || n < 1) {
@@ -185,6 +192,7 @@ export async function updateNumbering(
   }
   for (const [label, n] of [
     ["Quotation pad width", input.quotePadWidth],
+    ["SO pad width", input.soPadWidth],
     ["Project pad width", input.projectPadWidth],
   ] as const) {
     if (!Number.isInteger(n) || n < 1 || n > 10) {
@@ -196,6 +204,8 @@ export async function updateNumbering(
     quotePrefix,
     quoteNextNumber: input.quoteNextNumber,
     quotePadWidth: input.quotePadWidth,
+    soNextNumber: input.soNextNumber,
+    soPadWidth: input.soPadWidth,
     projectNextNumber: input.projectNextNumber,
     projectPadWidth: input.projectPadWidth,
     updatedAt: new Date(),

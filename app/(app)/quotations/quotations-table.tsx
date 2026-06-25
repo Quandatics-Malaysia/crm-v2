@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -81,9 +80,6 @@ function NewQuotationDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New quotation</DialogTitle>
-          <DialogDescription>
-            Pick the funnel this quotation belongs to.
-          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
           <Label>Funnel</Label>
@@ -176,6 +172,8 @@ export function QuotationsTable({
     <DataTable
       columns={columns}
       data={data}
+      tableId="quotations"
+      facets={[{ columnId: "status", title: "Status" }]}
       searchColumn="quoteNumber"
       searchPlaceholder="Search by number…"
       emptyMessage="No quotations yet."

@@ -209,6 +209,7 @@ export function PersonsTable({
       },
       {
         id: "primary",
+        accessorFn: (row) => (row.isPrimary ? "Primary" : "Other"),
         header: "Primary",
         cell: ({ row }) =>
           row.original.isPrimary ? (
@@ -234,6 +235,11 @@ export function PersonsTable({
       searchColumn="name"
       searchPlaceholder="Search contacts…"
       emptyMessage="No contacts yet."
+      facets={[
+        { columnId: "accountName", title: "Account" },
+        { columnId: "primary", title: "Primary" },
+      ]}
+      tableId="persons"
       toolbar={
         <PersonForm
           accounts={accounts}

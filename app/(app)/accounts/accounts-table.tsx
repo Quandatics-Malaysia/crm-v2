@@ -8,6 +8,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -44,8 +45,8 @@ function RowActions({
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
 
-  // Exclude self from parent options to prevent self-parenting.
-  const editParentOptions = React.useMemo(
+  // Exclude self from parent + end-user options (no self-parenting / self-end-user).
+  const editOptions = React.useMemo(
     () => parentOptions.filter((o) => o.id !== account.id),
     [parentOptions, account.id]
   )
@@ -65,7 +66,8 @@ function RowActions({
     <div className="flex justify-end">
       <AccountForm
         account={account}
-        parentOptions={editParentOptions}
+        parentOptions={editOptions}
+        endUserOptions={editOptions}
         industries={industries}
         open={editOpen}
         onOpenChange={setEditOpen}
@@ -163,12 +165,24 @@ export function AccountsTable({
       {
         accessorKey: "accountType",
         header: "Type",
-        cell: ({ row }) => row.original.accountType ?? "—",
+        cell: ({ row }) => (
+          <Badge variant="outline">
+            {row.original.accountType === "reseller" ? "Reseller" : "Client"}
+          </Badge>
+        ),
       },
       {
         accessorKey: "industry",
         header: "Industry",
         cell: ({ row }) => row.original.industry ?? "—",
+      },
+      {
+        accessorKey: "ownerName",
+        header: "Owner",
+        cell: ({ row }) =>
+          row.original.ownerName ?? (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         accessorKey: "parentAccountName",
@@ -212,12 +226,19 @@ export function AccountsTable({
     <DataTable
       columns={columns}
       data={data}
+      tableId="accounts"
+      facets={[
+        { columnId: "accountType", title: "Type" },
+        { columnId: "industry", title: "Industry" },
+        { columnId: "ownerName", title: "Owner" },
+      ]}
       searchColumn="name"
       searchPlaceholder="Search accounts…"
       emptyMessage="No accounts yet."
       toolbar={
         <AccountForm
           parentOptions={parentOptions}
+          endUserOptions={parentOptions}
           industries={industries}
           trigger={
             <Button size="sm">

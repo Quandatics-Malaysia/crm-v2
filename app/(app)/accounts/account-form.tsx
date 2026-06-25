@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,29 +42,45 @@ import {
 
 const NONE = "__none__"
 
-const ACCOUNT_TYPES = ["Customer", "Prospect", "Partner", "Vendor", "Other"]
+const ACCOUNT_TYPE_ITEMS = [
+  { value: "client", label: "Client (end user)" },
+  { value: "reseller", label: "Reseller (channel)" },
+]
 
-const schema = z.object({
-  name: z.string().min(1, "Name is required"),
-  code: z
-    .string()
-    .optional()
-    .refine(
-      (v) => !v || /^[A-Za-z0-9]{2,6}$/.test(v.trim()),
-      "2–6 characters (letters/digits)"
-    ),
-  registrationNumber: z.string().optional(),
-  parentAccountId: z.string().optional(),
-  accountType: z.string().optional(),
-  industry: z.string().optional(),
-  website: z.union([z.string().url("Invalid URL"), z.literal("")]).optional(),
-  line1: z.string().optional(),
-  line2: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  postcode: z.string().optional(),
-  country: z.string().optional(),
-})
+const schema = z
+  .object({
+    name: z.string().min(1, "Name is required"),
+    code: z
+      .string()
+      .optional()
+      .refine(
+        (v) => !v || /^[A-Za-z0-9]{2,6}$/.test(v.trim()),
+        "2–6 characters (letters/digits)"
+      ),
+    registrationNumber: z.string().optional(),
+    parentAccountId: z.string().optional(),
+    accountType: z.enum(["client", "reseller"]),
+    endUserAccountId: z.string().optional(),
+    industry: z.string().optional(),
+    website: z
+      .union([z.string().url("Invalid URL"), z.literal("")])
+      .optional(),
+    line1: z.string().optional(),
+    line2: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    postcode: z.string().optional(),
+    country: z.string().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.accountType === "reseller" && !v.endUserAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endUserAccountId"],
+        message: "End user is required for resellers",
+      })
+    }
+  })
 
 type FormValues = z.infer<typeof schema>
 
@@ -80,7 +95,8 @@ function defaults(account?: AccountRow): FormValues {
     code: account?.code ?? "",
     registrationNumber: account?.registrationNumber ?? "",
     parentAccountId: account?.parentAccountId ?? NONE,
-    accountType: account?.accountType ?? "",
+    accountType: account?.accountType === "reseller" ? "reseller" : "client",
+    endUserAccountId: account?.endUserAccountId ?? "",
     industry: account?.industry ?? "",
     website: account?.website ?? "",
     line1: a.line1 ?? "",
@@ -95,6 +111,7 @@ function defaults(account?: AccountRow): FormValues {
 export function AccountForm({
   account,
   parentOptions,
+  endUserOptions,
   industries,
   trigger,
   open: controlledOpen,
@@ -105,6 +122,8 @@ export function AccountForm({
   account?: AccountRow
   /** Selectable parent accounts (already excludes self for edits). */
   parentOptions: Option[]
+  /** Selectable end-user accounts for resellers (already excludes self for edits). */
+  endUserOptions: Option[]
   /** Configurable industry picklist from listIndustries(). */
   industries: string[]
   /** Render-prop trigger. Omit when controlling open externally. */
@@ -142,12 +161,9 @@ export function AccountForm({
     ],
     [parentOptions]
   )
-  const typeItems = React.useMemo(
-    () => [
-      { value: NONE, label: "None" },
-      ...ACCOUNT_TYPES.map((t) => ({ value: t, label: t })),
-    ],
-    []
+  const endUserItems = React.useMemo(
+    () => endUserOptions.map((o) => ({ value: o.id, label: o.name })),
+    [endUserOptions]
   )
   const industryItems = React.useMemo(
     () => [
@@ -156,6 +172,9 @@ export function AccountForm({
     ],
     [industries]
   )
+
+  const accountType = form.watch("accountType")
+  const isReseller = accountType === "reseller"
 
   async function onSubmit(values: FormValues) {
     try {
@@ -175,7 +194,11 @@ export function AccountForm({
           values.parentAccountId && values.parentAccountId !== NONE
             ? values.parentAccountId
             : null,
-        accountType: values.accountType || null,
+        accountType: values.accountType,
+        endUserAccountId:
+          values.accountType === "reseller"
+            ? values.endUserAccountId || null
+            : null,
         industry: values.industry || null,
         website: values.website || null,
         billingAddress,
@@ -202,11 +225,6 @@ export function AccountForm({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editing ? "Edit account" : "New account"}</DialogTitle>
-          <DialogDescription>
-            {editing
-              ? "Update this account's details."
-              : "Create a customer account."}
-          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -322,9 +340,17 @@ export function AccountForm({
                   <FormItem>
                     <FormLabel>Type</FormLabel>
                     <Select
-                      value={field.value || NONE}
-                      onValueChange={(v) => field.onChange(v === NONE ? "" : v)}
-                      items={typeItems}
+                      value={field.value}
+                      onValueChange={(v) => {
+                        field.onChange(v)
+                        // A client is its own end user — clear the link.
+                        if (v !== "reseller") {
+                          form.setValue("endUserAccountId", "", {
+                            shouldValidate: true,
+                          })
+                        }
+                      }}
+                      items={ACCOUNT_TYPE_ITEMS}
                     >
                       <FormControl>
                         <SelectTrigger className="w-full">
@@ -332,10 +358,9 @@ export function AccountForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {ACCOUNT_TYPES.map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {t}
+                        {ACCOUNT_TYPE_ITEMS.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>
+                            {t.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -344,6 +369,36 @@ export function AccountForm({
                   </FormItem>
                 )}
               />
+              {isReseller ? (
+                <FormField
+                  control={form.control}
+                  name="endUserAccountId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>End user</FormLabel>
+                      <Select
+                        value={field.value || ""}
+                        onValueChange={field.onChange}
+                        items={endUserItems}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select end user…" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {endUserOptions.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
               <FormField
                 control={form.control}
                 name="industry"

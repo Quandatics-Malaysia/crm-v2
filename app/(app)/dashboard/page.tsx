@@ -1,89 +1,249 @@
-import { sql, isNull, and, eq } from "drizzle-orm"
-import { requireContext } from "@/lib/server-context"
-import { runInTenant } from "@/db"
+import Link from "next/link"
 import {
-  leads,
-  accounts,
-  opportunities,
-  quotations,
-} from "@/db/schema"
+  ClipboardCheck,
+  CalendarClock,
+  FileWarning,
+  ArrowRight,
+  CheckCircle2,
+} from "lucide-react"
+import { isBefore } from "date-fns"
+
+import { requireContext } from "@/lib/server-context"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { formatMoney } from "@/lib/format"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { formatMoney, formatDate } from "@/lib/format"
+import { getDashboardData, type FollowUpDue } from "./actions"
 
-async function getStats(tenantId: string) {
-  return runInTenant(tenantId, async (tx) => {
-    const count = sql<number>`count(*)::int`
-    const [leadRow] = await tx
-      .select({ c: count })
-      .from(leads)
-      .where(isNull(leads.deletedAt))
-    const [accountRow] = await tx
-      .select({ c: count })
-      .from(accounts)
-      .where(isNull(accounts.deletedAt))
-    const [oppRow] = await tx
-      .select({
-        c: count,
-        weighted: sql<string>`coalesce(sum(${opportunities.amount}), 0)`,
-      })
-      .from(opportunities)
-      .where(and(isNull(opportunities.deletedAt), eq(opportunities.status, "open")))
-    const [quoteRow] = await tx
-      .select({ c: count })
-      .from(quotations)
-      .where(isNull(quotations.deletedAt))
+const ENTITY_HREF: Record<string, string> = {
+  account: "/accounts",
+  person: "/persons",
+  lead: "/leads",
+  opportunity: "/funnel",
+  project: "/projects",
+}
 
-    return {
-      leads: leadRow?.c ?? 0,
-      accounts: accountRow?.c ?? 0,
-      openOpportunities: oppRow?.c ?? 0,
-      openPipeline: oppRow?.weighted ?? "0",
-      quotations: quoteRow?.c ?? 0,
-    }
-  })
+function followUpHref(f: FollowUpDue): string {
+  const base = ENTITY_HREF[f.entityType] ?? "/dashboard"
+  return `${base}/${f.entityId}`
+}
+
+const ENTITY_LABEL: Record<string, string> = {
+  account: "Account",
+  person: "Person",
+  lead: "Lead",
+  opportunity: "Funnel",
+  project: "Project",
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-8 text-center">
+      <CheckCircle2 className="size-5 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">{children}</p>
+    </div>
+  )
+}
+
+function RowLink({
+  href,
+  children,
+}: {
+  href: string
+  children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      className="group/row -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted"
+    >
+      {children}
+      <ArrowRight className="ml-auto size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100" />
+    </Link>
+  )
 }
 
 export default async function DashboardPage() {
   const ctx = await requireContext()
-  const stats = await getStats(ctx.tenantId)
-
-  const cards = [
-    { title: "Leads", value: String(stats.leads), desc: "Total leads" },
-    { title: "Accounts", value: String(stats.accounts), desc: "Customer accounts" },
-    {
-      title: "Open Funnels",
-      value: String(stats.openOpportunities),
-      desc: "Deals in flight",
-    },
-    {
-      title: "Open Pipeline",
-      value: formatMoney(stats.openPipeline),
-      desc: "Sum of open deal amounts",
-    },
-  ]
+  const data = await getDashboardData()
+  const now = new Date()
 
   return (
     <>
       <SiteHeader title="Dashboard" />
       <PageBody>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {cards.map((c) => (
-            <Card key={c.title}>
-              <CardHeader>
-                <CardDescription>{c.title}</CardDescription>
-                <CardTitle className="text-2xl tabular-nums">{c.value}</CardTitle>
-                <p className="text-xs text-muted-foreground">{c.desc}</p>
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
         <p className="text-sm text-muted-foreground">
-          Welcome back, {ctx.userName}. You are viewing{" "}
-          <span className="font-medium text-foreground">{ctx.roleName ?? "your"}</span>{" "}
-          access for this entity.
+          Welcome back, {ctx.userName}. Here is what needs your attention.
         </p>
+
+        {/* KPI row */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader>
+              <CardDescription>My Open Pipeline</CardDescription>
+              <CardTitle className="text-2xl tabular-nums">
+                {formatMoney(data.myOpenPipeline.total)}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Sum of your open deal amounts
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>My Open Funnels</CardDescription>
+              <CardTitle className="text-2xl tabular-nums">
+                {data.myOpenPipeline.count}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Deals you own still in flight
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Pending My Approval</CardDescription>
+              <CardTitle className="text-2xl tabular-nums">
+                {data.myPendingApprovals.length}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Stage requests awaiting you
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Follow-ups Due</CardDescription>
+              <CardTitle className="text-2xl tabular-nums">
+                {data.followUpsDue.length}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Next 7 days assigned to you
+              </p>
+            </CardHeader>
+          </Card>
+        </div>
+
+        {/* Action lists */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Pending approvals */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="size-4" />
+                My Pending Approvals
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {data.myPendingApprovals.length === 0 ? (
+                <EmptyState>No approvals waiting on you.</EmptyState>
+              ) : (
+                <div className="flex flex-col divide-y">
+                  {data.myPendingApprovals.map((a) => (
+                    <RowLink
+                      key={a.id}
+                      href={`/funnel/${a.opportunityId}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {a.opportunityName}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {a.reason}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatDate(a.requestedAt)}
+                      </span>
+                    </RowLink>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Follow-ups due */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarClock className="size-4" />
+                Follow-ups Due
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {data.followUpsDue.length === 0 ? (
+                <EmptyState>You are all caught up.</EmptyState>
+              ) : (
+                <div className="flex flex-col divide-y">
+                  {data.followUpsDue.map((f) => {
+                    const overdue = isBefore(f.dueAt, now)
+                    return (
+                      <RowLink key={f.id} href={followUpHref(f)}>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {f.subject}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {ENTITY_LABEL[f.entityType] ?? f.entityType}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={overdue ? "destructive" : "secondary"}
+                          className="shrink-0"
+                        >
+                          {overdue ? "Overdue " : ""}
+                          {formatDate(f.dueAt)}
+                        </Badge>
+                      </RowLink>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Won funnels missing SO */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileWarning className="size-4" />
+                Won Funnels Missing SO Number
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {data.funnelsMissingSo.length === 0 ? (
+                <EmptyState>
+                  Every won funnel has a Sales Order number.
+                </EmptyState>
+              ) : (
+                <div className="flex flex-col divide-y">
+                  {data.funnelsMissingSo.map((o) => (
+                    <RowLink key={o.id} href={`/funnel/${o.id}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {o.name}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          Won{o.closedAt ? ` · ${formatDate(o.closedAt)}` : ""}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-medium tabular-nums">
+                        {formatMoney(o.amount)}
+                      </span>
+                    </RowLink>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </PageBody>
     </>
   )

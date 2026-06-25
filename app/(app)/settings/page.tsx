@@ -1,5 +1,5 @@
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import {
   getSettings,
   listTenantMembers,
@@ -18,10 +18,6 @@ export default async function SettingsPage() {
     <>
       <SiteHeader title="Settings" />
       <PageBody>
-        <PageHeader
-          title="Settings"
-          description="Configure entity defaults, numbering, industries, pipeline stages, and your team."
-        />
         <SettingsClient settings={settings} members={members} funnel={funnel} />
       </PageBody>
     </>

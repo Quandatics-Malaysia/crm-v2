@@ -20,7 +20,10 @@ import {
 export type AccountRow = typeof accounts.$inferSelect
 export type PersonRow = typeof persons.$inferSelect
 
-export type AccountListItem = AccountRow & { parentAccountName: string | null }
+export type AccountListItem = AccountRow & {
+  parentAccountName: string | null
+  ownerName: string | null
+}
 
 /** Structured billing address persisted into the billingAddress jsonb column. */
 export type BillingAddress = {
@@ -50,28 +53,56 @@ export type AccountInput = {
   name: string
   code?: string | null
   parentAccountId?: string | null
+  /** "client" (end user) or "reseller" (channel); defaults to "client". */
   accountType?: string | null
+  /** Required for resellers: the end-user client account. */
+  endUserAccountId?: string | null
   industry?: string | null
   website?: string | null
   registrationNumber?: string | null
   billingAddress?: BillingAddress | null
 }
 
-/** All non-deleted accounts with their parent account name resolved. */
+/**
+ * Resolve accountType + endUserAccountId for persistence. A reseller must name
+ * an end-user account; a client is its own end user, so its endUserAccountId is
+ * always cleared. Defaults to "client".
+ */
+function resolveAccountType(input: AccountInput): {
+  accountType: "client" | "reseller"
+  endUserAccountId: string | null
+} {
+  const accountType = input.accountType === "reseller" ? "reseller" : "client"
+  if (accountType === "reseller") {
+    if (!input.endUserAccountId) {
+      throw new Error("End user is required for resellers")
+    }
+    return { accountType, endUserAccountId: input.endUserAccountId }
+  }
+  return { accountType, endUserAccountId: null }
+}
+
+/**
+ * All non-deleted accounts with their parent account name and owner (account
+ * manager) name resolved — the owner name backs the Owner facet on the list.
+ */
 export async function listAccounts(): Promise<AccountListItem[]> {
   return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx) => {
     const rows = await tx
-      .select()
+      .select({ account: accounts, ownerName: user.name })
       .from(accounts)
+      .leftJoin(member, eq(accounts.ownerMemberId, member.id))
+      .leftJoin(user, eq(member.userId, user.id))
       .where(isNull(accounts.deletedAt))
       .orderBy(asc(accounts.name))
 
-    const byId = new Map(rows.map((r) => [r.id, r]))
+    const byId = new Map(rows.map((r) => [r.account.id, r.account]))
     return rows.map((r) => ({
-      ...r,
-      parentAccountName: r.parentAccountId
-        ? (byId.get(r.parentAccountId)?.name ?? null)
+      ...r.account,
+      parentAccountName: r.account.parentAccountId
+        ? (byId.get(r.account.parentAccountId)?.name ?? null)
         : null,
+      ownerName: r.ownerName ?? null,
     }))
   })
 }
@@ -98,6 +129,22 @@ export async function getAccount(id: string) {
             .where(
               and(
                 eq(accounts.id, account.parentAccountId),
+                isNull(accounts.deletedAt)
+              )
+            )
+            .limit(1)
+        )[0] ?? null
+      : null
+
+    // For resellers, resolve the linked end-user client account (name + id).
+    const endUserAccount = account.endUserAccountId
+      ? (
+          await tx
+            .select({ id: accounts.id, name: accounts.name })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.id, account.endUserAccountId),
                 isNull(accounts.deletedAt)
               )
             )
@@ -157,6 +204,7 @@ export async function getAccount(id: string) {
     return {
       account,
       parent,
+      endUserAccount,
       children,
       contacts,
       funnels: funnels as AccountFunnelItem[],
@@ -282,6 +330,7 @@ export async function createAccount(input: AccountInput): Promise<AccountRow> {
   const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
     const code = normalizeCode(input.code)
     if (code) await assertCodeUnique(tx, ctx.tenantId, code)
+    const { accountType, endUserAccountId } = resolveAccountType(input)
 
     const [created] = await tx
       .insert(accounts)
@@ -290,7 +339,8 @@ export async function createAccount(input: AccountInput): Promise<AccountRow> {
         name: input.name,
         code,
         parentAccountId: input.parentAccountId || null,
-        accountType: input.accountType || null,
+        accountType,
+        endUserAccountId,
         industry: input.industry || null,
         website: input.website || null,
         registrationNumber: input.registrationNumber || null,
@@ -333,6 +383,10 @@ export async function updateAccount(
 
     const code = normalizeCode(input.code)
     if (code) await assertCodeUnique(tx, ctx.tenantId, code, id)
+    const { accountType, endUserAccountId } = resolveAccountType(input)
+    if (endUserAccountId === id) {
+      throw new Error("An account cannot be its own end user.")
+    }
 
     const [updated] = await tx
       .update(accounts)
@@ -340,7 +394,8 @@ export async function updateAccount(
         name: input.name,
         code,
         parentAccountId: input.parentAccountId || null,
-        accountType: input.accountType || null,
+        accountType,
+        endUserAccountId,
         industry: input.industry || null,
         website: input.website || null,
         registrationNumber: input.registrationNumber || null,

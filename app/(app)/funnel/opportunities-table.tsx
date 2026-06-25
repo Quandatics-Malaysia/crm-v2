@@ -41,6 +41,7 @@ const columns: ColumnDef<OpportunityListRow>[] = [
   },
   {
     accessorKey: "stageName",
+    id: "stageName",
     header: "Stage",
     cell: ({ row }) => (
       <StageBadge
@@ -64,7 +65,8 @@ const columns: ColumnDef<OpportunityListRow>[] = [
       Number(a.original.amount ?? 0) - Number(b.original.amount ?? 0),
   },
   {
-    accessorKey: "ownerName",
+    id: "ownerName",
+    accessorFn: (row) => row.ownerName ?? "Unassigned",
     header: "Owner",
     cell: ({ row }) => (
       <span className="text-muted-foreground">
@@ -81,6 +83,7 @@ const columns: ColumnDef<OpportunityListRow>[] = [
   },
   {
     accessorKey: "status",
+    id: "status",
     header: "Status",
     cell: ({ row }) => (
       <Badge
@@ -108,6 +111,12 @@ export function OpportunitiesTable({
       searchPlaceholder="Search funnels…"
       emptyMessage="No funnels yet."
       toolbar={toolbar}
+      tableId="funnel"
+      facets={[
+        { columnId: "stageName", title: "Stage" },
+        { columnId: "status", title: "Status" },
+        { columnId: "ownerName", title: "Owner" },
+      ]}
     />
   )
 }

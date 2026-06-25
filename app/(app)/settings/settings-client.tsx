@@ -168,10 +168,6 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
         <Card>
           <CardHeader>
             <CardTitle>Organization</CardTitle>
-            <CardDescription>
-              Defaults applied across quotations, forecasting, and the fiscal
-              calendar.
-            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <FormField
@@ -265,9 +261,6 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
         <Card>
           <CardHeader>
             <CardTitle>Behavior</CardTitle>
-            <CardDescription>
-              Toggle entity-wide pricing, pipeline, and auth behavior.
-            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-1">
             {SWITCHES.map((s, i) => (
@@ -320,6 +313,8 @@ const numberingSchema = z.object({
   quotePrefix: z.string().trim().min(1, "Required"),
   quoteNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   quotePadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
+  soNextNumber: z.coerce.number().int().min(1, "≥ 1"),
+  soPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
   projectNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   projectPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
 })
@@ -339,17 +334,24 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
       quotePrefix: settings.quotePrefix,
       quoteNextNumber: settings.quoteNextNumber,
       quotePadWidth: settings.quotePadWidth,
+      soNextNumber: settings.soNextNumber,
+      soPadWidth: settings.soPadWidth,
       projectNextNumber: settings.projectNextNumber,
       projectPadWidth: settings.projectPadWidth,
     },
   })
 
+  const entityCode = (settings.entityCode || "ENTITY").toUpperCase()
   const values = useWatch({ control: form.control })
   const quotePreview = `${values.quotePrefix ?? ""}${pad(
     Number(values.quoteNextNumber) || 0,
     Number(values.quotePadWidth) || 1
   )}`
-  const projectPreview = `${(settings.entityCode || "ENTITY").toUpperCase()}-ACME-${pad(
+  const soPreview = `${entityCode}SO-${pad(
+    Number(values.soNextNumber) || 0,
+    Number(values.soPadWidth) || 1
+  )}`
+  const projectPreview = `${entityCode}-ACME-${pad(
     Number(values.projectNextNumber) || 0,
     Number(values.projectPadWidth) || 1
   )}`
@@ -363,6 +365,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
           quotePrefix: updated.quotePrefix,
           quoteNextNumber: updated.quoteNextNumber,
           quotePadWidth: updated.quotePadWidth,
+          soNextNumber: updated.soNextNumber,
+          soPadWidth: updated.soPadWidth,
           projectNextNumber: updated.projectNextNumber,
           projectPadWidth: updated.projectPadWidth,
         })
@@ -421,6 +425,61 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
             <FormField
               control={form.control}
               name="quotePadWidth"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pad width</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      value={String(field.value ?? "")}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>SO numbering</CardTitle>
+            <CardDescription>
+              Format: ENTITYCODE + SO-0001 · Next SO:{" "}
+              <span className="font-mono">{soPreview}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5 sm:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="soNextNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Next number</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      value={String(field.value ?? "")}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="soPadWidth"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Pad width</FormLabel>
@@ -560,8 +619,7 @@ function IndustriesCard({ industries }: { industries: string[] }) {
       <CardHeader>
         <CardTitle>Industries</CardTitle>
         <CardDescription>
-          The picklist offered when classifying accounts. Add or remove entries,
-          then save.
+          The picklist offered when classifying accounts.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -1112,10 +1170,8 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
         <CardTitle>Funnel stages</CardTitle>
         <CardDescription>
           {funnel.funnelName
-            ? `Stages for the default funnel "${funnel.funnelName}". `
-            : "No default funnel configured. "}
-          Toggle forecast inclusion per stage; use the arrows to reorder, then
-          save.
+            ? `Default funnel: "${funnel.funnelName}"`
+            : "No default funnel configured."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1201,8 +1257,7 @@ function TeamTable({ members }: { members: TenantMemberView[] }) {
       <CardHeader>
         <CardTitle>Team</CardTitle>
         <CardDescription>
-          Members of this entity with their role and seniority tier. Read-only —
-          manage membership from the admin tools.
+          Read-only — manage membership from the admin tools.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1249,9 +1304,6 @@ export function SettingsClient({
                 <ReceiptText className="size-4 text-muted-foreground" />
                 Tax settings
               </CardTitle>
-              <CardDescription>
-                Configure tax rates and the default rate applied to quotations.
-              </CardDescription>
             </CardHeader>
             <CardContent>
               <Button variant="outline" nativeButton={false} render={<Link href="/tax-settings" />}>

@@ -46,15 +46,37 @@ export function StageAdvanceDialog({
   currentStageId,
   stages,
   trigger,
+  open: openProp,
+  onOpenChange,
+  initialTargetStageId,
 }: {
   opportunityId: string
   currentStageId: string
   stages: Stage[]
   trigger?: React.ReactElement
+  /** Controlled open state. When provided, the dialog can be driven externally
+   * (e.g. opened by the funnel board after a gated drag-drop). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Pre-select a target stage when the dialog opens (controlled usage). */
+  initialTargetStageId?: string
 }) {
   const router = useRouter()
-  const [open, setOpen] = React.useState(false)
-  const [targetStageId, setTargetStageId] = React.useState("")
+  const [openState, setOpenState] = React.useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : openState
+  const setOpen = React.useCallback(
+    (o: boolean) => {
+      if (!isControlled) setOpenState(o)
+      onOpenChange?.(o)
+    },
+    [isControlled, onOpenChange]
+  )
+  // Seed the target from a controlled pre-selection (e.g. the board opens this
+  // dialog, freshly keyed per gated drop, with a chosen target stage).
+  const [targetStageId, setTargetStageId] = React.useState(
+    initialTargetStageId ?? ""
+  )
   const [reason, setReason] = React.useState("")
   const [file, setFile] = React.useState<File | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
@@ -155,7 +177,9 @@ export function StageAdvanceDialog({
         if (!o) reset()
       }}
     >
-      <DialogTrigger render={trigger ?? <Button>Advance stage</Button>} />
+      {isControlled && !trigger ? null : (
+        <DialogTrigger render={trigger ?? <Button>Advance stage</Button>} />
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Advance stage</DialogTitle>

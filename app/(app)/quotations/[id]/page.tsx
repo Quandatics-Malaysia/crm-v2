@@ -6,7 +6,7 @@ import { PERMISSIONS } from "@/lib/permissions"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -49,34 +49,45 @@ export default async function QuotationDetailPage({
 
   return (
     <>
-      <SiteHeader title="Quotation" />
+      <SiteHeader
+        title={detail.quotation.quoteNumber}
+        breadcrumbs={[
+          { label: "Quotations", href: "/quotations" },
+          { label: detail.quotation.quoteNumber },
+        ]}
+      />
       <PageBody>
-        <PageHeader
-          title={detail.quotation.quoteNumber}
-          description={detail.opportunityName ?? undefined}
-        >
-          <Badge className="capitalize">{detail.quotation.status}</Badge>
-        </PageHeader>
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            nativeButton={false}
-            render={<Link href={`/funnel/${detail.quotation.opportunityId}`} />}
-          >
-            View funnel
-          </Button>
-          {project ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <h2 className="text-lg font-semibold tracking-tight">
+              {detail.quotation.quoteNumber}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {detail.opportunityName ?? "—"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="capitalize">{detail.quotation.status}</Badge>
             <Button
               variant="outline"
               size="sm"
               nativeButton={false}
-              render={<Link href={`/projects/${project.id}`} />}
+              render={<Link href={`/funnel/${detail.quotation.opportunityId}`} />}
             >
-              View project ({project.projectCode})
+              View funnel
             </Button>
-          ) : null}
+            {project ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href={`/projects/${project.id}`} />}
+              >
+                View project (
+                <span className="font-mono">{project.projectCode}</span>)
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <QuotationForm

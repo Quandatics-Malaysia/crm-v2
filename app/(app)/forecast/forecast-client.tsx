@@ -169,7 +169,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
                 {formatMoney(totals.opportunityValue)}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Total opportunity value · Σ net-of-tax funnel value
+                Total funnel value · Σ net-of-tax funnel value
               </p>
             </div>
           </div>

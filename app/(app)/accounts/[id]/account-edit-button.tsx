@@ -11,10 +11,12 @@ import type { AccountRow } from "../actions"
 export function AccountEditButton({
   account,
   parentOptions,
+  endUserOptions,
   industries,
 }: {
   account: AccountRow
   parentOptions: Option[]
+  endUserOptions: Option[]
   industries: string[]
 }) {
   const router = useRouter()
@@ -22,6 +24,7 @@ export function AccountEditButton({
     <AccountForm
       account={account}
       parentOptions={parentOptions}
+      endUserOptions={endUserOptions}
       industries={industries}
       trigger={
         <Button variant="outline" size="sm">

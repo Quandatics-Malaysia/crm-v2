@@ -48,7 +48,6 @@ const schema = z.object({
   funnelId: z.string().min(1, "Pipeline is required"),
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
-  amount: z.string().optional(),
   currency: z.string().min(1, "Currency is required"),
   expectedCloseDate: z.string().optional(),
 })
@@ -77,11 +76,9 @@ export function OpportunityForm({
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
 
-  // The quotation is the single source of truth for deal value (net of tax).
-  // Once an opportunity has a primary quotation, its amount is synced from that
-  // quote and must be edited there — so the Amount field is read-only here.
-  // On create there is never a primary quote, so amount stays editable.
-  const amountLocked = Boolean(opportunity?.primaryQuotationId)
+  // The primary quotation (net of tax) is the single source of truth for a
+  // funnel's value, so the form has no manual Amount input. On create the value
+  // is left unset (null); thereafter it syncs from the quote.
 
   // Resolve the default funnel + its first OPEN stage by sortOrder.
   const defaultFunnel =
@@ -102,7 +99,6 @@ export function OpportunityForm({
           funnelId: opportunity.funnelId,
           currentStageId: opportunity.stageId,
           ownerMemberId: opportunity.ownerMemberId,
-          amount: opportunity.amount ?? "",
           currency: opportunity.currency ?? "MYR",
           expectedCloseDate: opportunity.expectedCloseDate ?? "",
         }
@@ -113,7 +109,6 @@ export function OpportunityForm({
           funnelId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
-          amount: "",
           currency: "MYR",
           expectedCloseDate: "",
         },
@@ -141,7 +136,6 @@ export function OpportunityForm({
           funnelId: values.funnelId,
           currentStageId: values.currentStageId,
           ownerMemberId: values.ownerMemberId,
-          amount: values.amount || null,
           currency: values.currency,
           expectedCloseDate: values.expectedCloseDate || null,
         })
@@ -154,7 +148,6 @@ export function OpportunityForm({
           accountId: values.accountId,
           primaryPersonId: values.primaryPersonId || null,
           ownerMemberId: values.ownerMemberId,
-          amount: values.amount || null,
           currency: values.currency,
           expectedCloseDate: values.expectedCloseDate || null,
         })
@@ -392,48 +385,23 @@ export function OpportunityForm({
               )}
             />
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                  <FormItem className="sm:col-span-2">
-                    <FormLabel>Amount</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        {...field}
-                        disabled={amountLocked}
-                        readOnly={amountLocked}
-                      />
-                    </FormControl>
-                    {amountLocked ? (
-                      <FormDescription>
-                        Synced from the primary quotation (net). Edit the
-                        quotation to change the value.
-                      </FormDescription>
-                    ) : null}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="currency"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Currency</FormLabel>
-                    <FormControl>
-                      <Input maxLength={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="currency"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Currency</FormLabel>
+                  <FormControl>
+                    <Input maxLength={3} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    The funnel&apos;s value is set by its primary quotation
+                    (net).
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

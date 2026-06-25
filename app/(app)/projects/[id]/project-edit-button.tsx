@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -107,7 +106,6 @@ export function ProjectEditButton({ project }: { project: ProjectRow }) {
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit project</DialogTitle>
-          <DialogDescription>Update this project&apos;s details.</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

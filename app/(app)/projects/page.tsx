@@ -1,7 +1,7 @@
 import Link from "next/link"
 
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { listProjects } from "./actions"
 import { ProjectsTable } from "./projects-table"
@@ -17,10 +17,6 @@ export default async function ProjectsPage() {
     <>
       <SiteHeader title="Projects" />
       <PageBody>
-        <PageHeader
-          title="Projects"
-          description="Delivery work created from won deals."
-        />
         <ProjectsTable data={rows} toolbar={newButton} />
       </PageBody>
     </>

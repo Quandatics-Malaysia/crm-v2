@@ -115,6 +115,8 @@ export function ProjectsTable({
       searchColumn="name"
       searchPlaceholder="Search projects…"
       emptyMessage="No projects yet."
+      facets={[{ columnId: "status", title: "Status" }]}
+      tableId="projects"
       toolbar={toolbar}
     />
   )

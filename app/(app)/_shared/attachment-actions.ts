@@ -3,8 +3,15 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { requireContext } from "@/lib/server-context"
-import { runInTenant } from "@/db"
-import { attachments, quotations, stageApprovalRequests } from "@/db/schema"
+import { runInTenant, type Tx } from "@/db"
+import {
+  attachments,
+  quotations,
+  stageApprovalRequests,
+  persons,
+  opportunities,
+  projects,
+} from "@/db/schema"
 import { storage } from "@/lib/storage"
 import { logActivity, type ActivityEntity } from "@/server/services/activity"
 
@@ -127,6 +134,112 @@ export async function listOpportunityDocuments(
           : r.attachableType === "quotation"
             ? "Quotation"
             : "Approval",
+    }))
+  })
+}
+
+export type EntityDocument = AttachmentRow & { source: string }
+
+const SOURCE_LABEL: Record<string, string> = {
+  account: "Account",
+  person: "Contact",
+  opportunity: "Funnel",
+  quotation: "Quotation",
+  project: "Project",
+  stage_approval_request: "Approval",
+}
+
+async function docPairs(
+  tx: Tx,
+  rootType: "account" | "project" | "person",
+  rootId: string
+): Promise<{ type: AttachableType; ids: string[] }[]> {
+  if (rootType === "account") {
+    const personIds = (
+      await tx.select({ id: persons.id }).from(persons).where(eq(persons.accountId, rootId))
+    ).map((r) => r.id)
+    const oppIds = (
+      await tx
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(eq(opportunities.accountId, rootId))
+    ).map((r) => r.id)
+    const quoteIds = oppIds.length
+      ? (
+          await tx
+            .select({ id: quotations.id })
+            .from(quotations)
+            .where(inArray(quotations.opportunityId, oppIds))
+        ).map((r) => r.id)
+      : []
+    const projIds = (
+      await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
+    ).map((r) => r.id)
+    return [
+      { type: "account", ids: [rootId] },
+      { type: "person", ids: personIds },
+      { type: "opportunity", ids: oppIds },
+      { type: "quotation", ids: quoteIds },
+      { type: "project", ids: projIds },
+    ]
+  }
+  if (rootType === "project") {
+    const [p] = await tx
+      .select({ oppId: projects.opportunityId, quoteId: projects.quotationId })
+      .from(projects)
+      .where(eq(projects.id, rootId))
+      .limit(1)
+    const pairs: { type: AttachableType; ids: string[] }[] = [
+      { type: "project", ids: [rootId] },
+    ]
+    if (p?.oppId) pairs.push({ type: "opportunity", ids: [p.oppId] })
+    if (p?.quoteId) pairs.push({ type: "quotation", ids: [p.quoteId] })
+    return pairs
+  }
+  // person
+  const oppIds = (
+    await tx
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(eq(opportunities.primaryPersonId, rootId))
+  ).map((r) => r.id)
+  return [
+    { type: "person", ids: [rootId] },
+    { type: "opportunity", ids: oppIds },
+  ]
+}
+
+/** Rolled-up documents for an account / project / contact and their children. */
+export async function listEntityDocuments(
+  rootType: "account" | "project" | "person",
+  rootId: string
+): Promise<EntityDocument[]> {
+  const ctx = await requireContext()
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const pairs = (await docPairs(tx, rootType, rootId)).filter((p) => p.ids.length)
+    if (!pairs.length) return []
+    const conds = pairs.map((p) =>
+      and(eq(attachments.attachableType, p.type), inArray(attachments.attachableId, p.ids))
+    )
+    const rows = await tx
+      .select({
+        id: attachments.id,
+        fileName: attachments.fileName,
+        contentType: attachments.contentType,
+        byteSize: attachments.byteSize,
+        createdAt: attachments.createdAt,
+        attachableType: attachments.attachableType,
+      })
+      .from(attachments)
+      .where(or(...conds))
+      .orderBy(desc(attachments.createdAt))
+    return rows.map((r) => ({
+      id: r.id,
+      fileName: r.fileName,
+      contentType: r.contentType,
+      byteSize: r.byteSize,
+      createdAt: r.createdAt.toISOString(),
+      source: SOURCE_LABEL[r.attachableType] ?? r.attachableType,
     }))
   })
 }

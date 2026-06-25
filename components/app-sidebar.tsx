@@ -13,11 +13,13 @@ import {
   FileTextIcon,
   FolderKanbanIcon,
   TrendingUpIcon,
+  ScrollTextIcon,
   Settings2Icon,
   ChevronsUpDownIcon,
   LogOutIcon,
   CheckIcon,
   BuildingIcon,
+  PlusIcon,
 } from "lucide-react"
 
 import {
@@ -26,6 +28,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -41,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { CreateEntityDialog } from "@/components/create-entity-dialog"
 import { authClient } from "@/lib/auth-client"
 import { PERMISSIONS } from "@/lib/permissions"
 
@@ -51,17 +55,43 @@ type NavItem = {
   permission?: string
 }
 
-const NAV: NavItem[] = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon },
-  { title: "Leads", url: "/leads", icon: TargetIcon, permission: PERMISSIONS.LEAD_VIEW },
-  { title: "Accounts", url: "/accounts", icon: Building2Icon, permission: PERMISSIONS.ACCOUNT_VIEW },
-  { title: "Contacts", url: "/persons", icon: UsersIcon, permission: PERMISSIONS.PERSON_VIEW },
-  { title: "Funnel", url: "/funnel", icon: FilterIcon, permission: PERMISSIONS.OPPORTUNITY_VIEW },
-  { title: "Quotations", url: "/quotations", icon: FileTextIcon, permission: PERMISSIONS.QUOTATION_VIEW },
-  { title: "Projects", url: "/projects", icon: FolderKanbanIcon, permission: PERMISSIONS.PROJECT_VIEW },
-  { title: "Approvals", url: "/approvals", icon: StampIcon, permission: PERMISSIONS.STAGE_ADVANCE },
-  { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, permission: PERMISSIONS.FORECAST_VIEW },
-  { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TAX_VIEW },
+type NavSection = { label: string | null; items: NavItem[] }
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: null,
+    items: [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon }],
+  },
+  {
+    label: "CRM",
+    items: [
+      { title: "Leads", url: "/leads", icon: TargetIcon, permission: PERMISSIONS.LEAD_VIEW },
+      { title: "Accounts", url: "/accounts", icon: Building2Icon, permission: PERMISSIONS.ACCOUNT_VIEW },
+      { title: "Contacts", url: "/persons", icon: UsersIcon, permission: PERMISSIONS.PERSON_VIEW },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
+      { title: "Funnel", url: "/funnel", icon: FilterIcon, permission: PERMISSIONS.OPPORTUNITY_VIEW },
+      { title: "Quotations", url: "/quotations", icon: FileTextIcon, permission: PERMISSIONS.QUOTATION_VIEW },
+      { title: "Projects", url: "/projects", icon: FolderKanbanIcon, permission: PERMISSIONS.PROJECT_VIEW },
+      { title: "Approvals", url: "/approvals", icon: StampIcon, permission: PERMISSIONS.STAGE_ADVANCE },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, permission: PERMISSIONS.FORECAST_VIEW },
+      { title: "Audit", url: "/audit", icon: ScrollTextIcon, permission: PERMISSIONS.AUDIT_VIEW },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TAX_VIEW },
+    ],
+  },
 ]
 
 export type SidebarUser = { name: string; email: string }
@@ -82,8 +112,12 @@ export function AppSidebar({
   const pathname = usePathname()
   const router = useRouter()
   const perms = React.useMemo(() => new Set(permissions), [permissions])
+  const [createOpen, setCreateOpen] = React.useState(false)
 
-  const items = NAV.filter((i) => !i.permission || perms.has(i.permission))
+  const sections = NAV_SECTIONS.map((s) => ({
+    ...s,
+    items: s.items.filter((i) => !i.permission || perms.has(i.permission)),
+  })).filter((s) => s.items.length > 0)
 
   async function switchTenant(id: string) {
     if (id === activeTenant?.id) return
@@ -143,6 +177,11 @@ export function AppSidebar({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                  <PlusIcon className="size-4" />
+                  Create entity
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -150,28 +189,33 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => {
-                const active =
-                  pathname === item.url || pathname.startsWith(item.url + "/")
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      isActive={active}
-                      tooltip={item.title}
-                      render={<Link href={item.url} />}
-                    >
-                      <item.icon className="size-4" />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {sections.map((section, idx) => (
+          <SidebarGroup key={section.label ?? `s-${idx}`}>
+            {section.label ? (
+              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+            ) : null}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {section.items.map((item) => {
+                  const active =
+                    pathname === item.url || pathname.startsWith(item.url + "/")
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        isActive={active}
+                        tooltip={item.title}
+                        render={<Link href={item.url} />}
+                      >
+                        <item.icon className="size-4" />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
       <SidebarFooter>
@@ -208,6 +252,8 @@ export function AppSidebar({
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} />
     </Sidebar>
   )
 }

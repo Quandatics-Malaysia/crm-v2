@@ -26,6 +26,26 @@ export async function nextQuoteNumber(tx: Tx, ctx: ServerContext): Promise<strin
 }
 
 /**
+ * Allocate the next SO number for the entity: {EntityCode}SO-{running}.
+ * Each entity keeps its own counter.
+ */
+export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> {
+  const [s] = await tx
+    .update(tenantSettings)
+    .set({ soNextNumber: sql`${tenantSettings.soNextNumber} + 1` })
+    .where(eq(tenantSettings.organizationId, ctx.tenantId))
+    .returning({
+      entityCode: tenantSettings.entityCode,
+      next: tenantSettings.soNextNumber,
+      pad: tenantSettings.soPadWidth,
+    })
+  const assigned = (s?.next ?? 1) - 1
+  const entity = (s?.entityCode || "ENT").toUpperCase()
+  const running = String(assigned).padStart(s?.pad ?? 4, "0")
+  return `${entity}SO-${running}`
+}
+
+/**
  * Allocate the next project code: {YY}-{EntityCode}-{AccountCode}-{running}.
  * Increments the tenant's project counter atomically.
  */

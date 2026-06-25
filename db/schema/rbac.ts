@@ -34,6 +34,9 @@ export const tenantSettings = pgTable("tenant_settings", {
   quotePrefix: text("quote_prefix").notNull().default("Q-"),
   quoteNextNumber: integer("quote_next_number").notNull().default(1),
   quotePadWidth: integer("quote_pad_width").notNull().default(4),
+  /** SO numbering config (per entity): {EntityCode}SO-0001. */
+  soNextNumber: integer("so_next_number").notNull().default(1),
+  soPadWidth: integer("so_pad_width").notNull().default(4),
   /** Short code for this entity, used in project codes ({YY}-{Entity}-{Account}-{n}). */
   entityCode: text("entity_code"),
   projectNextNumber: integer("project_next_number").notNull().default(1),

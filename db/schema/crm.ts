@@ -35,7 +35,13 @@ export const accounts = pgTable(
       (): AnyPgColumn => accounts.id,
       { onDelete: "set null" }
     ),
+    /** "client" (end user) or "reseller" (channel). */
     accountType: text("account_type"),
+    /** For reseller accounts: the end-user client account. */
+    endUserAccountId: uuid("end_user_account_id").references(
+      (): AnyPgColumn => accounts.id,
+      { onDelete: "set null" }
+    ),
     industry: text("industry"),
     website: text("website"),
     /** Company registration number (e.g. SSM no.). */

@@ -43,6 +43,13 @@
       "when": 1782320037669,
       "tag": "0005_so_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782361435319,
+      "tag": "0006_so_reseller",
+      "breakpoints": true
     }
   ]
 }

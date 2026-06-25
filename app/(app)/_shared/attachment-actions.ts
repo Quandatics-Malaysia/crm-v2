@@ -65,6 +65,8 @@ export async function listEntityAttachments(
 
 export type FunnelDocument = AttachmentRow & {
   source: "Funnel" | "Quotation" | "Approval"
+  /** True when the file is attached directly to this record (so it can be renamed/deleted here). */
+  ownedHere: boolean
 }
 
 /**
@@ -134,11 +136,15 @@ export async function listOpportunityDocuments(
           : r.attachableType === "quotation"
             ? "Quotation"
             : "Approval",
+      ownedHere: r.attachableType === "opportunity",
     }))
   })
 }
 
-export type EntityDocument = AttachmentRow & { source: string }
+export type EntityDocument = AttachmentRow & {
+  source: string
+  ownedHere: boolean
+}
 
 const SOURCE_LABEL: Record<string, string> = {
   account: "Account",
@@ -240,6 +246,7 @@ export async function listEntityDocuments(
       byteSize: r.byteSize,
       createdAt: r.createdAt.toISOString(),
       source: SOURCE_LABEL[r.attachableType] ?? r.attachableType,
+      ownedHere: r.attachableType === rootType,
     }))
   })
 }
@@ -276,6 +283,23 @@ export async function uploadEntityAttachment(formData: FormData): Promise<void> 
       })
     }
   })
+  if (revalidate) revalidatePath(revalidate)
+}
+
+export async function renameEntityAttachment(
+  id: string,
+  fileName: string,
+  revalidate?: string
+): Promise<void> {
+  const ctx = await requireContext()
+  const name = fileName.trim()
+  if (!name) throw new Error("A name is required")
+  await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .update(attachments)
+      .set({ fileName: name.slice(0, 200) })
+      .where(eq(attachments.id, id))
+  )
   if (revalidate) revalidatePath(revalidate)
 }
 

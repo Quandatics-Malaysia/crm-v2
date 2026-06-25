@@ -3,12 +3,14 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, DownloadIcon, Trash2Icon, FileIcon } from "lucide-react"
+import { PaperclipIcon, PencilIcon, Trash2Icon, FileIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { DocumentViewerButton } from "@/components/document-viewer"
 import {
   uploadEntityAttachment,
   deleteEntityAttachment,
+  renameEntityAttachment,
   type AttachableType,
   type AttachmentRow,
 } from "@/app/(app)/_shared/attachment-actions"
@@ -66,6 +68,18 @@ export function AttachmentsPanel({
     }
   }
 
+  async function onRename(a: AttachmentRow) {
+    const next = window.prompt("Rename file", a.fileName)?.trim()
+    if (!next || next === a.fileName) return
+    try {
+      await renameEntityAttachment(a.id, next, revalidate)
+      toast.success("File renamed")
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Rename failed")
+    }
+  }
+
   return (
     <div className="grid gap-3">
       <div>
@@ -94,13 +108,15 @@ export function AttachmentsPanel({
               <span className="text-xs text-muted-foreground">
                 {fmtBytes(a.byteSize)}
               </span>
-              <a
-                href={`/api/files/${a.id}`}
+              <DocumentViewerButton file={a} />
+              <button
+                type="button"
+                onClick={() => onRename(a)}
                 className="text-muted-foreground hover:text-foreground"
-                title="Download"
+                title="Rename"
               >
-                <DownloadIcon className="size-4" />
-              </a>
+                <PencilIcon className="size-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => onDelete(a.id)}

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -177,14 +176,5 @@ export function ConvertDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-/** Tiny helper kept for callers that need to render a deep link inline. */
-export function OpportunityLink({ id }: { id: string }) {
-  return (
-    <Link className="underline underline-offset-4" href={`/funnel/${id}`}>
-      View funnel
-    </Link>
   )
 }

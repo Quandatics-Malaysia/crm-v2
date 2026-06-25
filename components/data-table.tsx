@@ -33,6 +33,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -62,15 +63,8 @@ export interface DataTableProps<TData, TValue> {
   pageSize?: number
   /** Columns to expose as multi-select faceted filters. */
   facets?: DataTableFacet[]
-  /** Stable id to persist filter/sort/visibility + named saved views in localStorage. */
+  /** Accepted for compatibility; no longer used. */
   tableId?: string
-}
-
-type SavedView = {
-  name: string
-  filters: ColumnFiltersState
-  sorting: SortingState
-  visibility: VisibilityState
 }
 
 const facetFilterFn = (
@@ -88,7 +82,6 @@ export function DataTable<TData, TValue>({
   toolbar,
   pageSize = 10,
   facets,
-  tableId,
 }: DataTableProps<TData, TValue>) {
   const facetIds = React.useMemo(
     () => new Set((facets ?? []).map((f) => f.columnId)),
@@ -99,7 +92,8 @@ export function DataTable<TData, TValue>({
   const tableColumns = React.useMemo(
     () =>
       columns.map((c) => {
-        const id = (c as { id?: string; accessorKey?: string }).id ??
+        const id =
+          (c as { id?: string; accessorKey?: string }).id ??
           (c as { accessorKey?: string }).accessorKey
         return id && facetIds.has(id) ? { ...c, filterFn: facetFilterFn } : c
       }),
@@ -110,39 +104,6 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
-  const [views, setViews] = React.useState<SavedView[]>([])
-
-  // restore persisted state + saved views
-  React.useEffect(() => {
-    if (!tableId) return
-    try {
-      const raw = localStorage.getItem(`crm-table:${tableId}`)
-      if (raw) {
-        const s = JSON.parse(raw)
-        if (s.filters) setColumnFilters(s.filters)
-        if (s.sorting) setSorting(s.sorting)
-        if (s.visibility) setColumnVisibility(s.visibility)
-      }
-      const v = localStorage.getItem(`crm-views:${tableId}`)
-      if (v) setViews(JSON.parse(v))
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableId])
-
-  // persist current state
-  React.useEffect(() => {
-    if (!tableId) return
-    try {
-      localStorage.setItem(
-        `crm-table:${tableId}`,
-        JSON.stringify({ filters: columnFilters, sorting, visibility: columnVisibility })
-      )
-    } catch {
-      // ignore
-    }
-  }, [tableId, columnFilters, sorting, columnVisibility])
 
   const table = useReactTable({
     data,
@@ -163,40 +124,6 @@ export function DataTable<TData, TValue>({
 
   const searchCol = searchColumn ? table.getColumn(searchColumn) : undefined
   const hasActiveFilters = columnFilters.length > 0
-
-  function saveView() {
-    if (!tableId) return
-    const name = window.prompt("Save current view as:")?.trim()
-    if (!name) return
-    const next = [
-      ...views.filter((v) => v.name !== name),
-      { name, filters: columnFilters, sorting, visibility: columnVisibility },
-    ]
-    setViews(next)
-    try {
-      localStorage.setItem(`crm-views:${tableId}`, JSON.stringify(next))
-    } catch {
-      // ignore
-    }
-  }
-
-  function applyView(v: SavedView) {
-    setColumnFilters(v.filters)
-    setSorting(v.sorting)
-    setColumnVisibility(v.visibility)
-  }
-
-  function deleteView(name: string) {
-    const next = views.filter((v) => v.name !== name)
-    setViews(next)
-    if (tableId) {
-      try {
-        localStorage.setItem(`crm-views:${tableId}`, JSON.stringify(next))
-      } catch {
-        // ignore
-      }
-    }
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -229,49 +156,6 @@ export function DataTable<TData, TValue>({
 
         <div className="ml-auto flex items-center gap-2">
           {toolbar}
-          {tableId ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button variant="outline" size="sm">
-                    <ListFilter className="size-4" />
-                    <span className="hidden sm:inline">Views</span>
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Saved views
-                </DropdownMenuLabel>
-                {views.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    None yet
-                  </div>
-                ) : (
-                  views.map((v) => (
-                    <DropdownMenuItem
-                      key={v.name}
-                      onClick={() => applyView(v)}
-                      className="justify-between"
-                    >
-                      <span className="truncate">{v.name}</span>
-                      <X
-                        className="size-3.5 text-muted-foreground hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteView(v.name)
-                        }}
-                      />
-                    </DropdownMenuItem>
-                  ))
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={saveView}>
-                  Save current view…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -282,19 +166,21 @@ export function DataTable<TData, TValue>({
               }
             />
             <DropdownMenuContent align="end" className="w-44">
-              {table
-                .getAllColumns()
-                .filter((c) => c.getCanHide())
-                .map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    className="capitalize"
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                  >
-                    {column.id.replace(/_/g, " ")}
-                  </DropdownMenuCheckboxItem>
-                ))}
+              <DropdownMenuGroup>
+                {table
+                  .getAllColumns()
+                  .filter((c) => c.getCanHide())
+                  .map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      className="capitalize"
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    >
+                      {column.id.replace(/_/g, " ")}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -410,25 +296,27 @@ function FacetFilter<TData, TValue>({
         }
       />
       <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
-        <DropdownMenuLabel className="text-xs text-muted-foreground capitalize">
-          {title}
-        </DropdownMenuLabel>
-        {options.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            No values
-          </div>
-        ) : (
-          options.map((value) => (
-            <DropdownMenuCheckboxItem
-              key={value}
-              checked={selected.has(value)}
-              onCheckedChange={() => toggle(value)}
-              className="capitalize"
-            >
-              {value.replace(/_/g, " ")}
-            </DropdownMenuCheckboxItem>
-          ))
-        )}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-xs text-muted-foreground capitalize">
+            {title}
+          </DropdownMenuLabel>
+          {options.length === 0 ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              No values
+            </div>
+          ) : (
+            options.map((value) => (
+              <DropdownMenuCheckboxItem
+                key={value}
+                checked={selected.has(value)}
+                onCheckedChange={() => toggle(value)}
+                className="capitalize"
+              >
+                {value.replace(/_/g, " ")}
+              </DropdownMenuCheckboxItem>
+            ))
+          )}
+        </DropdownMenuGroup>
         {selected.size > 0 ? (
           <>
             <DropdownMenuSeparator />

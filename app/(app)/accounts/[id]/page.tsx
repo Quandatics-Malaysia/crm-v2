@@ -12,17 +12,13 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { DownloadIcon, FileIcon } from "lucide-react"
 
 import { formatDate, formatMoney } from "@/lib/format"
 import { listIndustries } from "@/lib/lookups"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
+import { DocumentsSection } from "@/components/documents-section"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
-import {
-  listEntityAttachments,
-  listEntityDocuments,
-} from "@/app/(app)/_shared/attachment-actions"
+import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
   getAccount,
   listParentOptions,
@@ -75,26 +71,6 @@ const quotationStatusVariant: Record<
   void: "outline",
 }
 
-/** Human-readable file size — mirrors the AttachmentsPanel formatting. */
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-
-/** Badge variant per rolled-up document source. */
-const documentSourceVariant: Record<
-  string,
-  "default" | "secondary" | "outline"
-> = {
-  Account: "default",
-  Contact: "secondary",
-  Funnel: "secondary",
-  Quotation: "outline",
-  Project: "outline",
-  Approval: "outline",
-}
-
 function formatAddress(a: BillingAddress | null | undefined): string | null {
   if (!a) return null
   const parts = [a.line1, a.line2, a.city, a.state, a.postcode, a.country]
@@ -127,10 +103,9 @@ export default async function AccountDetailPage({
   } = data
   const isReseller = account.accountType === "reseller"
 
-  const [activity, files, documents, accountProjects, accountQuotations] =
+  const [activity, documents, accountProjects, accountQuotations] =
     await Promise.all([
       listEntityTimeline("account", id),
-      listEntityAttachments("account", id),
       listEntityDocuments("account", id),
       listAccountProjects(id),
       listAccountQuotations(id),
@@ -467,58 +442,15 @@ export default async function AccountDetailPage({
                   <Badge variant="secondary">{documents.length}</Badge>
                 </CardTitle>
                 <CardDescription>
-                  Files attached anywhere under {account.name} — its contacts,
-                  funnels, quotations, and projects.
+                  Files attached directly to this account, plus those rolled up
+                  from its contacts, funnels, quotations, and projects.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {documents.length ? (
-                  <ul className="grid gap-1">
-                    {documents.map((d) => (
-                      <li
-                        key={d.id}
-                        className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-                      >
-                        <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="flex-1 truncate">{d.fileName}</span>
-                        <Badge
-                          variant={documentSourceVariant[d.source] ?? "outline"}
-                        >
-                          {d.source}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {fmtBytes(d.byteSize)}
-                        </span>
-                        <a
-                          href={`/api/files/${d.id}`}
-                          className="text-muted-foreground hover:text-foreground"
-                          title="Download"
-                        >
-                          <DownloadIcon className="size-4" />
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No documents for this account yet.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Attachments</CardTitle>
-                <CardDescription>
-                  Files attached directly to this account.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AttachmentsPanel
-                  attachableType="account"
-                  attachableId={account.id}
-                  items={files}
+                <DocumentsSection
+                  uploadType="account"
+                  uploadId={account.id}
+                  documents={documents}
                   revalidate={`/accounts/${account.id}`}
                 />
               </CardContent>

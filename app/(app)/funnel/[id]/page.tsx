@@ -4,8 +4,6 @@ import {
   FileTextIcon,
   FolderPlusIcon,
   FolderIcon,
-  DownloadIcon,
-  PaperclipIcon,
 } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
@@ -34,16 +32,13 @@ import {
 } from "@/components/ui/table"
 import { Separator } from "@/components/ui/separator"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
+import { DocumentsSection } from "@/components/documents-section"
 import {
   StageProgress,
   buildFunnelSteps,
 } from "@/components/stage-progress"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
-import {
-  listEntityAttachments,
-  listOpportunityDocuments,
-} from "@/app/(app)/_shared/attachment-actions"
+import { listOpportunityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney, formatPercent } from "@/lib/format"
 import {
   getOpportunity,
@@ -74,15 +69,6 @@ const sourceLabel: Record<string, string> = {
   quote_accept: "Quote accepted",
 }
 
-const docSourceVariant: Record<
-  string,
-  "default" | "secondary" | "outline"
-> = {
-  Funnel: "secondary",
-  Quotation: "default",
-  Approval: "outline",
-}
-
 const projectStatusVariant: Record<
   string,
   "default" | "secondary" | "destructive" | "outline"
@@ -92,12 +78,6 @@ const projectStatusVariant: Record<
   on_hold: "secondary",
   completed: "secondary",
   cancelled: "destructive",
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 export default async function OpportunityDetailPage({
@@ -118,7 +98,6 @@ export default async function OpportunityDetailPage({
     members,
     funnels,
     activity,
-    files,
     documents,
     relatedProjects,
   ] = await Promise.all([
@@ -128,7 +107,6 @@ export default async function OpportunityDetailPage({
     listMembers(),
     listFunnelsWithStages(),
     listActivities("opportunity", id),
-    listEntityAttachments("opportunity", id),
     listOpportunityDocuments(id),
     listOpportunityProjects(id),
   ])
@@ -499,63 +477,17 @@ export default async function OpportunityDetailPage({
               </CardContent>
             </Card>
 
-            {/* Centralized documents — aggregates files from the funnel,
-                its quotations, and stage-approval requests. */}
+            {/* Unified documents — files attached to this funnel plus the
+                rolled-up files from its quotations and stage approvals. */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                {documents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No documents across this funnel, its quotations, or
-                    approvals yet.
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-1.5">
-                    {documents.map((d) => (
-                      <li
-                        key={d.id}
-                        className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-2.5 py-1.5 text-sm"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <PaperclipIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{d.fileName}</span>
-                          <Badge
-                            variant={docSourceVariant[d.source] ?? "secondary"}
-                            className="shrink-0"
-                          >
-                            {d.source}
-                          </Badge>
-                          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                            {fmtBytes(d.byteSize)}
-                          </span>
-                        </span>
-                        <a
-                          href={`/api/files/${d.id}`}
-                          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
-                          download
-                        >
-                          <DownloadIcon className="size-3.5" />
-                          Download
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Attachments */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Attachments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AttachmentsPanel
-                  attachableType="opportunity"
-                  attachableId={id}
-                  items={files}
+                <DocumentsSection
+                  uploadType="opportunity"
+                  uploadId={id}
+                  documents={documents}
                   revalidate={`/funnel/${id}`}
                 />
               </CardContent>

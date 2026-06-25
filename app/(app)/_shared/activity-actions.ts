@@ -55,6 +55,7 @@ export async function listActivities(
         )
       )
       .orderBy(desc(activities.occurredAt))
+      .limit(200)
     return rows.map((r) => ({
       id: r.id,
       type: r.type,
@@ -156,6 +157,7 @@ export async function listEntityTimeline(
       .leftJoin(user, eq(member.userId, user.id))
       .where(or(...conds))
       .orderBy(desc(activities.occurredAt))
+      .limit(200)
     return rows.map((r) => ({
       id: r.id,
       type: r.type,

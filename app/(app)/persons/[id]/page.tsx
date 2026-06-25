@@ -15,15 +15,11 @@ import { cn } from "@/lib/utils"
 import { formatDate, formatMoney, formatPercent } from "@/lib/format"
 import { listAccountOptions } from "@/lib/lookups"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
+import { DocumentsSection } from "@/components/documents-section"
 import { listEntityTimeline } from "../../_shared/activity-actions"
-import {
-  listEntityAttachments,
-  listEntityDocuments,
-} from "../../_shared/attachment-actions"
+import { listEntityDocuments } from "../../_shared/attachment-actions"
 import { getPerson } from "../actions"
 import { PersonEditButton } from "./person-edit-button"
-import { DocumentsList } from "./documents-list"
 
 function fullName(p: { firstName: string; lastName: string | null }) {
   return [p.firstName, p.lastName].filter(Boolean).join(" ")
@@ -59,9 +55,8 @@ export default async function PersonDetailPage({
 
   const name = fullName(person) || "Unnamed contact"
 
-  const [activity, files, documents] = await Promise.all([
+  const [activity, documents] = await Promise.all([
     listEntityTimeline("person", id),
-    listEntityAttachments("person", id),
     listEntityDocuments("person", id),
   ])
 
@@ -219,31 +214,16 @@ export default async function PersonDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Documents
-                  <Badge variant="secondary">{documents.length}</Badge>
-                </CardTitle>
+                <CardTitle>Documents</CardTitle>
                 <CardDescription>
                   Files for this contact and the funnels they lead.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <DocumentsList items={documents} />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Attachments</CardTitle>
-                <CardDescription>
-                  Files attached directly to this contact.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AttachmentsPanel
-                  attachableType="person"
-                  attachableId={id}
-                  items={files}
+                <DocumentsSection
+                  uploadType="person"
+                  uploadId={id}
+                  documents={documents}
                   revalidate={revalidate}
                 />
               </CardContent>

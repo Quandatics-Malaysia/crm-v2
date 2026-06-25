@@ -81,6 +81,10 @@ export function ActivityTimeline({
   const [nextStep, setNextStep] = React.useState("")
   const [dueAt, setDueAt] = React.useState("")
   const [busy, setBusy] = React.useState(false)
+  const [showAll, setShowAll] = React.useState(false)
+
+  const VISIBLE = 4
+  const visible = showAll ? items : items.slice(0, VISIBLE)
 
   function reset() {
     setType("note")
@@ -209,7 +213,7 @@ export function ActivityTimeline({
         <p className="text-sm text-muted-foreground">No activity yet.</p>
       ) : (
         <ol className="grid gap-3">
-          {items.map((a) => {
+          {visible.map((a) => {
             const Icon = ICONS[a.type] ?? ActivityIcon
             return (
               <li key={a.id} className="flex gap-3">
@@ -255,6 +259,15 @@ export function ActivityTimeline({
           })}
         </ol>
       )}
+      {items.length > VISIBLE ? (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="justify-self-start text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          {showAll ? "Show less" : `Show ${items.length - VISIBLE} more`}
+        </button>
+      ) : null}
     </div>
   )
 }

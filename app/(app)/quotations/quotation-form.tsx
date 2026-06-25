@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -191,7 +192,18 @@ export function QuotationForm({
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <FormLabel>Funnel</FormLabel>
-                  <Input value={opportunityName ?? "—"} disabled readOnly />
+                  <div className="flex h-9 items-center">
+                    {opportunityName ? (
+                      <Link
+                        href={`/funnel/${quotation.opportunityId}`}
+                        className="text-sm font-medium text-primary hover:underline"
+                      >
+                        {opportunityName}
+                      </Link>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
+                  </div>
                 </div>
                 <FormField
                   control={form.control}

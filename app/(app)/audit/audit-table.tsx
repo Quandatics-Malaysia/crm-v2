@@ -9,6 +9,25 @@ import { formatDate } from "@/lib/format"
 
 import type { AuditRow } from "./actions"
 
+const RECORD_LABEL: Record<string, string> = {
+  opportunity: "Funnel",
+  stage_approval_request: "Approval",
+  person: "Contact",
+  account: "Account",
+  lead: "Lead",
+  quotation: "Quotation",
+  project: "Project",
+  quotation_line_item: "Quotation",
+  tax_setting: "Tax",
+}
+
+function recordLabel(entityType: string): string {
+  return (
+    RECORD_LABEL[entityType] ??
+    entityType.charAt(0).toUpperCase() + entityType.slice(1)
+  )
+}
+
 export function AuditTable({ data }: { data: AuditRow[] }) {
   const columns = React.useMemo<ColumnDef<AuditRow>[]>(
     () => [
@@ -20,11 +39,12 @@ export function AuditTable({ data }: { data: AuditRow[] }) {
         ),
       },
       {
-        accessorKey: "entityType",
-        header: ({ column }) => <SortableHeader column={column} title="Entity" />,
-        cell: ({ row }) => (
+        id: "record",
+        accessorFn: (row) => recordLabel(row.entityType),
+        header: ({ column }) => <SortableHeader column={column} title="Record" />,
+        cell: ({ getValue }) => (
           <Badge variant="outline" className="font-normal">
-            {row.original.entityType}
+            {getValue<string>()}
           </Badge>
         ),
       },
@@ -68,7 +88,7 @@ export function AuditTable({ data }: { data: AuditRow[] }) {
       emptyMessage="No audit events yet."
       facets={[
         { columnId: "action", title: "Action" },
-        { columnId: "entityType", title: "Entity" },
+        { columnId: "record", title: "Record" },
       ]}
       tableId="audit"
     />

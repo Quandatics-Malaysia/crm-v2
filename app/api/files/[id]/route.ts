@@ -4,9 +4,10 @@ import { attachments } from "@/db/schema"
 import { getServerContext } from "@/lib/server-context"
 import { storage } from "@/lib/storage"
 
-/** Authenticated, tenant-scoped download of an attachment's bytes. */
+/** Authenticated, tenant-scoped attachment bytes. Inline by default (so PDFs/
+ *  images render in the browser); add ?dl=1 to force a download. */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getServerContext()
@@ -41,12 +42,14 @@ export async function GET(
   }
 
   const safeName = row.fileName.replace(/["\\\r\n]/g, "_")
+  const download = new URL(req.url).searchParams.has("dl")
+  const disposition = download ? "attachment" : "inline"
   return new Response(new Uint8Array(bytes), {
     status: 200,
     headers: {
       "Content-Type": row.contentType || "application/octet-stream",
       "Content-Length": String(bytes.byteLength),
-      "Content-Disposition": `attachment; filename="${safeName}"`,
+      "Content-Disposition": `${disposition}; filename="${safeName}"`,
     },
   })
 }

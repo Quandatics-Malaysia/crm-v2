@@ -62,9 +62,16 @@ export default async function QuotationDetailPage({
             <h2 className="text-lg font-semibold tracking-tight">
               {detail.quotation.quoteNumber}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              {detail.opportunityName ?? "—"}
-            </p>
+            {detail.opportunityName ? (
+              <Link
+                href={`/funnel/${detail.quotation.opportunityId}`}
+                className="text-sm text-primary hover:underline"
+              >
+                {detail.opportunityName}
+              </Link>
+            ) : (
+              <p className="text-sm text-muted-foreground">—</p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="capitalize">{detail.quotation.status}</Badge>

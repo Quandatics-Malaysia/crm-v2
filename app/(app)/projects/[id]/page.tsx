@@ -12,16 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
+import { DocumentsSection } from "@/components/documents-section"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
-import {
-  listEntityAttachments,
-  listEntityDocuments,
-} from "@/app/(app)/_shared/attachment-actions"
+import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney } from "@/lib/format"
 import { getProject } from "../actions"
 import { ProjectEditButton } from "./project-edit-button"
-import { DocumentsList } from "./documents-list"
 
 const statusVariant: Record<
   string,
@@ -46,9 +42,8 @@ export default async function ProjectDetailPage({
   const { project, accountName, opportunityName, quotationNumber, ownerName } =
     detail
 
-  const [activity, files, documents] = await Promise.all([
+  const [activity, documents] = await Promise.all([
     listEntityTimeline("project", id),
-    listEntityAttachments("project", id),
     listEntityDocuments("project", id),
   ])
 
@@ -174,20 +169,6 @@ export default async function ProjectDetailPage({
                 </CardContent>
               </Card>
             ) : null}
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Attachments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AttachmentsPanel
-                  attachableType="project"
-                  attachableId={id}
-                  items={files}
-                  revalidate={revalidate}
-                />
-              </CardContent>
-            </Card>
           </div>
 
           <div className="grid gap-4">
@@ -207,13 +188,15 @@ export default async function ProjectDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Documents
-                  <Badge variant="secondary">{documents.length}</Badge>
-                </CardTitle>
+                <CardTitle>Documents</CardTitle>
               </CardHeader>
               <CardContent>
-                <DocumentsList items={documents} />
+                <DocumentsSection
+                  uploadType="project"
+                  uploadId={id}
+                  documents={documents}
+                  revalidate={revalidate}
+                />
               </CardContent>
             </Card>
           </div>

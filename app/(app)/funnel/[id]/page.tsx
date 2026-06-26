@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import {
-  FileTextIcon,
   FolderPlusIcon,
   FolderIcon,
 } from "lucide-react"
@@ -49,7 +48,7 @@ import {
 import { StageBadge } from "../stage-badge"
 import { StageAdvanceDialog } from "../stage-advance-dialog"
 import { OpportunityForm } from "../opportunity-form"
-import { RecordSoDialog } from "./record-so-dialog"
+import { QuotationCreateDialog } from "@/app/(app)/quotations/quotation-create-dialog"
 
 const quoteStatusVariant: Record<
   string,
@@ -143,12 +142,6 @@ export default async function OpportunityDetailPage({
     primaryQuotationId: opp.primaryQuotationId,
   }
 
-  const soNumber = opp.soNumber?.trim() ?? ""
-  const hasSoNumber = soNumber.length > 0
-  // A Won / Invoiced funnel must carry an SO number backed by a document.
-  const isWon = stage.kind === "WON" || opp.status === "won"
-  const soRequiredWarning = isWon && !hasSoNumber
-
   return (
     <>
       <SiteHeader
@@ -164,16 +157,7 @@ export default async function OpportunityDetailPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={
-                <Link href={`/quotations/new?opportunityId=${opp.id}`} />
-              }
-            >
-              <FileTextIcon />
-              Create quotation
-            </Button>
+            <QuotationCreateDialog opportunityId={opp.id} />
             <Button
               variant="outline"
               nativeButton={false}
@@ -201,16 +185,6 @@ export default async function OpportunityDetailPage({
               currentStageId={opp.currentStageId}
               stages={detail.funnelStagesList}
             />
-            {!hasSoNumber ? (
-              <RecordSoDialog
-                opportunityId={opp.id}
-                trigger={
-                  <Button variant={soRequiredWarning ? "default" : "outline"}>
-                    Record SO
-                  </Button>
-                }
-              />
-            ) : null}
           </div>
         </div>
 
@@ -270,22 +244,6 @@ export default async function OpportunityDetailPage({
                   <Badge variant="secondary" className="capitalize">
                     {opp.status.replace(/_/g, " ")}
                   </Badge>
-                </div>
-                <div className="grid gap-1">
-                  <span className="text-xs text-muted-foreground">
-                    SO Number
-                  </span>
-                  {hasSoNumber ? (
-                    <span className="font-mono text-sm font-semibold tabular-nums">
-                      {soNumber}
-                    </span>
-                  ) : soRequiredWarning ? (
-                    <Badge variant="destructive">
-                      Record SO — attach signed PO/quotation
-                    </Badge>
-                  ) : (
-                    <span className="text-sm">—</span>
-                  )}
                 </div>
                 <div className="grid gap-1">
                   <span className="text-xs text-muted-foreground">Owner</span>

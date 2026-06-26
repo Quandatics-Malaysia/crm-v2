@@ -449,6 +449,37 @@ export async function updateMember(
   revalidatePath("/team")
 }
 
+/**
+ * Activate or disable a member without deleting them. A disabled member keeps
+ * their row/history but gets zero effective permissions (enforced in
+ * getServerContext), so access is revoked immediately and reversibly.
+ */
+export async function setMemberStatus(
+  memberId: string,
+  status: "active" | "disabled"
+): Promise<void> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+
+  if (status !== "active" && status !== "disabled") {
+    throw new Error("Invalid member status.")
+  }
+  if (ctx.memberId && ctx.memberId === memberId) {
+    throw new Error("You can't change your own status.")
+  }
+
+  await runInTenant(ctx.tenantId, async (tx) => {
+    const [updated] = await tx
+      .update(membershipProfiles)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(membershipProfiles.memberId, memberId))
+      .returning({ id: membershipProfiles.id })
+    if (!updated) throw new Error("Member profile not found.")
+  })
+
+  revalidatePath("/team")
+}
+
 export async function removeMember(memberId: string): Promise<void> {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)

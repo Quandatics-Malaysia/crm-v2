@@ -8,6 +8,12 @@ import { leads, accounts, persons, funnels, funnelStages } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
 import { convertLead } from "@/server/services/conversion"
 import { logActivity } from "@/server/services/activity"
+import {
+  visibleMemberIds,
+  ownerScope,
+  ownsOrManages,
+  canManageAllRecords,
+} from "@/lib/access-scope"
 
 export type Lead = typeof leads.$inferSelect
 
@@ -29,13 +35,14 @@ function clean(v?: string | null): string | null {
 
 /** All non-deleted leads, newest first. */
 export async function listLeads(): Promise<Lead[]> {
-  return withTenant(PERMISSIONS.LEAD_VIEW, (tx) =>
-    tx
+  return withTenant(PERMISSIONS.LEAD_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select()
       .from(leads)
-      .where(isNull(leads.deletedAt))
+      .where(and(isNull(leads.deletedAt), ownerScope(leads.ownerMemberId, visible)))
       .orderBy(desc(leads.createdAt))
-  )
+  })
 }
 
 export type LeadDetail = {
@@ -51,13 +58,15 @@ export type LeadDetail = {
  * was converted into (account / person / funnel).
  */
 export async function getLead(id: string): Promise<LeadDetail | null> {
-  return withTenant(PERMISSIONS.LEAD_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.LEAD_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [lead] = await tx
       .select()
       .from(leads)
       .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
       .limit(1)
     if (!lead) return null
+    if (!ownsOrManages(visible, lead.ownerMemberId)) return null
 
     let stageName: string | null = null
     if (lead.currentStageId) {
@@ -154,6 +163,10 @@ export async function updateLead(id: string, input: LeadInput): Promise<Lead> {
       .limit(1)
     if (!before) throw new Error("Lead not found")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this lead")
+
     const nextStageId = clean(input.currentStageId)
 
     const [lead] = await tx
@@ -226,6 +239,10 @@ export async function setLeadStage(id: string, stageId: string): Promise<Lead> {
       .limit(1)
     if (!before) throw new Error("Lead not found")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this lead")
+
     const [stage] = await tx
       .select({ id: funnelStages.id, name: funnelStages.name, funnelId: funnelStages.funnelId })
       .from(funnelStages)
@@ -277,6 +294,10 @@ export async function deleteLead(id: string): Promise<void> {
       .limit(1)
     if (!before) throw new Error("Lead not found")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this lead")
+
     await tx
       .update(leads)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -304,6 +325,11 @@ export async function disqualifyLead(id: string, reason: string): Promise<Lead> 
       .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
       .limit(1)
     if (!before) throw new Error("Lead not found")
+
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this lead")
+
     if (before.status === "converted")
       throw new Error("Converted leads cannot be disqualified")
 
@@ -353,6 +379,19 @@ export async function convertLeadAction(input: ConvertLeadInput) {
   // Authorization is enforced by the convert permission before the service runs.
   if (!ctx.can(PERMISSIONS.LEAD_CONVERT))
     throw new Error(`FORBIDDEN: missing ${PERMISSIONS.LEAD_CONVERT}`)
+
+  // Record-level gate: only convert a lead the caller owns/manages (or is elevated).
+  await withTenant(PERMISSIONS.LEAD_CONVERT, async (tx, gateCtx) => {
+    const visible = await visibleMemberIds(tx, gateCtx)
+    const [src] = await tx
+      .select({ ownerMemberId: leads.ownerMemberId })
+      .from(leads)
+      .where(and(eq(leads.id, input.leadId), isNull(leads.deletedAt)))
+      .limit(1)
+    if (!src) throw new Error("Lead not found")
+    if (!canManageAllRecords(gateCtx) && !ownsOrManages(visible, src.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this lead")
+  })
 
   const result = await convertLead(ctx, {
     leadId: input.leadId,

@@ -59,6 +59,7 @@ import {
   addMember,
   updateMember,
   removeMember,
+  setMemberStatus,
   createRole,
   updateRole,
   deleteRole,
@@ -348,6 +349,8 @@ function MemberRowActions({
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
 
+  const disabled = member.status === "disabled"
+
   async function onRemove() {
     setBusy(true)
     try {
@@ -359,6 +362,16 @@ function MemberRowActions({
       toast.error(err instanceof Error ? err.message : "Failed to remove")
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function onToggleStatus() {
+    try {
+      await setMemberStatus(member.memberId, disabled ? "active" : "disabled")
+      toast.success(disabled ? "Member reactivated" : "Member disabled")
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status")
     }
   }
 
@@ -384,6 +397,9 @@ function MemberRowActions({
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditOpen(true)}>
             Edit role, tier &amp; manager
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onToggleStatus}>
+            {disabled ? "Reactivate" : "Disable access"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

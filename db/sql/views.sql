@@ -36,7 +36,10 @@ WHERE o.deleted_at IS NULL
   -- configurable per stage in Settings (e.g. only 4a + Won)
   AND fs.include_in_forecast = true;
 
--- Pipeline summary: counts + amounts per stage per funnel.
+-- Pipeline summary: counts + amounts per stage per funnel, grouped by currency
+-- so amounts in different currencies are never summed together (no implicit FX);
+-- a multi-currency tenant gets one row per (stage, currency). `currency` is
+-- appended last so CREATE OR REPLACE stays column-order compatible.
 CREATE OR REPLACE VIEW v_pipeline_summary
 WITH (security_invoker = true) AS
 SELECT
@@ -49,11 +52,12 @@ SELECT
   COUNT(*)                       AS opportunity_count,
   COALESCE(SUM(o.amount), 0)     AS total_amount,
   COALESCE(SUM(o.amount * fs.probability / 100.0), 0)::numeric(14, 2)
-                                 AS weighted_amount
+                                 AS weighted_amount,
+  o.currency
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL
-GROUP BY o.tenant_id, o.funnel_id, fs.code, fs.name, fs.kind, fs.sort_order;
+GROUP BY o.tenant_id, o.funnel_id, o.currency, fs.code, fs.name, fs.kind, fs.sort_order;
 
 -- Stage velocity: average seconds an opportunity spent in each stage.
 CREATE OR REPLACE VIEW v_stage_velocity

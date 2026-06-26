@@ -1,0 +1,1 @@
+ALTER TABLE "quotations" ADD COLUMN "header_discount" numeric(14, 2) DEFAULT '0' NOT NULL;

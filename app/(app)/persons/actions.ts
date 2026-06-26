@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache"
 import { and, asc, desc, eq, isNull, ne } from "drizzle-orm"
 import { withTenant, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  visibleMemberIds,
+  ownerScope,
+  ownsOrManages,
+  canManageAllRecords,
+} from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import {
@@ -50,7 +56,8 @@ export type PersonInput = {
 
 /** All non-deleted persons with their account name resolved. */
 export async function listPersons(): Promise<PersonListItem[]> {
-  return withTenant(PERMISSIONS.PERSON_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.PERSON_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({
         person: persons,
@@ -58,7 +65,12 @@ export async function listPersons(): Promise<PersonListItem[]> {
       })
       .from(persons)
       .leftJoin(accounts, eq(persons.accountId, accounts.id))
-      .where(isNull(persons.deletedAt))
+      .where(
+        and(
+          isNull(persons.deletedAt),
+          ownerScope(accounts.ownerMemberId, visible)
+        )
+      )
       .orderBy(asc(persons.firstName), asc(persons.lastName))
 
     return rows.map((r) => ({ ...r.person, accountName: r.accountName }))
@@ -70,14 +82,20 @@ export async function listPersons(): Promise<PersonListItem[]> {
  * is the primary contact (each with its current stage for a badge + link).
  */
 export async function getPerson(id: string): Promise<PersonDetail | null> {
-  return withTenant(PERMISSIONS.PERSON_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.PERSON_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [row] = await tx
-      .select({ person: persons, accountName: accounts.name })
+      .select({
+        person: persons,
+        accountName: accounts.name,
+        accountOwner: accounts.ownerMemberId,
+      })
       .from(persons)
       .leftJoin(accounts, eq(persons.accountId, accounts.id))
       .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
       .limit(1)
     if (!row) return null
+    if (!ownsOrManages(visible, row.accountOwner)) return null
 
     const opps = await tx
       .select({
@@ -134,6 +152,19 @@ export async function createPerson(input: PersonInput): Promise<PersonRow> {
   if (!input.accountId) throw new Error("A contact must belong to an account.")
 
   const row = await withTenant(PERMISSIONS.PERSON_CREATE, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    const [account] = await tx
+      .select({ ownerMemberId: accounts.ownerMemberId })
+      .from(accounts)
+      .where(eq(accounts.id, input.accountId))
+      .limit(1)
+    if (
+      !canManageAllRecords(ctx) &&
+      !ownsOrManages(visible, account?.ownerMemberId ?? null)
+    ) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
+
     if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId)
 
     const [created] = await tx
@@ -182,6 +213,19 @@ export async function updatePerson(
       .limit(1)
     if (!before) throw new Error("Contact not found.")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    const [account] = await tx
+      .select({ ownerMemberId: accounts.ownerMemberId })
+      .from(accounts)
+      .where(eq(accounts.id, before.accountId))
+      .limit(1)
+    if (
+      !canManageAllRecords(ctx) &&
+      !ownsOrManages(visible, account?.ownerMemberId ?? null)
+    ) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
+
     if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId, id)
 
     const [updated] = await tx
@@ -227,6 +271,19 @@ export async function deletePerson(id: string): Promise<void> {
       .limit(1)
     if (!before) throw new Error("Contact not found.")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    const [account] = await tx
+      .select({ ownerMemberId: accounts.ownerMemberId })
+      .from(accounts)
+      .where(eq(accounts.id, before.accountId))
+      .limit(1)
+    if (
+      !canManageAllRecords(ctx) &&
+      !ownsOrManages(visible, account?.ownerMemberId ?? null)
+    ) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
+
     await tx
       .update(persons)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -251,6 +308,19 @@ export async function setPrimaryPerson(id: string): Promise<void> {
       .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
       .limit(1)
     if (!before) throw new Error("Contact not found.")
+
+    const visible = await visibleMemberIds(tx, ctx)
+    const [account] = await tx
+      .select({ ownerMemberId: accounts.ownerMemberId })
+      .from(accounts)
+      .where(eq(accounts.id, before.accountId))
+      .limit(1)
+    if (
+      !canManageAllRecords(ctx) &&
+      !ownsOrManages(visible, account?.ownerMemberId ?? null)
+    ) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
 
     await clearOtherPrimaries(tx, before.accountId, id)
     await tx

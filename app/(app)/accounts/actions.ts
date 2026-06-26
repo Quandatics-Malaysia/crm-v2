@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache"
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  visibleMemberIds,
+  ownerScope,
+  ownsOrManages,
+  canManageAllRecords,
+} from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import {
@@ -87,13 +93,16 @@ function resolveAccountType(input: AccountInput): {
  * manager) name resolved — the owner name backs the Owner facet on the list.
  */
 export async function listAccounts(): Promise<AccountListItem[]> {
-  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({ account: accounts, ownerName: user.name })
       .from(accounts)
       .leftJoin(member, eq(accounts.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
-      .where(isNull(accounts.deletedAt))
+      .where(
+        and(isNull(accounts.deletedAt), ownerScope(accounts.ownerMemberId, visible))
+      )
       .orderBy(asc(accounts.name))
 
     const byId = new Map(rows.map((r) => [r.account.id, r.account]))
@@ -113,13 +122,15 @@ export async function listAccounts(): Promise<AccountListItem[]> {
  * can link to /funnel/<oppId>).
  */
 export async function getAccount(id: string) {
-  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [account] = await tx
       .select()
       .from(accounts)
       .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
       .limit(1)
     if (!account) return null
+    if (!ownsOrManages(visible, account.ownerMemberId)) return null
 
     const parent = account.parentAccountId
       ? (
@@ -156,7 +167,11 @@ export async function getAccount(id: string) {
       .select()
       .from(accounts)
       .where(
-        and(eq(accounts.parentAccountId, id), isNull(accounts.deletedAt))
+        and(
+          eq(accounts.parentAccountId, id),
+          isNull(accounts.deletedAt),
+          ownerScope(accounts.ownerMemberId, visible)
+        )
       )
       .orderBy(asc(accounts.name))
 
@@ -185,7 +200,11 @@ export async function getAccount(id: string) {
         eq(opportunities.currentStageId, funnelStages.id)
       )
       .where(
-        and(eq(opportunities.accountId, id), isNull(opportunities.deletedAt))
+        and(
+          eq(opportunities.accountId, id),
+          isNull(opportunities.deletedAt),
+          ownerScope(opportunities.ownerMemberId, visible)
+        )
       )
       .orderBy(asc(funnelStages.sortOrder), asc(opportunities.name))
 
@@ -225,8 +244,9 @@ export type AccountProjectItem = {
 export async function listAccountProjects(
   accountId: string
 ): Promise<AccountProjectItem[]> {
-  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx) =>
-    tx
+  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select({
         id: projects.id,
         projectCode: projects.projectCode,
@@ -235,10 +255,14 @@ export async function listAccountProjects(
       })
       .from(projects)
       .where(
-        and(eq(projects.accountId, accountId), isNull(projects.deletedAt))
+        and(
+          eq(projects.accountId, accountId),
+          isNull(projects.deletedAt),
+          ownerScope(projects.ownerMemberId, visible)
+        )
       )
       .orderBy(desc(projects.createdAt))
-  )
+  })
 }
 
 /** One quotation across an account's opportunities. */
@@ -257,8 +281,9 @@ export type AccountQuotationItem = {
 export async function listAccountQuotations(
   accountId: string
 ): Promise<AccountQuotationItem[]> {
-  return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx) =>
-    tx
+  return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select({
         id: quotations.id,
         quoteNumber: quotations.quoteNumber,
@@ -272,11 +297,12 @@ export async function listAccountQuotations(
         and(
           eq(opportunities.accountId, accountId),
           isNull(quotations.deletedAt),
-          isNull(opportunities.deletedAt)
+          isNull(opportunities.deletedAt),
+          ownerScope(opportunities.ownerMemberId, visible)
         )
       )
       .orderBy(desc(quotations.createdAt))
-  )
+  })
 }
 
 function cleanAddress(a?: BillingAddress | null): BillingAddress | null {
@@ -336,6 +362,7 @@ export async function createAccount(input: AccountInput): Promise<AccountRow> {
       .insert(accounts)
       .values({
         tenantId: ctx.tenantId,
+        ownerMemberId: ctx.memberId,
         name: input.name,
         code,
         parentAccountId: input.parentAccountId || null,
@@ -380,6 +407,11 @@ export async function updateAccount(
       .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
       .limit(1)
     if (!before) throw new Error("Account not found.")
+
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
 
     const code = normalizeCode(input.code)
     if (code) await assertCodeUnique(tx, ctx.tenantId, code, id)
@@ -433,6 +465,11 @@ export async function deleteAccount(id: string): Promise<void> {
       .limit(1)
     if (!before) throw new Error("Account not found.")
 
+    const visible = await visibleMemberIds(tx, ctx)
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
+      throw new Error("FORBIDDEN: not permitted on this account")
+    }
+
     await tx
       .update(accounts)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -451,15 +488,18 @@ export async function deleteAccount(id: string): Promise<void> {
 export async function listParentOptions(
   excludeId?: string
 ): Promise<{ id: string; name: string }[]> {
-  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx) =>
-    tx
+  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select({ id: accounts.id, name: accounts.name })
       .from(accounts)
       .where(
-        excludeId
-          ? and(isNull(accounts.deletedAt), ne(accounts.id, excludeId))
-          : isNull(accounts.deletedAt)
+        and(
+          isNull(accounts.deletedAt),
+          excludeId ? ne(accounts.id, excludeId) : undefined,
+          ownerScope(accounts.ownerMemberId, visible)
+        )
       )
       .orderBy(asc(accounts.name))
-  )
+  })
 }

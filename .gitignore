@@ -43,3 +43,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.gstack/
+
+# scratch / throwaway DB + debug scripts
+_*.cjs
+_*.mjs

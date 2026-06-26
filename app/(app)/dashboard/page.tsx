@@ -2,7 +2,6 @@ import Link from "next/link"
 import {
   ClipboardCheck,
   CalendarClock,
-  FileWarning,
   ArrowRight,
   CheckCircle2,
 } from "lucide-react"
@@ -89,7 +88,16 @@ export default async function DashboardPage() {
             <CardHeader>
               <CardDescription>My Open Pipeline</CardDescription>
               <CardTitle className="text-2xl tabular-nums">
-                {formatMoney(data.myOpenPipeline.total)}
+                {data.myOpenPipeline.mixed ? (
+                  <span className="text-base font-medium text-muted-foreground">
+                    Multiple currencies
+                  </span>
+                ) : (
+                  formatMoney(
+                    data.myOpenPipeline.total,
+                    data.myOpenPipeline.currency ?? undefined
+                  )
+                )}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
                 Sum of your open deal amounts
@@ -204,41 +212,6 @@ export default async function DashboardPage() {
                       </RowLink>
                     )
                   })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Won funnels missing SO */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileWarning className="size-4" />
-                Won Funnels Missing SO Number
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.funnelsMissingSo.length === 0 ? (
-                <EmptyState>
-                  Every won funnel has a Sales Order number.
-                </EmptyState>
-              ) : (
-                <div className="flex flex-col divide-y">
-                  {data.funnelsMissingSo.map((o) => (
-                    <RowLink key={o.id} href={`/funnel/${o.id}`}>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
-                          {o.name}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          Won{o.closedAt ? ` · ${formatDate(o.closedAt)}` : ""}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-medium tabular-nums">
-                        {formatMoney(o.amount)}
-                      </span>
-                    </RowLink>
-                  ))}
                 </div>
               )}
             </CardContent>

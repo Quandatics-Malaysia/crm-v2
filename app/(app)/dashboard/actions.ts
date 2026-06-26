@@ -20,36 +20,32 @@ export type FollowUpDue = {
   dueAt: Date
 }
 
-export type FunnelMissingSo = {
-  id: string
-  name: string
-  amount: string | null
-  closedAt: Date | null
-}
-
 export type OpenPipeline = {
   count: number
   total: string
+  /** Currency of `total` when the open deals share one; null when mixed. */
+  currency: string | null
+  /** True when open deals span multiple currencies (total is not meaningful). */
+  mixed: boolean
 }
 
 export type DashboardData = {
   myPendingApprovals: PendingApproval[]
   followUpsDue: FollowUpDue[]
-  funnelsMissingSo: FunnelMissingSo[]
   myOpenPipeline: OpenPipeline
 }
 
 /**
  * Build the actionable dashboard lists for the current member: approvals
- * awaiting their decision, follow-ups coming due, won deals missing an SO,
- * and a rollup of their open pipeline.
+ * awaiting their decision, follow-ups coming due, and a rollup of their open
+ * pipeline.
  */
 export async function getDashboardData(): Promise<DashboardData> {
   const ctx = await requireContext()
   const memberId = ctx.memberId
 
   return runInTenant(ctx.tenantId, async (tx) => {
-    // No member row → nothing personal to surface, but still show won/SO gaps.
+    // No member row → nothing personal to surface.
     const myPendingApprovals: PendingApproval[] = memberId
       ? (
           await tx
@@ -109,33 +105,11 @@ export async function getDashboardData(): Promise<DashboardData> {
         }))
       : []
 
-    const funnelsMissingSo: FunnelMissingSo[] = (
-      await tx
-        .select({
-          id: opportunities.id,
-          name: opportunities.name,
-          amount: opportunities.amount,
-          closedAt: opportunities.closedAt,
-        })
-        .from(opportunities)
-        .where(
-          and(
-            eq(opportunities.status, "won"),
-            isNull(opportunities.soNumber),
-            isNull(opportunities.deletedAt)
-          )
-        )
-        .orderBy(asc(opportunities.name))
-    ).map((r) => ({
-      id: r.id,
-      name: r.name,
-      amount: r.amount,
-      closedAt: r.closedAt,
-    }))
-
-    const [pipelineRow] = memberId
+    // Grouped by currency so we never sum across currencies (no implicit FX).
+    const pipelineRows = memberId
       ? await tx
           .select({
+            currency: opportunities.currency,
             count: sql<number>`count(*)::int`,
             total: sql<string>`coalesce(sum(${opportunities.amount}), 0)`,
           })
@@ -147,15 +121,21 @@ export async function getDashboardData(): Promise<DashboardData> {
               isNull(opportunities.deletedAt)
             )
           )
-      : [{ count: 0, total: "0" }]
+          .groupBy(opportunities.currency)
+      : []
+
+    const count = pipelineRows.reduce((n, r) => n + Number(r.count), 0)
+    const mixed = pipelineRows.length > 1
+    const primary = pipelineRows[0]
 
     return {
       myPendingApprovals,
       followUpsDue,
-      funnelsMissingSo,
       myOpenPipeline: {
-        count: pipelineRow?.count ?? 0,
-        total: pipelineRow?.total ?? "0",
+        count,
+        total: mixed ? "0" : primary?.total ?? "0",
+        currency: mixed ? null : primary?.currency ?? null,
+        mixed,
       },
     }
   })

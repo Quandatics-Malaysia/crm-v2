@@ -1,0 +1,1 @@
+ALTER TABLE "opportunities" DROP COLUMN "so_number";

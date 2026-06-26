@@ -23,6 +23,8 @@ export type ServerContext = {
   memberId: string | null
   tierLevel: number
   roleName: string | null
+  /** Membership lifecycle. A non-active member has zero effective permissions. */
+  status: "active" | "invited" | "disabled"
   permissions: Set<string>
   can: (key: PermissionKey | string) => boolean
 }
@@ -71,8 +73,9 @@ export async function getServerContext(): Promise<ServerContext | null> {
       memberId: null,
       tierLevel: 0,
       roleName: null,
+      status: "active",
       permissions: new Set(),
-      can: (key) => isSuperadmin,
+      can: () => isSuperadmin,
     }
   }
 
@@ -107,10 +110,18 @@ export async function getServerContext(): Promise<ServerContext | null> {
       for (const row of rows) permKeys.push(row.key)
     }
 
-    return { tierLevel: profile?.tierLevel ?? 0, roleName, permKeys }
+    return {
+      tierLevel: profile?.tierLevel ?? 0,
+      roleName,
+      permKeys,
+      status: (profile?.status ?? "active") as ServerContext["status"],
+    }
   })
 
-  const perms = new Set(resolved.permKeys)
+  // A disabled (or not-yet-active/invited) member keeps no effective
+  // permissions — every assertCan fails, locking them out without a hard delete.
+  const isActive = resolved.status === "active"
+  const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {
     userId: sessionUser.id,
@@ -121,6 +132,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
     memberId: memberRow.id,
     tierLevel: resolved.tierLevel,
     roleName: resolved.roleName,
+    status: resolved.status,
     permissions: perms,
     can: (key) => isSuperadmin || perms.has(key as string),
   }

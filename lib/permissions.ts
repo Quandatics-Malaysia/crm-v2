@@ -44,6 +44,10 @@ export const PERMISSIONS = {
   PROJECT_CREATE: "project.create",
   PROJECT_UPDATE: "project.update",
   PROJECT_DELETE: "project.delete",
+  // sales orders
+  SALES_ORDER_VIEW: "sales_order.view",
+  SALES_ORDER_SUBMIT: "sales_order.submit",
+  SALES_ORDER_APPROVE: "sales_order.approve",
   // reporting
   FORECAST_VIEW: "forecast.view",
   // tenant administration
@@ -52,6 +56,9 @@ export const PERMISSIONS = {
   TENANT_SETTINGS: "tenant.settings",
   CUSTOM_FIELD_MANAGE: "custom_field.manage",
   AUDIT_VIEW: "audit.view",
+  // record-level access — elevations that bypass owner + managed-subtree scoping
+  RECORDS_VIEW_ALL: "records.view_all",
+  RECORDS_MANAGE_ALL: "records.manage_all",
 } as const
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]
@@ -67,6 +74,7 @@ const VIEW_ONLY: PermissionKey[] = [
   PERMISSIONS.TAX_VIEW,
   PERMISSIONS.FORECAST_VIEW,
   PERMISSIONS.PROJECT_VIEW,
+  PERMISSIONS.SALES_ORDER_VIEW,
 ]
 
 const REP_BASE: PermissionKey[] = [
@@ -85,10 +93,12 @@ const REP_BASE: PermissionKey[] = [
   PERMISSIONS.QUOTATION_UPDATE,
   PERMISSIONS.PROJECT_CREATE,
   PERMISSIONS.PROJECT_UPDATE,
+  PERMISSIONS.SALES_ORDER_SUBMIT,
 ]
 
 const MANAGER: PermissionKey[] = [
   ...REP_BASE,
+  PERMISSIONS.SALES_ORDER_APPROVE,
   PERMISSIONS.LEAD_DELETE,
   PERMISSIONS.ACCOUNT_DELETE,
   PERMISSIONS.PERSON_DELETE,
@@ -172,10 +182,31 @@ export const PERMISSION_GROUPS: {
     ],
   },
   {
+    group: "Sales Orders",
+    items: [
+      { key: PERMISSIONS.SALES_ORDER_VIEW, label: "View sales orders" },
+      { key: PERMISSIONS.SALES_ORDER_SUBMIT, label: "Submit sales orders" },
+      { key: PERMISSIONS.SALES_ORDER_APPROVE, label: "Approve / reject sales orders" },
+    ],
+  },
+  {
     group: "Reporting",
     items: [
       { key: PERMISSIONS.FORECAST_VIEW, label: "View forecast" },
       { key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" },
+    ],
+  },
+  {
+    group: "Record access",
+    items: [
+      {
+        key: PERMISSIONS.RECORDS_VIEW_ALL,
+        label: "View all records (bypass ownership)",
+      },
+      {
+        key: PERMISSIONS.RECORDS_MANAGE_ALL,
+        label: "Edit/delete any record (bypass ownership)",
+      },
     ],
   },
   {
@@ -218,5 +249,10 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
     tier: 20,
     permissions: REP_BASE,
   },
-  { name: "Viewer", description: "Read-only access", tier: 10, permissions: VIEW_ONLY },
+  {
+    name: "Viewer",
+    description: "Read-only access across the whole entity",
+    tier: 10,
+    permissions: [...VIEW_ONLY, PERMISSIONS.RECORDS_VIEW_ALL],
+  },
 ]

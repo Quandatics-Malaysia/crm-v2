@@ -4,7 +4,14 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
+import { runInTenant } from "@/db"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  visibleMemberIds,
+  ownerScope,
+  ownsOrManages,
+  canManageAllRecords,
+} from "@/lib/access-scope"
 import {
   opportunities,
   accounts,
@@ -19,8 +26,6 @@ import {
 } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
 import { requestStageAdvance } from "@/server/services/stage"
-import { logActivity } from "@/server/services/activity"
-import { nextSoNumber } from "@/server/services/numbering"
 
 export type OpportunityListRow = {
   id: string
@@ -57,7 +62,8 @@ export type OpportunityInput = {
 
 /** All open + closed opportunities (non-deleted), with denormalized lookups. */
 export async function listOpportunities(): Promise<OpportunityListRow[]> {
-  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({
         id: opportunities.id,
@@ -86,7 +92,12 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
       .innerJoin(funnels, eq(opportunities.funnelId, funnels.id))
       .leftJoin(member, eq(opportunities.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
-      .where(isNull(opportunities.deletedAt))
+      .where(
+        and(
+          isNull(opportunities.deletedAt),
+          ownerScope(opportunities.ownerMemberId, visible)
+        )
+      )
       .orderBy(desc(opportunities.createdAt))
 
     return rows.map(({ createdAt: _createdAt, ...r }) => r)
@@ -128,13 +139,15 @@ export type OpportunityDetail = {
 export async function getOpportunity(
   id: string
 ): Promise<OpportunityDetail | null> {
-  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select()
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
     if (!opp) return null
+    if (!ownsOrManages(visible, opp.ownerMemberId)) return null
 
     const [acct] = await tx
       .select({ name: accounts.name })
@@ -268,6 +281,10 @@ export async function createOpportunity(
       if (stage.funnelId !== input.funnelId)
         throw new Error("Stage does not belong to the selected funnel")
 
+      // owner_member_id is NOT NULL — default to the creator when unspecified.
+      const ownerMemberId = input.ownerMemberId || ctx.memberId
+      if (!ownerMemberId) throw new Error("No owner for the funnel")
+
       const [row] = await tx
         .insert(opportunities)
         .values({
@@ -277,7 +294,7 @@ export async function createOpportunity(
           primaryPersonId: input.primaryPersonId || null,
           funnelId: input.funnelId,
           currentStageId: input.currentStageId,
-          ownerMemberId: input.ownerMemberId,
+          ownerMemberId,
           amount: input.amount ? input.amount : null,
           currency: input.currency || "MYR",
           expectedCloseDate: input.expectedCloseDate || null,
@@ -314,12 +331,15 @@ export async function updateOpportunity(
   input: Partial<OpportunityInput>
 ): Promise<void> {
   await withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
       .select()
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
     if (!existing) throw new Error("Funnel not found")
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this funnel")
 
     await tx
       .update(opportunities)
@@ -360,12 +380,18 @@ export async function updateOpportunity(
 
 export async function deleteOpportunity(id: string): Promise<void> {
   await withTenant(PERMISSIONS.OPPORTUNITY_DELETE, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
-      .select({ id: opportunities.id })
+      .select({
+        id: opportunities.id,
+        ownerMemberId: opportunities.ownerMemberId,
+      })
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
     if (!existing) throw new Error("Funnel not found")
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this funnel")
 
     await tx
       .update(opportunities)
@@ -385,7 +411,8 @@ export async function deleteOpportunity(id: string): Promise<void> {
 export async function listPersonsWithAccount(): Promise<
   { id: string; name: string; accountId: string }[]
 > {
-  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({
         id: persons.id,
@@ -394,61 +421,19 @@ export async function listPersonsWithAccount(): Promise<
         accountId: persons.accountId,
       })
       .from(persons)
-      .where(isNull(persons.deletedAt))
+      .innerJoin(accounts, eq(persons.accountId, accounts.id))
+      .where(
+        and(
+          isNull(persons.deletedAt),
+          ownerScope(accounts.ownerMemberId, visible)
+        )
+      )
       .orderBy(asc(persons.firstName))
     return rows.map((p) => ({
       id: p.id,
       name: [p.firstName, p.lastName].filter(Boolean).join(" "),
       accountId: p.accountId,
     }))
-  })
-}
-
-/**
- * Record the Sales Order number for an opportunity. The number is
- * auto-generated per entity ({EntityCode}SO-0001); it is never typed. Per the
- * billing-forecast process, recording an SO requires an attached document
- * (PO / signed-back quotation) — the caller must upload that file before
- * invoking this. Returns the generated SO number.
- */
-export async function recordSo(opportunityId: string): Promise<string> {
-  return withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
-    const [existing] = await tx
-      .select({ id: opportunities.id, soNumber: opportunities.soNumber })
-      .from(opportunities)
-      .where(
-        and(
-          eq(opportunities.id, opportunityId),
-          isNull(opportunities.deletedAt)
-        )
-      )
-      .limit(1)
-    if (!existing) throw new Error("Funnel not found")
-    if (existing.soNumber?.trim()) throw new Error("SO already recorded")
-
-    const soNumber = await nextSoNumber(tx, ctx)
-
-    await tx
-      .update(opportunities)
-      .set({ soNumber, updatedAt: new Date() })
-      .where(eq(opportunities.id, opportunityId))
-
-    await logActivity(tx, ctx, {
-      entityType: "opportunity",
-      entityId: opportunityId,
-      type: "system",
-      subject: `SO recorded: ${soNumber}`,
-    })
-
-    await writeAudit(tx, ctx, {
-      action: "opportunity.so_recorded",
-      entityType: "opportunity",
-      entityId: opportunityId,
-      after: { soNumber },
-    })
-
-    revalidatePath(`/funnel/${opportunityId}`)
-    return soNumber
   })
 }
 
@@ -463,7 +448,8 @@ export type OpportunityProjectRow = {
 export async function listOpportunityProjects(
   opportunityId: string
 ): Promise<OpportunityProjectRow[]> {
-  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
     return tx
       .select({
         id: projects.id,
@@ -475,7 +461,8 @@ export async function listOpportunityProjects(
       .where(
         and(
           eq(projects.opportunityId, opportunityId),
-          isNull(projects.deletedAt)
+          isNull(projects.deletedAt),
+          ownerScope(projects.ownerMemberId, visible)
         )
       )
       .orderBy(desc(projects.createdAt))
@@ -490,6 +477,22 @@ export async function advanceStageAction(input: {
 }): Promise<{ moved: boolean; approvalRequestId?: string }> {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.STAGE_ADVANCE)
+  await runInTenant(ctx.tenantId, async (tx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    const [opp] = await tx
+      .select({ ownerMemberId: opportunities.ownerMemberId })
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.id, input.opportunityId),
+          isNull(opportunities.deletedAt)
+        )
+      )
+      .limit(1)
+    if (!opp) throw new Error("Funnel not found")
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
+      throw new Error("FORBIDDEN: not permitted on this funnel")
+  })
   const result = await requestStageAdvance(ctx, input)
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${input.opportunityId}`)

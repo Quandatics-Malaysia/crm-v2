@@ -16,8 +16,11 @@ import { DocumentsSection } from "@/components/documents-section"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney } from "@/lib/format"
-import { getProject } from "../actions"
+import { getProject, listMilestones } from "../actions"
+import { listProjectSalesOrders } from "@/app/(app)/sales-orders/actions"
+import { ProjectSalesOrders } from "@/app/(app)/sales-orders/project-sales-orders"
 import { ProjectEditButton } from "./project-edit-button"
+import { MilestonesPanel } from "./milestones-panel"
 
 const statusVariant: Record<
   string,
@@ -42,9 +45,11 @@ export default async function ProjectDetailPage({
   const { project, accountName, opportunityName, quotationNumber, ownerName } =
     detail
 
-  const [activity, documents] = await Promise.all([
+  const [activity, documents, milestones, salesOrders] = await Promise.all([
     listEntityTimeline("project", id),
     listEntityDocuments("project", id),
+    listMilestones(id),
+    listProjectSalesOrders(id),
   ])
 
   const revalidate = `/projects/${id}`
@@ -64,8 +69,11 @@ export default async function ProjectDetailPage({
             <h2 className="text-lg font-semibold tracking-tight">
               {project.name}
             </h2>
-            <p className="font-mono text-sm text-muted-foreground">
+            <p className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
               {project.projectCode}
+              <span className="rounded bg-muted px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {project.codeNature === "manual" ? "Manual" : "Auto"}
+              </span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -156,6 +164,29 @@ export default async function ProjectDetailPage({
                   <span className="text-xs text-muted-foreground">Owner</span>
                   <span className="text-sm">{ownerName ?? "—"}</span>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Payment milestones</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MilestonesPanel
+                  projectId={id}
+                  milestones={milestones}
+                  projectValue={project.value}
+                  currency={project.currency}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Sales Orders</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ProjectSalesOrders projectId={id} orders={salesOrders} />
               </CardContent>
             </Card>
 

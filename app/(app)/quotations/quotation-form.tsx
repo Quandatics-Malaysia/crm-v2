@@ -69,6 +69,7 @@ const schema = z.object({
   taxSettingId: z.string(),
   validUntil: z.string(),
   notes: z.string(),
+  headerDiscount: z.string().trim(),
   lines: z.array(lineSchema),
 })
 
@@ -99,6 +100,7 @@ export function QuotationForm({
       taxSettingId: quotation.taxSettingId ?? NO_TAX,
       validUntil: quotation.validUntil ?? "",
       notes: quotation.notes ?? "",
+      headerDiscount: quotation.headerDiscount ?? "0",
       lines:
         lines.length > 0
           ? lines.map((l) => ({
@@ -119,6 +121,10 @@ export function QuotationForm({
   // Live totals: watch lines + tax selection and recompute with the shared formula.
   const watchedLines = useWatch({ control: form.control, name: "lines" })
   const watchedTaxId = useWatch({ control: form.control, name: "taxSettingId" })
+  const watchedHeaderDiscount = useWatch({
+    control: form.control,
+    name: "headerDiscount",
+  })
   const ratePercent =
     watchedTaxId && watchedTaxId !== NO_TAX
       ? taxOptions.find((t) => t.id === watchedTaxId)?.ratePercent ?? "0"
@@ -133,9 +139,10 @@ export function QuotationForm({
           discountPercent: l.discountPercent,
         })),
         ratePercent,
+        headerDiscount: watchedHeaderDiscount || "0",
         taxInclusive,
       }),
-    [watchedLines, ratePercent, taxInclusive]
+    [watchedLines, ratePercent, watchedHeaderDiscount, taxInclusive]
   )
 
   async function onSave(values: FormValues) {
@@ -146,6 +153,7 @@ export function QuotationForm({
           values.taxSettingId === NO_TAX ? null : values.taxSettingId,
         validUntil: values.validUntil || null,
         notes: values.notes || null,
+        headerDiscount: values.headerDiscount || "0",
         lines: values.lines.map((l) => ({
           description: l.description,
           quantity: l.quantity,
@@ -219,7 +227,7 @@ export function QuotationForm({
                           { value: NO_TAX, label: "No tax" },
                           ...taxOptions.map((t) => ({
                             value: t.id,
-                            label: `${t.name} (${t.ratePercent}%)`,
+                            label: `${t.name} (${Number(t.ratePercent).toFixed(2)}%)`,
                           })),
                         ]}
                       >
@@ -232,7 +240,7 @@ export function QuotationForm({
                           <SelectItem value={NO_TAX}>No tax</SelectItem>
                           {taxOptions.map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.name} ({t.ratePercent}%)
+                              {t.name} ({Number(t.ratePercent).toFixed(2)}%)
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -249,6 +257,26 @@ export function QuotationForm({
                       <FormLabel>Valid until</FormLabel>
                       <FormControl>
                         <Input type="date" disabled={!isDraft} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="headerDiscount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Header discount</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          disabled={!isDraft}
+                          placeholder="0.00"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -431,6 +459,12 @@ export function QuotationForm({
               label={`Tax${taxInclusive ? " (incl.)" : ""}`}
               value={formatMoney(totals.taxTotal, quotation.currency)}
             />
+            {quotation.taxRateSnapshot != null ? (
+              <Row
+                label="Tax rate (locked)"
+                value={`${Number(quotation.taxRateSnapshot).toFixed(2)}%`}
+              />
+            ) : null}
             <Separator className="my-1" />
             <div className="flex items-center justify-between font-medium">
               <span>Total</span>

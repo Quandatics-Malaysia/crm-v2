@@ -34,6 +34,8 @@ export const projects = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     projectCode: text("project_code").notNull(),
+    /** "auto" (system-generated code) or "manual" (user-entered). */
+    codeNature: text("code_nature").notNull().default("auto"),
     name: text("name").notNull(),
     accountId: uuid("account_id")
       .notNull()

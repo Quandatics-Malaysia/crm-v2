@@ -35,7 +35,8 @@ DECLARE
     'funnels', 'funnel_stages', 'opportunities', 'opportunity_stage_history',
     'stage_approval_requests', 'attachments',
     'tax_settings', 'quotations', 'quotation_line_items',
-    'custom_field_defs', 'activities', 'projects'
+    'custom_field_defs', 'activities', 'projects', 'payment_milestones',
+    'sales_orders'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP

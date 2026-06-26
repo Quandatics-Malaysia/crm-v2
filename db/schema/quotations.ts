@@ -58,6 +58,10 @@ export const quotations = pgTable(
     }),
     taxRateSnapshot: numeric("tax_rate_snapshot", { precision: 6, scale: 3 }),
     subtotal: numeric("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Whole-quote discount applied on top of line discounts; folded into total. */
+    headerDiscount: numeric("header_discount", { precision: 14, scale: 2 })
+      .notNull()
+      .default("0"),
     discountTotal: numeric("discount_total", { precision: 14, scale: 2 })
       .notNull()
       .default("0"),

@@ -114,8 +114,6 @@ export const opportunities = pgTable("opportunities", {
   status: opportunityStatus("status").notNull().default("open"),
   kivReviewDate: date("kiv_review_date"),
   lostReason: text("lost_reason"),
-  // Sales Order number — required once Won/Invoiced (with an attached PO / signed quote).
-  soNumber: text("so_number"),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   customFields: jsonb("custom_fields").notNull().default({}),
   ...timestamps,

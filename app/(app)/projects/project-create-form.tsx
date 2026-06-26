@@ -42,14 +42,26 @@ const STATUS_OPTIONS = [
 
 const NONE = "__none__"
 
-const projectSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  accountId: z.string().min(1, "Account is required"),
-  opportunityId: z.string().optional(),
-  value: z.string().trim().optional(),
-  startDate: z.string().trim().optional(),
-  status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]),
-})
+const CODE_NATURE_OPTIONS = [
+  { value: "auto", label: "Auto-generate" },
+  { value: "manual", label: "Manual" },
+]
+
+const projectSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required"),
+    accountId: z.string().min(1, "Account is required"),
+    opportunityId: z.string().optional(),
+    value: z.string().trim().optional(),
+    startDate: z.string().trim().optional(),
+    status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]),
+    codeNature: z.enum(["auto", "manual"]),
+    projectCode: z.string().trim().optional(),
+  })
+  .refine(
+    (v) => v.codeNature !== "manual" || (v.projectCode?.trim().length ?? 0) > 0,
+    { message: "Project code is required", path: ["projectCode"] }
+  )
 
 type ProjectFormValues = z.infer<typeof projectSchema>
 
@@ -96,8 +108,12 @@ export function ProjectCreateForm({
       value: defaultValue ?? "",
       startDate: "",
       status: "planning",
+      codeNature: "auto",
+      projectCode: "",
     },
   })
+
+  const codeNature = form.watch("codeNature")
 
   async function handleSubmit(values: ProjectFormValues) {
     setSubmitting(true)
@@ -114,6 +130,9 @@ export function ProjectCreateForm({
         value: values.value || undefined,
         startDate: values.startDate || undefined,
         status: values.status,
+        codeNature: values.codeNature,
+        projectCode:
+          values.codeNature === "manual" ? values.projectCode : undefined,
       })
       toast.success("Project created")
       router.push(`/projects/${id}`)
@@ -144,6 +163,70 @@ export function ProjectCreateForm({
                 </FormItem>
               )}
             />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="codeNature"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Project code</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(v) => {
+                        field.onChange(v)
+                        // Drop any stale manual code + its error when switching
+                        // back to auto-generation.
+                        if (v !== "manual") {
+                          form.setValue("projectCode", "")
+                          form.clearErrors("projectCode")
+                        }
+                      }}
+                      items={CODE_NATURE_OPTIONS}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="How to assign the code" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {CODE_NATURE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {codeNature !== "manual" ? (
+                      <p className="text-muted-foreground text-xs">
+                        A code is generated automatically on creation.
+                      </p>
+                    ) : null}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {codeNature === "manual" ? (
+                <FormField
+                  control={form.control}
+                  name="projectCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g. PRJ-2026-001"
+                          className="font-mono"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+            </div>
 
             <FormField
               control={form.control}

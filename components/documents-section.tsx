@@ -3,17 +3,18 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, FileIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { PaperclipIcon, FileIcon, Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DocumentViewerButton } from "@/components/document-viewer"
+import { InlineRename } from "@/components/inline-rename"
 import {
   uploadEntityAttachment,
   deleteEntityAttachment,
   renameEntityAttachment,
-  type AttachableType,
 } from "@/app/(app)/_shared/attachment-actions"
+import { type AttachableType } from "@/app/(app)/_shared/attachment-perms"
 
 export type SectionDocument = {
   id: string
@@ -73,11 +74,9 @@ export function DocumentsSection({
     }
   }
 
-  async function onRename(d: SectionDocument) {
-    const next = window.prompt("Rename file", d.fileName)?.trim()
-    if (!next || next === d.fileName) return
+  async function onRename(id: string, next: string) {
     try {
-      await renameEntityAttachment(d.id, next, revalidate)
+      await renameEntityAttachment(id, next, revalidate)
       toast.success("File renamed")
       router.refresh()
     } catch (err) {
@@ -119,7 +118,15 @@ export function DocumentsSection({
               className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
             >
               <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate">{d.fileName}</span>
+              {d.ownedHere ? (
+                <InlineRename
+                  value={d.fileName}
+                  onSave={(next) => onRename(d.id, next)}
+                  className="flex-1"
+                />
+              ) : (
+                <span className="flex-1 truncate">{d.fileName}</span>
+              )}
               <Badge variant="secondary" className="text-[10px]">
                 {d.source}
               </Badge>
@@ -128,24 +135,14 @@ export function DocumentsSection({
               </span>
               <DocumentViewerButton file={d} />
               {d.ownedHere ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onRename(d)}
-                    className="text-muted-foreground hover:text-foreground"
-                    title="Rename"
-                  >
-                    <PencilIcon className="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(d.id)}
-                    className="text-muted-foreground hover:text-destructive"
-                    title="Remove"
-                  >
-                    <Trash2Icon className="size-4" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => onDelete(d.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Remove"
+                >
+                  <Trash2Icon className="size-4" />
+                </button>
               ) : null}
             </li>
           ))}

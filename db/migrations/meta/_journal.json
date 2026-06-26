@@ -50,6 +50,41 @@
       "when": 1782361435319,
       "tag": "0006_so_reseller",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782366295216,
+      "tag": "0007_payment_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782370723933,
+      "tag": "0008_sales_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782370808634,
+      "tag": "0009_attachable_sales_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782448266002,
+      "tag": "0010_drop_opportunity_so_number",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782457848694,
+      "tag": "0011_quotation_header_discount",
+      "breakpoints": true
     }
   ]
 }

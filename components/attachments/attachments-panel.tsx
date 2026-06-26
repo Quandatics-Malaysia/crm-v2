@@ -3,17 +3,18 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, PencilIcon, Trash2Icon, FileIcon } from "lucide-react"
+import { PaperclipIcon, Trash2Icon, FileIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DocumentViewerButton } from "@/components/document-viewer"
+import { InlineRename } from "@/components/inline-rename"
 import {
   uploadEntityAttachment,
   deleteEntityAttachment,
   renameEntityAttachment,
-  type AttachableType,
   type AttachmentRow,
 } from "@/app/(app)/_shared/attachment-actions"
+import { type AttachableType } from "@/app/(app)/_shared/attachment-perms"
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -68,11 +69,9 @@ export function AttachmentsPanel({
     }
   }
 
-  async function onRename(a: AttachmentRow) {
-    const next = window.prompt("Rename file", a.fileName)?.trim()
-    if (!next || next === a.fileName) return
+  async function onRename(id: string, next: string) {
     try {
-      await renameEntityAttachment(a.id, next, revalidate)
+      await renameEntityAttachment(id, next, revalidate)
       toast.success("File renamed")
       router.refresh()
     } catch (err) {
@@ -103,20 +102,16 @@ export function AttachmentsPanel({
               key={a.id}
               className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
             >
-              <FileIcon className="size-4 text-muted-foreground" />
-              <span className="flex-1 truncate">{a.fileName}</span>
+              <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+              <InlineRename
+                value={a.fileName}
+                onSave={(next) => onRename(a.id, next)}
+                className="flex-1"
+              />
               <span className="text-xs text-muted-foreground">
                 {fmtBytes(a.byteSize)}
               </span>
               <DocumentViewerButton file={a} />
-              <button
-                type="button"
-                onClick={() => onRename(a)}
-                className="text-muted-foreground hover:text-foreground"
-                title="Rename"
-              >
-                <PencilIcon className="size-4" />
-              </button>
               <button
                 type="button"
                 onClick={() => onDelete(a.id)}

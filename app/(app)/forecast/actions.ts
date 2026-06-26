@@ -22,7 +22,7 @@ export type ForecastRow = {
   weightedValue: string
 }
 
-/** One row of the pipeline summary (per stage per funnel). */
+/** One row of the pipeline summary (per stage per funnel per currency). */
 export type PipelineSummaryRow = {
   funnelId: string | null
   stageCode: string | null
@@ -32,6 +32,7 @@ export type PipelineSummaryRow = {
   opportunityCount: number
   totalAmount: string
   weightedAmount: string
+  currency: string | null
 }
 
 /**
@@ -86,6 +87,7 @@ export async function getPipelineSummary(): Promise<PipelineSummaryRow[]> {
       opportunityCount: Number(r.opportunity_count ?? 0),
       totalAmount: String(r.total_amount ?? "0"),
       weightedAmount: String(r.weighted_amount ?? "0"),
+      currency: r.currency == null ? null : String(r.currency),
     }))
   })
 }

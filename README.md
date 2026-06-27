@@ -15,7 +15,9 @@ Lightweight, self-hostable multitenant CRM for a services business.
 ## Local development
 ```bash
 cp .env.example .env            # fill in secrets (Microsoft optional for email login)
-# start a Postgres 17 somewhere and point DATABASE_URL/DATABASE_ADMIN_URL at it
+# start a Postgres 17 somewhere. DATABASE_ADMIN_URL = the superuser (migrations +
+# seed); DATABASE_URL = the non-privileged, RLS-enforced crm_app role the app
+# connects as (crm_app is created by db:setup).
 npm install
 npm run db:generate             # (already generated; re-run after schema changes)
 npm run db:setup                # apply migrations + RLS + views, then seed
@@ -25,18 +27,19 @@ The seed creates a **Demo Entity** and a demo Owner login (printed at the end, d
 
 ## Production (Docker, internet-exposed)
 ```bash
-# set these in your shell / .env for compose:
+# set these in your shell / .env for compose (REQUIRED — compose fails fast if unset):
 #   DOMAIN=crm.example.com  ACME_EMAIL=you@example.com
 #   POSTGRES_PASSWORD=…  CRM_APP_PASSWORD=…  BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+#   DEMO_ADMIN_PASSWORD=…   # REQUIRED in prod; must NOT be the default Password123!
 #   BETTER_AUTH_URL=https://crm.example.com  APP_URL=https://crm.example.com
-#   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET / MICROSOFT_TENANT_ID
+#   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET / MICROSOFT_TENANT_ID  # tenant GUID, not "common"
 #   BOOTSTRAP_OWNER_EMAIL=you@example.com   # first sign-in becomes Owner
 docker compose up -d --build
 ```
 - `caddy` terminates HTTPS (automatic Let's Encrypt for `DOMAIN`) and proxies to `web`.
 - `migrate` runs once (migrations → RLS → views → seed), then `web` starts.
-- Postgres is internal-only; the app connects as the RLS-enforced `crm_app` role.
-- Register the Entra redirect URI: `https://<DOMAIN>/api/auth/oauth2/callback/microsoft-entra-id`.
+- Postgres is internal-only; the app connects (`DATABASE_URL`) as the RLS-enforced, non-privileged `crm_app` role — never the superuser (the app refuses to boot otherwise).
+- Register this Entra redirect URI **exactly** (it must match the code's callback): `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id` (e.g. `https://<DOMAIN>/api/auth/oauth2/callback/microsoft-entra-id`).
 - Health check: `GET /api/health`.
 
 ## Architecture notes

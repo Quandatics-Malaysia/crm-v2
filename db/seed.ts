@@ -157,9 +157,23 @@ async function main() {
     })
   }
 
-  // 7. demo admin (email/password) — for local sign-in without Microsoft
+  // 7. demo admin (email/password) — for local sign-in without Microsoft.
+  // Exactly ONE superadmin ever exists (DB enforces this via a partial unique
+  // index on user.is_superadmin), and it is found/created idempotently by email.
   const email = (process.env.DEMO_ADMIN_EMAIL ?? "admin@demo.local").toLowerCase()
-  const password = process.env.DEMO_ADMIN_PASSWORD ?? "Password123!"
+  const DEFAULT_DEMO_PASSWORD = "Password123!"
+  // In production a real password is mandatory — never mint a default-credentials
+  // superadmin on an internet-exposed deployment.
+  if (process.env.NODE_ENV === "production") {
+    const provided = process.env.DEMO_ADMIN_PASSWORD
+    if (!provided || provided === DEFAULT_DEMO_PASSWORD) {
+      throw new Error(
+        "DEMO_ADMIN_PASSWORD must be set to a non-default value in production " +
+          "(refusing to seed a superadmin with the well-known default password)."
+      )
+    }
+  }
+  const password = process.env.DEMO_ADMIN_PASSWORD ?? DEFAULT_DEMO_PASSWORD
   let [u] = await db.select().from(user).where(eq(user.email, email)).limit(1)
   if (!u) {
     const uid = randomUUID()

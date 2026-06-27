@@ -31,8 +31,15 @@ SELECT
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
 LEFT JOIN quotations q
-  ON q.id = o.primary_quotation_id AND q.deleted_at IS NULL
+  ON q.id = o.primary_quotation_id
+  AND q.deleted_at IS NULL
+  -- a rejected / expired / voided proposal is not a live commitment, so it must
+  -- not feed the weighted forecast (mirrors NON_VALUE_QUOTE_STATUS in value.ts)
+  AND q.status NOT IN ('rejected', 'expired', 'void')
 WHERE o.deleted_at IS NULL
+  -- defense-in-depth: explicit tenant predicate on top of security_invoker + RLS,
+  -- so a superuser/BYPASSRLS connection still cannot leak across tenants.
+  AND o.tenant_id = current_setting('app.current_tenant', true)
   -- configurable per stage in Settings (e.g. only 4a + Won)
   AND fs.include_in_forecast = true;
 
@@ -57,6 +64,7 @@ SELECT
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL
+  AND o.tenant_id = current_setting('app.current_tenant', true)
 GROUP BY o.tenant_id, o.funnel_id, o.currency, fs.code, fs.name, fs.kind, fs.sort_order;
 
 -- Stage velocity: average seconds an opportunity spent in each stage.
@@ -77,6 +85,7 @@ FROM (
   FROM opportunity_stage_history h
 ) s
 WHERE from_stage_id IS NOT NULL
+  AND tenant_id = current_setting('app.current_tenant', true)
 GROUP BY tenant_id, from_stage_id;
 
 GRANT SELECT ON v_billing_forecast, v_pipeline_summary, v_stage_velocity TO crm_app;

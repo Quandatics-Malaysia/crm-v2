@@ -6,6 +6,7 @@ import {
   numeric,
   date,
   integer,
+  index,
 } from "drizzle-orm/pg-core"
 import { organization } from "./auth"
 import { projects } from "./projects"
@@ -23,7 +24,9 @@ export const paymentMilestoneStatus = pgEnum("payment_milestone_status", [
  * source quotation (the single source of value). Milestones reconcile to the
  * quotation total. Invoice/payment logic comes later — status is the seam.
  */
-export const paymentMilestones = pgTable("payment_milestones", {
+export const paymentMilestones = pgTable(
+  "payment_milestones",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -43,4 +46,6 @@ export const paymentMilestones = pgTable("payment_milestones", {
   status: paymentMilestoneStatus("status").notNull().default("pending"),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
-})
+  },
+  (t) => [index("payment_milestones_project_idx").on(t.projectId)]
+)

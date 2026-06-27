@@ -85,6 +85,20 @@
       "when": 1782457848694,
       "tag": "0011_quotation_header_discount",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782551291416,
+      "tag": "0012_funny_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782553954832,
+      "tag": "0013_quotation_tax_inclusive",
+      "breakpoints": true
     }
   ]
 }

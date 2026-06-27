@@ -1,4 +1,13 @@
-import { pgTable, pgEnum, uuid, text, timestamp } from "drizzle-orm/pg-core"
+import {
+  pgTable,
+  pgEnum,
+  uuid,
+  text,
+  timestamp,
+  uniqueIndex,
+  index,
+} from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 import { organization, member } from "./auth"
 import { projects } from "./projects"
 import { timestamps } from "./_helpers"
@@ -15,7 +24,9 @@ export const salesOrderStatus = pgEnum("sales_order_status", [
  * ONLY when the submission is approved; rejection records a reason and the
  * salesperson can resubmit.
  */
-export const salesOrders = pgTable("sales_orders", {
+export const salesOrders = pgTable(
+  "sales_orders",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -45,4 +56,11 @@ export const salesOrders = pgTable("sales_orders", {
     .defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   ...timestamps,
-})
+  },
+  (t) => [
+    index("sales_orders_tenant_project_idx").on(t.tenantId, t.projectId),
+    uniqueIndex("sales_orders_number_uq")
+      .on(t.tenantId, t.soNumber)
+      .where(sql`${t.soNumber} IS NOT NULL`),
+  ]
+)

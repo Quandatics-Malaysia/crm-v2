@@ -1,0 +1,22 @@
+# Local-dev convenience: just Postgres 17, port published to the host so
+# `npm run db:setup` and `npm run dev` (running on the host) can reach it.
+# Usage: docker compose -f docker-compose.dev.yaml up -d
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: crm
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  pgdata-dev:

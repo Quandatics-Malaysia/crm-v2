@@ -48,3 +48,6 @@ next-env.d.ts
 # scratch / throwaway DB + debug scripts
 _*.cjs
 _*.mjs
+
+# CodeGraph local index (per-developer tooling)
+/.codegraph

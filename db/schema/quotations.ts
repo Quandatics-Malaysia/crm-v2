@@ -10,7 +10,10 @@ import {
   date,
   timestamp,
   unique,
+  uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 import { organization } from "./auth"
 import { opportunities } from "./pipeline"
 import { timestamps, softDelete } from "./_helpers"
@@ -25,17 +28,25 @@ export const quotationStatus = pgEnum("quotation_status", [
 ])
 
 /** Tenant-scoped tax rates applied to quotations (services — no inventory). */
-export const taxSettings = pgTable("tax_settings", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: text("tenant_id")
-    .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  ratePercent: numeric("rate_percent", { precision: 6, scale: 3 }).notNull(),
-  isDefault: boolean("is_default").notNull().default(false),
-  isActive: boolean("is_active").notNull().default(true),
-  ...timestamps,
-})
+export const taxSettings = pgTable(
+  "tax_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    ratePercent: numeric("rate_percent", { precision: 6, scale: 3 }).notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("tax_settings_default_uq")
+      .on(t.tenantId)
+      .where(sql`${t.isDefault}`),
+  ]
+)
 
 /** A priced proposal under an opportunity. One opportunity → many quotations. */
 export const quotations = pgTable(
@@ -57,6 +68,13 @@ export const quotations = pgTable(
       onDelete: "set null",
     }),
     taxRateSnapshot: numeric("tax_rate_snapshot", { precision: 6, scale: 3 }),
+    /**
+     * The tenant's tax-inclusive flag frozen onto the quote (stored totals are
+     * already computed with it). Lets a non-draft quote render the correct
+     * "Tax (incl./excl.)" label from its own snapshot instead of the live
+     * tenant setting.
+     */
+    taxInclusive: boolean("tax_inclusive").notNull().default(false),
     subtotal: numeric("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
     /** Whole-quote discount applied on top of line discounts; folded into total. */
     headerDiscount: numeric("header_discount", { precision: 14, scale: 2 })
@@ -78,7 +96,9 @@ export const quotations = pgTable(
 )
 
 /** A single billable service line. Pure description + price — no SKU/product link. */
-export const quotationLineItems = pgTable("quotation_line_items", {
+export const quotationLineItems = pgTable(
+  "quotation_line_items",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -102,4 +122,6 @@ export const quotationLineItems = pgTable("quotation_line_items", {
   lineTotal: numeric("line_total", { precision: 14, scale: 2 }).notNull().default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
-})
+  },
+  (t) => [index("quotation_line_items_quotation_idx").on(t.quotationId)]
+)

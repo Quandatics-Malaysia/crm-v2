@@ -5,7 +5,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: crm
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -22,13 +22,13 @@ services:
       context: .
       target: migrator
     environment:
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
-      CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:-change_me_crm_app}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me-please}
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@demo.local}
-      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Password123!}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?DEMO_ADMIN_PASSWORD must be set to a non-default value}
     depends_on:
       db:
         condition: service_healthy
@@ -41,9 +41,9 @@ services:
     environment:
       NODE_ENV: production
       # App connects as the RLS-enforced crm_app role.
-      DATABASE_URL: postgres://crm_app:${CRM_APP_PASSWORD:-change_me_crm_app}@db:5432/crm
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/crm
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-me-please}
+      DATABASE_URL: postgres://crm_app:${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}@db:5432/crm
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       APP_URL: ${APP_URL:-${BETTER_AUTH_URL:-http://localhost}}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}

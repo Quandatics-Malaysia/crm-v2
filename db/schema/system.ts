@@ -42,8 +42,17 @@ export const customFieldType = pgEnum("custom_field_type", [
   "select",
 ])
 
-/** Per-tenant definitions that drive dynamic forms + runtime validation
- *  over the `custom_fields` jsonb columns on accounts/persons/opportunities. */
+/**
+ * DEPRECATED / UNIMPLEMENTED. Custom fields were never wired into the app: there
+ * are no admin screens to define them and no read/validation path over the
+ * `custom_fields` jsonb columns on accounts/persons. The accompanying
+ * CUSTOM_FIELD_MANAGE permission has been removed. This table (and those jsonb
+ * columns) are kept only to avoid a destructive migration; do not build on them
+ * without re-introducing the full feature.
+ *
+ * Per-tenant definitions that would drive dynamic forms + runtime validation
+ * over the `custom_fields` jsonb columns on accounts/persons/opportunities.
+ */
 export const customFieldDefs = pgTable(
   "custom_field_defs",
   {

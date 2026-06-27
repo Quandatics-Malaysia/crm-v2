@@ -7,6 +7,8 @@ import {
   jsonb,
   timestamp,
   unique,
+  index,
+  foreignKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
@@ -51,6 +53,9 @@ export const accounts = pgTable(
     ownerMemberId: text("owner_member_id").references(() => member.id, {
       onDelete: "set null",
     }),
+    // DEPRECATED / UNIMPLEMENTED: custom fields were never wired into the app
+    // (no definitions UI, no read/validation path) and CUSTOM_FIELD_MANAGE was
+    // removed. Kept only to avoid a destructive migration. See db/schema/system.ts.
     customFields: jsonb("custom_fields").notNull().default({}),
     ...timestamps,
     ...softDelete,
@@ -59,27 +64,42 @@ export const accounts = pgTable(
 )
 
 /** Contacts — a person always lives under an account. */
-export const persons = pgTable("persons", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: text("tenant_id")
-    .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  accountId: uuid("account_id")
-    .notNull()
-    .references(() => accounts.id, { onDelete: "cascade" }),
-  firstName: text("first_name").notNull(),
-  lastName: text("last_name"),
-  title: text("title"),
-  email: text("email"),
-  phone: text("phone"),
-  isPrimary: boolean("is_primary").notNull().default(false),
-  customFields: jsonb("custom_fields").notNull().default({}),
-  ...timestamps,
-  ...softDelete,
-})
+export const persons = pgTable(
+  "persons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
+    accountId: uuid("account_id").notNull(),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name"),
+    title: text("title"),
+    email: text("email"),
+    phone: text("phone"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    // DEPRECATED / UNIMPLEMENTED: custom fields were never wired into the app
+    // (no definitions UI, no read/validation path) and CUSTOM_FIELD_MANAGE was
+    // removed. Kept only to avoid a destructive migration. See db/schema/system.ts.
+    customFields: jsonb("custom_fields").notNull().default({}),
+    ...timestamps,
+    ...softDelete,
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+      name: "persons_tenant_account_fk",
+    }).onDelete("cascade"),
+    index("persons_tenant_account_idx").on(t.tenantId, t.accountId),
+  ]
+)
 
 /** Raw inbound interest before conversion into account + person + opportunity. */
-export const leads = pgTable("leads", {
+export const leads = pgTable(
+  "leads",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -109,4 +129,6 @@ export const leads = pgTable("leads", {
   convertedAt: timestamp("converted_at", { withTimezone: true }),
   ...timestamps,
   ...softDelete,
-})
+  },
+  (t) => [index("leads_tenant_idx").on(t.tenantId)]
+)

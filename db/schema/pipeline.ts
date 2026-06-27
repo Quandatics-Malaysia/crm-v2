@@ -11,7 +11,11 @@ import {
   jsonb,
   timestamp,
   unique,
+  uniqueIndex,
+  index,
+  foreignKey,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 import { organization, member } from "./auth"
 import { accounts, persons } from "./crm"
 import { timestamps, softDelete } from "./_helpers"
@@ -41,16 +45,25 @@ export const stageChangeSource = pgEnum("stage_change_source", [
 ])
 
 /** Pipeline definition/template. A tenant may run several. */
-export const funnels = pgTable("funnels", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: text("tenant_id")
-    .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  isDefault: boolean("is_default").notNull().default(false),
-  isActive: boolean("is_active").notNull().default(true),
-  ...timestamps,
-})
+export const funnels = pgTable(
+  "funnels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [
+    index("funnels_tenant_idx").on(t.tenantId),
+    uniqueIndex("funnels_default_uq")
+      .on(t.tenantId)
+      .where(sql`${t.isDefault}`),
+  ]
+)
 
 /** Ordered stages within a funnel. Canonical 8-stage set seeded per tenant. */
 export const funnelStages = pgTable(
@@ -84,15 +97,16 @@ export const funnelStages = pgTable(
 )
 
 /** The deal that moves through a funnel (distinct from the funnel itself). */
-export const opportunities = pgTable("opportunities", {
+export const opportunities = pgTable(
+  "opportunities",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  accountId: uuid("account_id")
-    .notNull()
-    .references(() => accounts.id, { onDelete: "restrict" }),
+  // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
+  accountId: uuid("account_id").notNull(),
   primaryPersonId: uuid("primary_person_id").references(() => persons.id, {
     onDelete: "set null",
   }),
@@ -118,10 +132,22 @@ export const opportunities = pgTable("opportunities", {
   customFields: jsonb("custom_fields").notNull().default({}),
   ...timestamps,
   ...softDelete,
-})
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+      name: "opportunities_tenant_account_fk",
+    }).onDelete("restrict"),
+    index("opportunities_tenant_stage_idx").on(t.tenantId, t.currentStageId),
+    index("opportunities_tenant_account_idx").on(t.tenantId, t.accountId),
+  ]
+)
 
 /** Immutable log of every stage transition. */
-export const opportunityStageHistory = pgTable("opportunity_stage_history", {
+export const opportunityStageHistory = pgTable(
+  "opportunity_stage_history",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -143,5 +169,9 @@ export const opportunityStageHistory = pgTable("opportunity_stage_history", {
   probabilityAtChange: numeric("probability_at_change", { precision: 5, scale: 2 }),
   valueAtChange: numeric("value_at_change", { precision: 14, scale: 2 }),
   source: stageChangeSource("source").notNull().default("manual"),
+  /** Optional free-text reason for the move (manual moves + reopen/override). */
+  reason: text("reason"),
   changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
-})
+  },
+  (t) => [index("opp_stage_history_opp_idx").on(t.opportunityId)]
+)

@@ -60,19 +60,16 @@ CREATE POLICY tenant_isolation ON tenant_settings
   USING (organization_id = current_setting('app.current_tenant', true))
   WITH CHECK (organization_id = current_setting('app.current_tenant', true));
 
--- audit_log: tenant rows + deployment-level (NULL tenant) rows -------------
+-- audit_log: strictly tenant-scoped for the app role. Deployment-level
+-- (NULL tenant) rows are written/read via the privileged connection only;
+-- crm_app must never see another tenant's rows (the old `OR tenant_id IS NULL`
+-- branch was a standing cross-tenant read/write hole).
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON audit_log;
 CREATE POLICY tenant_isolation ON audit_log
-  USING (
-    tenant_id = current_setting('app.current_tenant', true)
-    OR tenant_id IS NULL
-  )
-  WITH CHECK (
-    tenant_id = current_setting('app.current_tenant', true)
-    OR tenant_id IS NULL
-  );
+  USING (tenant_id = current_setting('app.current_tenant', true))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
 
 -- audit_log is append-only for the app role
 REVOKE UPDATE, DELETE ON audit_log FROM crm_app;

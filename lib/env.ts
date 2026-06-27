@@ -22,7 +22,7 @@ export const env = {
   // Microsoft Entra (single-tenant app registration)
   MICROSOFT_CLIENT_ID: read("MICROSOFT_CLIENT_ID"),
   MICROSOFT_CLIENT_SECRET: read("MICROSOFT_CLIENT_SECRET"),
-  MICROSOFT_TENANT_ID: read("MICROSOFT_TENANT_ID", "common"),
+  MICROSOFT_TENANT_ID: read("MICROSOFT_TENANT_ID"),
 
   // File storage
   STORAGE_DRIVER: (process.env.STORAGE_DRIVER ?? "local") as "local" | "s3",

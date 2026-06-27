@@ -7,6 +7,7 @@ import {
   char,
   date,
   unique,
+  foreignKey,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
 import { accounts } from "./crm"
@@ -37,9 +38,8 @@ export const projects = pgTable(
     /** "auto" (system-generated code) or "manual" (user-entered). */
     codeNature: text("code_nature").notNull().default("auto"),
     name: text("name").notNull(),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "restrict" }),
+    // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
+    accountId: uuid("account_id").notNull(),
     // the funnel this project was created from
     opportunityId: uuid("opportunity_id").references(() => opportunities.id, {
       onDelete: "set null",
@@ -59,5 +59,12 @@ export const projects = pgTable(
     ...timestamps,
     ...softDelete,
   },
-  (t) => [unique("projects_code_uq").on(t.tenantId, t.projectCode)]
+  (t) => [
+    unique("projects_code_uq").on(t.tenantId, t.projectCode),
+    foreignKey({
+      columns: [t.tenantId, t.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+      name: "projects_tenant_account_fk",
+    }).onDelete("restrict"),
+  ]
 )

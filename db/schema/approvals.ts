@@ -5,6 +5,7 @@ import {
   text,
   bigint,
   timestamp,
+  index,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
 import { opportunities, funnelStages } from "./pipeline"
@@ -60,7 +61,9 @@ export const stageApprovalRequests = pgTable("stage_approval_requests", {
 })
 
 /** Polymorphic file metadata. Bytes live in object storage / a mounted volume. */
-export const attachments = pgTable("attachments", {
+export const attachments = pgTable(
+  "attachments",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: text("tenant_id")
     .notNull()
@@ -76,4 +79,12 @@ export const attachments = pgTable("attachments", {
     onDelete: "set null",
   }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+  },
+  (t) => [
+    index("attachments_tenant_attachable_idx").on(
+      t.tenantId,
+      t.attachableType,
+      t.attachableId
+    ),
+  ]
+)

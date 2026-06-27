@@ -121,47 +121,6 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
     return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency))
   }, [rows])
 
-  // Bucket per (forecast month, currency) so different currencies are never
-  // added together within a month card.
-  const byMonth = React.useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        sortKey: string
-        label: string
-        currency: string
-        opportunityValue: number
-        weightedValue: number
-        count: number
-      }
-    >()
-    for (const r of rows) {
-      const currency = r.currency ?? "MYR"
-      const monthKey = r.forecastMonth ?? "__none__"
-      const key = `${monthKey}__${currency}`
-      const existing = map.get(key) ?? {
-        sortKey: monthKey,
-        label: monthLabel(r.forecastMonth),
-        currency,
-        opportunityValue: 0,
-        weightedValue: 0,
-        count: 0,
-      }
-      existing.opportunityValue += Number(r.opportunityValue ?? 0)
-      existing.weightedValue += Number(r.weightedValue ?? 0)
-      existing.count += 1
-      map.set(key, existing)
-    }
-    return [...map.entries()]
-      .sort(([, a], [, b]) => {
-        if (a.sortKey === "__none__") return b.sortKey === "__none__" ? 0 : 1
-        if (b.sortKey === "__none__") return -1
-        const byKey = a.sortKey.localeCompare(b.sortKey)
-        return byKey !== 0 ? byKey : a.currency.localeCompare(b.currency)
-      })
-      .map(([key, v]) => ({ key, ...v }))
-  }, [rows])
-
   return (
     <div className="flex flex-col gap-4">
       <Card className="bg-muted/40">
@@ -222,27 +181,6 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
           </CardHeader>
         </Card>
       </div>
-
-      {byMonth.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {byMonth.map((m) => (
-            <Card key={m.key} size="sm">
-              <CardHeader>
-                <CardDescription>
-                  {m.label} · {m.currency}
-                </CardDescription>
-                <CardTitle className="text-lg tabular-nums">
-                  {formatMoney(m.weightedValue, m.currency)}
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {m.count} funnel{m.count === 1 ? "" : "s"} ·{" "}
-                  {formatMoney(m.opportunityValue, m.currency)} gross
-                </p>
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
-      ) : null}
 
       <DataTable
         columns={columns}

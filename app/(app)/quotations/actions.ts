@@ -26,14 +26,10 @@ import { winOpportunity } from "@/server/services/stage"
 import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
+import { toDateString } from "@/lib/dates"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
-
-/** Today as a naive `YYYY-MM-DD` string, matching the `validUntil` date column. */
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export type QuotationListItem = QuotationRow & {
   opportunityName: string | null
@@ -453,7 +449,7 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
         "This funnel is no longer open, so its quotation can't be sent."
       )
     // Don't send an already-lapsed proposal.
-    if (q.validUntil && q.validUntil < todayDate())
+    if (q.validUntil && q.validUntil < toDateString())
       throw new Error(
         `This quotation lapsed on ${q.validUntil}. Update “Valid until” before sending.`
       )
@@ -535,6 +531,12 @@ export type AcceptQuotationResult = {
   accountId: string
   /** Non-fatal warning when accept committed but the auto-win move failed. */
   warning?: string
+  /**
+   * True when auto-win was enabled but winning the funnel is gated behind an
+   * approval request (the stage did NOT move yet). The UI uses this to say the
+   * win is pending approval rather than presenting the deal as won.
+   */
+  pendingApproval?: boolean
 }
 
 export async function acceptQuotation(
@@ -570,7 +572,7 @@ export async function acceptQuotation(
         "This funnel is no longer open, so its quotation can't be accepted."
       )
     // Don't accept on lapsed terms.
-    if (q.validUntil && q.validUntil < todayDate())
+    if (q.validUntil && q.validUntil < toDateString())
       throw new Error(
         `This quotation lapsed on ${q.validUntil}. Create a revision before accepting.`
       )
@@ -647,10 +649,24 @@ export async function acceptQuotation(
   // failure here must not surface as an overall failure (the quote is already
   // accepted + primary). Treat it as a non-fatal warning the caller can show.
   let warning: string | undefined
+  let pendingApproval = false
   if (result.autoWin) {
     try {
       const ctx = await requireContext()
-      await winOpportunity(ctx, result.opportunityId)
+      // winOpportunity reports whether it moved the stage to Won or instead
+      // raised an approval request (Won is approval-gated for this actor). The
+      // cast bridges the additive contract while the stage service is updated
+      // to return `{ moved, pendingApproval }`; older `void` returns read as
+      // "not pending", preserving the prior behaviour.
+      const winResult = (await winOpportunity(ctx, result.opportunityId)) as
+        | unknown
+        | void
+      pendingApproval = !!(
+        winResult &&
+        typeof winResult === "object" &&
+        "pendingApproval" in winResult &&
+        (winResult as { pendingApproval?: boolean }).pendingApproval
+      )
     } catch (e) {
       console.error("[acceptQuotation] auto-win failed", e)
       warning =
@@ -664,6 +680,7 @@ export async function acceptQuotation(
     opportunityId: result.opportunityId,
     accountId: result.accountId,
     warning,
+    pendingApproval,
   }
   })
 }
@@ -768,9 +785,15 @@ async function reassignPrimaryAfterRemoval(
   await syncOpportunityAmount(tx, ctx, opportunityId)
 }
 
-export async function setPrimaryQuotation(id: string): Promise<ActionResult<void>> {
+/** Result of {@link setPrimaryQuotation}: the prior primary quote id (if any),
+ *  so the client can offer an Undo that restores it. */
+export type SetPrimaryResult = { previousPrimaryId: string | null }
+
+export async function setPrimaryQuotation(
+  id: string
+): Promise<ActionResult<SetPrimaryResult>> {
   return runAction(async () => {
-  await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
+  const out = await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
     const [q] = await tx
       .select()
       .from(quotations)
@@ -779,12 +802,21 @@ export async function setPrimaryQuotation(id: string): Promise<ActionResult<void
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
+      .select({
+        ownerMemberId: opportunities.ownerMemberId,
+        primaryQuotationId: opportunities.primaryQuotationId,
+      })
       .from(opportunities)
       .where(eq(opportunities.id, q.opportunityId))
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
+    // Capture the prior primary so the caller can offer an Undo (it changes the
+    // funnel's reported value/forecast, so a reversible affordance matters).
+    const previousPrimaryId =
+      opp?.primaryQuotationId && opp.primaryQuotationId !== id
+        ? opp.primaryQuotationId
+        : null
     await tx
       .update(quotations)
       .set({ isPrimary: false })
@@ -805,9 +837,11 @@ export async function setPrimaryQuotation(id: string): Promise<ActionResult<void
       entityType: "quotation",
       entityId: id,
     })
+    return { previousPrimaryId }
   })
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  return out
   })
 }
 

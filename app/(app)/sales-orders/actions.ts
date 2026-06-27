@@ -133,7 +133,9 @@ async function fetchRows(
       )
     )
     .orderBy(desc(salesOrders.submittedAt))
-    .limit(500)) as Array<{
+    // Capped server-side; the global list table surfaces a "refine your search"
+    // notice at this count (cap={1000}) so rows never silently vanish.
+    .limit(1000)) as Array<{
     id: string
     projectId: string
     projectName: string

@@ -39,7 +39,7 @@ export function ConvertDialog({
   // props here is correct — no reset effect required.
   const [createOpportunity, setCreateOpportunity] = React.useState(true)
   const [opportunityName, setOpportunityName] = React.useState(
-    `${lead.companyName || lead.name} opportunity`
+    `${lead.companyName || lead.name} funnel`
   )
   const [expectedCloseDate, setExpectedCloseDate] = React.useState("")
   const [accountId, setAccountId] = React.useState<string>(NEW_ACCOUNT)
@@ -63,9 +63,9 @@ export function ConvertDialog({
       if (res.data.opportunityId) {
         const oppId = res.data.opportunityId
         toast.success("Lead converted", {
-          description: "An opportunity was created.",
+          description: "A Funnel was created.",
           action: {
-            label: "View opportunity",
+            label: "View Funnel",
             onClick: () => router.push(`/funnel/${oppId}`),
           },
         })
@@ -87,7 +87,7 @@ export function ConvertDialog({
           <DialogTitle>Convert lead</DialogTitle>
           <DialogDescription>
             Turn “{lead.name}” into an account and contact, and optionally seed a
-            funnel.
+            Funnel. This can’t be undone.
           </DialogDescription>
         </DialogHeader>
 
@@ -115,9 +115,9 @@ export function ConvertDialog({
 
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
-              <Label htmlFor="create-opp">Create opportunity</Label>
+              <Label htmlFor="create-opp">Create Funnel</Label>
               <p className="text-xs text-muted-foreground">
-                Seed an opportunity at the first funnel stage.
+                Seed a Funnel at the first stage.
               </p>
             </div>
             <Switch
@@ -130,16 +130,16 @@ export function ConvertDialog({
           {createOpportunity ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="opp-name">Opportunity name</Label>
+                <Label htmlFor="opp-name">Funnel name</Label>
                 <Input
                   id="opp-name"
                   value={opportunityName}
                   onChange={(e) => setOpportunityName(e.target.value)}
-                  placeholder="New opportunity"
+                  placeholder="New funnel"
                 />
                 {!opportunityName.trim() ? (
                   <p className="text-xs text-destructive">
-                    An opportunity name is required.
+                    A Funnel name is required.
                   </p>
                 ) : null}
               </div>

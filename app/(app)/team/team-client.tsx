@@ -103,7 +103,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [PERMISSIONS.LEAD_UPDATE]: "Edit existing leads.",
   [PERMISSIONS.LEAD_DELETE]: "Permanently remove leads.",
   [PERMISSIONS.LEAD_CONVERT]:
-    "Turn a lead into an account, contact and opportunity.",
+    "Turn a lead into an account, contact and funnel.",
   [PERMISSIONS.ACCOUNT_VIEW]: "See accounts they own or manage.",
   [PERMISSIONS.ACCOUNT_CREATE]: "Add new accounts.",
   [PERMISSIONS.ACCOUNT_UPDATE]: "Edit existing accounts.",
@@ -112,12 +112,12 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [PERMISSIONS.PERSON_CREATE]: "Add new contacts.",
   [PERMISSIONS.PERSON_UPDATE]: "Edit existing contacts.",
   [PERMISSIONS.PERSON_DELETE]: "Permanently remove contacts.",
-  [PERMISSIONS.OPPORTUNITY_VIEW]: "See opportunities on the funnel board.",
-  [PERMISSIONS.OPPORTUNITY_CREATE]: "Add new opportunities.",
-  [PERMISSIONS.OPPORTUNITY_UPDATE]: "Edit opportunity details.",
-  [PERMISSIONS.OPPORTUNITY_DELETE]: "Permanently remove opportunities.",
+  [PERMISSIONS.OPPORTUNITY_VIEW]: "See funnels on the funnel board.",
+  [PERMISSIONS.OPPORTUNITY_CREATE]: "Add new funnels.",
+  [PERMISSIONS.OPPORTUNITY_UPDATE]: "Edit funnel details.",
+  [PERMISSIONS.OPPORTUNITY_DELETE]: "Permanently remove funnels.",
   [PERMISSIONS.STAGE_ADVANCE]:
-    "Move opportunities forward; low tiers may need approval.",
+    "Move funnels forward; low tiers may need approval.",
   [PERMISSIONS.STAGE_ADVANCE_APPROVE]:
     "Approve other members' gated stage advances.",
   [PERMISSIONS.FUNNEL_MANAGE]: "Create and edit funnels and their stages.",
@@ -127,18 +127,18 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [PERMISSIONS.QUOTATION_DELETE]: "Remove quotations.",
   [PERMISSIONS.QUOTATION_SEND]: "Issue a quotation to the customer.",
   [PERMISSIONS.QUOTATION_ACCEPT]:
-    "Mark a quotation accepted (can win the deal).",
+    "Mark a quotation accepted (can win the funnel).",
   [PERMISSIONS.TAX_VIEW]: "See tax rates and settings.",
   [PERMISSIONS.TAX_CONFIGURE]: "Add and edit tax rates.",
   [PERMISSIONS.PROJECT_VIEW]: "See projects.",
-  [PERMISSIONS.PROJECT_CREATE]: "Create projects from won deals.",
+  [PERMISSIONS.PROJECT_CREATE]: "Create projects from won funnels.",
   [PERMISSIONS.PROJECT_UPDATE]: "Edit projects and milestones.",
   [PERMISSIONS.PROJECT_DELETE]: "Permanently remove projects.",
   [PERMISSIONS.SALES_ORDER_VIEW]: "See sales orders.",
   [PERMISSIONS.SALES_ORDER_SUBMIT]: "Submit a sales order for approval.",
   [PERMISSIONS.SALES_ORDER_APPROVE]:
     "Approve or reject submitted sales orders (mints the SO number).",
-  [PERMISSIONS.FORECAST_VIEW]: "See the weighted pipeline forecast.",
+  [PERMISSIONS.FORECAST_VIEW]: "See the weighted funnel forecast.",
   [PERMISSIONS.AUDIT_VIEW]: "Read the tenant audit log.",
   [PERMISSIONS.RECORDS_VIEW_ALL]:
     "Read EVERY record in the workspace, bypassing ownership.",

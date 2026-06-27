@@ -32,6 +32,7 @@ import type { Option } from "@/lib/lookups"
 import { PersonForm } from "./person-form"
 import {
   deletePerson,
+  restorePerson,
   setPrimaryPerson,
   type PersonListItem,
 } from "./actions"
@@ -58,7 +59,20 @@ function RowActions({
       setConfirmOpen(false)
       return
     }
-    toast.success("Contact deleted")
+    toast.success("Contact deleted", {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          const r = await restorePerson(person.id)
+          if (!r.ok) {
+            toast.error(r.error)
+            return
+          }
+          toast.success("Contact restored")
+          router.refresh()
+        },
+      },
+    })
     router.refresh()
     setConfirmOpen(false)
   }
@@ -120,7 +134,7 @@ function RowActions({
             <AlertDialogTitle>Delete contact?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes {fullName(person) || "this contact"} from the account.
-              You can recreate them later.
+              You can undo this right after.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -259,6 +273,7 @@ export function PersonsTable({
         { columnId: "primary", title: "Primary" },
       ]}
       tableId="persons"
+      cap={1000}
       toolbar={
         <PersonForm
           accounts={accounts}

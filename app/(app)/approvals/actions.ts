@@ -10,11 +10,12 @@ import {
   funnelStages,
   member,
   user,
+  tenantSettings,
 } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
-import { decideApproval } from "@/server/services/stage"
+import { decideApproval, type DecisionOutcome } from "@/server/services/stage"
 
 export type ApprovalRow = {
   id: string
@@ -107,6 +108,23 @@ export async function listIncomingApprovals(): Promise<ApprovalRow[]> {
   })
 }
 
+/**
+ * The tenant's approval-gate tier: members at this tier (or above), plus anyone
+ * holding the stage-approval permission, can both bypass the gate and approve
+ * gated advances. Surfaced as inline help so the UI can name the approving tier.
+ */
+export async function getApprovalGateInfo(): Promise<{ bypassTier: number }> {
+  const ctx = await requireContext()
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const [settings] = await tx
+      .select({ bypassTier: tenantSettings.approvalBypassTier })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    return { bypassTier: settings?.bypassTier ?? 40 }
+  })
+}
+
 /** Requests I raised. */
 export async function listMyApprovals(): Promise<ApprovalRow[]> {
   const ctx = await requireContext()
@@ -156,15 +174,24 @@ function shape(r: RawRow, names: Map<string, string>): ApprovalRow {
   }
 }
 
-/** Approve / reject / cancel a request via the core stage service. */
+/**
+ * Approve / reject / cancel a request via the core stage service. Returns the
+ * resolved {@link DecisionOutcome} so the client can surface an honest message —
+ * e.g. an approve that found the funnel already moved on resolves as `obsolete`
+ * (request closed) rather than failing.
+ */
 export async function decideApprovalAction(input: {
   requestId: string
   decision: "approved" | "rejected" | "cancelled"
   note?: string
-}): Promise<ActionResult<void>> {
+}): Promise<ActionResult<DecisionOutcome>> {
   return runAction(async () => {
     const ctx = await requireContext()
-    await decideApproval(ctx, input)
+    const outcome = await decideApproval(ctx, input)
     revalidatePath("/approvals")
+    // An approved/obsolete decision changes the funnel's stage, so refresh the
+    // funnel views too.
+    revalidatePath("/funnel")
+    return outcome
   })
 }

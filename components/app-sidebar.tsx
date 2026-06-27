@@ -208,7 +208,12 @@ export function AppSidebar({
                       <SidebarMenuButton
                         isActive={active}
                         tooltip={item.title}
-                        render={<Link href={item.url} />}
+                        render={
+                          <Link
+                            href={item.url}
+                            aria-current={active ? "page" : undefined}
+                          />
+                        }
                       >
                         <item.icon className="size-4" />
                         <span>{item.title}</span>

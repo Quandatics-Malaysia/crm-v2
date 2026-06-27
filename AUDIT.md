@@ -86,6 +86,27 @@ tenant — nothing was mis-wired.
 
 ---
 
+## Upgrade notes — intentional behavior changes
+
+A follow-up code review flagged four changes that are **deliberate** but
+operator-visible. They are documented here (and in the README) so an upgrade is not a
+surprise:
+
+- **(#1) Password-login backfill.** Migration `0015` runs
+  `UPDATE tenant_settings SET allow_password_login = true WHERE allow_password_login = false;`
+  so tenants created under the old default (`false`) aren't locked out now that the flag
+  is enforced at sign-in. SSO-only remains opt-in going forward.
+- **(#6) `MICROSOFT_TENANT_ID` must be a real directory GUID.** The multi-tenant
+  `common` value is no longer accepted (single-tenant hardening); the production boot
+  guard rejects it.
+- **(#9) Entra redirect URI changed.** It is now
+  `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id`; the old `/callback/`
+  rewrite was removed. Re-register the new URI in Azure.
+- **(#7) Single superadmin enforced.** A partial unique index
+  (`UNIQUE (is_superadmin) WHERE is_superadmin`) allows exactly one superadmin. Demote
+  any extra superadmins **before** applying migration `0012`; use direct DB access for
+  break-glass.
+
 ## Consciously deferred (non-blocking)
 
 - **Server-side pagination** — list queries were capped with sane limits; cursor/offset

@@ -338,6 +338,47 @@ export async function deletePerson(id: string): Promise<ActionResult<void>> {
   })
 }
 
+/** Reverse a soft delete (undo). Clears deletedAt for a contact the caller owns/manages. */
+export async function restorePerson(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.PERSON_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(persons)
+        .where(eq(persons.id, id))
+        .limit(1)
+      if (!before) throw new Error("Contact not found.")
+      if (!before.deletedAt) return // already active
+
+      const visible = await visibleMemberIds(tx, ctx)
+      const [account] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(eq(accounts.id, before.accountId))
+        .limit(1)
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, account?.ownerMemberId ?? null)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
+
+      await tx
+        .update(persons)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(persons.id, id))
+      await writeAudit(tx, ctx, {
+        action: "person.restore",
+        entityType: "person",
+        entityId: id,
+        after: before,
+      })
+      revalidatePath(`/accounts/${before.accountId}`)
+    })
+    revalidatePath("/persons")
+  })
+}
+
 /** Makes the given contact the primary one for its account. */
 export async function setPrimaryPerson(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {

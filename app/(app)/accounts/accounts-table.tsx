@@ -31,7 +31,7 @@ import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option } from "@/lib/lookups"
 import { AccountForm } from "./account-form"
-import { deleteAccount, type AccountListItem } from "./actions"
+import { deleteAccount, restoreAccount, type AccountListItem } from "./actions"
 
 function RowActions({
   account,
@@ -59,7 +59,20 @@ function RowActions({
       setConfirmOpen(false)
       return
     }
-    toast.success("Account deleted")
+    toast.success("Account deleted", {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          const r = await restoreAccount(account.id)
+          if (!r.ok) {
+            toast.error(r.error)
+            return
+          }
+          toast.success("Account restored")
+          router.refresh()
+        },
+      },
+    })
     router.refresh()
     setConfirmOpen(false)
   }
@@ -111,8 +124,9 @@ function RowActions({
             <AlertDialogTitle>Delete account?</AlertDialogTitle>
             <AlertDialogDescription>
               This soft-deletes “{account.name}”. You must first remove its
-              contacts, close any opportunities or projects, and reassign any
-              child accounts or reseller links, otherwise the delete is blocked.
+              contacts, close any Funnels or projects, and reassign any child
+              accounts or reseller links, otherwise the delete is blocked. You
+              can undo this right after.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -233,6 +247,7 @@ export function AccountsTable({
       columns={columns}
       data={data}
       tableId="accounts"
+      cap={1000}
       facets={[
         { columnId: "accountType", title: "Type" },
         { columnId: "industry", title: "Industry" },
@@ -242,7 +257,7 @@ export function AccountsTable({
       searchPlaceholder="Search accounts…"
       emptyIcon={Building2}
       emptyMessage="No accounts yet"
-      emptyDescription="Add a customer account to start tracking contacts and opportunities."
+      emptyDescription="Add a customer account to start tracking contacts and Funnels."
       emptyAction={
         <AccountForm
           parentOptions={parentOptions}

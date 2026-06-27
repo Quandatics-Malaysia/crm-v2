@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 export default function Loading() {
   return (
     <>
-      <SiteHeader title="Opportunity" />
+      <SiteHeader title="Funnel" />
       <PageBody>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid gap-2">

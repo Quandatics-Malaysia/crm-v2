@@ -343,6 +343,7 @@ export function SalesOrdersTable({
         columns={columns}
         data={data}
         tableId="sales-orders"
+        cap={1000}
         facets={[{ columnId: "status", title: "Status" }]}
         searchColumn="projectName"
         searchPlaceholder="Search by project…"

@@ -238,7 +238,7 @@ export default async function OpportunityDetailPage({
               <span className="font-medium">
                 {pendingApproval.targetStageName}
               </span>
-              . This opportunity can&apos;t advance until the request is decided.
+              . This Funnel can&apos;t advance until the request is decided.
             </span>
             <Link href="/approvals" className="font-medium underline">
               View in Approvals

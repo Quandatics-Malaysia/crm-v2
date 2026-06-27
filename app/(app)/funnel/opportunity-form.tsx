@@ -170,7 +170,7 @@ export function OpportunityForm({
         toast.error(res.error)
         return
       }
-      toast.success("Opportunity created")
+      toast.success("Funnel created")
       setOpen(false)
       router.push(`/funnel/${res.data.id}`)
     } else if (opportunity) {
@@ -186,7 +186,7 @@ export function OpportunityForm({
         toast.error(res.error)
         return
       }
-      toast.success("Opportunity updated")
+      toast.success("Funnel updated")
       setOpen(false)
       router.refresh()
     }
@@ -195,17 +195,17 @@ export function OpportunityForm({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
-        render={trigger ?? <Button>New opportunity</Button>}
+        render={trigger ?? <Button>New Funnel</Button>}
       />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New opportunity" : "Edit opportunity"}
+            {mode === "create" ? "New Funnel" : "Edit Funnel"}
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Create an opportunity and place it on a funnel."
-              : "Update this opportunity's details."}
+              ? "Create a Funnel and choose its stage."
+              : "Update this Funnel's details."}
           </DialogDescription>
         </DialogHeader>
 
@@ -412,7 +412,7 @@ export function OpportunityForm({
                   <FormDescription>
                     {currencyLocked
                       ? "Locked to the primary quotation's currency."
-                      : "The opportunity's value is set by its primary quotation (net)."}
+                      : "The Funnel's value is set by its primary quotation (net)."}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

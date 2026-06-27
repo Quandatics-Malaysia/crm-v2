@@ -131,7 +131,7 @@ function StageColumn({
         ))}
         {cards.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
-            No deals
+            No funnels
           </p>
         ) : null}
       </div>
@@ -162,6 +162,21 @@ export function OpportunitiesBoard({
     targetStageId: string
   } | null>(null)
 
+  // Optimistic card placement: on drop we move the card immediately and let
+  // advanceStageAction() reconcile via router.refresh(). useOptimistic reverts
+  // to `data` automatically when the transition settles, so a rejected move
+  // (or one that only queued an approval) rolls back on its own.
+  const [optimisticData, moveCard] = React.useOptimistic(
+    data,
+    (
+      state: OpportunityListRow[],
+      move: { id: string; targetStageId: string }
+    ) =>
+      state.map((o) =>
+        o.id === move.id ? { ...o, stageId: move.targetStageId } : o
+      )
+  )
+
   const defaultFunnel =
     funnels.find((f) => f.isDefault) ?? funnels[0] ?? null
 
@@ -178,25 +193,26 @@ export function OpportunitiesBoard({
     const map = new Map<string, OpportunityListRow[]>()
     for (const s of stages) map.set(s.id, [])
     if (defaultFunnel) {
-      for (const o of data) {
+      for (const o of optimisticData) {
         if (o.funnelId !== defaultFunnel.id) continue
         const bucket = map.get(o.stageId)
         if (bucket) bucket.push(o)
       }
     }
     return map
-  }, [stages, data, defaultFunnel])
+  }, [stages, optimisticData, defaultFunnel])
 
   const activeCard = React.useMemo(
-    () => (activeId ? data.find((o) => o.id === activeId) ?? null : null),
-    [activeId, data]
+    () =>
+      activeId ? optimisticData.find((o) => o.id === activeId) ?? null : null,
+    [activeId, optimisticData]
   )
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id))
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
+  function handleDragEnd(event: DragEndEvent) {
     setActiveId(null)
     const { active, over } = event
     if (!over) return
@@ -229,19 +245,25 @@ export function OpportunitiesBoard({
       return
     }
 
-    const res = await advanceStageAction({ opportunityId, targetStageId })
-    if (!res.ok) {
-      toast.error(res.error)
-      return
-    }
-    toast.success(res.data.moved ? "Moved" : "Sent for approval")
-    router.refresh()
+    // Move the card now (optimistic), then advance on the server. On failure
+    // we surface the error and the transition unwinds the optimistic move; on
+    // success router.refresh() reconciles against the authoritative data.
+    React.startTransition(async () => {
+      moveCard({ id: opportunityId, targetStageId })
+      const res = await advanceStageAction({ opportunityId, targetStageId })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(res.data.moved ? "Moved" : "Sent for approval")
+      router.refresh()
+    })
   }
 
   if (!defaultFunnel) {
     return (
       <p className="text-sm text-muted-foreground">
-        No funnel configured. Ask an admin to set up a pipeline.
+        No funnel configured. Ask an admin to set one up.
       </p>
     )
   }

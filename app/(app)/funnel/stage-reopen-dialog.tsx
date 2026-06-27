@@ -94,13 +94,13 @@ export function StageReopenDialog({
         toast.error(res.error)
         return
       }
-      toast.success("Opportunity reopened")
+      toast.success("Funnel reopened")
       setOpen(false)
       reset()
       router.refresh()
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Could not reopen the opportunity"
+        e instanceof Error ? e.message : "Could not reopen the Funnel"
       )
     } finally {
       setSubmitting(false)
@@ -118,10 +118,10 @@ export function StageReopenDialog({
       <DialogTrigger render={trigger ?? <Button variant="outline">Reopen</Button>} />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Reopen opportunity</DialogTitle>
+          <DialogTitle>Reopen Funnel</DialogTitle>
           <DialogDescription>
-            Move this closed opportunity back into an open stage. Its close date
-            is cleared and the status returns to open.
+            Move this closed Funnel back into an open stage. Its close date is
+            cleared and the status returns to open.
           </DialogDescription>
         </DialogHeader>
 

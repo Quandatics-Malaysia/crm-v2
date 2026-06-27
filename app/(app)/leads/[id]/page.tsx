@@ -229,7 +229,7 @@ export default async function LeadDetailPage({
                           />
                         }
                       >
-                        Opportunity{funnelName ? `: ${funnelName}` : ""}
+                        Funnel{funnelName ? `: ${funnelName}` : ""}
                       </Button>
                     ) : null}
                   </div>

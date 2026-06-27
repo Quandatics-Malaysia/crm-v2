@@ -380,6 +380,39 @@ export async function deleteLead(id: string): Promise<ActionResult<void>> {
   })
 }
 
+/** Reverse a soft delete (undo). Clears deletedAt for a lead the caller owns/manages. */
+export async function restoreLead(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.LEAD_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(eq(leads.id, id))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
+      if (!before.deletedAt) return // already active
+
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
+
+      await tx
+        .update(leads)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(leads.id, id))
+
+      await writeAudit(tx, ctx, {
+        action: "lead.restored",
+        entityType: "lead",
+        entityId: id,
+        after: before,
+      })
+    })
+
+    revalidatePath("/leads")
+  })
+}
+
 export async function disqualifyLead(
   id: string,
   reason: string

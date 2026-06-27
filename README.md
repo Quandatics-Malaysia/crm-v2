@@ -42,6 +42,26 @@ docker compose up -d --build
 - Register this Entra redirect URI **exactly** (it must match the code's callback): `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id` (e.g. `https://<DOMAIN>/api/auth/oauth2/callback/microsoft-entra-id`).
 - Health check: `GET /api/health`.
 
+## Upgrade notes
+
+The following are **intentional** behavior changes from this hardening pass. Operators
+upgrading an existing deployment should review them before applying migrations.
+
+- **Existing tenants are not locked out of password login.** Migration `0015` backfills
+  `tenant_settings.allow_password_login = true` for every tenant that still had the old
+  default of `false`, now that the flag is actually enforced at sign-in. SSO-only stays
+  opt-in: a tenant can turn password login back off afterward.
+- **`MICROSOFT_TENANT_ID` must be a real directory GUID.** The multi-tenant value
+  `common` is no longer accepted (single-tenant hardening); in production the app refuses
+  to boot if Entra is configured with `common`. Set your Entra directory (tenant) GUID.
+- **The Entra redirect URI changed.** It is now
+  `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id`; the old `/callback/`
+  rewrite was removed. **Re-register this exact URI in the Azure app registration** or
+  sign-in will fail.
+- **Exactly one superadmin is allowed.** A partial unique index permits a single
+  superadmin row. **Before applying migration `0012`, demote any extra superadmins**, or
+  the migration will fail. For break-glass, use direct DB access to flip the flag.
+
 ## Architecture notes
 - **Data access** flows through `withTenant(permission, (tx, ctx) => …)` (`lib/actions.ts`), which authorizes then opens a tenant-scoped transaction.
 - **Business rules** live in `server/services/*` (stage/approval state machine, quotation math, lead conversion) — no `next/*` imports, reusable beyond the web layer.

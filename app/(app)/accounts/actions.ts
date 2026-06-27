@@ -562,7 +562,7 @@ export async function deleteAccount(id: string): Promise<ActionResult<void>> {
         .limit(1)
       if (opp) {
         throw new Error(
-          "Close or remove this account's opportunities before deleting it."
+          "Close or remove this account's funnels before deleting it."
         )
       }
       const [project] = await tx
@@ -612,6 +612,38 @@ export async function deleteAccount(id: string): Promise<ActionResult<void>> {
         entityType: "account",
         entityId: id,
         before,
+      })
+    })
+    revalidatePath("/accounts")
+  })
+}
+
+/** Reverse a soft delete (undo). Clears deletedAt for an account the caller owns/manages. */
+export async function restoreAccount(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.ACCOUNT_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, id))
+        .limit(1)
+      if (!before) throw new Error("Account not found.")
+      if (!before.deletedAt) return // already active
+
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
+
+      await tx
+        .update(accounts)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(accounts.id, id))
+      await writeAudit(tx, ctx, {
+        action: "account.restore",
+        entityType: "account",
+        entityId: id,
+        after: before,
       })
     })
     revalidatePath("/accounts")

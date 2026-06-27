@@ -160,11 +160,11 @@ export function ForecastCharts({
         <Card className="@container/card">
           <CardHeader>
             <CardDescription>By stage · ordered by funnel sequence</CardDescription>
-            <CardTitle>Pipeline weighted amount</CardTitle>
+            <CardTitle>Funnel weighted amount</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
             <p className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">
-              No pipeline stages to chart.
+              No funnel stages to chart.
             </p>
           </CardContent>
         </Card>
@@ -241,7 +241,7 @@ export function ForecastCharts({
                 <CardDescription>
                   By stage · ordered by funnel sequence · {currency}
                 </CardDescription>
-                <CardTitle>Pipeline weighted amount</CardTitle>
+                <CardTitle>Funnel weighted amount</CardTitle>
               </CardHeader>
               <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
                 {hasStages ? (
@@ -292,7 +292,7 @@ export function ForecastCharts({
                   </ChartContainer>
                 ) : (
                   <p className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">
-                    No pipeline stages to chart.
+                    No funnel stages to chart.
                   </p>
                 )}
               </CardContent>

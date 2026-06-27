@@ -28,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { formatMoney } from "@/lib/format"
+import { toDateString } from "@/lib/dates"
 import {
   quotationLineSchema,
   headerDiscountSchema,
@@ -87,6 +88,7 @@ export function QuotationCreateForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    mode: "onBlur",
     defaultValues: {
       opportunityId: opportunityId ?? defaultOpportunityId ?? "",
       taxSettingId: defaultTaxId,
@@ -229,11 +231,7 @@ export function QuotationCreateForm({
               <FormItem>
                 <FormLabel>Valid until</FormLabel>
                 <FormControl>
-                  <Input
-                    type="date"
-                    min={new Date().toISOString().slice(0, 10)}
-                    {...field}
-                  />
+                  <Input type="date" min={toDateString()} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

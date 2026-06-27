@@ -4,10 +4,17 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { HelpCircleIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -187,7 +194,7 @@ export function StageAdvanceDialog({
         <DialogHeader>
           <DialogTitle>Advance stage</DialogTitle>
           <DialogDescription>
-            Move this opportunity to a new stage. Some stages require manager
+            Move this Funnel to a new stage. Some stages require manager
             approval before the move takes effect.
           </DialogDescription>
         </DialogHeader>
@@ -223,7 +230,29 @@ export function StageAdvanceDialog({
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <Label>Target stage</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>Target stage</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label="What does stage probability do?"
+                          className="text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <HelpCircleIcon className="size-3.5" />
+                        </button>
+                      }
+                    />
+                    <TooltipContent>
+                      The percentage on each stage is its win probability — it
+                      drives weighted funnel value (amount × probability) in the
+                      forecast.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <Select
                 value={targetStageId}
                 onValueChange={(v) => setTargetStageId((v as string) ?? "")}

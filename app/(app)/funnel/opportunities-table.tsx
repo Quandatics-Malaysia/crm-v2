@@ -112,6 +112,7 @@ export function OpportunitiesTable({
       emptyMessage="No funnels yet."
       toolbar={toolbar}
       tableId="funnel"
+      cap={1000}
       facets={[
         { columnId: "stageName", title: "Stage" },
         { columnId: "status", title: "Status" },

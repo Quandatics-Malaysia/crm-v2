@@ -12,6 +12,12 @@ import {
   FilterIcon,
   FileTextIcon,
   FolderKanbanIcon,
+  LayoutDashboardIcon,
+  ReceiptIcon,
+  TrendingUpIcon,
+  ShieldCheckIcon,
+  Settings2Icon,
+  LoaderIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -73,8 +79,33 @@ const QUICK_CREATE: {
   { label: "Lead", href: "/leads?new=1", permission: PERMISSIONS.LEAD_CREATE, icon: TargetIcon },
   { label: "Account", href: "/accounts?new=1", permission: PERMISSIONS.ACCOUNT_CREATE, icon: Building2Icon },
   { label: "Contact", href: "/persons?new=1", permission: PERMISSIONS.PERSON_CREATE, icon: UsersIcon },
-  { label: "Opportunity", href: "/funnel?new=1", permission: PERMISSIONS.OPPORTUNITY_CREATE, icon: FilterIcon },
+  { label: "Funnel", href: "/funnel?new=1", permission: PERMISSIONS.OPPORTUNITY_CREATE, icon: FilterIcon },
   { label: "Quotation", href: "/quotations/new", permission: PERMISSIONS.QUOTATION_CREATE, icon: FileTextIcon },
+]
+
+/**
+ * Static page-navigation targets for the ⌘K palette so it works as a command
+ * bar ("go to Leads / Forecast / Settings"), not just record search. Gated by
+ * the same view permissions used by the sidebar; entries without a permission
+ * (Dashboard) are always shown.
+ */
+const NAV_ITEMS: {
+  label: string
+  href: string
+  permission?: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
+  { label: "Leads", href: "/leads", permission: PERMISSIONS.LEAD_VIEW, icon: TargetIcon },
+  { label: "Accounts", href: "/accounts", permission: PERMISSIONS.ACCOUNT_VIEW, icon: Building2Icon },
+  { label: "Contacts", href: "/persons", permission: PERMISSIONS.PERSON_VIEW, icon: UsersIcon },
+  { label: "Funnel", href: "/funnel", permission: PERMISSIONS.OPPORTUNITY_VIEW, icon: FilterIcon },
+  { label: "Quotations", href: "/quotations", permission: PERMISSIONS.QUOTATION_VIEW, icon: FileTextIcon },
+  { label: "Sales orders", href: "/sales-orders", permission: PERMISSIONS.SALES_ORDER_VIEW, icon: ReceiptIcon },
+  { label: "Projects", href: "/projects", permission: PERMISSIONS.PROJECT_VIEW, icon: FolderKanbanIcon },
+  { label: "Forecast", href: "/forecast", permission: PERMISSIONS.FORECAST_VIEW, icon: TrendingUpIcon },
+  { label: "Team", href: "/team", permission: PERMISSIONS.TENANT_MANAGE_USERS, icon: ShieldCheckIcon },
+  { label: "Settings", href: "/settings", permission: PERMISSIONS.TENANT_SETTINGS, icon: Settings2Icon },
 ]
 
 /** Search button + ⌘K palette + "+ New" quick-create menu for the site header. */
@@ -88,6 +119,10 @@ export function HeaderActions() {
   const reqId = React.useRef(0)
 
   const createItems = QUICK_CREATE.filter((i) => perms.has(i.permission))
+  const navItems = React.useMemo(
+    () => NAV_ITEMS.filter((i) => !i.permission || perms.has(i.permission)),
+    [perms]
+  )
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -141,7 +176,19 @@ export function HeaderActions() {
     return [...map.entries()]
   }, [hits])
 
-  const showEmpty = query.trim().length >= 2 && !pending && hits.length === 0
+  // Page-navigation entries filter on the typed query (matching their label);
+  // with no query we show the whole nav so the palette opens as a command bar.
+  const navMatches = React.useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return navItems
+    return navItems.filter((i) => i.label.toLowerCase().includes(q))
+  }, [navItems, query])
+
+  const showEmpty =
+    query.trim().length >= 2 &&
+    !pending &&
+    hits.length === 0 &&
+    navMatches.length === 0
 
   return (
     <>
@@ -187,17 +234,44 @@ export function HeaderActions() {
       <CommandDialog open={open} onOpenChange={setOpen}>
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search leads, accounts, contacts, opportunities…"
+            placeholder="Search leads, accounts, contacts, Funnels…"
             value={query}
             onValueChange={setQuery}
-            aria-label="Search records"
+            aria-label="Search records and pages"
           />
+          {/* Off-screen status so screen readers hear search progress/results. */}
+          <div className="sr-only" role="status" aria-live="polite">
+            {query.trim().length < 2
+              ? ""
+              : pending
+                ? "Searching…"
+                : `${hits.length} ${hits.length === 1 ? "result" : "results"} found`}
+          </div>
           <CommandList>
-            {query.trim().length < 2 ? (
-              <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
-            ) : showEmpty ? (
-              <CommandEmpty>No results found.</CommandEmpty>
+            {showEmpty ? <CommandEmpty>No results found.</CommandEmpty> : null}
+
+            {navMatches.length > 0 ? (
+              <CommandGroup heading="Go to">
+                {navMatches.map((item) => (
+                  <CommandItem
+                    key={item.href}
+                    value={`nav-${item.label}`}
+                    onSelect={() => go(item.href)}
+                  >
+                    <item.icon className="size-4 text-muted-foreground" />
+                    <span className="truncate">{item.label}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             ) : null}
+
+            {pending ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                <LoaderIcon className="size-4 animate-spin" />
+                Searching…
+              </div>
+            ) : null}
+
             {groups.map(([group, items]) => (
               <CommandGroup key={group} heading={group}>
                 {items.map((hit) => {

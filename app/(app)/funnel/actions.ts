@@ -312,7 +312,7 @@ export async function createOpportunity(
 
       // owner_member_id is NOT NULL — default to the creator when unspecified.
       const ownerMemberId = input.ownerMemberId || ctx.memberId
-      if (!ownerMemberId) throw new Error("No owner for the opportunity")
+      if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
       const [row] = await tx
         .insert(opportunities)
@@ -368,9 +368,9 @@ export async function updateOpportunity(
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
-    if (!existing) throw new Error("Opportunity not found")
+    if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this opportunity")
+      throw new Error("FORBIDDEN: not permitted on this Funnel")
 
     // The primary quotation freezes its currency at creation and is never
     // re-snapshotted, so a divergent opportunity currency would have the same
@@ -448,9 +448,9 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
-    if (!existing) throw new Error("Opportunity not found")
+    if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this opportunity")
+      throw new Error("FORBIDDEN: not permitted on this Funnel")
 
     await tx
       .update(opportunities)
@@ -550,9 +550,9 @@ export async function advanceStageAction(input: {
         )
       )
       .limit(1)
-    if (!opp) throw new Error("Opportunity not found")
+    if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this opportunity")
+      throw new Error("FORBIDDEN: not permitted on this Funnel")
   })
   const result = await requestStageAdvance(ctx, input)
   revalidatePath("/funnel")
@@ -586,9 +586,9 @@ export async function reopenStageAction(input: {
           )
         )
         .limit(1)
-      if (!opp) throw new Error("Opportunity not found")
+      if (!opp) throw new Error("Funnel not found")
       if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
-        throw new Error("FORBIDDEN: not permitted on this opportunity")
+        throw new Error("FORBIDDEN: not permitted on this Funnel")
     })
     await reopenOpportunity(ctx, input)
     revalidatePath("/funnel")

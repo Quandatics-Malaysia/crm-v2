@@ -47,6 +47,7 @@ import {
   createLead,
   updateLead,
   deleteLead,
+  restoreLead,
   disqualifyLead,
   type Lead,
   type LeadInput,
@@ -297,7 +298,7 @@ export function LeadsTable({
                   href={`/funnel/${lead.convertedOpportunityId}`}
                   className="text-primary hover:underline"
                 >
-                  Opportunity
+                  Funnel
                 </Link>
               ) : null}
             </div>
@@ -376,6 +377,7 @@ export function LeadsTable({
         columns={columns}
         data={data}
         tableId="leads"
+        cap={1000}
         facets={[
           { columnId: "status", title: "Status" },
           { columnId: "source", title: "Source" },
@@ -460,8 +462,8 @@ export function LeadsTable({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete lead?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove “{deleteTarget?.name}” from your lead list. This
-              action can’t be undone here.
+              This will remove “{deleteTarget?.name}” from your lead list. You
+              can undo this right after.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -470,12 +472,26 @@ export function LeadsTable({
               variant="destructive"
               onClick={async () => {
                 if (!deleteTarget) return
-                const res = await deleteLead(deleteTarget.id)
+                const target = deleteTarget
+                const res = await deleteLead(target.id)
                 if (!res.ok) {
                   toast.error(res.error)
                   return
                 }
-                toast.success("Lead deleted")
+                toast.success("Lead deleted", {
+                  action: {
+                    label: "Undo",
+                    onClick: async () => {
+                      const r = await restoreLead(target.id)
+                      if (!r.ok) {
+                        toast.error(r.error)
+                        return
+                      }
+                      toast.success("Lead restored")
+                      router.refresh()
+                    },
+                  },
+                })
                 setDeleteTarget(null)
                 router.refresh()
               }}

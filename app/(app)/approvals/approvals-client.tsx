@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, X, Ban, ChevronRight, Loader2 } from "lucide-react"
+import { Check, X, Ban, ChevronRight, Loader2, Info } from "lucide-react"
 import { toast } from "sonner"
 import {
   Tabs,
@@ -135,7 +135,13 @@ function DecisionDialog({
         toast.error(res.error)
         return
       }
-      toast.success(approve ? "Request approved" : "Request rejected")
+      // An approve can resolve as "obsolete" when the funnel already moved past
+      // the requested stage — surface that neutrally rather than as a success.
+      if (res.data.status === "obsolete") {
+        toast.info(res.data.message)
+      } else {
+        toast.success(res.data.message)
+      }
       onDone()
     })
   }
@@ -201,7 +207,7 @@ function CancelDialog({ row, onDone }: { row: ApprovalRow; onDone: () => void })
         toast.error(res.error)
         return
       }
-      toast.success("Request cancelled")
+      toast.success(res.data.message)
       onDone()
     })
   }
@@ -316,18 +322,44 @@ function MineCard({ row, onDone }: { row: ApprovalRow; onDone: () => void }) {
   )
 }
 
+/**
+ * Inline help that explains the approval gate and names the approving tier, so
+ * reviewers and requesters understand who signs off and why a stage is gated.
+ */
+function GateHelp({ bypassTier }: { bypassTier: number }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+      <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <p>
+        Some funnel stages are <span className="font-medium">approval-gated</span>
+        : a funnel can&apos;t enter them until an approver signs off. Requests
+        route up the reporting line to the first manager who can approve.{" "}
+        <span className="font-medium">
+          Members at tier {bypassTier} or above
+        </span>{" "}
+        (and anyone with the stage-approval permission) approve these requests
+        and bypass the gate themselves.
+      </p>
+    </div>
+  )
+}
+
 export function ApprovalsClient({
   incoming,
   mine,
+  bypassTier,
 }: {
   incoming: ApprovalRow[]
   mine: ApprovalRow[]
+  bypassTier: number
 }) {
   const router = useRouter()
   const refresh = React.useCallback(() => router.refresh(), [router])
 
   return (
-    <Tabs defaultValue="incoming" className="w-full">
+    <div className="flex flex-col gap-4">
+      <GateHelp bypassTier={bypassTier} />
+      <Tabs defaultValue="incoming" className="w-full">
       <TabsList>
         <TabsTrigger value="incoming">Incoming ({incoming.length})</TabsTrigger>
         <TabsTrigger value="mine">My requests ({mine.length})</TabsTrigger>
@@ -360,6 +392,7 @@ export function ApprovalsClient({
           </div>
         )}
       </TabsContent>
-    </Tabs>
+      </Tabs>
+    </div>
   )
 }

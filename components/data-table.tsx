@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   type Column,
   type ColumnDef,
   type ColumnFiltersState,
+  type PaginationState,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -72,8 +74,13 @@ export interface DataTableProps<TData, TValue> {
   pageSize?: number
   /** Columns to expose as multi-select faceted filters. */
   facets?: DataTableFacet[]
-  /** Accepted for compatibility; no longer used. */
+  /** Namespaces the URL state params so multiple tables can coexist on a page. */
   tableId?: string
+  /**
+   * Server-side row cap. When `data.length >= cap`, a notice is shown so users
+   * know the list is truncated and should refine their search.
+   */
+  cap?: number
 }
 
 const facetFilterFn = (
@@ -94,6 +101,8 @@ export function DataTable<TData, TValue>({
   toolbar,
   pageSize = 10,
   facets,
+  tableId,
+  cap,
 }: DataTableProps<TData, TValue>) {
   const facetIds = React.useMemo(
     () => new Set((facets ?? []).map((f) => f.columnId)),
@@ -112,18 +121,130 @@ export function DataTable<TData, TValue>({
     [columns, facetIds]
   )
 
-  const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  // --- URL-persisted table state (bookmarkable / shareable / survives nav) ---
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  // Namespace params per table so multiple tables on one page don't collide.
+  const key = React.useCallback(
+    (name: string) => (tableId ? `${tableId}_${name}` : name),
+    [tableId]
+  )
+
+  // Read the initial state from the URL exactly once on mount.
+  const initial = React.useMemo(() => {
+    const sorting: SortingState = []
+    const sortParam = searchParams.get(key("sort"))
+    if (sortParam) {
+      for (const piece of sortParam.split(",")) {
+        const [id, dir] = piece.split(":")
+        if (id) sorting.push({ id, desc: dir === "desc" })
+      }
+    }
+
+    const columnFilters: ColumnFiltersState = []
+    if (searchColumn) {
+      const q = searchParams.get(key("q"))
+      if (q) columnFilters.push({ id: searchColumn, value: q })
+    }
+    for (const f of facets ?? []) {
+      const v = searchParams.get(key(`f_${f.columnId}`))
+      if (v) columnFilters.push({ id: f.columnId, value: v.split(",") })
+    }
+
+    const columnVisibility: VisibilityState = {}
+    const hidden = searchParams.get(key("hide"))
+    if (hidden) for (const c of hidden.split(",")) columnVisibility[c] = false
+
+    const pageIndex = Math.max(0, (Number(searchParams.get(key("page"))) || 1) - 1)
+    const size = Number(searchParams.get(key("size"))) || pageSize
+
+    return {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      pagination: { pageIndex, pageSize: size } as PaginationState,
+    }
+    // Intentionally read the URL once on mount; state is the source of truth after.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const [sorting, setSorting] = React.useState<SortingState>(initial.sorting)
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    initial.columnFilters
+  )
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    initial.columnVisibility
+  )
+  const [pagination, setPagination] = React.useState<PaginationState>(
+    initial.pagination
+  )
   const [rowSelection, setRowSelection] = React.useState({})
+
+  // Write state back to the URL whenever it changes (replace, no scroll/history churn).
+  React.useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+
+    if (sorting.length)
+      params.set(
+        key("sort"),
+        sorting.map((s) => `${s.id}:${s.desc ? "desc" : "asc"}`).join(",")
+      )
+    else params.delete(key("sort"))
+
+    if (searchColumn) {
+      const sv = columnFilters.find((f) => f.id === searchColumn)?.value
+      if (sv) params.set(key("q"), String(sv))
+      else params.delete(key("q"))
+    }
+
+    for (const f of facets ?? []) {
+      const fv = columnFilters.find((c) => c.id === f.columnId)?.value as
+        | string[]
+        | undefined
+      if (fv && fv.length) params.set(key(`f_${f.columnId}`), fv.join(","))
+      else params.delete(key(`f_${f.columnId}`))
+    }
+
+    const hiddenCols = Object.entries(columnVisibility)
+      .filter(([, v]) => v === false)
+      .map(([id]) => id)
+    if (hiddenCols.length) params.set(key("hide"), hiddenCols.join(","))
+    else params.delete(key("hide"))
+
+    if (pagination.pageIndex > 0)
+      params.set(key("page"), String(pagination.pageIndex + 1))
+    else params.delete(key("page"))
+    if (pagination.pageSize !== pageSize)
+      params.set(key("size"), String(pagination.pageSize))
+    else params.delete(key("size"))
+
+    const qs = params.toString()
+    if (qs !== searchParams.toString()) {
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }
+  }, [
+    sorting,
+    columnFilters,
+    columnVisibility,
+    pagination,
+    searchColumn,
+    facets,
+    pageSize,
+    key,
+    pathname,
+    router,
+    searchParams,
+  ])
 
   const table = useReactTable({
     data,
     columns: tableColumns,
-    state: { sorting, columnFilters, columnVisibility, rowSelection },
+    state: { sorting, columnFilters, columnVisibility, pagination, rowSelection },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: setPagination,
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -131,7 +252,6 @@ export function DataTable<TData, TValue>({
     getPaginationRowModel: getPaginationRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
-    initialState: { pagination: { pageSize } },
   })
 
   const searchCol = searchColumn ? table.getColumn(searchColumn) : undefined
@@ -198,6 +318,12 @@ export function DataTable<TData, TValue>({
           </DropdownMenu>
         </div>
       </div>
+
+      {cap != null && data.length >= cap ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+          Showing the most recent {cap} — refine your search to see more.
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border">
         <Table>

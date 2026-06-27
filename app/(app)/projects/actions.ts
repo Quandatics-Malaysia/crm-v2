@@ -109,7 +109,9 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         )
       )
       .orderBy(desc(projects.createdAt))
-      .limit(500)
+      // Capped server-side; the list table surfaces a "refine your search"
+      // notice at this count (cap={1000}) so rows never silently vanish.
+      .limit(1000)
     return rows
   })
 }

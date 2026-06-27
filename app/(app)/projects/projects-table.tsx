@@ -117,6 +117,7 @@ export function ProjectsTable({
       emptyMessage="No projects yet."
       facets={[{ columnId: "status", title: "Status" }]}
       tableId="projects"
+      cap={1000}
       toolbar={toolbar}
     />
   )

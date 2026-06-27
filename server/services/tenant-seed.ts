@@ -101,7 +101,7 @@ export async function seedTenant(
   if (existing.length === 0) {
     const [funnel] = await tx
       .insert(funnels)
-      .values({ tenantId, name: "Sales Pipeline", isDefault: true, isActive: true })
+      .values({ tenantId, name: "Sales Funnel", isDefault: true, isActive: true })
       .returning()
     await tx.insert(funnelStages).values(
       CANONICAL_STAGES.map((s) => ({

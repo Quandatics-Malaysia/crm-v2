@@ -1,8 +1,18 @@
 import "server-only"
 import { and, eq, isNull, lte, asc, sql } from "drizzle-orm"
 import { requireContext } from "@/lib/server-context"
-import { runInTenant } from "@/db"
-import { stageApprovalRequests, opportunities, activities } from "@/db/schema"
+import { db, runInTenant } from "@/db"
+import {
+  stageApprovalRequests,
+  opportunities,
+  activities,
+  leads,
+  accounts,
+  persons,
+  funnelStages,
+  taxSettings,
+  member,
+} from "@/db/schema"
 
 export type PendingApproval = {
   id: string
@@ -29,10 +39,31 @@ export type OpenPipeline = {
   mixed: boolean
 }
 
+/**
+ * Derived completion for the getting-started checklist. Seeded items (funnel
+ * stages + SST tax/currency) start checked so progress shows on day one.
+ */
+export type GettingStarted = {
+  /** First lead captured. */
+  hasLead: boolean
+  /** At least one account or contact exists. */
+  hasAccountOrContact: boolean
+  /** Funnel stages reviewed (seeded by default → pre-checked). */
+  hasStages: boolean
+  /** Currency + SST tax configured (seeded by default → pre-checked). */
+  hasCurrencyTax: boolean
+  /** A teammate has been brought into the workspace. */
+  hasTeammate: boolean
+}
+
 export type DashboardData = {
   myPendingApprovals: PendingApproval[]
   followUpsDue: FollowUpDue[]
   myOpenPipeline: OpenPipeline
+  /** True when the tenant has no leads/accounts/contacts/funnels yet — render
+   *  the "Get started" hero instead of the "all caught up" dashboard. */
+  isFirstRun: boolean
+  gettingStarted: GettingStarted
 }
 
 /**
@@ -128,6 +159,64 @@ export async function getDashboardData(): Promise<DashboardData> {
     const mixed = pipelineRows.length > 1
     const primary = pipelineRows[0]
 
+    // Tenant-wide existence checks for first-run detection + the getting-started
+    // checklist. RLS scopes each count to the active tenant. Run sequentially —
+    // they share the transaction's single connection.
+    const num = (rows: { n: number }[]) => Number(rows[0]?.n ?? 0)
+    const leadCount = num(
+      await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(leads)
+        .where(isNull(leads.deletedAt))
+    )
+    const accountCount = num(
+      await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(accounts)
+        .where(isNull(accounts.deletedAt))
+    )
+    const personCount = num(
+      await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(persons)
+        .where(isNull(persons.deletedAt))
+    )
+    const oppCount = num(
+      await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(opportunities)
+        .where(isNull(opportunities.deletedAt))
+    )
+    const stageCount = num(
+      await tx.select({ n: sql<number>`count(*)::int` }).from(funnelStages)
+    )
+    const taxCount = num(
+      await tx.select({ n: sql<number>`count(*)::int` }).from(taxSettings)
+    )
+
+    // Member count is sourced from the auth schema (not tenant-RLS scoped), so
+    // query it on the base connection by organization.
+    const memberCount = num(
+      await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(member)
+        .where(eq(member.organizationId, ctx.tenantId))
+    )
+
+    const gettingStarted: GettingStarted = {
+      hasLead: leadCount > 0,
+      hasAccountOrContact: accountCount > 0 || personCount > 0,
+      hasStages: stageCount > 0,
+      hasCurrencyTax: taxCount > 0,
+      hasTeammate: memberCount > 1,
+    }
+
+    const isFirstRun =
+      leadCount === 0 &&
+      accountCount === 0 &&
+      personCount === 0 &&
+      oppCount === 0
+
     return {
       myPendingApprovals,
       followUpsDue,
@@ -137,6 +226,8 @@ export async function getDashboardData(): Promise<DashboardData> {
         currency: mixed ? null : primary?.currency ?? null,
         mixed,
       },
+      isFirstRun,
+      gettingStarted,
     }
   })
 }

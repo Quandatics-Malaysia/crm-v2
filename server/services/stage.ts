@@ -16,23 +16,15 @@ import { PERMISSIONS } from "@/lib/permissions"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import type { ServerContext } from "@/lib/server-context"
+// Shared LOCAL YYYY-MM-DD formatter. Deriving `actualCloseDate` from this (a
+// local-calendar slice) instead of a raw UTC `toISOString().slice(0,10)` keeps
+// the date consistent with the `closedAt` timestamptz instead of rolling a day
+// early for tenants east of UTC. (No per-tenant timezone field exists yet; the
+// reporting layer remains the place to re-localize if needed.)
+import { toDateString } from "@/lib/dates"
 
 type StageRow = typeof funnelStages.$inferSelect
 type OppRow = typeof opportunities.$inferSelect
-
-/**
- * Render a naive `date` column value (YYYY-MM-DD) from a timestamp using the
- * server's local calendar rather than a raw UTC slice, so `actualCloseDate`
- * stays consistent with the `closedAt` timestamptz it is derived from instead of
- * rolling a day early for tenants east of UTC. (No per-tenant timezone field
- * exists yet; the reporting layer remains the place to re-localize if needed.)
- */
-function toDateString(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
 
 function kindToStatus(kind: string): "open" | "won" | "lost" | "on_hold" {
   switch (kind) {
@@ -77,11 +69,11 @@ function isTerminalKind(kind: string): boolean {
  * OPEN → terminal (win / lose / park) is always allowed from an open stage.
  */
 function assertTransitionAllowed(from: StageRow, to: StageRow): void {
-  if (from.id === to.id) throw new Error("The deal is already in this stage")
+  if (from.id === to.id) throw new Error("This funnel is already in this stage")
   if (isTerminalKind(from.kind))
-    throw new Error("This deal is closed. Reopen it before changing its stage.")
+    throw new Error("This funnel is closed. Reopen it before changing its stage.")
   if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
-    throw new Error("Stage moves must advance forward in the pipeline")
+    throw new Error("Stage moves must advance forward in the funnel")
 }
 
 /** Whether the actor may enter approval-gated stages without a request. */
@@ -274,7 +266,7 @@ export async function requestStageAdvance(
       .from(opportunities)
       .where(eq(opportunities.id, input.opportunityId))
       .limit(1)
-    if (!opp) throw new Error("Opportunity not found")
+    if (!opp) throw new Error("Funnel not found")
 
     const [from] = await tx
       .select()
@@ -336,13 +328,22 @@ export async function requestStageAdvance(
  * no-op (never an override) when the deal is already closed/parked — accepting
  * a quote must not silently reopen a Lost/KIV deal into Won. If the Won stage
  * is approval-gated and the actor can't bypass, a pending approval request is
- * raised instead of moving directly. Signature is intentionally stable;
+ * raised instead of moving directly. Signature is intentionally additive;
  * `acceptQuotation` (quotations folder) calls this.
+ *
+ * Returns `{ moved, pendingApproval }`:
+ *  - `moved` is true only when the funnel actually advanced into Won,
+ *  - `pendingApproval` is true when the Won stage is gated and only a pending
+ *    approval request was filed (the funnel did NOT move yet),
+ *  - both false on a no-op (no funnel, already closed/won, or no Won stage).
+ * The caller's toast can then say "win is pending approval" rather than "won".
  */
+export type WinOutcome = { moved: boolean; pendingApproval: boolean }
+
 export async function winOpportunity(
   ctx: ServerContext,
   opportunityId: string
-): Promise<void> {
+): Promise<WinOutcome> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const [opp] = await tx
       .select()
@@ -350,17 +351,18 @@ export async function winOpportunity(
       .where(eq(opportunities.id, opportunityId))
       .limit(1)
       .for("update")
-    if (!opp) return
-    // Status guard: only an OPEN deal may auto-win. Won (already), Lost, and
-    // KIV/on-hold deals are left untouched.
-    if (opp.status !== "open") return
+    if (!opp) return { moved: false, pendingApproval: false }
+    // Status guard: only an OPEN funnel may auto-win. Won (already), Lost, and
+    // KIV/on-hold funnels are left untouched.
+    if (opp.status !== "open") return { moved: false, pendingApproval: false }
 
     const [won] = await tx
       .select()
       .from(funnelStages)
       .where(and(eq(funnelStages.funnelId, opp.funnelId), eq(funnelStages.kind, "WON")))
       .limit(1)
-    if (!won || opp.currentStageId === won.id) return
+    if (!won || opp.currentStageId === won.id)
+      return { moved: false, pendingApproval: false }
 
     // Respect the Won stage's approval gate instead of bypassing it.
     const [settings] = await tx
@@ -376,10 +378,11 @@ export async function winOpportunity(
         won,
         "Auto-win on quotation acceptance"
       )
-      return
+      return { moved: false, pendingApproval: true }
     }
 
     await applyStageMove(tx, ctx, opp, won, "quote_accept")
+    return { moved: true, pendingApproval: false }
   })
 }
 
@@ -403,8 +406,8 @@ export async function reopenOpportunity(
       .where(eq(opportunities.id, input.opportunityId))
       .limit(1)
       .for("update")
-    if (!opp) throw new Error("Opportunity not found")
-    if (opp.status === "open") throw new Error("This deal is already open")
+    if (!opp) throw new Error("Funnel not found")
+    if (opp.status === "open") throw new Error("This funnel is already open")
 
     const [from] = await tx
       .select()
@@ -413,7 +416,7 @@ export async function reopenOpportunity(
       .limit(1)
     if (!from) throw new Error("Current stage not found")
     if (from.kind !== "PARKED" && from.kind !== "LOST")
-      throw new Error("Only parked or lost deals can be reopened")
+      throw new Error("Only parked or lost funnels can be reopened")
 
     const [target] = await tx
       .select()
@@ -424,7 +427,7 @@ export async function reopenOpportunity(
     if (target.funnelId !== opp.funnelId)
       throw new Error("Stage does not belong to this funnel")
     if (target.kind !== "OPEN")
-      throw new Error("A reopened deal must move to an open stage")
+      throw new Error("A reopened funnel must move to an open stage")
 
     // The `reopen` source already marks this move as a reopen, so the reason is
     // stored verbatim (no "Reopened:" prefix needed).
@@ -440,6 +443,19 @@ export async function reopenOpportunity(
   })
 }
 
+/**
+ * Outcome of a decision. `status` is the request's resolved status — note the
+ * extra `"obsolete"` value: an approve that could no longer be applied because
+ * the funnel had already moved past/closed the target stage (the request is
+ * recorded as `rejected` in the DB with an explanatory note, but reported as
+ * obsolete here so the UI can show a neutral, non-error message). `message` is a
+ * friendly, user-facing summary the caller can surface in a toast.
+ */
+export type DecisionOutcome = {
+  status: "approved" | "rejected" | "cancelled" | "obsolete"
+  message: string
+}
+
 /** Approve (performs the move), reject (no change), or cancel (requester only). */
 export async function decideApproval(
   ctx: ServerContext,
@@ -448,7 +464,7 @@ export async function decideApproval(
     decision: "approved" | "rejected" | "cancelled"
     note?: string
   }
-): Promise<void> {
+): Promise<DecisionOutcome> {
   return runInTenant(ctx.tenantId, async (tx) => {
     // Lock the request row so concurrent decisions serialize: a second caller
     // blocks here until this tx commits, then sees status != 'pending'.
@@ -482,7 +498,7 @@ export async function decideApproval(
         entityType: "stage_approval_request",
         entityId: req.id,
       })
-      return
+      return { status: "cancelled", message: "Request cancelled" }
     }
 
     const allowed =
@@ -515,19 +531,19 @@ export async function decideApproval(
         entityType: "stage_approval_request",
         entityId: req.id,
       })
-      return
+      return { status: "rejected", message: "Request rejected" }
     }
 
-    // Approved: lock the opportunity, re-validate the transition against the
-    // deal's *current* stage (it may have closed since the request was filed),
-    // then claim the request atomically before applying the move.
+    // Approved: lock the funnel and re-validate the transition against its
+    // *current* stage — it may have advanced to/past the target, or closed
+    // entirely, since the request was filed.
     const [opp] = await tx
       .select()
       .from(opportunities)
       .where(eq(opportunities.id, req.opportunityId))
       .limit(1)
       .for("update")
-    if (!opp) throw new Error("Opportunity or stage missing")
+    if (!opp) throw new Error("Funnel or stage missing")
     const [from] = await tx
       .select()
       .from(funnelStages)
@@ -538,8 +554,51 @@ export async function decideApproval(
       .from(funnelStages)
       .where(eq(funnelStages.id, req.targetStageId))
       .limit(1)
-    if (!from || !target) throw new Error("Opportunity or stage missing")
-    assertTransitionAllowed(from, target)
+    if (!from || !target) throw new Error("Funnel or stage missing")
+
+    // If the move is no longer applicable — the funnel already sits in the
+    // target stage, has been closed (Won/Lost/KIV), or advanced past an open
+    // target — DON'T throw + roll back (that would leave the request stuck
+    // 'pending' forever, never leaving the queue). Instead resolve it
+    // gracefully: record it as decided with a clear "obsolete" note and commit,
+    // so it leaves the pending queue with an honest history trail.
+    const obsolete =
+      from.id === target.id ||
+      isTerminalKind(from.kind) ||
+      (target.kind === "OPEN" && target.sortOrder <= from.sortOrder)
+    if (obsolete) {
+      const closeNote =
+        "This funnel already moved past the requested stage; request closed."
+      const note = input.note?.trim()
+        ? `${input.note.trim()} — ${closeNote}`
+        : closeNote
+      const resolved = await tx
+        .update(stageApprovalRequests)
+        .set({
+          // No "obsolete" value exists in the approval_status enum, so persist
+          // as 'rejected' (a terminal, non-pending status) with an explanatory
+          // note; the returned outcome distinguishes it as "obsolete".
+          status: "rejected",
+          approverMemberId: ctx.memberId,
+          decidedAt: new Date(),
+          decisionNote: note,
+        })
+        .where(
+          and(
+            eq(stageApprovalRequests.id, req.id),
+            eq(stageApprovalRequests.status, "pending")
+          )
+        )
+        .returning({ id: stageApprovalRequests.id })
+      if (resolved.length === 0) throw new Error("Request already decided")
+      await writeAudit(tx, ctx, {
+        action: "approval.obsolete",
+        entityType: "stage_approval_request",
+        entityId: req.id,
+        after: { reason: "funnel already moved past requested stage" },
+      })
+      return { status: "obsolete", message: closeNote }
+    }
 
     const claimed = await tx
       .update(stageApprovalRequests)
@@ -564,5 +623,9 @@ export async function decideApproval(
       entityType: "stage_approval_request",
       entityId: req.id,
     })
+    return {
+      status: "approved",
+      message: `Request approved — moved to ${target.name}`,
+    }
   })
 }

@@ -127,7 +127,7 @@ const SWITCHES: {
     name: "autoWinOnQuoteAccept",
     label: "Auto-win on quote accept",
     description:
-      "Move an opportunity to Won automatically when its primary quote is accepted. Note: this bypasses the Won stage's \"requires approval to enter\" gate — accepting the quote wins the deal directly, no sign-off requested.",
+      "Move a funnel to Won automatically when its primary quote is accepted. Note: this bypasses the Won stage's \"requires approval to enter\" gate — accepting the quote wins the funnel directly, no sign-off requested.",
   },
   {
     name: "allowPasswordLogin",
@@ -312,7 +312,7 @@ function GeneralForm({
                     <p className="text-sm text-destructive">
                       No active member meets this tier — every gated stage will
                       need approval and there is no one who can approve, so the
-                      pipeline can deadlock. Lower this tier or raise a
+                      funnel can deadlock. Lower this tier or raise a
                       member&apos;s tier on the Team screen.
                     </p>
                   ) : null}
@@ -836,8 +836,8 @@ function StageDialog({
         <DialogHeader>
           <DialogTitle>{initial ? "Edit stage" : "New stage"}</DialogTitle>
           <DialogDescription>
-            Stages define the pipeline. The forecast inclusion toggle decides
-            whether a stage&apos;s deals count toward the billing forecast.
+            Stages define the funnel. The forecast inclusion toggle decides
+            whether a stage&apos;s funnels count toward the billing forecast.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -1005,7 +1005,7 @@ function StageDialog({
                   <div className="grid gap-1">
                     <FormLabel>Include in forecast</FormLabel>
                     <FormDescription>
-                      Count this stage&apos;s deals in the billing forecast.
+                      Count this stage&apos;s funnels in the billing forecast.
                     </FormDescription>
                   </div>
                   <FormControl>
@@ -1116,8 +1116,8 @@ function StageRowActions({
             <AlertDialogTitle>Delete stage?</AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes the “{stage.name}” stage from the funnel.
-              Stages that still have opportunities in them can&apos;t be deleted —
-              move those deals to another stage first.
+              Stages that still have funnels in them can&apos;t be deleted —
+              move those funnels to another stage first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, HelpCircleIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -47,6 +47,12 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { formatMoney, formatDate } from "@/lib/format"
 import type { ActionResult } from "@/lib/action-result"
 import {
@@ -100,6 +106,7 @@ export function QuotationForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    mode: "onBlur",
     defaultValues: {
       taxSettingId: quotation.taxSettingId ?? NO_TAX,
       validUntil: quotation.validUntil ?? "",
@@ -205,12 +212,54 @@ export function QuotationForm({
       return
     }
     if (res.data.warning) toast.warning(res.data.warning)
-    // The highest-value moment: offer the forward step (create the project).
-    toast.success("Quotation accepted", {
-      action: {
-        label: "Create project",
-        onClick: () => router.push(createProjectHref),
-      },
+    if (res.data.pendingApproval) {
+      // Auto-win is gated behind an approval request — the funnel is NOT won
+      // yet, so don't offer the "Create project" forward step as if it had.
+      toast.success(
+        "Quotation accepted — winning the funnel is pending approval"
+      )
+    } else {
+      // The highest-value moment: offer the forward step (create the project).
+      toast.success("Quotation accepted", {
+        action: {
+          label: "Create project",
+          onClick: () => router.push(createProjectHref),
+        },
+      })
+    }
+    router.refresh()
+    setBusy(false)
+  }
+
+  async function onSetPrimary() {
+    setBusy(true)
+    const res = await setPrimaryQuotation(quotation.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      setBusy(false)
+      return
+    }
+    const previousId = res.data.previousPrimaryId
+    // Set-primary re-values the funnel + shifts the forecast, so make it
+    // reversible: offer an Undo that restores the prior primary quote.
+    toast.success("Set as primary quotation", {
+      description: "This re-values the funnel and shifts the forecast.",
+      ...(previousId
+        ? {
+            action: {
+              label: "Undo",
+              onClick: async () => {
+                const undo = await setPrimaryQuotation(previousId)
+                if (!undo.ok) {
+                  toast.error(undo.error)
+                  return
+                }
+                toast.success("Primary quotation restored")
+                router.refresh()
+              },
+            },
+          }
+        : {}),
     })
     router.refresh()
     setBusy(false)
@@ -282,7 +331,14 @@ export function QuotationForm({
                   name="taxSettingId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tax setting</FormLabel>
+                      <div className="flex items-center gap-1.5">
+                        <FormLabel>Tax setting</FormLabel>
+                        <InfoHint label="How is tax applied to this quotation?">
+                          {labelTaxInclusive
+                            ? "Tax-inclusive: line prices already include tax, so the tax shown is extracted from the total rather than added on top."
+                            : "Tax-exclusive: the selected rate is added on top of the line subtotal."}
+                        </InfoHint>
+                      </div>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -548,9 +604,15 @@ export function QuotationForm({
               </span>
             </div>
             {quotation.isPrimary ? (
-              <Badge variant="secondary" className="mt-1 w-fit">
-                Primary quotation
-              </Badge>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Badge variant="secondary" className="w-fit">
+                  Primary quotation
+                </Badge>
+                <InfoHint label="What is the primary quotation?">
+                  The primary quotation drives the funnel’s value and its
+                  weighted forecast.
+                </InfoHint>
+              </div>
             ) : null}
           </CardContent>
         </Card>
@@ -561,30 +623,105 @@ export function QuotationForm({
           </CardHeader>
           <CardContent className="grid gap-2">
             {isDraft ? (
-              <Button
-                variant="default"
-                disabled={busy}
-                onClick={() =>
-                  runAction(() => sendQuotation(quotation.id), "Quotation sent")
-                }
-              >
-                Send
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="default" disabled={busy}>
+                      Send
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Send this quotation?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Sending freezes {quotation.quoteNumber}: it becomes
+                      read-only and its pricing, line items and tax rate are
+                      locked in. To change anything afterwards you’ll need to
+                      create a revision from the funnel.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() =>
+                        runAction(
+                          () => sendQuotation(quotation.id),
+                          "Quotation sent"
+                        )
+                      }
+                    >
+                      Send
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             {isSent ? (
               <>
-                <Button variant="default" disabled={busy} onClick={onAccept}>
-                  Accept
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    runAction(() => rejectQuotation(quotation.id), "Quotation rejected")
-                  }
-                >
-                  Reject
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button variant="default" disabled={busy}>
+                        Accept
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Accept this quotation?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Accepting marks {quotation.quoteNumber} as the funnel’s
+                        primary, winning quotation. If auto-win is enabled this
+                        also moves the funnel to Won (or raises an approval
+                        request) and lets you start a project. This can’t be
+                        undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={onAccept}>
+                        Accept
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button variant="outline" disabled={busy}>
+                        Reject
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Reject this quotation?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Rejecting {quotation.quoteNumber} drops it from the
+                        funnel’s value. If it’s the primary quote, another live
+                        quotation is promoted in its place.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() =>
+                          runAction(
+                            () => rejectQuotation(quotation.id),
+                            "Quotation rejected"
+                          )
+                        }
+                      >
+                        Reject
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </>
             ) : null}
             {isAccepted && !hasProject ? (
@@ -599,18 +736,21 @@ export function QuotationForm({
             ) : null}
             {!quotation.isPrimary &&
             (quotation.status === "accepted" || quotation.status === "sent") ? (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  runAction(
-                    () => setPrimaryQuotation(quotation.id),
-                    "Set as primary"
-                  )
-                }
-              >
-                Set primary
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={busy}
+                  onClick={onSetPrimary}
+                >
+                  Set primary
+                </Button>
+                <InfoHint label="What does setting a primary quotation do?">
+                  The primary quotation sets the funnel’s value — making this
+                  one primary re-values the funnel and shifts the weighted
+                  forecast. You can undo it right after.
+                </InfoHint>
+              </div>
             ) : null}
 
             <AlertDialog>
@@ -659,5 +799,34 @@ function Row({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <span className="tabular-nums text-foreground">{value}</span>
     </div>
+  )
+}
+
+/** A small "?" trigger that explains a domain concept inline, at the point of
+ *  decision (tax mode, primary quotation, etc.). */
+function InfoHint({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={label}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <HelpCircleIcon className="size-3.5" />
+            </button>
+          }
+        />
+        <TooltipContent>{children}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

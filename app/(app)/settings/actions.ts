@@ -513,7 +513,7 @@ export async function deleteStage(id: string): Promise<ActionResult<void>> {
       .limit(1)
     if (inUse.length > 0) {
       throw new Error(
-        "This stage still has opportunities in it. Move them to another stage before deleting it."
+        "This stage still has funnels in it. Move them to another stage before deleting it."
       )
     }
 

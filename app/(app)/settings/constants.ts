@@ -29,7 +29,7 @@ export const STAGE_CODE_LABELS: Record<StageCode, string> = {
 
 /** Friendly label for each stage Kind. */
 export const STAGE_KIND_LABELS: Record<StageKind, string> = {
-  OPEN: "Open — active pipeline",
+  OPEN: "Open — active funnel",
   WON: "Won — closed successfully",
   LOST: "Lost — closed, not pursued",
   PARKED: "Parked / on-hold (KIV)",
@@ -41,7 +41,7 @@ export const STAGE_KIND_LABELS: Record<StageKind, string> = {
  * are terminal closes. Pick it to match the Code; it can't be changed later.
  */
 export const STAGE_KIND_DESCRIPTION =
-  "Kind sets the deal's lifecycle class and is locked after creation. OPEN = active pipeline, WON = closed-won, LOST = closed-lost, PARKED = on-hold (KIV). Only OPEN and WON stages feed the billing forecast."
+  "Kind sets the funnel's lifecycle class and is locked after creation. OPEN = active funnel, WON = closed-won, LOST = closed-lost, PARKED = on-hold (KIV). Only OPEN and WON stages feed the billing forecast."
 
 /** Suggested Kind for a given Code (used to auto-fill on Code change). */
 export function suggestKindForCode(code: StageCode): StageKind {

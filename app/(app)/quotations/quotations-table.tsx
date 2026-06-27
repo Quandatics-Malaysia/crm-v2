@@ -159,6 +159,7 @@ export function QuotationsTable({
       columns={columns}
       data={data}
       tableId="quotations"
+      cap={500}
       facets={[{ columnId: "status", title: "Status" }]}
       searchColumn="quoteNumber"
       searchPlaceholder="Search by number…"

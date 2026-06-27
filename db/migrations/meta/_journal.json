@@ -106,6 +106,13 @@
       "when": 1782558954560,
       "tag": "0014_purple_ezekiel_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1782563954560,
+      "tag": "0015_password_login_backfill",
+      "breakpoints": true
     }
   ]
 }

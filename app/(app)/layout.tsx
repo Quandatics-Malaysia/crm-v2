@@ -55,13 +55,19 @@ export default async function AppLayout({
         } as CSSProperties
       }
     >
+      <a
+        href="#main-content"
+        className="sr-only z-50 rounded-md bg-background px-4 py-2 text-sm font-medium shadow ring-2 ring-ring focus:not-sr-only focus:absolute focus:top-4 focus:left-4"
+      >
+        Skip to content
+      </a>
       <AppSidebar
         user={{ name: ctx.userName, email: ctx.userEmail }}
         activeTenant={activeTenant}
         tenants={tenants}
         permissions={[...ctx.permissions]}
       />
-      <SidebarInset>
+      <SidebarInset id="main-content">
         <HeaderActionsProvider permissions={[...ctx.permissions]}>
           {children}
         </HeaderActionsProvider>

@@ -35,6 +35,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
+import { AccountQuickCreate } from "@/components/quick-create-account"
+import { ContactQuickCreate } from "@/components/quick-create-contact"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option, MemberOption, FunnelWithStages } from "@/lib/lookups"
 import {
@@ -145,9 +147,24 @@ export function OpportunityForm({
   const selectedAccountId = form.watch("accountId")
   const selectedFunnelId = form.watch("funnelId")
 
+  // Picker options become local state seeded from props so inline "+ Create"
+  // can append the new record and have it be immediately selectable.
+  const [accountOptions, setAccountOptions] = React.useState(accounts)
+  const [allPersons, setAllPersons] = React.useState(persons)
+
+  // Inline quick-create dialog state for the Account / Contact pickers.
+  const [accountCreate, setAccountCreate] = React.useState<{
+    open: boolean
+    name: string
+  }>({ open: false, name: "" })
+  const [contactCreate, setContactCreate] = React.useState<{
+    open: boolean
+    name: string
+  }>({ open: false, name: "" })
+
   const personOptions = React.useMemo(
-    () => persons.filter((p) => p.accountId === selectedAccountId),
-    [persons, selectedAccountId]
+    () => allPersons.filter((p) => p.accountId === selectedAccountId),
+    [allPersons, selectedAccountId]
   )
   const stageOptions = React.useMemo(() => {
     const f = funnels.find((x) => x.id === selectedFunnelId)
@@ -193,6 +210,7 @@ export function OpportunityForm({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={trigger ?? <Button>New Funnel</Button>}
@@ -242,13 +260,16 @@ export function OpportunityForm({
                           field.onChange(v)
                           form.setValue("primaryPersonId", "")
                         }}
-                        options={accounts.map((a) => ({
+                        options={accountOptions.map((a) => ({
                           value: a.id,
                           label: a.name,
                         }))}
                         placeholder="Pick an account…"
                         searchPlaceholder="Search accounts…"
                         emptyMessage="No accounts found."
+                        onCreate={(q) =>
+                          setAccountCreate({ open: true, name: q })
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -266,9 +287,7 @@ export function OpportunityForm({
                       <Combobox
                         value={field.value || ""}
                         onChange={field.onChange}
-                        disabled={
-                          !selectedAccountId || personOptions.length === 0
-                        }
+                        disabled={!selectedAccountId}
                         options={personOptions.map((p) => ({
                           value: p.id,
                           label: p.name,
@@ -280,6 +299,9 @@ export function OpportunityForm({
                         }
                         searchPlaceholder="Search contacts…"
                         emptyMessage="No contacts for this account."
+                        onCreate={(q) =>
+                          setContactCreate({ open: true, name: q })
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -449,5 +471,30 @@ export function OpportunityForm({
         </Form>
       </DialogContent>
     </Dialog>
+
+      <AccountQuickCreate
+        open={accountCreate.open}
+        onOpenChange={(o) => setAccountCreate((s) => ({ ...s, open: o }))}
+        defaultName={accountCreate.name}
+        onCreated={(rec) => {
+          setAccountOptions((prev) => [...prev, rec])
+          form.setValue("accountId", rec.id)
+          form.setValue("primaryPersonId", "")
+        }}
+      />
+      <ContactQuickCreate
+        open={contactCreate.open}
+        onOpenChange={(o) => setContactCreate((s) => ({ ...s, open: o }))}
+        accountId={selectedAccountId}
+        defaultName={contactCreate.name}
+        onCreated={(rec) => {
+          setAllPersons((prev) => [
+            ...prev,
+            { ...rec, accountId: selectedAccountId },
+          ])
+          form.setValue("primaryPersonId", rec.id)
+        }}
+      />
+    </>
   )
 }

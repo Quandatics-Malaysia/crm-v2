@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronsUpDownIcon } from "lucide-react"
+import { ChevronsUpDownIcon, PlusIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 
 export type ComboboxOption = {
@@ -27,7 +28,12 @@ export type ComboboxOption = {
 /** Searchable single-select for high-cardinality entity pickers
  *  (accounts / persons / funnels). API mirrors a controlled Select so forms can
  *  swap a plain Select for this with minimal changes. Keep Select for low-card
- *  enums (status / type / tax). */
+ *  enums (status / type / tax).
+ *
+ *  Pass `onCreate` to enable inline "add on the fly": when the typed query is
+ *  non-empty and matches no option's label (case-insensitively), a selectable
+ *  "+ Create \"<query>\"" row appears at the bottom of the list. Choosing it
+ *  (click or arrow-keys + Enter) closes the list and calls `onCreate(query)`. */
 export function Combobox({
   value,
   onChange,
@@ -38,6 +44,8 @@ export function Combobox({
   disabled,
   id,
   className,
+  onCreate,
+  createLabel = (query) => `Create "${query}"`,
   "aria-invalid": ariaInvalid,
 }: {
   value: string | null | undefined
@@ -49,13 +57,32 @@ export function Combobox({
   disabled?: boolean
   id?: string
   className?: string
+  /** Enable an inline "+ Create" row for an unmatched query (e.g. to open a
+   *  quick-create dialog). Called with the trimmed typed text. */
+  onCreate?: (query: string) => void
+  /** Label for the inline create row. Defaults to `Create "<query>"`. */
+  createLabel?: (query: string) => string
   "aria-invalid"?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
   const selected = options.find((o) => o.value === value)
 
+  const trimmed = query.trim()
+  const hasExactMatch = options.some(
+    (o) => o.label.toLowerCase() === trimmed.toLowerCase()
+  )
+  // Show the create row only when there's a real query that doesn't already
+  // name an existing option. Partial matches still surface it (intentional).
+  const showCreate = !!onCreate && trimmed.length > 0 && !hasExactMatch
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (!next) setQuery("") // reset the search so the next open starts fresh
+  }
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         render={
           <Button
@@ -84,9 +111,13 @@ export function Combobox({
         className="w-(--anchor-width) p-0"
       >
         <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput
+            placeholder={searchPlaceholder}
+            value={query}
+            onValueChange={setQuery}
+          />
           <CommandList>
-            <CommandEmpty>{emptyMessage}</CommandEmpty>
+            {showCreate ? null : <CommandEmpty>{emptyMessage}</CommandEmpty>}
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem
@@ -95,13 +126,31 @@ export function Combobox({
                   data-checked={option.value === value}
                   onSelect={() => {
                     onChange(option.value)
-                    setOpen(false)
+                    handleOpenChange(false)
                   }}
                 >
                   {option.label}
                 </CommandItem>
               ))}
             </CommandGroup>
+            {showCreate ? (
+              <>
+                {options.length > 0 ? <CommandSeparator /> : null}
+                {/* forceMount keeps the row visible regardless of cmdk's own
+                    filtering; we already gate it with `showCreate`. */}
+                <CommandItem
+                  forceMount
+                  value={trimmed}
+                  onSelect={() => {
+                    onCreate?.(trimmed)
+                    handleOpenChange(false)
+                  }}
+                >
+                  <PlusIcon />
+                  {createLabel(trimmed)}
+                </CommandItem>
+              </>
+            ) : null}
           </CommandList>
         </Command>
       </PopoverContent>

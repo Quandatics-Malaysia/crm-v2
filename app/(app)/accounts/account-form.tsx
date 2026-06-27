@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Combobox } from "@/components/ui/combobox"
+import { AccountQuickCreate } from "@/components/quick-create-account"
 import {
   Form,
   FormControl,
@@ -156,16 +157,28 @@ export function AccountForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // Parent / end-user options become local state so inline "+ Create" can
+  // append the new account and have it immediately selectable.
+  const [parentOptionsState, setParentOptionsState] =
+    React.useState(parentOptions)
+  const [endUserOptionsState, setEndUserOptionsState] =
+    React.useState(endUserOptions)
+  const [accountCreate, setAccountCreate] = React.useState<{
+    open: boolean
+    name: string
+    target: "parent" | "endUser"
+  }>({ open: false, name: "", target: "parent" })
+
   const parentItems = React.useMemo(
     () => [
       { value: NONE, label: "No parent" },
-      ...parentOptions.map((o) => ({ value: o.id, label: o.name })),
+      ...parentOptionsState.map((o) => ({ value: o.id, label: o.name })),
     ],
-    [parentOptions]
+    [parentOptionsState]
   )
   const endUserItems = React.useMemo(
-    () => endUserOptions.map((o) => ({ value: o.id, label: o.name })),
-    [endUserOptions]
+    () => endUserOptionsState.map((o) => ({ value: o.id, label: o.name })),
+    [endUserOptionsState]
   )
   const industryItems = React.useMemo(
     () => [
@@ -221,6 +234,7 @@ export function AccountForm({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? (
         <DialogTrigger render={trigger as React.ReactElement} />
@@ -319,6 +333,13 @@ export function AccountForm({
                       placeholder="No parent"
                       searchPlaceholder="Search accounts…"
                       emptyMessage="No accounts found."
+                      onCreate={(q) =>
+                        setAccountCreate({
+                          open: true,
+                          name: q,
+                          target: "parent",
+                        })
+                      }
                     />
                   </FormControl>
                   <FormMessage />
@@ -379,6 +400,13 @@ export function AccountForm({
                           searchPlaceholder="Search accounts…"
                           emptyMessage="No accounts found."
                           aria-invalid={!!fieldState.error}
+                          onCreate={(q) =>
+                            setAccountCreate({
+                              open: true,
+                              name: q,
+                              target: "endUser",
+                            })
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -519,5 +547,21 @@ export function AccountForm({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <AccountQuickCreate
+        open={accountCreate.open}
+        onOpenChange={(o) => setAccountCreate((s) => ({ ...s, open: o }))}
+        defaultName={accountCreate.name}
+        onCreated={(rec) => {
+          if (accountCreate.target === "parent") {
+            setParentOptionsState((prev) => [...prev, rec])
+            form.setValue("parentAccountId", rec.id)
+          } else {
+            setEndUserOptionsState((prev) => [...prev, rec])
+            form.setValue("endUserAccountId", rec.id, { shouldValidate: true })
+          }
+        }}
+      />
+    </>
   )
 }

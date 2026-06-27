@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Combobox } from "@/components/ui/combobox"
+import { AccountQuickCreate } from "@/components/quick-create-account"
 import type { Option } from "@/lib/lookups"
 import { createPerson, updatePerson, type PersonRow } from "./actions"
 
@@ -107,6 +108,14 @@ export function PersonForm({
 
   const accountLocked = !!presetAccountId && !editing
 
+  // Account options become local state so inline "+ Create" can append the new
+  // account and have it immediately selectable.
+  const [accountOptions, setAccountOptions] = React.useState(accounts ?? [])
+  const [accountCreate, setAccountCreate] = React.useState<{
+    open: boolean
+    name: string
+  }>({ open: false, name: "" })
+
   async function onSubmit(values: FormValues) {
     const payload = {
       accountId: values.accountId,
@@ -130,6 +139,7 @@ export function PersonForm({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? (
         <DialogTrigger render={trigger as React.ReactElement} />
@@ -156,7 +166,7 @@ export function PersonForm({
                       <Combobox
                         value={field.value}
                         onChange={field.onChange}
-                        options={accounts.map((a) => ({
+                        options={accountOptions.map((a) => ({
                           value: a.id,
                           label: a.name,
                         }))}
@@ -164,6 +174,9 @@ export function PersonForm({
                         searchPlaceholder="Search accounts…"
                         emptyMessage="No accounts found."
                         aria-invalid={!!fieldState.error}
+                        onCreate={(q) =>
+                          setAccountCreate({ open: true, name: q })
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -282,5 +295,16 @@ export function PersonForm({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <AccountQuickCreate
+        open={accountCreate.open}
+        onOpenChange={(o) => setAccountCreate((s) => ({ ...s, open: o }))}
+        defaultName={accountCreate.name}
+        onCreated={(rec) => {
+          setAccountOptions((prev) => [...prev, rec])
+          form.setValue("accountId", rec.id)
+        }}
+      />
+    </>
   )
 }

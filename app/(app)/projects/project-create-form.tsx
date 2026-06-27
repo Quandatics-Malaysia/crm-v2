@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
+import { AccountQuickCreate } from "@/components/quick-create-account"
 import { createProject, prefillFromOpportunity } from "./actions"
 
 const STATUS_OPTIONS = [
@@ -90,6 +91,14 @@ export function ProjectCreateForm({
 }) {
   const router = useRouter()
   const [submitting, setSubmitting] = React.useState(false)
+
+  // Account options become local state so inline "+ Create" can append the new
+  // account and have it immediately selectable.
+  const [accountOptions, setAccountOptions] = React.useState(accounts)
+  const [accountCreate, setAccountCreate] = React.useState<{
+    open: boolean
+    name: string
+  }>({ open: false, name: "" })
 
   // The project links the source quotation when created from a funnel. This is
   // not a visible form field — it travels alongside the (editable) value.
@@ -152,6 +161,7 @@ export function ProjectCreateForm({
   }
 
   return (
+    <>
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
         <Card>
@@ -247,7 +257,7 @@ export function ProjectCreateForm({
                     <Combobox
                       value={field.value}
                       onChange={field.onChange}
-                      options={accounts.map((a) => ({
+                      options={accountOptions.map((a) => ({
                         value: a.id,
                         label: a.name,
                       }))}
@@ -255,6 +265,9 @@ export function ProjectCreateForm({
                       searchPlaceholder="Search accounts…"
                       emptyMessage="No accounts found."
                       aria-invalid={!!fieldState.error}
+                      onCreate={(q) =>
+                        setAccountCreate({ open: true, name: q })
+                      }
                     />
                   </FormControl>
                   <FormMessage />
@@ -396,5 +409,16 @@ export function ProjectCreateForm({
         </div>
       </form>
     </Form>
+
+      <AccountQuickCreate
+        open={accountCreate.open}
+        onOpenChange={(o) => setAccountCreate((s) => ({ ...s, open: o }))}
+        defaultName={accountCreate.name}
+        onCreated={(rec) => {
+          setAccountOptions((prev) => [...prev, rec])
+          form.setValue("accountId", rec.id)
+        }}
+      />
+    </>
   )
 }

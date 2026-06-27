@@ -54,7 +54,6 @@ export const PERMISSIONS = {
   TENANT_MANAGE_USERS: "tenant.manage_users",
   TENANT_MANAGE_ROLES: "tenant.manage_roles",
   TENANT_SETTINGS: "tenant.settings",
-  CUSTOM_FIELD_MANAGE: "custom_field.manage",
   AUDIT_VIEW: "audit.view",
   // record-level access — elevations that bypass owner + managed-subtree scoping
   RECORDS_VIEW_ALL: "records.view_all",
@@ -110,7 +109,6 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.QUOTATION_DELETE,
   PERMISSIONS.TAX_CONFIGURE,
   PERMISSIONS.FUNNEL_MANAGE,
-  PERMISSIONS.CUSTOM_FIELD_MANAGE,
   PERMISSIONS.AUDIT_VIEW,
 ]
 
@@ -215,7 +213,6 @@ export const PERMISSION_GROUPS: {
       { key: PERMISSIONS.TENANT_MANAGE_USERS, label: "Manage users" },
       { key: PERMISSIONS.TENANT_MANAGE_ROLES, label: "Manage roles" },
       { key: PERMISSIONS.TENANT_SETTINGS, label: "Manage settings" },
-      { key: PERMISSIONS.CUSTOM_FIELD_MANAGE, label: "Manage custom fields" },
     ],
   },
 ]

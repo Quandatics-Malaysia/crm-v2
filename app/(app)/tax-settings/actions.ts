@@ -3,6 +3,7 @@
 import { and, asc, eq, ne } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant } from "@/lib/actions"
+import { type ActionResult, runAction } from "@/lib/action-result"
 import { PERMISSIONS } from "@/lib/permissions"
 import { taxSettings } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
@@ -26,7 +27,10 @@ export async function listTaxSettings(): Promise<TaxSettingRow[]> {
   )
 }
 
-export async function createTax(input: TaxInput): Promise<TaxSettingRow> {
+export async function createTax(
+  input: TaxInput
+): Promise<ActionResult<TaxSettingRow>> {
+  return runAction(async () => {
   const row = await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     if (input.isDefault) {
       await tx
@@ -54,9 +58,14 @@ export async function createTax(input: TaxInput): Promise<TaxSettingRow> {
   })
   revalidatePath("/tax-settings")
   return row
+  })
 }
 
-export async function updateTax(id: string, input: TaxInput): Promise<TaxSettingRow> {
+export async function updateTax(
+  id: string,
+  input: TaxInput
+): Promise<ActionResult<TaxSettingRow>> {
+  return runAction(async () => {
   const row = await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     if (input.isDefault) {
       await tx
@@ -86,10 +95,12 @@ export async function updateTax(id: string, input: TaxInput): Promise<TaxSetting
   })
   revalidatePath("/tax-settings")
   return row
+  })
 }
 
 /** Hard delete — tax settings are configuration, not soft-deleted business rows. */
-export async function deleteTax(id: string): Promise<void> {
+export async function deleteTax(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     await tx.delete(taxSettings).where(eq(taxSettings.id, id))
     await writeAudit(tx, ctx, {
@@ -99,9 +110,11 @@ export async function deleteTax(id: string): Promise<void> {
     })
   })
   revalidatePath("/tax-settings")
+  })
 }
 
-export async function setDefaultTax(id: string): Promise<void> {
+export async function setDefaultTax(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     await tx
       .update(taxSettings)
@@ -120,4 +133,5 @@ export async function setDefaultTax(id: string): Promise<void> {
     })
   })
   revalidatePath("/tax-settings")
+  })
 }

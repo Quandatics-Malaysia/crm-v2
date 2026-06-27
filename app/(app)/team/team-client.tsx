@@ -109,20 +109,19 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    try {
-      await addMember({
-        email: email.trim(),
-        roleId,
-        tier: Number(tier) || 0,
-      })
-      toast.success("Member added")
-      setOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add member")
-    } finally {
-      setSaving(false)
+    const res = await addMember({
+      email: email.trim(),
+      roleId,
+      tier: Number(tier) || 0,
+    })
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Member added")
+    setOpen(false)
+    router.refresh()
   }
 
   return (
@@ -248,20 +247,19 @@ function EditMemberDialog({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    try {
-      await updateMember(member.memberId, {
-        roleId: roleId || null,
-        tierLevel: Number(tier) || 0,
-        managerMemberId: managerId === "none" ? null : managerId,
-      })
-      toast.success("Member updated")
-      onOpenChange(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update member")
-    } finally {
-      setSaving(false)
+    const res = await updateMember(member.memberId, {
+      roleId: roleId || null,
+      tierLevel: Number(tier) || 0,
+      managerMemberId: managerId === "none" ? null : managerId,
+    })
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Member updated")
+    onOpenChange(false)
+    router.refresh()
   }
 
   return (
@@ -353,26 +351,28 @@ function MemberRowActions({
 
   async function onRemove() {
     setBusy(true)
-    try {
-      await removeMember(member.memberId)
-      toast.success("Member removed")
-      setConfirmOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove")
-    } finally {
-      setBusy(false)
+    const res = await removeMember(member.memberId)
+    setBusy(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Member removed")
+    setConfirmOpen(false)
+    router.refresh()
   }
 
   async function onToggleStatus() {
-    try {
-      await setMemberStatus(member.memberId, disabled ? "active" : "disabled")
-      toast.success(disabled ? "Member reactivated" : "Member disabled")
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update status")
+    const res = await setMemberStatus(
+      member.memberId,
+      disabled ? "active" : "disabled"
+    )
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success(disabled ? "Member reactivated" : "Member disabled")
+    router.refresh()
   }
 
   return (
@@ -549,21 +549,17 @@ function RoleFormDialog({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    try {
-      if (role) {
-        await updateRole(role.id, { name: name.trim(), tier: Number(tier) || 0 })
-        toast.success("Role updated")
-      } else {
-        await createRole({ name: name.trim(), tier: Number(tier) || 0 })
-        toast.success("Role created")
-      }
-      onOpenChange(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
+    const res = role
+      ? await updateRole(role.id, { name: name.trim(), tier: Number(tier) || 0 })
+      : await createRole({ name: name.trim(), tier: Number(tier) || 0 })
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success(role ? "Role updated" : "Role created")
+    onOpenChange(false)
+    router.refresh()
   }
 
   return (
@@ -681,17 +677,14 @@ function PermissionsDialog({
 
   async function onSave() {
     setSaving(true)
-    try {
-      await setRolePermissions(role.id, Array.from(checked))
-      toast.success("Permissions saved")
-      onOpenChange(false)
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save permissions"
-      )
-    } finally {
-      setSaving(false)
+    const res = await setRolePermissions(role.id, Array.from(checked))
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Permissions saved")
+    onOpenChange(false)
   }
 
   return (
@@ -771,16 +764,15 @@ function RoleCard({ role }: { role: TeamRoleView }) {
 
   async function onDelete() {
     setBusy(true)
-    try {
-      await deleteRole(role.id)
-      toast.success("Role deleted")
-      setConfirmOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
-    } finally {
-      setBusy(false)
+    const res = await deleteRole(role.id)
+    setBusy(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Role deleted")
+    setConfirmOpen(false)
+    router.refresh()
   }
 
   return (

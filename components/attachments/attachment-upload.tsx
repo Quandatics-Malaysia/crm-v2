@@ -6,10 +6,10 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  uploadAttachment,
-  type AttachableType,
-  type AttachmentItem,
-} from "@/app/(app)/approvals/actions"
+  uploadEntityAttachment,
+  type AttachmentRow,
+} from "@/app/(app)/_shared/attachment-actions"
+import { type AttachableType } from "@/app/(app)/_shared/attachment-perms"
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -40,14 +40,14 @@ export function AttachmentUpload({
     fd.set("attachableType", attachableType)
     fd.set("attachableId", attachableId)
     startTransition(async () => {
-      try {
-        await uploadAttachment(fd)
+      const res = await uploadEntityAttachment(fd)
+      if (res.ok) {
         toast.success("File uploaded")
         setFile(null)
         if (inputRef.current) inputRef.current.value = ""
         onUploaded?.()
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Upload failed")
+      } else {
+        toast.error(res.error)
       }
     })
   }
@@ -79,7 +79,7 @@ export function AttachmentUpload({
   )
 }
 
-export function AttachmentList({ items }: { items: AttachmentItem[] }) {
+export function AttachmentList({ items }: { items: AttachmentRow[] }) {
   if (items.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">No attachments.</p>

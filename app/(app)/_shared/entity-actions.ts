@@ -1,12 +1,18 @@
 "use server"
 
 import { headers } from "next/headers"
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import { member, membershipProfiles } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { seedTenant } from "@/server/services/tenant-seed"
+
+/**
+ * Cap on how many entities (organizations) a single user may belong to, to keep
+ * self-service entity creation from being abused into unbounded tenant spam.
+ */
+const MAX_ENTITIES_PER_USER = 10
 
 /**
  * Create a new entity (tenant/organization): provision the org via Better Auth
@@ -18,9 +24,22 @@ export async function createEntity(input: {
   slug?: string
   entityCode?: string
 }): Promise<{ id: string }> {
+  // requireContext now rejects non-active memberships, so a disabled member
+  // can't spin up new tenants.
   const ctx = await requireContext()
   const name = input.name.trim()
   if (!name) throw new Error("Entity name is required")
+
+  // Per-user org cap: count the memberships this user already holds.
+  const [{ count: orgCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(member)
+    .where(eq(member.userId, ctx.userId))
+  if (Number(orgCount) >= MAX_ENTITIES_PER_USER) {
+    throw new Error(
+      `You've reached the limit of ${MAX_ENTITIES_PER_USER} entities per user.`
+    )
+  }
 
   const baseSlug = (input.slug || name)
     .toLowerCase()

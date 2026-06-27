@@ -3,6 +3,7 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { requireContext, assertCan } from "@/lib/server-context"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import { PERMISSIONS } from "@/lib/permissions"
 import { canAccessAttachable } from "@/lib/access-scope"
 import {
@@ -259,99 +260,107 @@ export async function listEntityDocuments(
   })
 }
 
-export async function uploadEntityAttachment(formData: FormData): Promise<void> {
-  const ctx = await requireContext()
-  const file = formData.get("file") as File | null
-  const type = formData.get("attachableType") as AttachableType
-  const id = formData.get("attachableId") as string
-  const revalidate = formData.get("revalidate") as string | null
-  if (!file || !id || !type) throw new Error("Missing file or target")
-  assertCan(ctx, attachWritePerm(type))
-  if (file.size > 25 * 1024 * 1024) throw new Error("File exceeds 25 MB")
+export async function uploadEntityAttachment(
+  formData: FormData
+): Promise<ActionResult> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    const file = formData.get("file") as File | null
+    const type = formData.get("attachableType") as AttachableType
+    const id = formData.get("attachableId") as string
+    const revalidate = formData.get("revalidate") as string | null
+    if (!file || !id || !type) throw new Error("Missing file or target")
+    assertCan(ctx, attachWritePerm(type))
+    if (file.size > 25 * 1024 * 1024) throw new Error("File exceeds 25 MB")
 
-  const buf = Buffer.from(await file.arrayBuffer())
-  const stored = await storage.put(ctx.tenantId, file.name, buf)
-  await runInTenant(ctx.tenantId, async (tx) => {
-    if (!(await canAccessAttachable(tx, ctx, type, id, "manage"))) {
-      throw new Error("FORBIDDEN: not permitted on this record")
-    }
-    await tx.insert(attachments).values({
-      tenantId: ctx.tenantId,
-      attachableType: type,
-      attachableId: id,
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      byteSize: stored.size,
-      storageKey: stored.key,
-      uploadedByMemberId: ctx.memberId,
-    })
-    const ent = ACTIVITY_ENTITY[type]
-    if (ent) {
-      await logActivity(tx, ctx, {
-        entityType: ent,
-        entityId: id,
-        type: "file",
-        subject: `Attached ${file.name}`,
+    const buf = Buffer.from(await file.arrayBuffer())
+    const stored = await storage.put(ctx.tenantId, file.name, buf)
+    await runInTenant(ctx.tenantId, async (tx) => {
+      if (!(await canAccessAttachable(tx, ctx, type, id, "manage"))) {
+        throw new Error("FORBIDDEN: not permitted on this record")
+      }
+      await tx.insert(attachments).values({
+        tenantId: ctx.tenantId,
+        attachableType: type,
+        attachableId: id,
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+        byteSize: stored.size,
+        storageKey: stored.key,
+        uploadedByMemberId: ctx.memberId,
       })
-    }
+      const ent = ACTIVITY_ENTITY[type]
+      if (ent) {
+        await logActivity(tx, ctx, {
+          entityType: ent,
+          entityId: id,
+          type: "file",
+          subject: `Attached ${file.name}`,
+        })
+      }
+    })
+    if (revalidate) revalidatePath(revalidate)
   })
-  if (revalidate) revalidatePath(revalidate)
 }
 
 export async function renameEntityAttachment(
   id: string,
   fileName: string,
   revalidate?: string
-): Promise<void> {
-  const ctx = await requireContext()
-  const name = fileName.trim()
-  if (!name) throw new Error("A name is required")
-  await runInTenant(ctx.tenantId, async (tx) => {
-    const [row] = await tx
-      .select({
-        attachableType: attachments.attachableType,
-        attachableId: attachments.attachableId,
-      })
-      .from(attachments)
-      .where(eq(attachments.id, id))
-      .limit(1)
-    if (!row) throw new Error("Attachment not found")
-    const type = row.attachableType as AttachableType
-    assertCan(ctx, attachWritePerm(type))
-    if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
-      throw new Error("FORBIDDEN: not permitted on this record")
-    }
-    await tx
-      .update(attachments)
-      .set({ fileName: name.slice(0, 200) })
-      .where(eq(attachments.id, id))
+): Promise<ActionResult> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    const name = fileName.trim()
+    if (!name) throw new Error("A name is required")
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [row] = await tx
+        .select({
+          attachableType: attachments.attachableType,
+          attachableId: attachments.attachableId,
+        })
+        .from(attachments)
+        .where(eq(attachments.id, id))
+        .limit(1)
+      if (!row) throw new Error("Attachment not found")
+      const type = row.attachableType as AttachableType
+      assertCan(ctx, attachWritePerm(type))
+      if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
+        throw new Error("FORBIDDEN: not permitted on this record")
+      }
+      await tx
+        .update(attachments)
+        .set({ fileName: name.slice(0, 200) })
+        .where(eq(attachments.id, id))
+    })
+    if (revalidate) revalidatePath(revalidate)
   })
-  if (revalidate) revalidatePath(revalidate)
 }
 
 export async function deleteEntityAttachment(
   id: string,
   revalidate?: string
-): Promise<void> {
-  const ctx = await requireContext()
-  await runInTenant(ctx.tenantId, async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(attachments)
-      .where(eq(attachments.id, id))
-      .limit(1)
-    if (!row) return
-    const type = row.attachableType as AttachableType
-    assertCan(ctx, attachWritePerm(type))
-    if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
-      throw new Error("FORBIDDEN: not permitted on this record")
-    }
-    await tx.delete(attachments).where(eq(attachments.id, id))
-    try {
-      await storage.delete(row.storageKey)
-    } catch {
-      // best-effort; row already removed
-    }
+): Promise<ActionResult> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(attachments)
+        .where(eq(attachments.id, id))
+        .limit(1)
+      if (!row) return
+      const type = row.attachableType as AttachableType
+      assertCan(ctx, attachWritePerm(type))
+      if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
+        throw new Error("FORBIDDEN: not permitted on this record")
+      }
+      await tx.delete(attachments).where(eq(attachments.id, id))
+      try {
+        await storage.delete(row.storageKey)
+      } catch {
+        // best-effort; row already removed
+      }
+    })
+    if (revalidate) revalidatePath(revalidate)
   })
-  if (revalidate) revalidatePath(revalidate)
 }

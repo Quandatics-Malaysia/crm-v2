@@ -30,11 +30,10 @@ import {
 import { formatDate } from "@/lib/format"
 import { AttachmentList } from "@/components/attachments/attachment-upload"
 import {
-  decideApprovalAction,
-  listAttachmentsAction,
-  type ApprovalRow,
-  type AttachmentItem,
-} from "./actions"
+  listEntityAttachments,
+  type AttachmentRow,
+} from "@/app/(app)/_shared/attachment-actions"
+import { decideApprovalAction, type ApprovalRow } from "./actions"
 
 const STATUS_VARIANT: Record<
   ApprovalRow["status"],
@@ -56,7 +55,7 @@ function StatusBadge({ status }: { status: ApprovalRow["status"] }) {
 
 function Attachments({ requestId }: { requestId: string }) {
   const [open, setOpen] = React.useState(false)
-  const [items, setItems] = React.useState<AttachmentItem[] | null>(null)
+  const [items, setItems] = React.useState<AttachmentRow[] | null>(null)
   const [loading, setLoading] = React.useState(false)
 
   async function toggle() {
@@ -65,7 +64,7 @@ function Attachments({ requestId }: { requestId: string }) {
     if (next && items === null) {
       setLoading(true)
       try {
-        const data = await listAttachmentsAction("stage_approval_request", requestId)
+        const data = await listEntityAttachments("stage_approval_request", requestId)
         setItems(data)
       } catch {
         setItems([])
@@ -127,13 +126,17 @@ function DecisionDialog({
 
   function submit() {
     startTransition(async () => {
-      try {
-        await decideApprovalAction({ requestId: row.id, decision, note: note.trim() || undefined })
-        toast.success(approve ? "Request approved" : "Request rejected")
-        onDone()
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Action failed")
+      const res = await decideApprovalAction({
+        requestId: row.id,
+        decision,
+        note: note.trim() || undefined,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      toast.success(approve ? "Request approved" : "Request rejected")
+      onDone()
     })
   }
 
@@ -190,13 +193,16 @@ function CancelDialog({ row, onDone }: { row: ApprovalRow; onDone: () => void })
 
   function submit() {
     startTransition(async () => {
-      try {
-        await decideApprovalAction({ requestId: row.id, decision: "cancelled" })
-        toast.success("Request cancelled")
-        onDone()
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Action failed")
+      const res = await decideApprovalAction({
+        requestId: row.id,
+        decision: "cancelled",
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      toast.success("Request cancelled")
+      onDone()
     })
   }
 

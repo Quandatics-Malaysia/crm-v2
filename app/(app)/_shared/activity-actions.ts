@@ -2,7 +2,10 @@
 
 import { and, desc, eq, inArray, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { requireContext } from "@/lib/server-context"
+import { requireContext, assertCan } from "@/lib/server-context"
+import { canAccessAttachable } from "@/lib/access-scope"
+import { attachViewPerm, attachWritePerm } from "./attachment-perms"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import { runInTenant, type Tx } from "@/db"
 import {
   activities,
@@ -26,13 +29,17 @@ export type ActivityRow = {
   occurredAt: string
 }
 
-/** Timeline for one entity, newest first. Any tenant member may read it. */
+/** Timeline for one entity, newest first. Gated by the per-type view
+ *  permission and record-scope access (mirrors the attachment actions). */
 export async function listActivities(
   entityType: ActivityEntity,
   entityId: string
 ): Promise<ActivityRow[]> {
   const ctx = await requireContext()
+  assertCan(ctx, attachViewPerm(entityType))
   return runInTenant(ctx.tenantId, async (tx) => {
+    if (!(await canAccessAttachable(tx, ctx, entityType, entityId, "view")))
+      return []
     const rows = await tx
       .select({
         id: activities.id,
@@ -131,7 +138,10 @@ export async function listEntityTimeline(
   rootId: string
 ): Promise<TimelineRow[]> {
   const ctx = await requireContext()
+  assertCan(ctx, attachViewPerm(rootType))
   return runInTenant(ctx.tenantId, async (tx) => {
+    if (!(await canAccessAttachable(tx, ctx, rootType, rootId, "view")))
+      return []
     const pairs = (await rollupPairs(tx, rootType, rootId)).filter(
       (p) => p.ids.length > 0
     )
@@ -185,20 +195,34 @@ export async function addActivity(input: {
   occurredAt?: string
   dueAt?: string
   revalidate?: string
-}): Promise<void> {
-  const ctx = await requireContext()
-  await runInTenant(ctx.tenantId, (tx) =>
-    logActivity(tx, ctx, {
-      entityType: input.entityType,
-      entityId: input.entityId,
-      type: input.type,
-      subject: input.subject || null,
-      body: input.body || null,
-      outcome: input.outcome || null,
-      nextStep: input.nextStep || null,
-      occurredAt: input.occurredAt ? new Date(input.occurredAt) : undefined,
-      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, attachWritePerm(input.entityType))
+    await runInTenant(ctx.tenantId, async (tx) => {
+      if (
+        !(await canAccessAttachable(
+          tx,
+          ctx,
+          input.entityType,
+          input.entityId,
+          "manage"
+        ))
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this record")
+      }
+      await logActivity(tx, ctx, {
+        entityType: input.entityType,
+        entityId: input.entityId,
+        type: input.type,
+        subject: input.subject || null,
+        body: input.body || null,
+        outcome: input.outcome || null,
+        nextStep: input.nextStep || null,
+        occurredAt: input.occurredAt ? new Date(input.occurredAt) : undefined,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      })
     })
-  )
-  if (input.revalidate) revalidatePath(input.revalidate)
+    if (input.revalidate) revalidatePath(input.revalidate)
+  })
 }

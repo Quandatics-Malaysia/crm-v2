@@ -4,7 +4,9 @@ import { and, asc, eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import type { StageCode, StageKind } from "./constants"
 import { runInTenant, type Tx } from "@/db"
-import { requireContext, assertCan } from "@/lib/actions"
+import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
+import { type ActionResult, runAction } from "@/lib/action-result"
+import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   tenantSettings,
@@ -116,7 +118,8 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
 /** Update (upsert) the general tenant settings row. */
 export async function updateSettings(
   input: UpdateSettingsInput
-): Promise<TenantSettingsView> {
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -157,17 +160,25 @@ export async function updateSettings(
         set: values,
       })
       .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: values,
+    })
     return toView(updated)
   })
 
   revalidatePath("/settings")
   return view
+  })
 }
 
 /** Update quotation + project numbering configuration. */
 export async function updateNumbering(
   input: UpdateNumberingInput
-): Promise<TenantSettingsView> {
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -210,15 +221,25 @@ export async function updateNumbering(
         set: values,
       })
       .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.numbering_updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: values,
+    })
     return toView(updated)
   })
 
   revalidatePath("/settings")
   return view
+  })
 }
 
 /** Replace the configurable industry picklist for the tenant. */
-export async function updateIndustries(industries: string[]): Promise<string[]> {
+export async function updateIndustries(
+  industries: string[]
+): Promise<ActionResult<string[]>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -243,11 +264,18 @@ export async function updateIndustries(industries: string[]): Promise<string[]> 
         set: { industries: cleaned, updatedAt: new Date() },
       })
       .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.industries_updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: { industries: cleaned },
+    })
     return updated.industries ?? []
   })
 
   revalidatePath("/settings")
   return saved
+  })
 }
 
 /** Members of the active tenant with their role + seniority tier. */
@@ -356,9 +384,10 @@ function validateStage(input: StageUpdateInput) {
 export async function updateStage(
   id: string,
   input: StageUpdateInput
-): Promise<FunnelStageRow> {
+): Promise<ActionResult<FunnelStageRow>> {
+  return runAction(async () => {
   validateStage(input)
-  const row = await withStageTenant(async (tx) => {
+  const row = await withStageTenant(async (tx, ctx) => {
     const [updated] = await tx
       .update(funnelStages)
       .set({
@@ -372,13 +401,23 @@ export async function updateStage(
       .where(eq(funnelStages.id, id))
       .returning()
     if (!updated) throw new Error("Stage not found.")
+    await writeAudit(tx, ctx, {
+      action: "stage.updated",
+      entityType: "funnel_stage",
+      entityId: id,
+      after: updated,
+    })
     return updated
   })
   revalidatePath("/settings")
   return row
+  })
 }
 
-export async function createStage(input: StageCreateInput): Promise<FunnelStageRow> {
+export async function createStage(
+  input: StageCreateInput
+): Promise<ActionResult<FunnelStageRow>> {
+  return runAction(async () => {
   validateStage(input)
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
@@ -411,17 +450,37 @@ export async function createStage(input: StageCreateInput): Promise<FunnelStageR
         includeInForecast: input.includeInForecast,
       })
       .returning()
+    await writeAudit(tx, ctx, {
+      action: "stage.created",
+      entityType: "funnel_stage",
+      entityId: created.id,
+      after: created,
+    })
     return created
   })
   revalidatePath("/settings")
   return row
+  })
 }
 
-export async function deleteStage(id: string): Promise<void> {
-  await withStageTenant(async (tx) => {
+export async function deleteStage(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+  await withStageTenant(async (tx, ctx) => {
+    const [before] = await tx
+      .select()
+      .from(funnelStages)
+      .where(eq(funnelStages.id, id))
+      .limit(1)
     await tx.delete(funnelStages).where(eq(funnelStages.id, id))
+    await writeAudit(tx, ctx, {
+      action: "stage.deleted",
+      entityType: "funnel_stage",
+      entityId: id,
+      before: before ?? null,
+    })
   })
   revalidatePath("/settings")
+  })
 }
 
 /**
@@ -429,7 +488,8 @@ export async function deleteStage(id: string): Promise<void> {
  * sequence; sortOrder is rewritten to match the index (offset to avoid the
  * unique (funnelId, sortOrder) constraint mid-update).
  */
-export async function reorderStages(order: string[]): Promise<void> {
+export async function reorderStages(order: string[]): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
   await runInTenant(ctx.tenantId, async (tx) => {
@@ -453,15 +513,22 @@ export async function reorderStages(order: string[]): Promise<void> {
           and(eq(funnelStages.id, order[i]), eq(funnelStages.funnelId, funnelId))
         )
     }
+    await writeAudit(tx, ctx, {
+      action: "stage.reordered",
+      entityType: "funnel",
+      entityId: funnelId,
+      after: { order },
+    })
   })
   revalidatePath("/settings")
+  })
 }
 
 /** Shared wrapper for stage mutations gated by FUNNEL_MANAGE. */
 async function withStageTenant<T>(
-  fn: (tx: Tx) => Promise<T>
+  fn: (tx: Tx, ctx: ServerContext) => Promise<T>
 ): Promise<T> {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
-  return runInTenant(ctx.tenantId, fn)
+  return runInTenant(ctx.tenantId, (tx) => fn(tx, ctx))
 }

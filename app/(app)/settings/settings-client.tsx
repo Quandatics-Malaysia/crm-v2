@@ -136,29 +136,30 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
   function onSubmit(values: GeneralValues) {
     const parsed = generalSchema.parse(values)
     startTransition(async () => {
-      try {
-        const updated = await updateSettings({
-          defaultCurrency: parsed.defaultCurrency,
-          fiscalYearStartMonth: parsed.fiscalYearStartMonth,
-          approvalBypassTier: parsed.approvalBypassTier,
-          entityCode: parsed.entityCode,
-          taxInclusive: parsed.taxInclusive,
-          autoWinOnQuoteAccept: parsed.autoWinOnQuoteAccept,
-          allowPasswordLogin: parsed.allowPasswordLogin,
-        })
-        form.reset({
-          defaultCurrency: updated.defaultCurrency,
-          fiscalYearStartMonth: updated.fiscalYearStartMonth,
-          approvalBypassTier: updated.approvalBypassTier,
-          entityCode: updated.entityCode,
-          taxInclusive: updated.taxInclusive,
-          autoWinOnQuoteAccept: updated.autoWinOnQuoteAccept,
-          allowPasswordLogin: updated.allowPasswordLogin,
-        })
-        toast.success("Settings saved")
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to save settings")
+      const res = await updateSettings({
+        defaultCurrency: parsed.defaultCurrency,
+        fiscalYearStartMonth: parsed.fiscalYearStartMonth,
+        approvalBypassTier: parsed.approvalBypassTier,
+        entityCode: parsed.entityCode,
+        taxInclusive: parsed.taxInclusive,
+        autoWinOnQuoteAccept: parsed.autoWinOnQuoteAccept,
+        allowPasswordLogin: parsed.allowPasswordLogin,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      const updated = res.data
+      form.reset({
+        defaultCurrency: updated.defaultCurrency,
+        fiscalYearStartMonth: updated.fiscalYearStartMonth,
+        approvalBypassTier: updated.approvalBypassTier,
+        entityCode: updated.entityCode,
+        taxInclusive: updated.taxInclusive,
+        autoWinOnQuoteAccept: updated.autoWinOnQuoteAccept,
+        allowPasswordLogin: updated.allowPasswordLogin,
+      })
+      toast.success("Settings saved")
     })
   }
 
@@ -351,19 +352,20 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   function onSubmit(raw: NumberingValues) {
     const parsed = numberingSchema.parse(raw)
     startTransition(async () => {
-      try {
-        const updated = await updateNumbering(parsed)
-        form.reset({
-          quotePrefix: updated.quotePrefix,
-          quoteNextNumber: updated.quoteNextNumber,
-          quotePadWidth: updated.quotePadWidth,
-          projectNextNumber: updated.projectNextNumber,
-          projectPadWidth: updated.projectPadWidth,
-        })
-        toast.success("Numbering saved")
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to save numbering")
+      const res = await updateNumbering(parsed)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      const updated = res.data
+      form.reset({
+        quotePrefix: updated.quotePrefix,
+        quoteNextNumber: updated.quoteNextNumber,
+        quotePadWidth: updated.quotePadWidth,
+        projectNextNumber: updated.projectNextNumber,
+        projectPadWidth: updated.projectPadWidth,
+      })
+      toast.success("Numbering saved")
     })
   }
 
@@ -539,13 +541,13 @@ function IndustriesCard({ industries }: { industries: string[] }) {
 
   function save() {
     startTransition(async () => {
-      try {
-        const saved = await updateIndustries(items)
-        setItems(saved)
-        toast.success("Industries saved")
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to save industries")
+      const res = await updateIndustries(items)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      setItems(res.data)
+      toast.success("Industries saved")
     })
   }
 
@@ -685,18 +687,15 @@ function StageDialog({
   async function onSubmit(raw: StageValues) {
     const parsed = stageSchema.parse(raw)
     setSaving(true)
-    try {
-      if (initial) {
-        await updateStage(initial.id, {
+    const res = initial
+      ? await updateStage(initial.id, {
           name: parsed.name,
           probability: parsed.probability,
           requiresApprovalToEnter: parsed.requiresApprovalToEnter,
           includeInForecast: parsed.includeInForecast,
           sortOrder: parsed.sortOrder,
         })
-        toast.success("Stage updated")
-      } else {
-        await createStage({
+      : await createStage({
           code: parsed.code,
           kind: parsed.kind,
           name: parsed.name,
@@ -705,15 +704,14 @@ function StageDialog({
           includeInForecast: parsed.includeInForecast,
           sortOrder: parsed.sortOrder,
         })
-        toast.success("Stage created")
-      }
-      onOpenChange(false)
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong")
-    } finally {
-      setSaving(false)
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success(initial ? "Stage updated" : "Stage created")
+    onOpenChange(false)
+    router.refresh()
   }
 
   return (
@@ -917,15 +915,14 @@ function StageRowActions({
 
   async function onDelete() {
     setBusy(true)
-    try {
-      await deleteStage(stage.id)
-      toast.success("Stage deleted")
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed")
-    } finally {
-      setBusy(false)
+    const res = await deleteStage(stage.id)
+    setBusy(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Stage deleted")
+    router.refresh()
   }
 
   return (
@@ -1015,15 +1012,14 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
     setReordering(true)
     const order = rows.map((s) => s.id)
     ;(async () => {
-      try {
-        await reorderStages(order)
-        toast.success("Order saved")
-        router.refresh()
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to save order")
-      } finally {
-        setReordering(false)
+      const res = await reorderStages(order)
+      setReordering(false)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      toast.success("Order saved")
+      router.refresh()
     })()
   }
 

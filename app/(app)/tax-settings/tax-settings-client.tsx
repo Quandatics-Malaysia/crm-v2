@@ -98,27 +98,23 @@ function TaxDialog({
 
   async function onSubmit(values: FormValues) {
     setSaving(true)
-    try {
-      const payload: TaxInput = {
-        name: values.name,
-        ratePercent: values.ratePercent,
-        isDefault: values.isDefault,
-        isActive: values.isActive,
-      }
-      if (initial) {
-        await updateTax(initial.id, payload)
-        toast.success("Tax setting updated")
-      } else {
-        await createTax(payload)
-        toast.success("Tax setting created")
-      }
-      onOpenChange(false)
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong")
-    } finally {
-      setSaving(false)
+    const payload: TaxInput = {
+      name: values.name,
+      ratePercent: values.ratePercent,
+      isDefault: values.isDefault,
+      isActive: values.isActive,
     }
+    const res = initial
+      ? await updateTax(initial.id, payload)
+      : await createTax(payload)
+    setSaving(false)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(initial ? "Tax setting updated" : "Tax setting created")
+    onOpenChange(false)
+    router.refresh()
   }
 
   return (
@@ -200,23 +196,23 @@ function RowActions({ row }: { row: TaxSettingRow }) {
   const [editOpen, setEditOpen] = React.useState(false)
 
   async function onDelete() {
-    try {
-      await deleteTax(row.id)
-      toast.success("Tax setting deleted")
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed")
+    const res = await deleteTax(row.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Tax setting deleted")
+    router.refresh()
   }
 
   async function onSetDefault() {
-    try {
-      await setDefaultTax(row.id)
-      toast.success("Default tax updated")
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed")
+    const res = await setDefaultTax(row.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Default tax updated")
+    router.refresh()
   }
 
   return (

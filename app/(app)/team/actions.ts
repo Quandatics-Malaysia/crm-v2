@@ -2,8 +2,10 @@
 
 import { and, eq, inArray, asc, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { db, runInTenant } from "@/db"
+import { db, runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan } from "@/lib/actions"
+import { type ActionResult, runAction } from "@/lib/action-result"
+import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   member,
@@ -13,6 +15,26 @@ import {
   permissions,
   user,
 } from "@/db/schema"
+
+/**
+ * True if `memberId` is the only ACTIVE member holding the system "Owner" role
+ * in the current tenant. Used to refuse demoting/disabling/removing the last
+ * Owner (which would orphan the tenant). Must run inside the tenant tx.
+ */
+async function isLastOwner(tx: Tx, memberId: string): Promise<boolean> {
+  const owners = await tx
+    .select({ memberId: membershipProfiles.memberId })
+    .from(membershipProfiles)
+    .innerJoin(roles, eq(membershipProfiles.roleId, roles.id))
+    .where(
+      and(
+        eq(roles.name, "Owner"),
+        eq(roles.isSystem, true),
+        eq(membershipProfiles.status, "active")
+      )
+    )
+  return owners.length === 1 && owners[0].memberId === memberId
+}
 
 // ─── View shapes ─────────────────────────────────────────────────────────────
 
@@ -172,42 +194,94 @@ export async function getRolePermissions(roleId: string): Promise<string[]> {
 export async function setRolePermissions(
   roleId: string,
   keys: string[]
-): Promise<void> {
-  const ctx = await requireContext()
-  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
 
-  await runInTenant(ctx.tenantId, async (tx) => {
-    const [role] = await tx
-      .select({ id: roles.id })
-      .from(roles)
-      .where(and(eq(roles.id, roleId), eq(roles.tenantId, ctx.tenantId)))
-      .limit(1)
-    if (!role) throw new Error("Role not found.")
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [role] = await tx
+        .select()
+        .from(roles)
+        .where(and(eq(roles.id, roleId), eq(roles.tenantId, ctx.tenantId)))
+        .limit(1)
+      if (!role) throw new Error("Role not found.")
 
-    const unique = Array.from(new Set(keys))
-    const permRows = unique.length
-      ? await tx
-          .select({ id: permissions.id })
-          .from(permissions)
-          .where(inArray(permissions.key, unique))
-      : []
+      // System roles are immutable templates.
+      if (role.isSystem) {
+        throw new Error("System roles' permissions can't be edited.")
+      }
 
-    await tx
-      .delete(rolePermissions)
-      .where(eq(rolePermissions.roleId, roleId))
+      if (!ctx.isSuperadmin) {
+        // You can't edit the permissions of the role you yourself hold
+        // (would let you grant yourself anything indirectly).
+        if (ctx.memberId) {
+          const [mine] = await tx
+            .select({ roleId: membershipProfiles.roleId })
+            .from(membershipProfiles)
+            .where(eq(membershipProfiles.memberId, ctx.memberId))
+            .limit(1)
+          if (mine?.roleId && mine.roleId === roleId) {
+            throw new Error("You can't edit your own role's permissions.")
+          }
+        }
 
-    if (permRows.length) {
-      await tx.insert(rolePermissions).values(
-        permRows.map((p) => ({
-          tenantId: ctx.tenantId,
-          roleId,
-          permissionId: p.id,
-        }))
-      )
-    }
+        // You may only ADD/REMOVE permission keys you hold yourself. Keys
+        // already on the role that you don't hold are left untouched.
+        const currentRows = await tx
+          .select({ key: permissions.key })
+          .from(rolePermissions)
+          .innerJoin(
+            permissions,
+            eq(rolePermissions.permissionId, permissions.id)
+          )
+          .where(eq(rolePermissions.roleId, roleId))
+        const current = new Set(currentRows.map((r) => r.key))
+        const next = new Set(keys)
+        const changed = [
+          ...[...next].filter((k) => !current.has(k)),
+          ...[...current].filter((k) => !next.has(k)),
+        ]
+        const illegal = changed.filter((k) => !ctx.permissions.has(k))
+        if (illegal.length) {
+          throw new Error(
+            "You can only grant or revoke permissions you hold yourself."
+          )
+        }
+      }
+
+      const unique = Array.from(new Set(keys))
+      const permRows = unique.length
+        ? await tx
+            .select({ id: permissions.id })
+            .from(permissions)
+            .where(inArray(permissions.key, unique))
+        : []
+
+      await tx
+        .delete(rolePermissions)
+        .where(eq(rolePermissions.roleId, roleId))
+
+      if (permRows.length) {
+        await tx.insert(rolePermissions).values(
+          permRows.map((p) => ({
+            tenantId: ctx.tenantId,
+            roleId,
+            permissionId: p.id,
+          }))
+        )
+      }
+
+      await writeAudit(tx, ctx, {
+        action: "role.permissions_set",
+        entityType: "role",
+        entityId: roleId,
+        after: { permissions: unique },
+      })
+    })
+
+    revalidatePath("/team")
   })
-
-  revalidatePath("/team")
 }
 
 function validateRoleInput(name: string, tier: number) {
@@ -220,48 +294,57 @@ function validateRoleInput(name: string, tier: number) {
 export async function createRole(input: {
   name: string
   tier: number
-}): Promise<TeamRoleView> {
-  const ctx = await requireContext()
-  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-  validateRoleInput(input.name, input.tier)
+}): Promise<ActionResult<TeamRoleView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+    validateRoleInput(input.name, input.tier)
 
-  const view = await runInTenant(ctx.tenantId, async (tx) => {
-    const name = input.name.trim()
-    const [existing] = await tx
-      .select({ id: roles.id })
-      .from(roles)
-      .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.name, name)))
-      .limit(1)
-    if (existing) throw new Error("A role with that name already exists.")
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const name = input.name.trim()
+      const [existing] = await tx
+        .select({ id: roles.id })
+        .from(roles)
+        .where(and(eq(roles.tenantId, ctx.tenantId), eq(roles.name, name)))
+        .limit(1)
+      if (existing) throw new Error("A role with that name already exists.")
 
-    const [created] = await tx
-      .insert(roles)
-      .values({
-        tenantId: ctx.tenantId,
-        name,
-        defaultTierLevel: input.tier,
-        isSystem: false,
+      const [created] = await tx
+        .insert(roles)
+        .values({
+          tenantId: ctx.tenantId,
+          name,
+          defaultTierLevel: input.tier,
+          isSystem: false,
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "role.created",
+        entityType: "role",
+        entityId: created.id,
+        after: { name: created.name, tierLevel: created.defaultTierLevel },
       })
-      .returning()
-    return {
-      id: created.id,
-      name: created.name,
-      description: created.description,
-      isSystem: created.isSystem,
-      tierLevel: created.defaultTierLevel,
-      memberCount: 0,
-      permissionCount: 0,
-    }
-  })
+      return {
+        id: created.id,
+        name: created.name,
+        description: created.description,
+        isSystem: created.isSystem,
+        tierLevel: created.defaultTierLevel,
+        memberCount: 0,
+        permissionCount: 0,
+      }
+    })
 
-  revalidatePath("/team")
-  return view
+    revalidatePath("/team")
+    return view
+  })
 }
 
 export async function updateRole(
   id: string,
   input: { name: string; tier: number }
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
   validateRoleInput(input.name, input.tier)
@@ -297,12 +380,22 @@ export async function updateRole(
         updatedAt: new Date(),
       })
       .where(eq(roles.id, id))
+
+    await writeAudit(tx, ctx, {
+      action: "role.updated",
+      entityType: "role",
+      entityId: id,
+      before: { name: role.name, tierLevel: role.defaultTierLevel },
+      after: { name: role.isSystem ? role.name : name, tierLevel: input.tier },
+    })
   })
 
   revalidatePath("/team")
+  })
 }
 
-export async function deleteRole(id: string): Promise<void> {
+export async function deleteRole(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
 
@@ -323,9 +416,17 @@ export async function deleteRole(id: string): Promise<void> {
     if (inUse) throw new Error("Role is in use")
 
     await tx.delete(roles).where(eq(roles.id, id))
+
+    await writeAudit(tx, ctx, {
+      action: "role.deleted",
+      entityType: "role",
+      entityId: id,
+      before: { name: role.name, tierLevel: role.defaultTierLevel },
+    })
   })
 
   revalidatePath("/team")
+  })
 }
 
 // ─── Member mutations ────────────────────────────────────────────────────────
@@ -334,7 +435,8 @@ export async function addMember(input: {
   email: string
   roleId: string
   tier: number
-}): Promise<void> {
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -343,6 +445,10 @@ export async function addMember(input: {
   if (!input.roleId) throw new Error("Pick a role.")
   if (!Number.isInteger(input.tier) || input.tier < 0) {
     throw new Error("Tier must be a non-negative integer.")
+  }
+  // Tier ceiling: a non-superadmin can't grant a seniority tier above their own.
+  if (!ctx.isSuperadmin && input.tier > ctx.tierLevel) {
+    throw new Error("You can't assign a tier above your own.")
   }
 
   // Find a user by email (case-insensitive). user is not RLS.
@@ -378,11 +484,15 @@ export async function addMember(input: {
   await runInTenant(ctx.tenantId, async (tx) => {
     // Validate the role belongs to this tenant.
     const [role] = await tx
-      .select({ id: roles.id })
+      .select({ id: roles.id, defaultTierLevel: roles.defaultTierLevel })
       .from(roles)
       .where(and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId)))
       .limit(1)
     if (!role) throw new Error("Role not found.")
+    // Role ceiling: can't grant a role whose tier outranks the actor.
+    if (!ctx.isSuperadmin && role.defaultTierLevel > ctx.tierLevel) {
+      throw new Error("You can't assign a role above your own tier.")
+    }
 
     await tx.insert(membershipProfiles).values({
       memberId,
@@ -391,9 +501,17 @@ export async function addMember(input: {
       tierLevel: input.tier,
       status: "active",
     })
+
+    await writeAudit(tx, ctx, {
+      action: "member.added",
+      entityType: "member",
+      entityId: memberId,
+      after: { email, roleId: input.roleId, tierLevel: input.tier },
+    })
   })
 
   revalidatePath("/team")
+  })
 }
 
 export async function updateMember(
@@ -403,7 +521,8 @@ export async function updateMember(
     tierLevel?: number
     managerMemberId?: string | null
   }
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -417,16 +536,67 @@ export async function updateMember(
     throw new Error("A member can't manage themselves.")
   }
 
+  const isSelf = ctx.memberId === memberId
+
   await runInTenant(ctx.tenantId, async (tx) => {
+    // Load the target's current profile so we can enforce tier ceilings.
+    const [target] = await tx
+      .select({
+        roleId: membershipProfiles.roleId,
+        tierLevel: membershipProfiles.tierLevel,
+        managerMemberId: membershipProfiles.managerMemberId,
+      })
+      .from(membershipProfiles)
+      .where(eq(membershipProfiles.memberId, memberId))
+      .limit(1)
+    if (!target) throw new Error("Member profile not found.")
+
+    // Resolve the role being assigned (if any) within this tenant.
+    let newRole: { id: string; defaultTierLevel: number } | null = null
     if (input.roleId) {
       const [role] = await tx
-        .select({ id: roles.id })
+        .select({ id: roles.id, defaultTierLevel: roles.defaultTierLevel })
         .from(roles)
         .where(
           and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId))
         )
         .limit(1)
       if (!role) throw new Error("Role not found.")
+      newRole = role
+    }
+
+    // ── Escalation guards (superadmin bypasses) ──────────────────────────
+    if (!ctx.isSuperadmin) {
+      const changingRole =
+        input.roleId !== undefined && input.roleId !== target.roleId
+      const changingTier =
+        input.tierLevel !== undefined && input.tierLevel !== target.tierLevel
+
+      // No self-promotion: you can't change your own role or tier.
+      if (isSelf && (changingRole || changingTier)) {
+        throw new Error("You can't change your own role or tier.")
+      }
+      // You can't edit a member who already sits at or above your tier.
+      if (!isSelf && target.tierLevel >= ctx.tierLevel) {
+        throw new Error("You can't edit a member at or above your own tier.")
+      }
+      // You can't assign a tier above your own.
+      if (input.tierLevel !== undefined && input.tierLevel > ctx.tierLevel) {
+        throw new Error("You can't assign a tier above your own.")
+      }
+      // You can't assign a role whose tier outranks you.
+      if (newRole && newRole.defaultTierLevel > ctx.tierLevel) {
+        throw new Error("You can't assign a role above your own tier.")
+      }
+    }
+
+    // Protect the last Owner: refuse to demote them off the Owner role.
+    if (
+      input.roleId !== undefined &&
+      input.roleId !== target.roleId &&
+      (await isLastOwner(tx, memberId))
+    ) {
+      throw new Error("You can't change the role of the last Owner.")
     }
 
     const set: Partial<typeof membershipProfiles.$inferInsert> = {
@@ -444,9 +614,29 @@ export async function updateMember(
       .where(eq(membershipProfiles.memberId, memberId))
       .returning({ id: membershipProfiles.id })
     if (!updated) throw new Error("Member profile not found.")
+
+    await writeAudit(tx, ctx, {
+      action: "member.updated",
+      entityType: "member",
+      entityId: memberId,
+      before: {
+        roleId: target.roleId,
+        tierLevel: target.tierLevel,
+        managerMemberId: target.managerMemberId,
+      },
+      after: {
+        roleId: input.roleId ?? target.roleId,
+        tierLevel: input.tierLevel ?? target.tierLevel,
+        managerMemberId:
+          input.managerMemberId !== undefined
+            ? input.managerMemberId
+            : target.managerMemberId,
+      },
+    })
   })
 
   revalidatePath("/team")
+  })
 }
 
 /**
@@ -457,7 +647,8 @@ export async function updateMember(
 export async function setMemberStatus(
   memberId: string,
   status: "active" | "disabled"
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -469,18 +660,31 @@ export async function setMemberStatus(
   }
 
   await runInTenant(ctx.tenantId, async (tx) => {
+    // Don't let the last Owner be disabled (would orphan the tenant).
+    if (status === "disabled" && (await isLastOwner(tx, memberId))) {
+      throw new Error("You can't disable the last Owner.")
+    }
     const [updated] = await tx
       .update(membershipProfiles)
       .set({ status, updatedAt: new Date() })
       .where(eq(membershipProfiles.memberId, memberId))
       .returning({ id: membershipProfiles.id })
     if (!updated) throw new Error("Member profile not found.")
+
+    await writeAudit(tx, ctx, {
+      action: "member.status_changed",
+      entityType: "member",
+      entityId: memberId,
+      after: { status },
+    })
   })
 
   revalidatePath("/team")
+  })
 }
 
-export async function removeMember(memberId: string): Promise<void> {
+export async function removeMember(memberId: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -490,9 +694,18 @@ export async function removeMember(memberId: string): Promise<void> {
 
   // Delete the RLS-scoped profile inside the tenant transaction.
   await runInTenant(ctx.tenantId, async (tx) => {
+    if (await isLastOwner(tx, memberId)) {
+      throw new Error("You can't remove the last Owner.")
+    }
     await tx
       .delete(membershipProfiles)
       .where(eq(membershipProfiles.memberId, memberId))
+
+    await writeAudit(tx, ctx, {
+      action: "member.removed",
+      entityType: "member",
+      entityId: memberId,
+    })
   })
 
   // member is not RLS — scope the delete to the active tenant.
@@ -503,4 +716,5 @@ export async function removeMember(memberId: string): Promise<void> {
     )
 
   revalidatePath("/team")
+  })
 }

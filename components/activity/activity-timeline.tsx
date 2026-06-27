@@ -104,7 +104,7 @@ export function ActivityTimeline({
     }
     setBusy(true)
     try {
-      await addActivity({
+      const res = await addActivity({
         entityType,
         entityId,
         type,
@@ -116,11 +116,13 @@ export function ActivityTimeline({
         dueAt: dueAt || undefined,
         revalidate,
       })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
       reset()
       toast.success("Activity logged")
       router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to log activity")
     } finally {
       setBusy(false)
     }

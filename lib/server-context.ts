@@ -1,6 +1,6 @@
 import "server-only"
 import { headers } from "next/headers"
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import {
@@ -40,7 +40,9 @@ export async function getServerContext(): Promise<ServerContext | null> {
   const sessionUser = session.user
   const activeOrgId = session.session.activeOrganizationId ?? null
 
-  // Resolve the member row for the active tenant (or fall back to any membership).
+  // Resolve the member row for the active tenant (or fall back to the user's
+  // oldest membership — a STABLE key, so a multi-org user always lands in the
+  // same tenant rather than an arbitrary `.limit(1)` pick).
   const memberRow = activeOrgId
     ? (
         await db
@@ -52,7 +54,12 @@ export async function getServerContext(): Promise<ServerContext | null> {
           .limit(1)
       )[0]
     : (
-        await db.select().from(member).where(eq(member.userId, sessionUser.id)).limit(1)
+        await db
+          .select()
+          .from(member)
+          .where(eq(member.userId, sessionUser.id))
+          .orderBy(asc(member.createdAt), asc(member.id))
+          .limit(1)
       )[0]
 
   // is_superadmin lives on our user table extension.
@@ -80,6 +87,21 @@ export async function getServerContext(): Promise<ServerContext | null> {
   }
 
   const tenantId = memberRow.organizationId
+
+  // First resolve with no active org yet: persist the deterministic choice so
+  // subsequent requests are stable. Best-effort — setting the session cookie is
+  // only possible in a request that can write cookies (actions/route handlers),
+  // so we swallow failures during pure Server Component renders.
+  if (!activeOrgId) {
+    try {
+      await auth.api.setActiveOrganization({
+        body: { organizationId: tenantId },
+        headers: await headers(),
+      })
+    } catch {
+      // ignore — the next mutation/navigation will persist it
+    }
+  }
 
   const resolved = await runInTenant(tenantId, async (tx) => {
     const [profile] = await tx
@@ -138,11 +160,15 @@ export async function getServerContext(): Promise<ServerContext | null> {
   }
 }
 
-/** Throws if unauthenticated or has no active tenant. Use in server actions. */
+/** Throws if unauthenticated, has no active tenant, or the membership is not
+ * active (e.g. disabled/invited). Use in server actions. */
 export async function requireContext(): Promise<ServerContext> {
   const ctx = await getServerContext()
   if (!ctx) throw new Error("UNAUTHENTICATED")
   if (!ctx.tenantId) throw new Error("NO_ACTIVE_TENANT")
+  if (ctx.status !== "active") {
+    throw new Error("Your membership in this organization is not active.")
+  }
   return ctx
 }
 

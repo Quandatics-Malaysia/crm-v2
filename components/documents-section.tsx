@@ -57,40 +57,39 @@ export function DocumentsSection({
     const file = e.target.files?.[0]
     if (!file) return
     setBusy(true)
-    try {
-      const fd = new FormData()
-      fd.append("file", file)
-      fd.append("attachableType", uploadType)
-      fd.append("attachableId", uploadId)
-      if (revalidate) fd.append("revalidate", revalidate)
-      await uploadEntityAttachment(fd)
+    const fd = new FormData()
+    fd.append("file", file)
+    fd.append("attachableType", uploadType)
+    fd.append("attachableId", uploadId)
+    if (revalidate) fd.append("revalidate", revalidate)
+    const res = await uploadEntityAttachment(fd)
+    if (res.ok) {
       toast.success("File attached")
       router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed")
-    } finally {
-      setBusy(false)
-      if (fileRef.current) fileRef.current.value = ""
+    } else {
+      toast.error(res.error)
     }
+    setBusy(false)
+    if (fileRef.current) fileRef.current.value = ""
   }
 
   async function onRename(id: string, next: string) {
-    try {
-      await renameEntityAttachment(id, next, revalidate)
+    const res = await renameEntityAttachment(id, next, revalidate)
+    if (res.ok) {
       toast.success("File renamed")
       router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Rename failed")
+    } else {
+      toast.error(res.error)
     }
   }
 
   async function onDelete(id: string) {
-    try {
-      await deleteEntityAttachment(id, revalidate)
+    const res = await deleteEntityAttachment(id, revalidate)
+    if (res.ok) {
       toast.success("File removed")
       router.refresh()
-    } catch {
-      toast.error("Delete failed")
+    } else {
+      toast.error(res.error)
     }
   }
 

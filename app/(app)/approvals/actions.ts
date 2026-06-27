@@ -1,12 +1,11 @@
 "use server"
 
-import { and, desc, eq, isNull, or, type SQL } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { runInTenant } from "@/db"
 import {
   stageApprovalRequests,
-  attachments,
   opportunities,
   funnelStages,
   member,
@@ -14,20 +13,8 @@ import {
 } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { storage } from "@/lib/storage"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import { decideApproval } from "@/server/services/stage"
-import type { attachableType as attachableTypeEnum } from "@/db/schema"
-
-export type AttachableType = (typeof attachableTypeEnum.enumValues)[number]
-
-export type AttachmentItem = {
-  id: string
-  fileName: string
-  contentType: string
-  byteSize: number
-  uploadedByName: string | null
-  createdAt: string
-}
 
 export type ApprovalRow = {
   id: string
@@ -42,75 +29,6 @@ export type ApprovalRow = {
   decisionNote: string | null
   requestedAt: string
   decidedAt: string | null
-}
-
-/** Upload a file and record its metadata against a polymorphic owner. */
-export async function uploadAttachment(formData: FormData): Promise<void> {
-  const ctx = await requireContext()
-  const file = formData.get("file")
-  const attachableType = formData.get("attachableType") as AttachableType | null
-  const attachableId = formData.get("attachableId") as string | null
-
-  if (!(file instanceof File) || file.size === 0)
-    throw new Error("No file provided")
-  if (!attachableType || !attachableId)
-    throw new Error("Missing attachment target")
-
-  const buf = Buffer.from(await file.arrayBuffer())
-  const stored = await storage.put(ctx.tenantId, file.name, buf)
-
-  await runInTenant(ctx.tenantId, (tx) =>
-    tx.insert(attachments).values({
-      tenantId: ctx.tenantId,
-      attachableType,
-      attachableId,
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      byteSize: stored.size,
-      storageKey: stored.key,
-      uploadedByMemberId: ctx.memberId,
-    })
-  )
-
-  revalidatePath("/approvals")
-}
-
-/** List attachments for a polymorphic owner, newest first. */
-export async function listAttachmentsAction(
-  attachableType: AttachableType,
-  attachableId: string
-): Promise<AttachmentItem[]> {
-  const ctx = await requireContext()
-  return runInTenant(ctx.tenantId, async (tx) => {
-    const rows = await tx
-      .select({
-        id: attachments.id,
-        fileName: attachments.fileName,
-        contentType: attachments.contentType,
-        byteSize: attachments.byteSize,
-        uploadedByName: user.name,
-        createdAt: attachments.createdAt,
-      })
-      .from(attachments)
-      .leftJoin(member, eq(attachments.uploadedByMemberId, member.id))
-      .leftJoin(user, eq(member.userId, user.id))
-      .where(
-        and(
-          eq(attachments.attachableType, attachableType),
-          eq(attachments.attachableId, attachableId)
-        )
-      )
-      .orderBy(desc(attachments.createdAt))
-
-    return rows.map((r) => ({
-      id: r.id,
-      fileName: r.fileName,
-      contentType: r.contentType,
-      byteSize: r.byteSize,
-      uploadedByName: r.uploadedByName,
-      createdAt: r.createdAt.toISOString(),
-    }))
-  })
 }
 
 const fromStage = alias(funnelStages, "from_stage")
@@ -158,8 +76,9 @@ async function nameMap(
     .select({ memberId: member.id, name: user.name })
     .from(member)
     .innerJoin(user, eq(member.userId, user.id))
+    .where(inArray(member.id, ids))
   const map = new Map<string, string>()
-  for (const r of rows) if (ids.includes(r.memberId)) map.set(r.memberId, r.name)
+  for (const r of rows) map.set(r.memberId, r.name)
   return map
 }
 
@@ -244,8 +163,10 @@ export async function decideApprovalAction(input: {
   requestId: string
   decision: "approved" | "rejected" | "cancelled"
   note?: string
-}): Promise<void> {
-  const ctx = await requireContext()
-  await decideApproval(ctx, input)
-  revalidatePath("/approvals")
+}): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    await decideApproval(ctx, input)
+    revalidatePath("/approvals")
+  })
 }

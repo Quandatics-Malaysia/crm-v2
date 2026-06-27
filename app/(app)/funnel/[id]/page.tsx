@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import {
   FolderPlusIcon,
   FolderIcon,
+  ClockIcon,
 } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
@@ -47,7 +48,9 @@ import {
 } from "../actions"
 import { StageBadge } from "../stage-badge"
 import { StageAdvanceDialog } from "../stage-advance-dialog"
+import { StageReopenDialog } from "../stage-reopen-dialog"
 import { OpportunityForm } from "../opportunity-form"
+import { isTerminalKind, selectableTargets } from "../stage-transitions"
 import { QuotationCreateDialog } from "@/app/(app)/quotations/quotation-create-dialog"
 
 const quoteStatusVariant: Record<
@@ -119,6 +122,21 @@ export default async function OpportunityDetailPage({
   }))
   const funnelProgress = buildFunnelSteps(progressStages, opp.currentStageId)
 
+  // Stage-action state: a closed (terminal) deal can't advance — only a parked
+  // or lost one can be reopened; an open deal with no legal forward target shows
+  // a disabled hint; a pending approval freezes the CTA until it's decided.
+  const terminal = isTerminalKind(stage.kind)
+  const reopenable = stage.kind === "PARKED" || stage.kind === "LOST"
+  const selectable = selectableTargets(
+    detail.funnelStagesList.map((s) => ({
+      id: s.id,
+      kind: s.kind,
+      sortOrder: s.sortOrder,
+    })),
+    opp.currentStageId
+  )
+  const pendingApproval = detail.pendingApproval
+
   // Build the list-shaped row the edit form expects from the detail payload.
   const editRow: OpportunityListRow = {
     id: opp.id,
@@ -180,13 +198,52 @@ export default async function OpportunityDetailPage({
               opportunity={editRow}
               trigger={<Button variant="outline">Edit</Button>}
             />
-            <StageAdvanceDialog
-              opportunityId={opp.id}
-              currentStageId={opp.currentStageId}
-              stages={detail.funnelStagesList}
-            />
+            {pendingApproval ? (
+              <Button
+                variant="outline"
+                nativeButton={false}
+                render={<Link href="/approvals" />}
+              >
+                <ClockIcon />
+                Awaiting approval
+              </Button>
+            ) : terminal ? (
+              reopenable ? (
+                <StageReopenDialog
+                  opportunityId={opp.id}
+                  stages={detail.funnelStagesList}
+                />
+              ) : null
+            ) : selectable.length === 0 ? (
+              <Button variant="outline" disabled>
+                No further stages available
+              </Button>
+            ) : (
+              <StageAdvanceDialog
+                opportunityId={opp.id}
+                currentStageId={opp.currentStageId}
+                stages={detail.funnelStagesList}
+              />
+            )}
           </div>
         </div>
+
+        {pendingApproval ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+            <ClockIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              Pending approval{" "}
+              <span className="text-muted-foreground">→</span>{" "}
+              <span className="font-medium">
+                {pendingApproval.targetStageName}
+              </span>
+              . This opportunity can&apos;t advance until the request is decided.
+            </span>
+            <Link href="/approvals" className="font-medium underline">
+              View in Approvals
+            </Link>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="grid gap-4 lg:col-span-2">
@@ -215,7 +272,7 @@ export default async function OpportunityDetailPage({
                 </div>
                 <div className="grid gap-1">
                   <span className="text-xs text-muted-foreground">
-                    Net deal value
+                    Net value
                   </span>
                   {detail.amountFromQuote && detail.quoteNumber ? (
                     <span className="flex items-baseline gap-1.5">

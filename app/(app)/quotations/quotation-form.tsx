@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { Separator } from "@/components/ui/separator"
 import {
   Card,
@@ -46,7 +47,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { formatMoney } from "@/lib/format"
+import { formatMoney, formatDate } from "@/lib/format"
 import type { ActionResult } from "@/lib/action-result"
 import {
   quotationLineSchema,
@@ -68,7 +69,7 @@ const schema = z.object({
   validUntil: z.string(),
   notes: z.string(),
   headerDiscount: headerDiscountSchema,
-  lines: z.array(quotationLineSchema),
+  lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -81,15 +82,20 @@ export function QuotationForm({
   detail,
   taxOptions,
   taxInclusive,
+  hasProject = false,
 }: {
   detail: QuotationDetail
   taxOptions: TaxOption[]
   taxInclusive: boolean
+  /** True when a non-deleted project already exists for this quotation. */
+  hasProject?: boolean
 }) {
   const router = useRouter()
   const { quotation, lines, opportunityName } = detail
   const isDraft = quotation.status === "draft"
   const isSent = quotation.status === "sent"
+  const isAccepted = quotation.status === "accepted"
+  const createProjectHref = `/projects/new?opportunityId=${quotation.opportunityId}`
   const [busy, setBusy] = React.useState(false)
 
   const form = useForm<FormValues>({
@@ -190,6 +196,26 @@ export function QuotationForm({
     setBusy(false)
   }
 
+  async function onAccept() {
+    setBusy(true)
+    const res = await acceptQuotation(quotation.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      setBusy(false)
+      return
+    }
+    if (res.data.warning) toast.warning(res.data.warning)
+    // The highest-value moment: offer the forward step (create the project).
+    toast.success("Quotation accepted", {
+      action: {
+        label: "Create project",
+        onClick: () => router.push(createProjectHref),
+      },
+    })
+    router.refresh()
+    setBusy(false)
+  }
+
   async function runAction(
     fn: () => Promise<ActionResult<unknown>>,
     successMsg: string,
@@ -213,6 +239,24 @@ export function QuotationForm({
       <div className="lg:col-span-2">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
+            {!isDraft ? (
+              <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+                {isSent
+                  ? `This quotation was sent${
+                      quotation.sentAt
+                        ? ` on ${formatDate(quotation.sentAt)}`
+                        : ""
+                    } and is now read-only.`
+                  : isAccepted
+                    ? `This quotation was accepted${
+                        quotation.acceptedAt
+                          ? ` on ${formatDate(quotation.acceptedAt)}`
+                          : ""
+                      } and is now read-only.`
+                    : "This quotation is read-only."}{" "}
+                To change pricing, create a revision from the funnel.
+              </div>
+            ) : null}
             <Card>
               <CardHeader>
                 <CardTitle>Header</CardTitle>
@@ -287,7 +331,7 @@ export function QuotationForm({
                   name="headerDiscount"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Header discount</FormLabel>
+                      <FormLabel>Header discount ({quotation.currency})</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -348,6 +392,11 @@ export function QuotationForm({
                 {fields.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No line items.</p>
                 ) : null}
+                {form.formState.errors.lines?.root ? (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.lines.root.message}
+                  </p>
+                ) : null}
                 {fields.map((f, i) => {
                   return (
                     <div key={f.id} className="grid gap-3 rounded-lg border p-3">
@@ -356,7 +405,9 @@ export function QuotationForm({
                         name={`lines.${i}.description`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs">Description</FormLabel>
+                            <FormLabel className="text-xs" required>
+                              Description
+                            </FormLabel>
                             <FormControl>
                               <Input
                                 placeholder="Service description"
@@ -374,7 +425,9 @@ export function QuotationForm({
                           name={`lines.${i}.quantity`}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs">Qty</FormLabel>
+                              <FormLabel className="text-xs" required>
+                                Qty
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   type="number"
@@ -393,7 +446,9 @@ export function QuotationForm({
                           name={`lines.${i}.unitPrice`}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs">Unit price</FormLabel>
+                              <FormLabel className="text-xs" required>
+                                Unit price
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   type="number"
@@ -439,6 +494,7 @@ export function QuotationForm({
                             type="button"
                             variant="ghost"
                             size="sm"
+                            disabled={fields.length === 1}
                             onClick={() => remove(i)}
                           >
                             <Trash2 /> Remove
@@ -466,7 +522,7 @@ export function QuotationForm({
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>{quotation.quoteNumber}</CardTitle>
-            <Badge className="capitalize">{quotation.status}</Badge>
+            <StatusBadge status={quotation.status} className="capitalize" />
           </CardHeader>
           <CardContent className="grid gap-2 text-sm">
             <Row label="Subtotal" value={formatMoney(display.subtotal, quotation.currency)} />
@@ -517,13 +573,7 @@ export function QuotationForm({
             ) : null}
             {isSent ? (
               <>
-                <Button
-                  variant="default"
-                  disabled={busy}
-                  onClick={() =>
-                    runAction(() => acceptQuotation(quotation.id), "Quotation accepted")
-                  }
-                >
+                <Button variant="default" disabled={busy} onClick={onAccept}>
                   Accept
                 </Button>
                 <Button
@@ -536,6 +586,16 @@ export function QuotationForm({
                   Reject
                 </Button>
               </>
+            ) : null}
+            {isAccepted && !hasProject ? (
+              <Button
+                variant="default"
+                disabled={busy}
+                nativeButton={false}
+                render={<Link href={createProjectHref} />}
+              >
+                Create project
+              </Button>
             ) : null}
             {!quotation.isPrimary &&
             (quotation.status === "accepted" || quotation.status === "sent") ? (

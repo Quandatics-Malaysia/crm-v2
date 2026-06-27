@@ -20,10 +20,11 @@ import {
 } from "@/components/stage-progress"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
-import { listFunnelsWithStages } from "@/lib/lookups"
+import { listAccountOptions, listFunnelsWithStages } from "@/lib/lookups"
 import { formatDate } from "@/lib/format"
 import { getLead } from "../actions"
 import { LeadEditButton } from "./lead-edit-button"
+import { LeadDetailActions } from "./lead-detail-actions"
 
 const STATUS_LABEL: Record<string, string> = {
   new: "New",
@@ -39,9 +40,10 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, funnels] = await Promise.all([
+  const [data, funnels, accountOptions] = await Promise.all([
     getLead(id),
     listFunnelsWithStages(),
+    listAccountOptions(),
   ])
   if (!data) notFound()
 
@@ -70,7 +72,7 @@ export default async function LeadDetailPage({
     { label: "Phone", value: lead.phone ?? "—" },
     { label: "Source", value: lead.source ?? "—" },
     {
-      label: "Pipeline",
+      label: "Funnel",
       value: funnelName ? (
         lead.convertedOpportunityId ? (
           <Link
@@ -136,6 +138,9 @@ export default async function LeadDetailPage({
               <Badge variant="outline" className="font-normal">
                 {stageName}
               </Badge>
+            ) : null}
+            {!isConverted ? (
+              <LeadDetailActions lead={lead} accountOptions={accountOptions} />
             ) : null}
             <LeadEditButton lead={lead} funnels={funnels} />
             <Button
@@ -224,7 +229,7 @@ export default async function LeadDetailPage({
                           />
                         }
                       >
-                        Funnel{funnelName ? `: ${funnelName}` : ""}
+                        Opportunity{funnelName ? `: ${funnelName}` : ""}
                       </Button>
                     ) : null}
                   </div>

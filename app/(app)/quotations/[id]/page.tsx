@@ -7,7 +7,7 @@ import { tenantSettings } from "@/db/schema"
 import { listTaxOptions } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -74,7 +74,10 @@ export default async function QuotationDetailPage({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="capitalize">{detail.quotation.status}</Badge>
+            <StatusBadge
+              status={detail.quotation.status}
+              className="capitalize"
+            />
             <Button
               variant="outline"
               size="sm"
@@ -101,6 +104,7 @@ export default async function QuotationDetailPage({
           detail={detail}
           taxOptions={taxOptions}
           taxInclusive={taxInclusive}
+          hasProject={!!project}
         />
 
         <Card>

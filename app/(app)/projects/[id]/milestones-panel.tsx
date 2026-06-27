@@ -14,6 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { InlineRename } from "@/components/inline-rename"
 import { formatDate, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -37,6 +48,7 @@ function InlineValue({
   type = "text",
   title,
   onSave,
+  formatDraft,
   className,
   inputClassName,
 }: {
@@ -45,11 +57,17 @@ function InlineValue({
   type?: "text" | "number" | "date"
   title?: string
   onSave: (next: string) => Promise<void> | void
+  /** Format the in-flight draft for the optimistic display while saving. */
+  formatDraft?: (next: string) => React.ReactNode
   className?: string
   inputClassName?: string
 }) {
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value)
+  // The committed draft kept on screen while the save is in flight, so the cell
+  // shows the new value optimistically instead of flashing the stale one until
+  // router.refresh() lands.
+  const [optimistic, setOptimistic] = React.useState<string | null>(null)
 
   function start() {
     setDraft(value)
@@ -59,7 +77,25 @@ function InlineValue({
     setEditing(false)
     const next = draft.trim()
     if (next === value.trim()) return
-    await onSave(next)
+    setOptimistic(next)
+    try {
+      await onSave(next)
+    } finally {
+      // Fresh props from the refresh now reflect the saved value.
+      setOptimistic(null)
+    }
+  }
+
+  if (optimistic !== null) {
+    return (
+      <span
+        aria-busy
+        title="Saving…"
+        className={cn("opacity-60", className)}
+      >
+        {formatDraft ? formatDraft(optimistic) : optimistic}
+      </span>
+    )
   }
 
   if (editing) {
@@ -226,6 +262,7 @@ export function MilestonesPanel({
                   <InlineValue
                     value={m.dueDate ?? ""}
                     display={m.dueDate ? formatDate(m.dueDate) : "No due date"}
+                    formatDraft={(v) => (v ? formatDate(v) : "No due date")}
                     type="date"
                     title="Click to edit due date"
                     onSave={(next) =>
@@ -238,6 +275,7 @@ export function MilestonesPanel({
                   <InlineValue
                     value={m.percentage ? String(Number(m.percentage)) : ""}
                     display={m.percentage ? `${Number(m.percentage)}%` : "—%"}
+                    formatDraft={(v) => (v ? `${Number(v)}%` : "—%")}
                     type="number"
                     title="Click to edit percent of value"
                     onSave={(next) =>
@@ -253,6 +291,7 @@ export function MilestonesPanel({
               <InlineValue
                 value={m.amount ?? ""}
                 display={formatMoney(m.amount, currency)}
+                formatDraft={(v) => formatMoney(v || "0", currency)}
                 type="number"
                 title="Click to edit amount"
                 onSave={(next) =>
@@ -313,18 +352,41 @@ export function MilestonesPanel({
                 >
                   <ChevronDown className="size-4 text-muted-foreground" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={pending}
-                  aria-label="Delete milestone"
-                  onClick={() =>
-                    run(() => deleteMilestone(m.id), "Milestone deleted")
-                  }
-                >
-                  <Trash2 className="size-4 text-muted-foreground" />
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={pending}
+                        aria-label="Delete milestone"
+                      >
+                        <Trash2 className="size-4 text-muted-foreground" />
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete this milestone?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        “{m.title}” ({formatMoney(m.amount, currency)}) will be
+                        removed from the payment schedule. This can’t be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        variant="destructive"
+                        onClick={() =>
+                          run(() => deleteMilestone(m.id), "Milestone deleted")
+                        }
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
           ))}
@@ -397,7 +459,7 @@ export function MilestonesPanel({
               <span className="font-semibold tabular-nums text-foreground">
                 {formatMoney(value, currency)}
               </span>{" "}
-              <span className="text-xs">(project value)</span>
+              <span className="text-xs">(net project value, ex-tax)</span>
             </span>
             <span
               className={cn(

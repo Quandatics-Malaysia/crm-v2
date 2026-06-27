@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Combobox } from "@/components/ui/combobox"
 import {
   Form,
   FormControl,
@@ -240,7 +242,7 @@ export function AccountForm({
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel required>Name</FormLabel>
                     <FormControl>
                       <Input placeholder="Acme Corp" {...field} />
                     </FormControl>
@@ -309,25 +311,16 @@ export function AccountForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Parent account</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    items={parentItems}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="No parent" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value={NONE}>No parent</SelectItem>
-                      {parentOptions.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          {o.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={parentItems}
+                      placeholder="No parent"
+                      searchPlaceholder="Search accounts…"
+                      emptyMessage="No accounts found."
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -374,27 +367,20 @@ export function AccountForm({
                 <FormField
                   control={form.control}
                   name="endUserAccountId"
-                  render={({ field }) => (
+                  render={({ field, fieldState }) => (
                     <FormItem>
-                      <FormLabel>End user</FormLabel>
-                      <Select
-                        value={field.value || ""}
-                        onValueChange={field.onChange}
-                        items={endUserItems}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select end user…" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {endUserOptions.map((o) => (
-                            <SelectItem key={o.id} value={o.id}>
-                              {o.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel required>End user</FormLabel>
+                      <FormControl>
+                        <Combobox
+                          value={field.value || ""}
+                          onChange={field.onChange}
+                          options={endUserItems}
+                          placeholder="Select end user…"
+                          searchPlaceholder="Search accounts…"
+                          emptyMessage="No accounts found."
+                          aria-invalid={!!fieldState.error}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -520,6 +506,9 @@ export function AccountForm({
         </Form>
 
         <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>
+            Cancel
+          </DialogClose>
           <Button
             type="submit"
             form="account-form"

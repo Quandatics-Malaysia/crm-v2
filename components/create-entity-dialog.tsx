@@ -38,13 +38,15 @@ export function CreateEntityDialog({
         name: name.trim(),
         entityCode: entityCode.trim() || undefined,
       })
-      toast.success("Entity created")
+      toast.success("Organization created")
       onOpenChange(false)
       setName("")
       setEntityCode("")
       router.refresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create entity")
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create organization"
+      )
     } finally {
       setBusy(false)
     }
@@ -54,7 +56,7 @@ export function CreateEntityDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create entity</DialogTitle>
+          <DialogTitle>Create organization</DialogTitle>
           <DialogDescription>
             A new organization with its own data, roles, funnel, and numbering.
           </DialogDescription>
@@ -70,7 +72,7 @@ export function CreateEntityDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="ent-code">Entity code</Label>
+            <Label htmlFor="ent-code">Organization code</Label>
             <Input
               id="ent-code"
               value={entityCode}
@@ -86,7 +88,7 @@ export function CreateEntityDialog({
         </form>
         <DialogFooter>
           <Button type="submit" form="create-entity-form" disabled={busy}>
-            {busy ? "Creating…" : "Create entity"}
+            {busy ? "Creating…" : "Create organization"}
           </Button>
         </DialogFooter>
       </DialogContent>

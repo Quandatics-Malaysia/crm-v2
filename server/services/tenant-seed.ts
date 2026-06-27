@@ -57,6 +57,9 @@ export async function seedTenant(
       organizationId: tenantId,
       entityCode: opts.entityCode?.trim().toUpperCase() || null,
       defaultCurrency: opts.currency ?? "MYR",
+      // Self-service tenants must be able to sign in out of the box; SSO-only is
+      // opt-in. Without this a freshly-provisioned admin is hard-locked out.
+      allowPasswordLogin: true,
       industries: DEFAULT_INDUSTRIES,
     })
     .onConflictDoNothing()

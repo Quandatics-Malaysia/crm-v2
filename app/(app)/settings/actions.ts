@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import type { StageCode, StageKind } from "./constants"
 import { runInTenant, type Tx } from "@/db"
@@ -16,6 +16,7 @@ import {
   user,
   funnels,
   funnelStages,
+  opportunities,
 } from "@/db/schema"
 
 export type TenantSettingsView = {
@@ -70,7 +71,9 @@ const DEFAULTS = {
   approvalBypassTier: 40,
   taxInclusive: false,
   autoWinOnQuoteAccept: true,
-  allowPasswordLogin: false,
+  // Default sign-in on so a self-service tenant can't be locked out; SSO-only
+  // is an explicit opt-out via the General settings toggle.
+  allowPasswordLogin: true,
 }
 
 /** Tenant settings for the active org. Creates a default row if missing. */
@@ -213,6 +216,29 @@ export async function updateNumbering(
   }
 
   const view = await runInTenant(ctx.tenantId, async (tx) => {
+    // The stored counter is always (highest issued number + 1). Lowering it
+    // below the current value would re-issue numbers already on live documents
+    // and surface later as cryptic unique-constraint failures.
+    const [current] = await tx
+      .select({
+        quoteNextNumber: tenantSettings.quoteNextNumber,
+        projectNextNumber: tenantSettings.projectNextNumber,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    if (current) {
+      if (input.quoteNextNumber < current.quoteNextNumber) {
+        throw new Error(
+          `Quotation next number can't go below ${current.quoteNextNumber} — number ${current.quoteNextNumber - 1} has already been issued.`
+        )
+      }
+      if (input.projectNextNumber < current.projectNextNumber) {
+        throw new Error(
+          `Project next number can't go below ${current.projectNextNumber} — number ${current.projectNextNumber - 1} has already been issued.`
+        )
+      }
+    }
     const [updated] = await tx
       .insert(tenantSettings)
       .values({ organizationId: ctx.tenantId, status: "active", ...values })
@@ -471,6 +497,26 @@ export async function deleteStage(id: string): Promise<ActionResult<void>> {
       .from(funnelStages)
       .where(eq(funnelStages.id, id))
       .limit(1)
+    if (!before) throw new Error("Stage not found.")
+
+    // Refuse to orphan live deals: a stage with non-deleted opportunities
+    // referencing it can't be hard-deleted (it would break the board + forecast).
+    const inUse = await tx
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.currentStageId, id),
+          isNull(opportunities.deletedAt)
+        )
+      )
+      .limit(1)
+    if (inUse.length > 0) {
+      throw new Error(
+        "This stage still has opportunities in it. Move them to another stage before deleting it."
+      )
+    }
+
     await tx.delete(funnelStages).where(eq(funnelStages.id, id))
     await writeAudit(tx, ctx, {
       action: "stage.deleted",

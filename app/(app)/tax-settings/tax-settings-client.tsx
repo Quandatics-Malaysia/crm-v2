@@ -33,6 +33,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -160,7 +161,14 @@ function TaxDialog({
               name="isDefault"
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between gap-4">
-                  <FormLabel>Default tax</FormLabel>
+                  <div className="grid gap-1">
+                    <FormLabel>Default tax</FormLabel>
+                    <FormDescription>
+                      Pre-selected on new quotation lines. Exactly one tax is the
+                      default — turning this on moves the default off the current
+                      one.
+                    </FormDescription>
+                  </div>
                   <FormControl>
                     <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>
@@ -172,7 +180,15 @@ function TaxDialog({
               name="isActive"
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between gap-4">
-                  <FormLabel>Active</FormLabel>
+                  <div className="grid gap-1">
+                    <FormLabel>Active</FormLabel>
+                    <FormDescription>
+                      Inactive rates are hidden from new quotations but kept for
+                      history. The default tax must stay active. Whether prices
+                      include tax is set by “Tax-inclusive pricing” in Settings →
+                      General.
+                    </FormDescription>
+                  </div>
                   <FormControl>
                     <Switch checked={field.value} onCheckedChange={field.onChange} />
                   </FormControl>

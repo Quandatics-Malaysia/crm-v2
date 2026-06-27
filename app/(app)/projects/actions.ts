@@ -14,8 +14,9 @@ import {
   user,
   paymentMilestones,
   paymentMilestoneStatus,
+  salesOrders,
 } from "@/db/schema"
-import { nextProjectCode } from "@/server/services/numbering"
+import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { opportunityNetValue } from "@/server/services/value"
 import { writeAudit } from "@/server/audit"
@@ -188,25 +189,40 @@ export async function createProject(
         projectCode = await nextProjectCode(tx, ctx, acct.code ?? "")
       }
 
-      const [row] = await tx
-        .insert(projects)
-        .values({
-          tenantId: ctx.tenantId,
-          projectCode,
-          codeNature,
-          name: input.name,
-          accountId: input.accountId,
-          opportunityId: input.opportunityId || null,
-          quotationId: input.quotationId || null,
-          ownerMemberId: ctx.memberId,
-          status: isStatus(input.status) ? input.status : "planning",
-          value: input.value ? input.value : null,
-          // Carry the source deal currency through; the column defaults to MYR
-          // only when the caller has no currency to propagate.
-          ...(input.currency ? { currency: input.currency } : {}),
-          startDate: input.startDate || null,
-        })
-        .returning({ id: projects.id, projectCode: projects.projectCode })
+      let row: { id: string; projectCode: string }
+      try {
+        ;[row] = await tx
+          .insert(projects)
+          .values({
+            tenantId: ctx.tenantId,
+            projectCode,
+            codeNature,
+            name: input.name,
+            accountId: input.accountId,
+            opportunityId: input.opportunityId || null,
+            quotationId: input.quotationId || null,
+            ownerMemberId: ctx.memberId,
+            status: isStatus(input.status) ? input.status : "planning",
+            value: input.value ? input.value : null,
+            // Carry the source deal currency through; the column defaults to MYR
+            // only when the caller has no currency to propagate.
+            ...(input.currency ? { currency: input.currency } : {}),
+            startDate: input.startDate || null,
+          })
+          .returning({ id: projects.id, projectCode: projects.projectCode })
+      } catch (e) {
+        // A minted/entered project code that collides with an existing one
+        // (e.g. the tenant's "Next number" was set too low). Surface a friendly
+        // retry instead of the raw unique-constraint error.
+        if (isDuplicateNumberError(e)) {
+          throw new Error(
+            codeNature === "manual"
+              ? "Project code already exists. Choose a different code."
+              : "Could not assign a unique project code — please try again or raise the project Next number in Settings."
+          )
+        }
+        throw e
+      }
 
       await logActivity(tx, ctx, {
         entityType: "project",
@@ -328,6 +344,34 @@ export async function deleteProject(id: string): Promise<ActionResult<void>> {
     const visible = await visibleMemberIds(tx, ctx)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId)) {
       throw new Error("FORBIDDEN: not permitted on this project")
+    }
+
+    // Soft-delete doesn't fire the cascade FKs on sales_orders / payment_
+    // milestones, so an approved (number-minted) SO would keep showing in the
+    // global list pointing at a hidden project, and milestones would orphan.
+    // Refuse while live dependents exist, mirroring deleteAccount's guard.
+    const [{ soCount }] = await tx
+      .select({
+        soCount: sql<number>`count(*)`,
+      })
+      .from(salesOrders)
+      .where(
+        and(eq(salesOrders.projectId, id), ne(salesOrders.status, "rejected"))
+      )
+    if (Number(soCount) > 0) {
+      throw new Error(
+        "This project has active sales orders. Reject them before deleting the project."
+      )
+    }
+
+    const [{ milestoneCount }] = await tx
+      .select({ milestoneCount: sql<number>`count(*)` })
+      .from(paymentMilestones)
+      .where(eq(paymentMilestones.projectId, id))
+    if (Number(milestoneCount) > 0) {
+      throw new Error(
+        "This project has payment milestones. Remove them before deleting the project."
+      )
     }
 
     const [updated] = await tx

@@ -40,6 +40,11 @@ export function DocumentViewerButton({ file }: { file: ViewableFile }) {
         variant="ghost"
         size="icon-sm"
         title={previewable ? "View" : "Download"}
+        aria-label={
+          previewable
+            ? `View ${file.fileName}`
+            : `Download ${file.fileName}`
+        }
         onClick={() => (previewable ? setOpen(true) : window.open(`${src}?dl`))}
         className="text-muted-foreground hover:text-foreground"
       >

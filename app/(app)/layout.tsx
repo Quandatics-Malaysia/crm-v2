@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { eq } from "drizzle-orm"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
+import { HeaderActionsProvider } from "@/components/command-palette"
 import { getServerContext } from "@/lib/server-context"
 import { ensureBootstrap } from "@/lib/bootstrap"
 import { db } from "@/db"
@@ -33,10 +34,10 @@ export default async function AppLayout({
   if (tenants.length === 0) {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-2 p-6 text-center">
-        <h1 className="text-lg font-semibold">No entity access yet</h1>
+        <h1 className="text-lg font-semibold">No organization access yet</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Your account isn&apos;t a member of any entity. Ask an administrator to
-          invite you, then sign in again.
+          Your account isn&apos;t a member of any organization. Ask an
+          administrator to invite you, then sign in again.
         </p>
       </div>
     )
@@ -60,7 +61,11 @@ export default async function AppLayout({
         tenants={tenants}
         permissions={[...ctx.permissions]}
       />
-      <SidebarInset>{children}</SidebarInset>
+      <SidebarInset>
+        <HeaderActionsProvider permissions={[...ctx.permissions]}>
+          {children}
+        </HeaderActionsProvider>
+      </SidebarInset>
     </SidebarProvider>
   )
 }

@@ -30,6 +30,11 @@ import { writeAudit } from "@/server/audit"
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
 
+/** Today as a naive `YYYY-MM-DD` string, matching the `validUntil` date column. */
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export type QuotationListItem = QuotationRow & {
   opportunityName: string | null
 }
@@ -431,7 +436,10 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
+      .select({
+        ownerMemberId: opportunities.ownerMemberId,
+        status: opportunities.status,
+      })
       .from(opportunities)
       .where(eq(opportunities.id, q.opportunityId))
       .limit(1)
@@ -439,6 +447,16 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
       throw new Error("FORBIDDEN: not permitted on this quotation")
     if (q.status !== "draft")
       throw new Error("Only draft quotations can be sent")
+    // The funnel must still be live: don't send proposals on won/lost/parked deals.
+    if (opp && opp.status !== "open")
+      throw new Error(
+        "This funnel is no longer open, so its quotation can't be sent."
+      )
+    // Don't send an already-lapsed proposal.
+    if (q.validUntil && q.validUntil < todayDate())
+      throw new Error(
+        `This quotation lapsed on ${q.validUntil}. Update “Valid until” before sending.`
+      )
 
     // Freeze the document: snapshot the tax rate AND recompute + persist the
     // totals with that rate, so the sent quote no longer tracks the live tax
@@ -512,7 +530,16 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
   })
 }
 
-export async function acceptQuotation(id: string): Promise<ActionResult<void>> {
+export type AcceptQuotationResult = {
+  opportunityId: string
+  accountId: string
+  /** Non-fatal warning when accept committed but the auto-win move failed. */
+  warning?: string
+}
+
+export async function acceptQuotation(
+  id: string
+): Promise<ActionResult<AcceptQuotationResult>> {
   return runAction(async () => {
   const result = await withTenant(PERMISSIONS.QUOTATION_ACCEPT, async (tx, ctx) => {
     const [q] = await tx
@@ -523,14 +550,47 @@ export async function acceptQuotation(id: string): Promise<ActionResult<void>> {
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
+      .select({
+        ownerMemberId: opportunities.ownerMemberId,
+        status: opportunities.status,
+        accountId: opportunities.accountId,
+      })
       .from(opportunities)
       .where(eq(opportunities.id, q.opportunityId))
       .limit(1)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
+    if (!opp) throw new Error("Funnel not found")
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
       throw new Error("FORBIDDEN: not permitted on this quotation")
     if (q.status !== "sent")
       throw new Error("Only sent quotations can be accepted")
+    // The funnel must still be open: a won/lost/parked deal can't take a new
+    // acceptance (this also prevents a second accepted quote on a won deal).
+    if (opp.status !== "open")
+      throw new Error(
+        "This funnel is no longer open, so its quotation can't be accepted."
+      )
+    // Don't accept on lapsed terms.
+    if (q.validUntil && q.validUntil < todayDate())
+      throw new Error(
+        `This quotation lapsed on ${q.validUntil}. Create a revision before accepting.`
+      )
+    // Only one accepted quotation per funnel.
+    const [otherAccepted] = await tx
+      .select({ id: quotations.id })
+      .from(quotations)
+      .where(
+        and(
+          eq(quotations.opportunityId, q.opportunityId),
+          ne(quotations.id, id),
+          isNull(quotations.deletedAt),
+          eq(quotations.status, "accepted")
+        )
+      )
+      .limit(1)
+    if (otherAccepted)
+      throw new Error(
+        "Another quotation has already been accepted for this funnel."
+      )
 
     await tx
       .update(quotations)
@@ -578,17 +638,33 @@ export async function acceptQuotation(id: string): Promise<ActionResult<void>> {
 
     return {
       opportunityId: q.opportunityId,
+      accountId: opp.accountId,
       autoWin: settings?.autoWin ?? false,
     }
   })
 
+  // Auto-win runs in its own transaction AFTER acceptance committed, so a
+  // failure here must not surface as an overall failure (the quote is already
+  // accepted + primary). Treat it as a non-fatal warning the caller can show.
+  let warning: string | undefined
   if (result.autoWin) {
-    const ctx = await requireContext()
-    await winOpportunity(ctx, result.opportunityId)
+    try {
+      const ctx = await requireContext()
+      await winOpportunity(ctx, result.opportunityId)
+    } catch (e) {
+      console.error("[acceptQuotation] auto-win failed", e)
+      warning =
+        "Quotation accepted, but moving the funnel to Won failed — advance the stage manually."
+    }
   }
 
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  return {
+    opportunityId: result.opportunityId,
+    accountId: result.accountId,
+    warning,
+  }
   })
 }
 
@@ -681,9 +757,12 @@ async function reassignPrimaryAfterRemoval(
       .set({ primaryQuotationId: candidate.id, updatedAt: new Date() })
       .where(eq(opportunities.id, opportunityId))
   } else {
+    // No live quote remains: clear the pointer AND reset the amount. Without
+    // this, syncOpportunityAmount short-circuits on the null pointer and the
+    // opportunity keeps reporting the removed quote's net in the forecast.
     await tx
       .update(opportunities)
-      .set({ primaryQuotationId: null, updatedAt: new Date() })
+      .set({ primaryQuotationId: null, amount: null, updatedAt: new Date() })
       .where(eq(opportunities.id, opportunityId))
   }
   await syncOpportunityAmount(tx, ctx, opportunityId)
@@ -738,6 +817,7 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
     const [existing] = await tx
       .select({
         opportunityId: quotations.opportunityId,
+        status: quotations.status,
         oppOwner: opportunities.ownerMemberId,
       })
       .from(quotations)
@@ -748,6 +828,23 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
     const visible = await visibleMemberIds(tx, ctx)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.oppOwner))
       throw new Error("FORBIDDEN: not permitted on this quotation")
+    // An accepted quote is the basis for a won deal / project / sales order;
+    // soft-delete doesn't fire the FK set-null, so deleting it would dangle
+    // those references and corrupt the deal's historical value.
+    if (existing.status === "accepted")
+      throw new Error(
+        "An accepted quotation can't be deleted. Create a revision instead."
+      )
+    // Refuse if a live project was built from this quotation.
+    const [linkedProject] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
+      .limit(1)
+    if (linkedProject)
+      throw new Error(
+        "This quotation can't be deleted because a project references it."
+      )
     const [updated] = await tx
       .update(quotations)
       .set({ deletedAt: new Date(), isPrimary: false, updatedAt: new Date() })

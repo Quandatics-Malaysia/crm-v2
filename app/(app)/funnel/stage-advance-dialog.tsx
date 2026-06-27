@@ -187,7 +187,7 @@ export function StageAdvanceDialog({
         <DialogHeader>
           <DialogTitle>Advance stage</DialogTitle>
           <DialogDescription>
-            Move this funnel to a new stage. Some stages require manager
+            Move this opportunity to a new stage. Some stages require manager
             approval before the move takes effect.
           </DialogDescription>
         </DialogHeader>
@@ -264,7 +264,8 @@ export function StageAdvanceDialog({
                   rows={3}
                 />
                 <p className="text-xs text-muted-foreground">
-                  This stage requires approval. Your manager will be notified.
+                  This stage requires approval. Your request is routed to an
+                  approver — track its status under Approvals.
                 </p>
               </div>
             ) : null}

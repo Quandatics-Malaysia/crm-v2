@@ -92,8 +92,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Admin",
     items: [
-      { title: "Team", url: "/team", icon: ShieldCheckIcon, permission: PERMISSIONS.TENANT_MANAGE_USERS },
-      { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TAX_VIEW },
+      { title: "Team & roles", url: "/team", icon: ShieldCheckIcon, permission: PERMISSIONS.TENANT_MANAGE_USERS },
+      { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TENANT_SETTINGS },
     ],
   },
 ]
@@ -155,7 +155,7 @@ export function AppSidebar({
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">
-                    {activeTenant?.name ?? "Select entity"}
+                    {activeTenant?.name ?? "Select organization"}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
                     CRM
@@ -166,7 +166,7 @@ export function AppSidebar({
               <DropdownMenuContent className="min-w-56" align="start">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Entities
+                    Organizations
                   </DropdownMenuLabel>
                   {tenants.map((t) => (
                     <DropdownMenuItem
@@ -184,7 +184,7 @@ export function AppSidebar({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setCreateOpen(true)}>
                   <PlusIcon className="size-4" />
-                  Create entity
+                  Create organization
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

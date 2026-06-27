@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import {
   Form,
   FormControl,
@@ -162,30 +163,23 @@ export function QuotationCreateForm({
             <FormField
               control={form.control}
               name="opportunityId"
-              render={({ field }) => (
+              render={({ field, fieldState }) => (
                 <FormItem>
-                  <FormLabel>Funnel</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={(v) => field.onChange(v ?? "")}
-                    items={(opportunities ?? []).map((o) => ({
-                      value: o.id,
-                      label: o.name,
-                    }))}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a funnel…" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {(opportunities ?? []).map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          {o.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel required>Funnel</FormLabel>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={(opportunities ?? []).map((o) => ({
+                        value: o.id,
+                        label: o.name,
+                      }))}
+                      placeholder="Select a funnel…"
+                      searchPlaceholder="Search funnels…"
+                      emptyMessage="No funnels found."
+                      aria-invalid={!!fieldState.error}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -235,7 +229,11 @@ export function QuotationCreateForm({
               <FormItem>
                 <FormLabel>Valid until</FormLabel>
                 <FormControl>
-                  <Input type="date" {...field} />
+                  <Input
+                    type="date"
+                    min={new Date().toISOString().slice(0, 10)}
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -308,7 +306,9 @@ export function QuotationCreateForm({
                   name={`lines.${i}.description`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Description</FormLabel>
+                      <FormLabel className="text-xs" required>
+                        Description
+                      </FormLabel>
                       <FormControl>
                         <Input placeholder="Service description" {...field} />
                       </FormControl>
@@ -322,7 +322,9 @@ export function QuotationCreateForm({
                     name={`lines.${i}.quantity`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Qty</FormLabel>
+                        <FormLabel className="text-xs" required>
+                          Qty
+                        </FormLabel>
                         <FormControl>
                           <Input type="number" step="0.001" min="0" {...field} />
                         </FormControl>
@@ -335,7 +337,9 @@ export function QuotationCreateForm({
                     name={`lines.${i}.unitPrice`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Unit price</FormLabel>
+                        <FormLabel className="text-xs" required>
+                          Unit price
+                        </FormLabel>
                         <FormControl>
                           <Input type="number" step="0.01" min="0" {...field} />
                         </FormControl>

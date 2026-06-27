@@ -38,7 +38,7 @@ const ENTITY_LABEL: Record<string, string> = {
   account: "Account",
   person: "Person",
   lead: "Lead",
-  opportunity: "Funnel",
+  opportunity: "Opportunity",
   project: "Project",
 }
 
@@ -86,7 +86,7 @@ export default async function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader>
-              <CardDescription>My Open Pipeline</CardDescription>
+              <CardDescription>My Open Pipeline Value</CardDescription>
               <CardTitle className="text-2xl tabular-nums">
                 {data.myOpenPipeline.mixed ? (
                   <span className="text-base font-medium text-muted-foreground">
@@ -100,18 +100,18 @@ export default async function DashboardPage() {
                 )}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Sum of your open deal amounts
+                Sum of your open opportunity amounts
               </p>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader>
-              <CardDescription>My Open Funnels</CardDescription>
+              <CardDescription>My Open Opportunities</CardDescription>
               <CardTitle className="text-2xl tabular-nums">
                 {data.myOpenPipeline.count}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Deals you own still in flight
+                Opportunities you own still in flight
               </p>
             </CardHeader>
           </Card>

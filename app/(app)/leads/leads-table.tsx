@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { MoreHorizontal } from "lucide-react"
+import { MoreHorizontal, UserPlus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
@@ -294,7 +294,7 @@ export function LeadsTable({
                   href={`/funnel/${lead.convertedOpportunityId}`}
                   className="text-primary hover:underline"
                 >
-                  Funnel
+                  Opportunity
                 </Link>
               ) : null}
             </div>
@@ -380,7 +380,14 @@ export function LeadsTable({
         ]}
         searchColumn="name"
         searchPlaceholder="Search leads…"
-        emptyMessage="No leads yet. Create your first one."
+        emptyIcon={UserPlus}
+        emptyMessage="No leads yet"
+        emptyDescription="Capture your first lead to start working it toward a funnel."
+        emptyAction={
+          <Button size="sm" onClick={() => setNewOpen(true)}>
+            New lead
+          </Button>
+        }
         toolbar={
           <Dialog open={newOpen} onOpenChange={setNewOpen}>
             <DialogTrigger render={<Button size="sm">New lead</Button>} />

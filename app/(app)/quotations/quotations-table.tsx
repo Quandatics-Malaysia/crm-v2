@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import {
   Dialog,
   DialogContent,
@@ -27,18 +28,6 @@ import {
 import { Label } from "@/components/ui/label"
 import { formatMoney, formatDate } from "@/lib/format"
 import { createQuotation, type QuotationListItem } from "./actions"
-
-const STATUS_VARIANT: Record<
-  QuotationListItem["status"],
-  "default" | "secondary" | "outline" | "destructive"
-> = {
-  draft: "outline",
-  sent: "secondary",
-  accepted: "default",
-  rejected: "destructive",
-  expired: "outline",
-  void: "outline",
-}
 
 function NewQuotationDialog({
   opportunities,
@@ -140,9 +129,7 @@ export function QuotationsTable({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={STATUS_VARIANT[row.original.status]} className="capitalize">
-          {row.original.status}
-        </Badge>
+        <StatusBadge status={row.original.status} className="capitalize" />
       ),
     },
     {

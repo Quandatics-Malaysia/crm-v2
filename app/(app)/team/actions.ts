@@ -3,10 +3,10 @@
 import { and, eq, inArray, asc, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { db, runInTenant, type Tx } from "@/db"
-import { requireContext, assertCan } from "@/lib/actions"
+import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
-import { PERMISSIONS } from "@/lib/permissions"
+import { PERMISSIONS, PERMISSION_GROUPS } from "@/lib/permissions"
 import {
   member,
   membershipProfiles,
@@ -34,6 +34,43 @@ async function isLastOwner(tx: Tx, memberId: string): Promise<boolean> {
       )
     )
   return owners.length === 1 && owners[0].memberId === memberId
+}
+
+/** Human label for a permission key, for friendly "withheld permission" errors. */
+const PERMISSION_LABELS: Map<string, string> = new Map(
+  PERMISSION_GROUPS.flatMap((g) =>
+    g.items.map((i) => [i.key as string, i.label])
+  )
+)
+
+function permLabel(key: string): string {
+  return PERMISSION_LABELS.get(key) ?? key
+}
+
+/**
+ * Privilege-escalation guard for role assignment. A non-superadmin may only
+ * assign a role whose every permission key they themselves hold — mirrors
+ * `setRolePermissions`' subset check so an actor can't confer (via a role) a
+ * permission they lack. Names the first withheld permission on rejection.
+ * Must run inside the tenant tx.
+ */
+async function assertCanAssignRole(
+  tx: Tx,
+  ctx: ServerContext,
+  roleId: string
+): Promise<void> {
+  if (ctx.isSuperadmin) return
+  const rows = await tx
+    .select({ key: permissions.key })
+    .from(rolePermissions)
+    .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+    .where(eq(rolePermissions.roleId, roleId))
+  const illegal = rows.find((r) => !ctx.permissions.has(r.key))
+  if (illegal) {
+    throw new Error(
+      `You can't assign a role that grants a permission you don't hold yourself: "${permLabel(illegal.key)}".`
+    )
+  }
 }
 
 // ─── View shapes ─────────────────────────────────────────────────────────────
@@ -245,7 +282,7 @@ export async function setRolePermissions(
         const illegal = changed.filter((k) => !ctx.permissions.has(k))
         if (illegal.length) {
           throw new Error(
-            "You can only grant or revoke permissions you hold yourself."
+            `You can only grant or revoke permissions you hold yourself — "${permLabel(illegal[0])}" is not one of yours.`
           )
         }
       }
@@ -358,9 +395,17 @@ export async function updateRole(
     if (!role) throw new Error("Role not found.")
 
     const name = input.name.trim()
-    // System roles can have their tier edited but not be renamed.
+    // System roles are immutable templates: neither renamed nor re-tiered.
     if (role.isSystem && name !== role.name) {
       throw new Error("System roles can't be renamed.")
+    }
+    if (role.isSystem && input.tier !== role.defaultTierLevel) {
+      throw new Error("System roles' tier can't be changed.")
+    }
+    // Tier ceiling: a non-superadmin can't set a role's tier above their own
+    // (otherwise they could mint a role that outranks them and assign it).
+    if (!ctx.isSuperadmin && input.tier > ctx.tierLevel) {
+      throw new Error("You can't set a role tier above your own.")
     }
 
     if (name !== role.name) {
@@ -376,7 +421,7 @@ export async function updateRole(
       .update(roles)
       .set({
         name: role.isSystem ? role.name : name,
-        defaultTierLevel: input.tier,
+        defaultTierLevel: role.isSystem ? role.defaultTierLevel : input.tier,
         updatedAt: new Date(),
       })
       .where(eq(roles.id, id))
@@ -386,7 +431,10 @@ export async function updateRole(
       entityType: "role",
       entityId: id,
       before: { name: role.name, tierLevel: role.defaultTierLevel },
-      after: { name: role.isSystem ? role.name : name, tierLevel: input.tier },
+      after: {
+        name: role.isSystem ? role.name : name,
+        tierLevel: role.isSystem ? role.defaultTierLevel : input.tier,
+      },
     })
   })
 
@@ -473,16 +521,10 @@ export async function addMember(input: {
     .limit(1)
   if (existingMember) throw new Error("Already a member.")
 
-  const memberId = crypto.randomUUID()
-  await db.insert(member).values({
-    id: memberId,
-    organizationId: ctx.tenantId,
-    userId: u.id,
-    role: "member",
-  })
-
+  // Validate the role (tenant ownership, tier ceiling, permission subset)
+  // BEFORE creating the member row — a failed insert below would otherwise
+  // leave a profile-less but `active`-resolving member (an unintended foothold).
   await runInTenant(ctx.tenantId, async (tx) => {
-    // Validate the role belongs to this tenant.
     const [role] = await tx
       .select({ id: roles.id, defaultTierLevel: roles.defaultTierLevel })
       .from(roles)
@@ -493,22 +535,45 @@ export async function addMember(input: {
     if (!ctx.isSuperadmin && role.defaultTierLevel > ctx.tierLevel) {
       throw new Error("You can't assign a role above your own tier.")
     }
-
-    await tx.insert(membershipProfiles).values({
-      memberId,
-      tenantId: ctx.tenantId,
-      roleId: input.roleId,
-      tierLevel: input.tier,
-      status: "active",
-    })
-
-    await writeAudit(tx, ctx, {
-      action: "member.added",
-      entityType: "member",
-      entityId: memberId,
-      after: { email, roleId: input.roleId, tierLevel: input.tier },
-    })
+    // Can't confer (via a role) a permission the actor doesn't hold.
+    await assertCanAssignRole(tx, ctx, input.roleId)
   })
+
+  const memberId = crypto.randomUUID()
+  await db.insert(member).values({
+    id: memberId,
+    organizationId: ctx.tenantId,
+    userId: u.id,
+    role: "member",
+  })
+
+  // Insert the profile; if it fails, compensate by removing the orphan member
+  // row so we never leave a profile-less active member behind.
+  try {
+    await runInTenant(ctx.tenantId, async (tx) => {
+      await tx.insert(membershipProfiles).values({
+        memberId,
+        tenantId: ctx.tenantId,
+        roleId: input.roleId,
+        tierLevel: input.tier,
+        status: "active",
+      })
+
+      await writeAudit(tx, ctx, {
+        action: "member.added",
+        entityType: "member",
+        entityId: memberId,
+        after: { email, roleId: input.roleId, tierLevel: input.tier },
+      })
+    })
+  } catch (err) {
+    await db
+      .delete(member)
+      .where(
+        and(eq(member.id, memberId), eq(member.organizationId, ctx.tenantId))
+      )
+    throw err
+  }
 
   revalidatePath("/team")
   })
@@ -587,6 +652,27 @@ export async function updateMember(
       // You can't assign a role whose tier outranks you.
       if (newRole && newRole.defaultTierLevel > ctx.tierLevel) {
         throw new Error("You can't assign a role above your own tier.")
+      }
+    }
+
+    // Can't confer (via the assigned role) a permission the actor lacks.
+    // Runs only when the role actually changes; superadmin bypasses internally.
+    if (newRole && input.roleId !== target.roleId) {
+      await assertCanAssignRole(tx, ctx, newRole.id)
+    }
+
+    // A manager must resolve to an active membership profile in THIS tenant
+    // (membershipProfiles is RLS-scoped, so a foreign id simply won't be found).
+    if (input.managerMemberId) {
+      const [mgr] = await tx
+        .select({ status: membershipProfiles.status })
+        .from(membershipProfiles)
+        .where(eq(membershipProfiles.memberId, input.managerMemberId))
+        .limit(1)
+      if (!mgr || mgr.status !== "active") {
+        throw new Error(
+          "Manager must be an active member of this organization."
+        )
       }
     }
 

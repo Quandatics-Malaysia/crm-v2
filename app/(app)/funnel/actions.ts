@@ -23,9 +23,10 @@ import {
   projects,
   member,
   user,
+  stageApprovalRequests,
 } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
-import { requestStageAdvance } from "@/server/services/stage"
+import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
 import { runAction, type ActionResult } from "@/lib/action-result"
 
 export type OpportunityListRow = {
@@ -116,6 +117,8 @@ export type OpportunityDetail = {
   quoteNumber: string | null
   /** True when opportunity.amount is synced from a primary quotation (net). */
   amountFromQuote: boolean
+  /** A pending stage-advance approval for this opportunity, if one is in flight. */
+  pendingApproval: { id: string; targetStageName: string } | null
   quotations: {
     id: string
     quoteNumber: string
@@ -239,6 +242,29 @@ export async function getOpportunity(
     const stageNameById = new Map(
       funnelStagesList.map((s) => [s.id, s.name])
     )
+
+    // A pending approval freezes the funnel CTA on the detail page so the
+    // requester sees the in-flight state instead of a still-active Advance.
+    const [pending] = await tx
+      .select({
+        id: stageApprovalRequests.id,
+        targetStageId: stageApprovalRequests.targetStageId,
+      })
+      .from(stageApprovalRequests)
+      .where(
+        and(
+          eq(stageApprovalRequests.opportunityId, id),
+          eq(stageApprovalRequests.status, "pending")
+        )
+      )
+      .limit(1)
+    const pendingApproval = pending
+      ? {
+          id: pending.id,
+          targetStageName: stageNameById.get(pending.targetStageId) ?? "—",
+        }
+      : null
+
     const history = historyRows.map((h) => ({
       id: h.id,
       fromStageName: h.fromStageId
@@ -261,6 +287,7 @@ export async function getOpportunity(
       funnelStagesList,
       quoteNumber,
       amountFromQuote,
+      pendingApproval,
       quotations: quotes,
       history,
     }
@@ -285,7 +312,7 @@ export async function createOpportunity(
 
       // owner_member_id is NOT NULL — default to the creator when unspecified.
       const ownerMemberId = input.ownerMemberId || ctx.memberId
-      if (!ownerMemberId) throw new Error("No owner for the funnel")
+      if (!ownerMemberId) throw new Error("No owner for the opportunity")
 
       const [row] = await tx
         .insert(opportunities)
@@ -341,9 +368,35 @@ export async function updateOpportunity(
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
-    if (!existing) throw new Error("Funnel not found")
+    if (!existing) throw new Error("Opportunity not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this funnel")
+      throw new Error("FORBIDDEN: not permitted on this opportunity")
+
+    // The primary quotation freezes its currency at creation and is never
+    // re-snapshotted, so a divergent opportunity currency would have the same
+    // money reported under two currencies (and re-denominated with no FX in the
+    // forecast/pipeline views). Reject a currency change while a differing,
+    // non-deleted primary quotation exists.
+    if (
+      input.currency !== undefined &&
+      input.currency !== existing.currency &&
+      existing.primaryQuotationId
+    ) {
+      const [pq] = await tx
+        .select({ currency: quotations.currency })
+        .from(quotations)
+        .where(
+          and(
+            eq(quotations.id, existing.primaryQuotationId),
+            isNull(quotations.deletedAt)
+          )
+        )
+        .limit(1)
+      if (pq && pq.currency !== input.currency)
+        throw new Error(
+          "Currency is locked while a primary quotation exists. Remove or replace the primary quotation to change it."
+        )
+    }
 
     await tx
       .update(opportunities)
@@ -395,9 +448,9 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       .from(opportunities)
       .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
       .limit(1)
-    if (!existing) throw new Error("Funnel not found")
+    if (!existing) throw new Error("Opportunity not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this funnel")
+      throw new Error("FORBIDDEN: not permitted on this opportunity")
 
     await tx
       .update(opportunities)
@@ -497,13 +550,48 @@ export async function advanceStageAction(input: {
         )
       )
       .limit(1)
-    if (!opp) throw new Error("Funnel not found")
+    if (!opp) throw new Error("Opportunity not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this funnel")
+      throw new Error("FORBIDDEN: not permitted on this opportunity")
   })
   const result = await requestStageAdvance(ctx, input)
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${input.opportunityId}`)
   return result
+  })
+}
+
+/**
+ * Reopen a parked (KIV) or lost opportunity into a chosen OPEN stage, clearing
+ * the close timestamp/date and resetting status. Same permission + record scope
+ * as advancing; the terminal-state rules themselves are enforced in the service.
+ */
+export async function reopenStageAction(input: {
+  opportunityId: string
+  targetStageId: string
+  reason?: string
+}): Promise<ActionResult> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.STAGE_ADVANCE)
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const visible = await visibleMemberIds(tx, ctx)
+      const [opp] = await tx
+        .select({ ownerMemberId: opportunities.ownerMemberId })
+        .from(opportunities)
+        .where(
+          and(
+            eq(opportunities.id, input.opportunityId),
+            isNull(opportunities.deletedAt)
+          )
+        )
+        .limit(1)
+      if (!opp) throw new Error("Opportunity not found")
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this opportunity")
+    })
+    await reopenOpportunity(ctx, input)
+    revalidatePath("/funnel")
+    revalidatePath(`/funnel/${input.opportunityId}`)
   })
 }

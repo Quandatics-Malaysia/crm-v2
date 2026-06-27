@@ -41,7 +41,10 @@ WHERE o.deleted_at IS NULL
   -- so a superuser/BYPASSRLS connection still cannot leak across tenants.
   AND o.tenant_id = current_setting('app.current_tenant', true)
   -- configurable per stage in Settings (e.g. only 4a + Won)
-  AND fs.include_in_forecast = true;
+  AND fs.include_in_forecast = true
+  -- only live (OPEN) or closed-won pipeline feeds the forecast; LOST/PARKED
+  -- deals are never billable even if a stage was misconfigured to be included.
+  AND fs.kind IN ('OPEN', 'WON');
 
 -- Pipeline summary: counts + amounts per stage per funnel, grouped by currency
 -- so amounts in different currencies are never summed together (no implicit FX);

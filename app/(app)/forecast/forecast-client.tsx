@@ -29,7 +29,9 @@ function monthLabel(value: string | null): string {
 const columns: ColumnDef<ForecastRow>[] = [
   {
     accessorKey: "opportunityName",
-    header: ({ column }) => <SortableHeader column={column} title="Funnel" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} title="Opportunity" />
+    ),
     cell: ({ row }) => (
       <span className="font-medium">{row.original.opportunityName}</span>
     ),
@@ -167,7 +169,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
           <CardDescription>Forecast total</CardDescription>
           {byCurrency.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No forecast-eligible funnels.
+              No forecast-eligible opportunities.
             </p>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -181,7 +183,8 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
                     Weighted value · Σ value × stage probability
                   </p>
                   <p className="mt-1 text-sm tabular-nums text-muted-foreground">
-                    {formatMoney(c.opportunityValue, c.currency)} funnel value
+                    {formatMoney(c.opportunityValue, c.currency)} opportunity
+                    value
                   </p>
                 </div>
               ))}
@@ -203,18 +206,18 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
                 {formatMoney(c.weightedValue, c.currency)}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                {formatMoney(c.opportunityValue, c.currency)} funnel value ·{" "}
-                {c.count} funnel{c.count === 1 ? "" : "s"}
+                {formatMoney(c.opportunityValue, c.currency)} opportunity value ·{" "}
+                {c.count} opportunit{c.count === 1 ? "y" : "ies"}
               </p>
             </CardHeader>
           </Card>
         ))}
         <Card>
           <CardHeader>
-            <CardDescription>Forecast-eligible funnels</CardDescription>
+            <CardDescription>Forecast-eligible opportunities</CardDescription>
             <CardTitle className="text-2xl tabular-nums">{rows.length}</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Deals contributing to forecast
+              Opportunities contributing to forecast
             </p>
           </CardHeader>
         </Card>
@@ -232,7 +235,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
                   {formatMoney(m.weightedValue, m.currency)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  {m.count} deal{m.count === 1 ? "" : "s"} ·{" "}
+                  {m.count} opportunit{m.count === 1 ? "y" : "ies"} ·{" "}
                   {formatMoney(m.opportunityValue, m.currency)} gross
                 </p>
               </CardHeader>
@@ -245,8 +248,8 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
         columns={columns}
         data={rows}
         searchColumn="opportunityName"
-        searchPlaceholder="Search funnels…"
-        emptyMessage="No forecast-eligible funnels."
+        searchPlaceholder="Search opportunities…"
+        emptyMessage="No forecast-eligible opportunities."
         pageSize={15}
       />
     </div>

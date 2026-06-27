@@ -20,6 +20,20 @@ import type { ServerContext } from "@/lib/server-context"
 type StageRow = typeof funnelStages.$inferSelect
 type OppRow = typeof opportunities.$inferSelect
 
+/**
+ * Render a naive `date` column value (YYYY-MM-DD) from a timestamp using the
+ * server's local calendar rather than a raw UTC slice, so `actualCloseDate`
+ * stays consistent with the `closedAt` timestamptz it is derived from instead of
+ * rolling a day early for tenants east of UTC. (No per-tenant timezone field
+ * exists yet; the reporting layer remains the place to re-localize if needed.)
+ */
+function toDateString(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 function kindToStatus(kind: string): "open" | "won" | "lost" | "on_hold" {
   switch (kind) {
     case "WON":
@@ -107,6 +121,9 @@ async function resolveApprover(
       .limit(1)
     if (
       mgrProf &&
+      // Only an active member can actually act on the request — a disabled or
+      // still-invited approver would leave it stuck pending and invisible.
+      mgrProf.status === "active" &&
       (mgrProf.tierLevel ?? 0) >= requesterTier &&
       (await memberHasPermission(tx, mgr, PERMISSIONS.STAGE_ADVANCE_APPROVE))
     ) {
@@ -123,6 +140,7 @@ async function resolveApprover(
     .where(
       and(
         eq(permissions.key, PERMISSIONS.STAGE_ADVANCE_APPROVE),
+        eq(membershipProfiles.status, "active"),
         ne(membershipProfiles.memberId, requesterMemberId)
       )
     )
@@ -195,16 +213,18 @@ async function applyStageMove(
 ): Promise<void> {
   const status = kindToStatus(toStage.kind)
   const closing = status === "won" || status === "lost"
+  // Preserve the original close timestamp/date if the deal was already closed;
+  // only stamp a new one when a still-open deal is being closed. Derive
+  // actualCloseDate from this same timestamp so the date and timestamptz agree.
+  const closeTs = closing ? opp.closedAt ?? new Date() : null
   await tx
     .update(opportunities)
     .set({
       currentStageId: toStage.id,
       status,
-      // Preserve the original close timestamp/date if the deal was already
-      // closed; only stamp a new one when a still-open deal is being closed.
-      closedAt: closing ? opp.closedAt ?? new Date() : null,
-      actualCloseDate: closing
-        ? opp.actualCloseDate ?? new Date().toISOString().slice(0, 10)
+      closedAt: closeTs,
+      actualCloseDate: closeTs
+        ? opp.actualCloseDate ?? toDateString(closeTs)
         : null,
     })
     .where(eq(opportunities.id, opp.id))
@@ -360,6 +380,61 @@ export async function winOpportunity(
     }
 
     await applyStageMove(tx, ctx, opp, won, "quote_accept")
+  })
+}
+
+/**
+ * Explicitly reopen a closed deal: a PARKED (KIV) or LOST opportunity is moved
+ * back to a chosen OPEN stage, which clears `closedAt`/`actualCloseDate` and
+ * resets `status` to "open" (via applyStageMove). This is the only sanctioned
+ * way out of a terminal state — `assertTransitionAllowed` otherwise freezes
+ * closed deals forever. WON is intentionally NOT reopenable here because it has
+ * downstream accepted quotes/projects/sales orders that depend on the win.
+ * Permission (`stage.advance`) and record-scope are enforced by the caller.
+ */
+export async function reopenOpportunity(
+  ctx: ServerContext,
+  input: { opportunityId: string; targetStageId: string; reason?: string }
+): Promise<void> {
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const [opp] = await tx
+      .select()
+      .from(opportunities)
+      .where(eq(opportunities.id, input.opportunityId))
+      .limit(1)
+      .for("update")
+    if (!opp) throw new Error("Opportunity not found")
+    if (opp.status === "open") throw new Error("This deal is already open")
+
+    const [from] = await tx
+      .select()
+      .from(funnelStages)
+      .where(eq(funnelStages.id, opp.currentStageId))
+      .limit(1)
+    if (!from) throw new Error("Current stage not found")
+    if (from.kind !== "PARKED" && from.kind !== "LOST")
+      throw new Error("Only parked or lost deals can be reopened")
+
+    const [target] = await tx
+      .select()
+      .from(funnelStages)
+      .where(eq(funnelStages.id, input.targetStageId))
+      .limit(1)
+    if (!target) throw new Error("Stage not found")
+    if (target.funnelId !== opp.funnelId)
+      throw new Error("Stage does not belong to this funnel")
+    if (target.kind !== "OPEN")
+      throw new Error("A reopened deal must move to an open stage")
+
+    await applyStageMove(
+      tx,
+      ctx,
+      opp,
+      target,
+      "manual",
+      null,
+      input.reason?.trim() ? `Reopened: ${input.reason.trim()}` : "Reopened"
+    )
   })
 }
 

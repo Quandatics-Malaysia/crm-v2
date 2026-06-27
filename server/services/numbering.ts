@@ -5,6 +5,22 @@ import { tenantSettings } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
 
 /**
+ * True for a Postgres unique-constraint violation (SQLSTATE 23505). A minted
+ * document number (quote / SO / project code) can collide when the tenant's
+ * "Next number" was set at or below an already-issued value. Callers should
+ * catch this and surface a friendly retry message instead of the raw
+ * "duplicate key value violates unique constraint …" error.
+ */
+export function isDuplicateNumberError(e: unknown): boolean {
+  return (
+    !!e &&
+    typeof e === "object" &&
+    "code" in e &&
+    (e as { code?: unknown }).code === "23505"
+  )
+}
+
+/**
  * Allocate the next quotation number using the tenant's configurable
  * prefix / sequence / padding, atomically incrementing the counter.
  * Call inside the same tx that inserts the quotation.

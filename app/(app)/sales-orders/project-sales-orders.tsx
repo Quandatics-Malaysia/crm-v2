@@ -3,30 +3,12 @@
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { DocumentViewerButton } from "@/components/document-viewer"
 import { formatDate } from "@/lib/format"
 import { SubmitSalesOrderDialog } from "./submit-dialog"
 import { ResubmitDialog } from "./resubmit-dialog"
+import { SalesOrderStatusBadge } from "./status-badge"
 import { type SalesOrderRow } from "./actions"
-
-function StatusBadge({ status }: { status: SalesOrderRow["status"] }) {
-  if (status === "approved") {
-    return (
-      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-        Approved
-      </Badge>
-    )
-  }
-  if (status === "rejected") {
-    return <Badge variant="destructive">Rejected</Badge>
-  }
-  return (
-    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-      Pending review
-    </Badge>
-  )
-}
 
 export function ProjectSalesOrders({
   projectId,
@@ -57,7 +39,7 @@ export function ProjectSalesOrders({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={o.status} />
+                  <SalesOrderStatusBadge status={o.status} />
                   {o.status === "approved" && o.soNumber ? (
                     <span className="font-mono font-medium">{o.soNumber}</span>
                   ) : null}

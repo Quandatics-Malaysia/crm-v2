@@ -84,7 +84,7 @@ export function LeadForm({
 
   const funnelItems = React.useMemo(
     () => [
-      { value: NONE, label: "No pipeline" },
+      { value: NONE, label: "No funnel" },
       ...funnels.map((f) => ({ value: f.id, label: f.name })),
     ],
     [funnels]
@@ -124,7 +124,7 @@ export function LeadForm({
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Name</FormLabel>
+              <FormLabel required>Name</FormLabel>
               <FormControl>
                 <Input placeholder="Jane Doe" {...field} />
               </FormControl>
@@ -228,19 +228,19 @@ export function LeadForm({
             name="funnelId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Pipeline</FormLabel>
+                <FormLabel>Funnel</FormLabel>
                 <Select
                   value={field.value}
                   onValueChange={(v) => {
                     field.onChange(v ?? NONE)
-                    // Reset the stage whenever the pipeline changes.
+                    // Reset the stage whenever the funnel changes.
                     form.setValue("currentStageId", NONE)
                   }}
                   items={funnelItems}
                 >
                   <FormControl>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="No pipeline" />
+                      <SelectValue placeholder="No funnel" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>

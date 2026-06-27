@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import { createProject, prefillFromOpportunity } from "./actions"
 
 const STATUS_OPTIONS = [
@@ -163,7 +164,7 @@ export function ProjectCreateForm({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel required>Name</FormLabel>
                   <FormControl>
                     <Input placeholder="Implementation rollout" {...field} />
                   </FormControl>
@@ -221,7 +222,7 @@ export function ProjectCreateForm({
                   name="projectCode"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Code</FormLabel>
+                      <FormLabel required>Code</FormLabel>
                       <FormControl>
                         <Input
                           placeholder="e.g. PRJ-2026-001"
@@ -239,30 +240,23 @@ export function ProjectCreateForm({
             <FormField
               control={form.control}
               name="accountId"
-              render={({ field }) => (
+              render={({ field, fieldState }) => (
                 <FormItem>
-                  <FormLabel>Account</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    items={accounts.map((a) => ({
-                      value: a.id,
-                      label: a.name,
-                    }))}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select an account…" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {accounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel required>Account</FormLabel>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={accounts.map((a) => ({
+                        value: a.id,
+                        label: a.name,
+                      }))}
+                      placeholder="Select an account…"
+                      searchPlaceholder="Search accounts…"
+                      emptyMessage="No accounts found."
+                      aria-invalid={!!fieldState.error}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -274,52 +268,43 @@ export function ProjectCreateForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Funnel (optional)</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={(v) => {
-                      field.onChange(v)
-                      if (!v || v === NONE) {
-                        // Detach: clear the linked quote + note + currency.
-                        // Value stays as-is.
-                        setQuotationId(undefined)
-                        setQuoteNote(undefined)
-                        setCurrency(undefined)
-                        return
-                      }
-                      // Derive the account from the chosen funnel, then re-prefill
-                      // the value + linked quote + currency from that funnel's net.
-                      const opp = opportunities.find((o) => o.id === v)
-                      if (opp) form.setValue("accountId", opp.accountId)
-                      void prefillFromOpportunity(v).then((p) => {
-                        if (!p) return
-                        form.setValue("value", p.value)
-                        setQuotationId(p.quotationId ?? undefined)
-                        setQuoteNote(p.quoteNumber ?? undefined)
-                        setCurrency(p.currency)
-                      })
-                    }}
-                    items={[
-                      { value: NONE, label: "None" },
-                      ...opportunities.map((o) => ({
-                        value: o.id,
-                        label: o.name,
-                      })),
-                    ]}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Link a funnel…" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value={NONE}>None</SelectItem>
-                      {opportunities.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          {o.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={(v) => {
+                        field.onChange(v)
+                        if (!v || v === NONE) {
+                          // Detach: clear the linked quote + note + currency.
+                          // Value stays as-is.
+                          setQuotationId(undefined)
+                          setQuoteNote(undefined)
+                          setCurrency(undefined)
+                          return
+                        }
+                        // Derive the account from the chosen funnel, then
+                        // re-prefill value + linked quote + currency from its net.
+                        const opp = opportunities.find((o) => o.id === v)
+                        if (opp) form.setValue("accountId", opp.accountId)
+                        void prefillFromOpportunity(v).then((p) => {
+                          if (!p) return
+                          form.setValue("value", p.value)
+                          setQuotationId(p.quotationId ?? undefined)
+                          setQuoteNote(p.quoteNumber ?? undefined)
+                          setCurrency(p.currency)
+                        })
+                      }}
+                      options={[
+                        { value: NONE, label: "None" },
+                        ...opportunities.map((o) => ({
+                          value: o.id,
+                          label: o.name,
+                        })),
+                      ]}
+                      placeholder="Link a funnel…"
+                      searchPlaceholder="Search funnels…"
+                      emptyMessage="No funnels found."
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

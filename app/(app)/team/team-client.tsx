@@ -3,7 +3,13 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { MoreHorizontal, Plus, ShieldCheck, Users } from "lucide-react"
+import {
+  MoreHorizontal,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  Users,
+} from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -53,8 +59,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { DataTable, SortableHeader } from "@/components/data-table"
-import { PERMISSION_GROUPS } from "@/lib/permissions"
+import { PERMISSIONS, PERMISSION_GROUPS } from "@/lib/permissions"
 import {
   addMember,
   updateMember,
@@ -68,6 +80,77 @@ import {
   type TeamMemberView,
   type TeamRoleView,
 } from "./actions"
+
+// ─── Permission metadata (UI-only help + danger flags) ───────────────────────
+
+/**
+ * Elevated permissions — granting these confers administrative or
+ * ownership-bypassing power, so the grid flags them so an admin doesn't hand
+ * them out by mistake alongside benign grants.
+ */
+const ELEVATED_PERMISSIONS = new Set<string>([
+  PERMISSIONS.TENANT_MANAGE_USERS,
+  PERMISSIONS.TENANT_MANAGE_ROLES,
+  PERMISSIONS.TENANT_SETTINGS,
+  PERMISSIONS.RECORDS_VIEW_ALL,
+  PERMISSIONS.RECORDS_MANAGE_ALL,
+])
+
+/** Plain-language description of what each permission lets a member do. */
+const PERMISSION_DESCRIPTIONS: Record<string, string> = {
+  [PERMISSIONS.LEAD_VIEW]: "See leads they own or manage.",
+  [PERMISSIONS.LEAD_CREATE]: "Add new leads.",
+  [PERMISSIONS.LEAD_UPDATE]: "Edit existing leads.",
+  [PERMISSIONS.LEAD_DELETE]: "Permanently remove leads.",
+  [PERMISSIONS.LEAD_CONVERT]:
+    "Turn a lead into an account, contact and opportunity.",
+  [PERMISSIONS.ACCOUNT_VIEW]: "See accounts they own or manage.",
+  [PERMISSIONS.ACCOUNT_CREATE]: "Add new accounts.",
+  [PERMISSIONS.ACCOUNT_UPDATE]: "Edit existing accounts.",
+  [PERMISSIONS.ACCOUNT_DELETE]: "Permanently remove accounts.",
+  [PERMISSIONS.PERSON_VIEW]: "See contacts they own or manage.",
+  [PERMISSIONS.PERSON_CREATE]: "Add new contacts.",
+  [PERMISSIONS.PERSON_UPDATE]: "Edit existing contacts.",
+  [PERMISSIONS.PERSON_DELETE]: "Permanently remove contacts.",
+  [PERMISSIONS.OPPORTUNITY_VIEW]: "See opportunities on the funnel board.",
+  [PERMISSIONS.OPPORTUNITY_CREATE]: "Add new opportunities.",
+  [PERMISSIONS.OPPORTUNITY_UPDATE]: "Edit opportunity details.",
+  [PERMISSIONS.OPPORTUNITY_DELETE]: "Permanently remove opportunities.",
+  [PERMISSIONS.STAGE_ADVANCE]:
+    "Move opportunities forward; low tiers may need approval.",
+  [PERMISSIONS.STAGE_ADVANCE_APPROVE]:
+    "Approve other members' gated stage advances.",
+  [PERMISSIONS.FUNNEL_MANAGE]: "Create and edit funnels and their stages.",
+  [PERMISSIONS.QUOTATION_VIEW]: "See quotations.",
+  [PERMISSIONS.QUOTATION_CREATE]: "Draft new quotations.",
+  [PERMISSIONS.QUOTATION_UPDATE]: "Edit draft quotations.",
+  [PERMISSIONS.QUOTATION_DELETE]: "Remove quotations.",
+  [PERMISSIONS.QUOTATION_SEND]: "Issue a quotation to the customer.",
+  [PERMISSIONS.QUOTATION_ACCEPT]:
+    "Mark a quotation accepted (can win the deal).",
+  [PERMISSIONS.TAX_VIEW]: "See tax rates and settings.",
+  [PERMISSIONS.TAX_CONFIGURE]: "Add and edit tax rates.",
+  [PERMISSIONS.PROJECT_VIEW]: "See projects.",
+  [PERMISSIONS.PROJECT_CREATE]: "Create projects from won deals.",
+  [PERMISSIONS.PROJECT_UPDATE]: "Edit projects and milestones.",
+  [PERMISSIONS.PROJECT_DELETE]: "Permanently remove projects.",
+  [PERMISSIONS.SALES_ORDER_VIEW]: "See sales orders.",
+  [PERMISSIONS.SALES_ORDER_SUBMIT]: "Submit a sales order for approval.",
+  [PERMISSIONS.SALES_ORDER_APPROVE]:
+    "Approve or reject submitted sales orders (mints the SO number).",
+  [PERMISSIONS.FORECAST_VIEW]: "See the weighted pipeline forecast.",
+  [PERMISSIONS.AUDIT_VIEW]: "Read the tenant audit log.",
+  [PERMISSIONS.RECORDS_VIEW_ALL]:
+    "Read EVERY record in the workspace, bypassing ownership.",
+  [PERMISSIONS.RECORDS_MANAGE_ALL]:
+    "Edit or delete ANY record in the workspace, bypassing ownership.",
+  [PERMISSIONS.TENANT_MANAGE_USERS]:
+    "Add, edit, disable and remove members — can grant roles.",
+  [PERMISSIONS.TENANT_MANAGE_ROLES]:
+    "Create roles and change their permissions and tiers.",
+  [PERMISSIONS.TENANT_SETTINGS]:
+    "Change workspace-wide settings (numbering, approvals, sign-in).",
+}
 
 // ─── Members: Add dialog ─────────────────────────────────────────────────────
 
@@ -85,6 +168,9 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
     () => roles.map((r) => ({ value: r.id, label: r.name })),
     [roles]
   )
+  const selectedRole = roles.find((r) => r.id === roleId)
+  const tierDiverges =
+    selectedRole != null && (Number(tier) || 0) !== selectedRole.tierLevel
 
   // Reset the form each time the dialog transitions to open
   // (adjust-during-render — no effect, satisfies set-state-in-effect).
@@ -144,7 +230,13 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
         </DialogHeader>
         <form onSubmit={onSubmit} className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="add-member-email">Email</Label>
+            <Label htmlFor="add-member-email">
+              Email
+              <span aria-hidden="true" className="text-destructive">
+                {" "}
+                *
+              </span>
+            </Label>
             <Input
               id="add-member-email"
               type="email"
@@ -156,7 +248,13 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Role</Label>
+              <Label>
+                Role
+                <span aria-hidden="true" className="text-destructive">
+                  {" "}
+                  *
+                </span>
+              </Label>
               <Select
                 value={roleId}
                 onValueChange={onRoleChange}
@@ -183,6 +281,20 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
                 value={tier}
                 onChange={(e) => setTier(e.target.value)}
               />
+              {selectedRole ? (
+                <p
+                  className={
+                    tierDiverges
+                      ? "text-xs text-amber-600 dark:text-amber-500"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  Role default: tier {selectedRole.tierLevel}
+                  {tierDiverges
+                    ? " — this member will differ from the role default."
+                    : "."}
+                </p>
+              ) : null}
             </div>
           </div>
           <DialogFooter>
@@ -232,6 +344,9 @@ function EditMemberDialog({
     ],
     [members, member.memberId]
   )
+  const selectedRole = roles.find((r) => r.id === roleId)
+  const tierDiverges =
+    selectedRole != null && (Number(tier) || 0) !== selectedRole.tierLevel
 
   // Reset to the member's current values whenever the dialog opens.
   const [wasOpen, setWasOpen] = React.useState(false)
@@ -299,6 +414,20 @@ function EditMemberDialog({
                 value={tier}
                 onChange={(e) => setTier(e.target.value)}
               />
+              {selectedRole ? (
+                <p
+                  className={
+                    tierDiverges
+                      ? "text-xs text-amber-600 dark:text-amber-500"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  Role default: tier {selectedRole.tierLevel}
+                  {tierDiverges
+                    ? " — this member differs from the role default and may fall outside the approval-bypass threshold."
+                    : "."}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="grid gap-2">
@@ -416,7 +545,7 @@ function MemberRowActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove member?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {member.name} from this entity. Their account and
+              This removes {member.name} from this workspace. Their account and
               other memberships are unaffected.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -573,7 +702,13 @@ function RoleFormDialog({
         </DialogHeader>
         <form onSubmit={onSubmit} className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="role-name">Name</Label>
+            <Label htmlFor="role-name">
+              Name
+              <span aria-hidden="true" className="text-destructive">
+                {" "}
+                *
+              </span>
+            </Label>
             <Input
               id="role-name"
               value={name}
@@ -702,6 +837,7 @@ function PermissionsDialog({
             Loading…
           </p>
         ) : (
+          <TooltipProvider>
           <div className="grid max-h-[55vh] gap-5 overflow-y-auto pr-1">
             {PERMISSION_GROUPS.map((group) => {
               const groupKeys = group.items.map((i) => i.key)
@@ -723,24 +859,62 @@ function PermissionsDialog({
                     </label>
                   </div>
                   <Separator />
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {group.items.map((item) => (
-                      <label
-                        key={item.key}
-                        className="flex cursor-pointer items-center gap-2 text-sm"
-                      >
-                        <Checkbox
-                          checked={checked.has(item.key)}
-                          onCheckedChange={(value) => toggle(item.key, value)}
-                        />
-                        {item.label}
-                      </label>
-                    ))}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {group.items.map((item) => {
+                      const elevated = ELEVATED_PERMISSIONS.has(item.key)
+                      const desc = PERMISSION_DESCRIPTIONS[item.key]
+                      return (
+                        <div
+                          key={item.key}
+                          className="flex items-start gap-2 text-sm"
+                        >
+                          <Checkbox
+                            id={`perm-${item.key}`}
+                            className="mt-0.5"
+                            checked={checked.has(item.key)}
+                            onCheckedChange={(value) => toggle(item.key, value)}
+                          />
+                          <div className="grid gap-0.5">
+                            <label
+                              htmlFor={`perm-${item.key}`}
+                              className="flex cursor-pointer items-center gap-1.5 font-medium"
+                            >
+                              {item.label}
+                              {elevated ? (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Badge
+                                        variant="outline"
+                                        className="gap-1 border-destructive/40 px-1.5 py-0 text-[10px] font-medium text-destructive"
+                                      >
+                                        <ShieldAlert className="size-3" />
+                                        Elevated
+                                      </Badge>
+                                    }
+                                  />
+                                  <TooltipContent>
+                                    Grants administrative or ownership-bypassing
+                                    power — assign with care.
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </label>
+                            {desc ? (
+                              <span className="text-xs text-muted-foreground">
+                                {desc}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )
             })}
           </div>
+          </TooltipProvider>
         )}
 
         <DialogFooter>

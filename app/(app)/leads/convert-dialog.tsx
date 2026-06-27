@@ -16,13 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import type { Option } from "@/lib/lookups"
 import { convertLeadAction } from "./actions"
 import type { Lead } from "./actions"
@@ -45,7 +39,7 @@ export function ConvertDialog({
   // props here is correct — no reset effect required.
   const [createOpportunity, setCreateOpportunity] = React.useState(true)
   const [opportunityName, setOpportunityName] = React.useState(
-    `${lead.companyName || lead.name} funnel`
+    `${lead.companyName || lead.name} opportunity`
   )
   const [expectedCloseDate, setExpectedCloseDate] = React.useState("")
   const [accountId, setAccountId] = React.useState<string>(NEW_ACCOUNT)
@@ -69,9 +63,9 @@ export function ConvertDialog({
       if (res.data.opportunityId) {
         const oppId = res.data.opportunityId
         toast.success("Lead converted", {
-          description: "A funnel was created.",
+          description: "An opportunity was created.",
           action: {
-            label: "View funnel",
+            label: "View opportunity",
             onClick: () => router.push(`/funnel/${oppId}`),
           },
         })
@@ -100,24 +94,18 @@ export function ConvertDialog({
         <div className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="convert-account">Account</Label>
-            <Select
+            <Combobox
+              id="convert-account"
               value={accountId}
-              onValueChange={(v) => setAccountId(v ?? NEW_ACCOUNT)}
-            >
-              <SelectTrigger id="convert-account" className="w-full">
-                <SelectValue placeholder="Choose an account" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NEW_ACCOUNT}>
-                  Create new account
-                </SelectItem>
-                {accountOptions.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(v) => setAccountId(v || NEW_ACCOUNT)}
+              options={[
+                { value: NEW_ACCOUNT, label: "Create new account" },
+                ...accountOptions.map((a) => ({ value: a.id, label: a.name })),
+              ]}
+              placeholder="Choose an account"
+              searchPlaceholder="Search accounts…"
+              emptyMessage="No accounts found."
+            />
             <p className="text-xs text-muted-foreground">
               {accountId === NEW_ACCOUNT
                 ? `A new account will be created from “${lead.companyName || lead.name}”.`
@@ -127,9 +115,9 @@ export function ConvertDialog({
 
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
-              <Label htmlFor="create-opp">Create funnel</Label>
+              <Label htmlFor="create-opp">Create opportunity</Label>
               <p className="text-xs text-muted-foreground">
-                Seed a deal at the first pipeline stage.
+                Seed an opportunity at the first funnel stage.
               </p>
             </div>
             <Switch
@@ -142,13 +130,18 @@ export function ConvertDialog({
           {createOpportunity ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="opp-name">Funnel name</Label>
+                <Label htmlFor="opp-name">Opportunity name</Label>
                 <Input
                   id="opp-name"
                   value={opportunityName}
                   onChange={(e) => setOpportunityName(e.target.value)}
-                  placeholder="New deal"
+                  placeholder="New opportunity"
                 />
+                {!opportunityName.trim() ? (
+                  <p className="text-xs text-destructive">
+                    An opportunity name is required.
+                  </p>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="opp-close">Expected close date</Label>
@@ -172,7 +165,13 @@ export function ConvertDialog({
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleConvert} disabled={submitting}>
+          <Button
+            type="button"
+            onClick={handleConvert}
+            disabled={
+              submitting || (createOpportunity && !opportunityName.trim())
+            }
+          >
             {submitting ? "Converting…" : "Convert"}
           </Button>
         </DialogFooter>

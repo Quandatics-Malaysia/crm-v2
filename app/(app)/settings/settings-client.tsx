@@ -48,6 +48,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Form,
   FormControl,
   FormDescription,
@@ -73,7 +83,15 @@ import type {
   DefaultFunnelView,
   FunnelStageRow,
 } from "./actions"
-import { STAGE_CODES, STAGE_KINDS } from "./constants"
+import {
+  STAGE_CODES,
+  STAGE_KINDS,
+  STAGE_CODE_LABELS,
+  STAGE_KIND_LABELS,
+  STAGE_KIND_DESCRIPTION,
+  suggestKindForCode,
+  defaultIncludeInForecast,
+} from "./constants"
 import type { StageCode, StageKind } from "./constants"
 
 // ─── General ─────────────────────────────────────────────────────────────────
@@ -93,6 +111,7 @@ const generalSchema = z.object({
 })
 
 type GeneralValues = z.input<typeof generalSchema>
+type GeneralParsed = z.output<typeof generalSchema>
 
 const SWITCHES: {
   name: "taxInclusive" | "autoWinOnQuoteAccept" | "allowPasswordLogin"
@@ -108,17 +127,27 @@ const SWITCHES: {
     name: "autoWinOnQuoteAccept",
     label: "Auto-win on quote accept",
     description:
-      "Move a funnel to Won automatically when its primary quote is accepted.",
+      "Move an opportunity to Won automatically when its primary quote is accepted. Note: this bypasses the Won stage's \"requires approval to enter\" gate — accepting the quote wins the deal directly, no sign-off requested.",
   },
   {
     name: "allowPasswordLogin",
     label: "Allow password login",
-    description: "Permit email + password sign-in for this entity.",
+    description:
+      "Permit email + password sign-in for this organization. Turning this off requires another sign-in method (e.g. SSO) — with none configured, everyone is locked out.",
   },
 ]
 
-function GeneralForm({ settings }: { settings: TenantSettingsView }) {
+function GeneralForm({
+  settings,
+  members,
+}: {
+  settings: TenantSettingsView
+  members: TenantMemberView[]
+}) {
   const [isPending, startTransition] = React.useTransition()
+  const [confirmLockout, setConfirmLockout] = React.useState(false)
+  const [pendingValues, setPendingValues] =
+    React.useState<GeneralParsed | null>(null)
 
   const form = useForm<GeneralValues>({
     resolver: zodResolver(generalSchema),
@@ -133,8 +162,18 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
     },
   })
 
-  function onSubmit(values: GeneralValues) {
-    const parsed = generalSchema.parse(values)
+  // Highest tier held by an active member — used to flag a deadlocked bypass tier.
+  const maxActiveTier = React.useMemo(
+    () =>
+      members
+        .filter((m) => m.status === "active")
+        .reduce((max, m) => Math.max(max, m.tierLevel), -1),
+    [members]
+  )
+  const bypassTier = Number(useWatch({ control: form.control, name: "approvalBypassTier" })) || 0
+  const noBypassMember = maxActiveTier < bypassTier
+
+  function performSave(parsed: GeneralParsed) {
     startTransition(async () => {
       const res = await updateSettings({
         defaultCurrency: parsed.defaultCurrency,
@@ -161,6 +200,17 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
       })
       toast.success("Settings saved")
     })
+  }
+
+  function onSubmit(values: GeneralValues) {
+    const parsed = generalSchema.parse(values)
+    // Disabling password sign-in can lock out the whole org — confirm first.
+    if (settings.allowPasswordLogin && !parsed.allowPasswordLogin) {
+      setPendingValues(parsed)
+      setConfirmLockout(true)
+      return
+    }
+    performSave(parsed)
   }
 
   return (
@@ -250,8 +300,22 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
                     />
                   </FormControl>
                   <FormDescription>
-                    Members at or above this tier advance stages without approval.
+                    Members whose tier (set per-member, defaulting from their
+                    role&apos;s tier on the Team screen) is at or above this number
+                    advance stages without approval. Highest active member tier:{" "}
+                    <span className="tabular-nums font-medium">
+                      {maxActiveTier < 0 ? "none" : maxActiveTier}
+                    </span>
+                    .
                   </FormDescription>
+                  {noBypassMember ? (
+                    <p className="text-sm text-destructive">
+                      No active member meets this tier — every gated stage will
+                      need approval and there is no one who can approve, so the
+                      pipeline can deadlock. Lower this tier or raise a
+                      member&apos;s tier on the Team screen.
+                    </p>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}
@@ -304,6 +368,33 @@ function GeneralForm({ settings }: { settings: TenantSettingsView }) {
           </Button>
         </div>
       </form>
+
+      <AlertDialog open={confirmLockout} onOpenChange={setConfirmLockout}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable password sign-in?</AlertDialogTitle>
+            <AlertDialogDescription>
+              No one will be able to sign in with email + password. Unless another
+              sign-in method (e.g. SSO) is configured for this organization, every
+              member — including you — will be locked out and unable to reach
+              Settings to turn it back on. Continue only if you have an
+              alternative way in.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingValues) performSave(pendingValues)
+                setPendingValues(null)
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Disable sign-in
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Form>
   )
 }
@@ -348,6 +439,13 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
     Number(values.projectNextNumber) || 0,
     Number(values.projectPadWidth) || 1
   )}`
+  // The stored counter is (highest issued + 1); going below it re-issues numbers.
+  const quoteBelowIssued =
+    Number(values.quoteNextNumber) > 0 &&
+    Number(values.quoteNextNumber) < settings.quoteNextNumber
+  const projectBelowIssued =
+    Number(values.projectNextNumber) > 0 &&
+    Number(values.projectNextNumber) < settings.projectNextNumber
 
   function onSubmit(raw: NumberingValues) {
     const parsed = numberingSchema.parse(raw)
@@ -410,6 +508,13 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                       onChange={(e) => field.onChange(e.target.value)}
                     />
                   </FormControl>
+                  {quoteBelowIssued ? (
+                    <p className="text-sm text-destructive">
+                      Number {settings.quoteNextNumber - 1} has already been
+                      issued. Saving a value below {settings.quoteNextNumber} will
+                      collide with existing quotes.
+                    </p>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}
@@ -465,6 +570,13 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                       onChange={(e) => field.onChange(e.target.value)}
                     />
                   </FormControl>
+                  {projectBelowIssued ? (
+                    <p className="text-sm text-destructive">
+                      Number {settings.projectNextNumber - 1} has already been
+                      issued. Saving a value below {settings.projectNextNumber}{" "}
+                      will collide with existing project codes.
+                    </p>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}
@@ -628,7 +740,10 @@ const stageSchema = z.object({
 
 type StageValues = z.input<typeof stageSchema>
 
-const KIND_OPTIONS = STAGE_KINDS.map((k) => ({ value: k, label: k }))
+const KIND_OPTIONS = STAGE_KINDS.map((k) => ({
+  value: k,
+  label: STAGE_KIND_LABELS[k],
+}))
 
 function StageDialog({
   open,
@@ -652,7 +767,7 @@ function StageDialog({
     () =>
       STAGE_CODES.filter(
         (c) => initial?.code === c || !usedCodes.includes(c)
-      ).map((c) => ({ value: c, label: c })),
+      ).map((c) => ({ value: c, label: STAGE_CODE_LABELS[c] })),
     [usedCodes, initial?.code]
   )
 
@@ -736,7 +851,19 @@ function StageDialog({
                     <FormLabel>Code</FormLabel>
                     <Select
                       value={field.value}
-                      onValueChange={field.onChange}
+                      onValueChange={(v) => {
+                        field.onChange(v)
+                        // Auto-fill the locked semantics + forecast default to
+                        // match the chosen code (create only).
+                        if (!initial) {
+                          const kind = suggestKindForCode(v as StageCode)
+                          form.setValue("kind", kind)
+                          form.setValue(
+                            "includeInForecast",
+                            defaultIncludeInForecast(kind)
+                          )
+                        }
+                      }}
                       disabled={!!initial}
                       items={availableCodes}
                     >
@@ -766,7 +893,16 @@ function StageDialog({
                     <FormLabel>Kind</FormLabel>
                     <Select
                       value={field.value}
-                      onValueChange={field.onChange}
+                      onValueChange={(v) => {
+                        field.onChange(v)
+                        // Keep the forecast default in step with the Kind.
+                        if (!initial) {
+                          form.setValue(
+                            "includeInForecast",
+                            defaultIncludeInForecast(v as StageKind)
+                          )
+                        }
+                      }}
                       disabled={!!initial}
                       items={KIND_OPTIONS}
                     >
@@ -783,7 +919,7 @@ function StageDialog({
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>Semantics (locked).</FormDescription>
+                    <FormDescription>{STAGE_KIND_DESCRIPTION}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -911,6 +1047,7 @@ function StageRowActions({
 }) {
   const router = useRouter()
   const [editOpen, setEditOpen] = React.useState(false)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
 
   async function onDelete() {
@@ -922,6 +1059,7 @@ function StageRowActions({
       return
     }
     toast.success("Stage deleted")
+    setConfirmOpen(false)
     router.refresh()
   }
 
@@ -960,7 +1098,7 @@ function StageRowActions({
         variant="ghost"
         size="icon-sm"
         disabled={busy}
-        onClick={onDelete}
+        onClick={() => setConfirmOpen(true)}
         aria-label="Delete stage"
       >
         <Trash2 className="size-4 text-destructive" />
@@ -972,6 +1110,28 @@ function StageRowActions({
         usedCodes={usedCodes}
         nextSortOrder={nextSortOrder}
       />
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete stage?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the “{stage.name}” stage from the funnel.
+              Stages that still have opportunities in them can&apos;t be deleted —
+              move those deals to another stage first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onDelete}
+              disabled={busy}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {busy ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -1039,7 +1199,11 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <span className="font-medium">{row.original.name}</span>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge
+            variant="outline"
+            className="font-mono text-[10px]"
+            title={STAGE_CODE_LABELS[row.original.code as StageCode] ?? row.original.code}
+          >
             {row.original.code}
           </Badge>
         </div>
@@ -1049,7 +1213,10 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
       accessorKey: "kind",
       header: "Kind",
       cell: ({ row }) => (
-        <Badge variant="secondary">{row.original.kind}</Badge>
+        <Badge variant="secondary">
+          {STAGE_KIND_LABELS[row.original.kind as StageKind] ??
+            row.original.kind}
+        </Badge>
       ),
     },
     {
@@ -1188,7 +1355,13 @@ function TeamTable({ members }: { members: TenantMemberView[] }) {
       <CardHeader>
         <CardTitle>Team</CardTitle>
         <CardDescription>
-          Read-only — manage membership from the admin tools.
+          Read-only snapshot.{" "}
+          <Link
+            href="/team"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Manage members &amp; roles →
+          </Link>
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1227,7 +1400,7 @@ export function SettingsClient({
 
       <TabsContent value="general" className="mt-4">
         <div className="grid gap-6">
-          <GeneralForm settings={settings} />
+          <GeneralForm settings={settings} members={members} />
 
           <Card>
             <CardHeader>

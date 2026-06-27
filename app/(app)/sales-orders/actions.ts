@@ -1,6 +1,6 @@
 "use server"
 
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
 import { runInTenant } from "@/db"
@@ -16,7 +16,7 @@ import {
   attachments,
 } from "@/db/schema"
 import { storage } from "@/lib/storage"
-import { nextSoNumber } from "@/server/services/numbering"
+import { nextSoNumber, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import {
   visibleMemberIds,
@@ -125,6 +125,9 @@ async function fetchRows(
     .innerJoin(projects, eq(salesOrders.projectId, projects.id))
     .where(
       and(
+        // Never surface SOs whose parent project was soft-deleted — soft-delete
+        // doesn't fire the cascade FK, so they'd otherwise dangle in this list.
+        isNull(projects.deletedAt),
         projectId ? eq(salesOrders.projectId, projectId) : undefined,
         ownerScope(projects.ownerMemberId, scopeSO)
       )
@@ -402,16 +405,30 @@ export async function approveSalesOrder(
 
       // Conditional flip guards against a racing transition; only mint against a
       // still-submitted row and assert exactly one row changed.
-      const [updated] = await tx
-        .update(salesOrders)
-        .set({
-          status: "approved",
-          soNumber,
-          reviewedByMemberId: ctx.memberId,
-          reviewedAt: new Date(),
-        })
-        .where(and(eq(salesOrders.id, id), eq(salesOrders.status, "submitted")))
-        .returning({ id: salesOrders.id })
+      let updated: { id: string } | undefined
+      try {
+        ;[updated] = await tx
+          .update(salesOrders)
+          .set({
+            status: "approved",
+            soNumber,
+            reviewedByMemberId: ctx.memberId,
+            reviewedAt: new Date(),
+          })
+          .where(
+            and(eq(salesOrders.id, id), eq(salesOrders.status, "submitted"))
+          )
+          .returning({ id: salesOrders.id })
+      } catch (e) {
+        // The minted SO number collided (the tenant's SO "Next number" was set
+        // at or below an already-issued value). Surface a friendly retry.
+        if (isDuplicateNumberError(e)) {
+          throw new Error(
+            "Could not assign a unique sales-order number — raise the SO Next number in Settings, then try again."
+          )
+        }
+        throw e
+      }
       if (!updated)
         throw new Error("Only submitted sales orders can be approved")
 
@@ -491,6 +508,41 @@ export async function rejectSalesOrder(
   )
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${projectId}`)
+  })
+}
+
+export type SalesOrderProjectOption = {
+  id: string
+  name: string
+  projectCode: string
+}
+
+/**
+ * Projects the current user may submit a sales order against — visible (owned
+ * or managed) and not soft-deleted. Powers the "Submit sales order" dialog on
+ * the Sales Orders list, which has to ask which project first since an SO is
+ * always created against a project.
+ */
+export async function listSubmittableProjects(): Promise<
+  SalesOrderProjectOption[]
+> {
+  return withTenant(PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
+      .select({
+        id: projects.id,
+        name: projects.name,
+        projectCode: projects.projectCode,
+      })
+      .from(projects)
+      .where(
+        and(
+          isNull(projects.deletedAt),
+          ownerScope(projects.ownerMemberId, visible)
+        )
+      )
+      .orderBy(asc(projects.name))
+      .limit(500)
   })
 }
 

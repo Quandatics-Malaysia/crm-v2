@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -25,13 +26,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import type { Option } from "@/lib/lookups"
 import { createPerson, updatePerson, type PersonRow } from "./actions"
 
@@ -83,6 +78,7 @@ export function PersonForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    mode: "onBlur",
     defaultValues: {
       accountId: person?.accountId ?? presetAccountId ?? "",
       firstName: person?.firstName ?? "",
@@ -153,30 +149,23 @@ export function PersonForm({
               <FormField
                 control={form.control}
                 name="accountId"
-                render={({ field }) => (
+                render={({ field, fieldState }) => (
                   <FormItem>
-                    <FormLabel>Account</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      items={accounts.map((a) => ({
-                        value: a.id,
-                        label: a.name,
-                      }))}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select an account…" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {accounts.map((a) => (
-                          <SelectItem key={a.id} value={a.id}>
-                            {a.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel required>Account</FormLabel>
+                    <FormControl>
+                      <Combobox
+                        value={field.value}
+                        onChange={field.onChange}
+                        options={accounts.map((a) => ({
+                          value: a.id,
+                          label: a.name,
+                        }))}
+                        placeholder="Select an account…"
+                        searchPlaceholder="Search accounts…"
+                        emptyMessage="No accounts found."
+                        aria-invalid={!!fieldState.error}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -189,7 +178,7 @@ export function PersonForm({
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>First name</FormLabel>
+                    <FormLabel required>First name</FormLabel>
                     <FormControl>
                       <Input placeholder="Jane" {...field} />
                     </FormControl>
@@ -280,6 +269,9 @@ export function PersonForm({
         </Form>
 
         <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>
+            Cancel
+          </DialogClose>
           <Button
             type="submit"
             form="person-form"

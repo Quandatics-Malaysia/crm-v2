@@ -1,0 +1,228 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import {
+  SearchIcon,
+  PlusIcon,
+  TargetIcon,
+  Building2Icon,
+  UsersIcon,
+  FilterIcon,
+  FileTextIcon,
+  FolderKanbanIcon,
+} from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import {
+  CommandDialog,
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { PERMISSIONS } from "@/lib/permissions"
+import { globalSearch, type SearchHit } from "@/app/(app)/_shared/search-actions"
+
+/**
+ * Permissions for the chrome (search + quick-create) are provided once from the
+ * (app) layout so the header actions can gate themselves without every page's
+ * `SiteHeader` having to thread the permission set through.
+ */
+const PermissionsContext = React.createContext<Set<string>>(new Set())
+
+export function HeaderActionsProvider({
+  permissions,
+  children,
+}: {
+  permissions: string[]
+  children: React.ReactNode
+}) {
+  const perms = React.useMemo(() => new Set(permissions), [permissions])
+  return (
+    <PermissionsContext.Provider value={perms}>
+      {children}
+    </PermissionsContext.Provider>
+  )
+}
+
+const ICONS: Record<SearchHit["type"], React.ComponentType<{ className?: string }>> = {
+  lead: TargetIcon,
+  account: Building2Icon,
+  contact: UsersIcon,
+  opportunity: FilterIcon,
+  quotation: FileTextIcon,
+  project: FolderKanbanIcon,
+}
+
+const QUICK_CREATE: {
+  label: string
+  href: string
+  permission: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { label: "Lead", href: "/leads?new=1", permission: PERMISSIONS.LEAD_CREATE, icon: TargetIcon },
+  { label: "Account", href: "/accounts?new=1", permission: PERMISSIONS.ACCOUNT_CREATE, icon: Building2Icon },
+  { label: "Contact", href: "/persons?new=1", permission: PERMISSIONS.PERSON_CREATE, icon: UsersIcon },
+  { label: "Opportunity", href: "/funnel?new=1", permission: PERMISSIONS.OPPORTUNITY_CREATE, icon: FilterIcon },
+  { label: "Quotation", href: "/quotations/new", permission: PERMISSIONS.QUOTATION_CREATE, icon: FileTextIcon },
+]
+
+/** Search button + ⌘K palette + "+ New" quick-create menu for the site header. */
+export function HeaderActions() {
+  const perms = React.useContext(PermissionsContext)
+  const router = useRouter()
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+  const [hits, setHits] = React.useState<SearchHit[]>([])
+  const [pending, startTransition] = React.useTransition()
+  const reqId = React.useRef(0)
+
+  const createItems = QUICK_CREATE.filter((i) => perms.has(i.permission))
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setOpen((o) => !o)
+      }
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [])
+
+  React.useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setHits([])
+      return
+    }
+    const id = ++reqId.current
+    const t = setTimeout(() => {
+      startTransition(async () => {
+        const res = await globalSearch(q)
+        // Ignore out-of-order responses.
+        if (id === reqId.current) setHits(res)
+      })
+    }, 200)
+    return () => clearTimeout(t)
+  }, [query])
+
+  // Reset the query when the dialog closes so the next open starts clean.
+  React.useEffect(() => {
+    if (!open) {
+      setQuery("")
+      setHits([])
+    }
+  }, [open])
+
+  function go(href: string) {
+    setOpen(false)
+    router.push(href)
+  }
+
+  // Group hits by their group label, preserving insertion order.
+  const groups = React.useMemo(() => {
+    const map = new Map<string, SearchHit[]>()
+    for (const h of hits) {
+      const arr = map.get(h.group)
+      if (arr) arr.push(h)
+      else map.set(h.group, [h])
+    }
+    return [...map.entries()]
+  }, [hits])
+
+  const showEmpty = query.trim().length >= 2 && !pending && hits.length === 0
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-muted-foreground"
+        onClick={() => setOpen(true)}
+        aria-label="Search"
+      >
+        <SearchIcon className="size-4" />
+        <span className="hidden sm:inline">Search…</span>
+        <kbd className="ml-2 hidden rounded border bg-muted px-1 font-mono text-[10px] sm:inline">
+          ⌘K
+        </kbd>
+      </Button>
+
+      {createItems.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button size="sm" aria-label="Create new record">
+                <PlusIcon className="size-4" />
+                <span className="hidden sm:inline">New</span>
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" className="min-w-44">
+            {createItems.map((item) => (
+              <DropdownMenuItem
+                key={item.label}
+                nativeButton={false}
+                render={<Link href={item.href} />}
+              >
+                <item.icon className="size-4" />
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+
+      <CommandDialog open={open} onOpenChange={setOpen}>
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search leads, accounts, contacts, opportunities…"
+            value={query}
+            onValueChange={setQuery}
+            aria-label="Search records"
+          />
+          <CommandList>
+            {query.trim().length < 2 ? (
+              <CommandEmpty>Type at least 2 characters to search.</CommandEmpty>
+            ) : showEmpty ? (
+              <CommandEmpty>No results found.</CommandEmpty>
+            ) : null}
+            {groups.map(([group, items]) => (
+              <CommandGroup key={group} heading={group}>
+                {items.map((hit) => {
+                  const Icon = ICONS[hit.type]
+                  return (
+                    <CommandItem
+                      key={`${hit.type}-${hit.id}`}
+                      value={`${hit.type}-${hit.id}`}
+                      onSelect={() => go(hit.href)}
+                    >
+                      <Icon className="size-4 text-muted-foreground" />
+                      <span className="truncate">{hit.title}</span>
+                      {hit.subtitle ? (
+                        <span className="ml-auto truncate text-xs text-muted-foreground">
+                          {hit.subtitle}
+                        </span>
+                      ) : null}
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </CommandDialog>
+    </>
+  )
+}

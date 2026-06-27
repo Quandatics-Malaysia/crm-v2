@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { MoreHorizontal, Plus, Star } from "lucide-react"
+import { MoreHorizontal, Plus, Star, Users } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
@@ -235,7 +235,21 @@ export function PersonsTable({
       data={data}
       searchColumn="name"
       searchPlaceholder="Search contacts…"
-      emptyMessage="No contacts yet."
+      emptyIcon={Users}
+      emptyMessage="No contacts yet"
+      emptyDescription="Add a contact and link them to an account to start engaging."
+      emptyAction={
+        <PersonForm
+          accounts={accounts}
+          trigger={
+            <Button size="sm">
+              <Plus className="size-4" />
+              New contact
+            </Button>
+          }
+          onSaved={() => router.refresh()}
+        />
+      }
       facets={[
         { columnId: "accountName", title: "Account" },
         { columnId: "primary", title: "Primary" },

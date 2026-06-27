@@ -7,8 +7,30 @@ import { type ActionResult, runAction } from "@/lib/action-result"
 import { PERMISSIONS } from "@/lib/permissions"
 import { taxSettings } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
+import type { Tx } from "@/db"
 
 export type TaxSettingRow = typeof taxSettings.$inferSelect
+
+/**
+ * Guarantee the tenant has exactly one active default tax: if none of the
+ * active rows is the default, promote the first active row. No-op when there are
+ * no active rows. Call after any delete / default-removal so new quotations
+ * always resolve a sensible default.
+ */
+async function ensureActiveDefaultTax(tx: Tx): Promise<void> {
+  const rows = await tx.select().from(taxSettings)
+  if (rows.some((r) => r.isDefault && r.isActive)) return
+  const candidate = rows.find((r) => r.isActive)
+  if (!candidate) return
+  await tx
+    .update(taxSettings)
+    .set({ isDefault: false })
+    .where(eq(taxSettings.isDefault, true))
+  await tx
+    .update(taxSettings)
+    .set({ isDefault: true, updatedAt: new Date() })
+    .where(eq(taxSettings.id, candidate.id))
+}
 
 export type TaxInput = {
   name: string
@@ -67,6 +89,18 @@ export async function updateTax(
 ): Promise<ActionResult<TaxSettingRow>> {
   return runAction(async () => {
   const row = await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
+    const [existing] = await tx
+      .select()
+      .from(taxSettings)
+      .where(eq(taxSettings.id, id))
+      .limit(1)
+    if (!existing) throw new Error("Tax setting not found")
+    // The default tax must remain selectable on new quotations.
+    if (existing.isDefault && input.isDefault && !input.isActive) {
+      throw new Error(
+        "The default tax must stay active. Make another tax the default before deactivating this one."
+      )
+    }
     if (input.isDefault) {
       await tx
         .update(taxSettings)
@@ -85,6 +119,9 @@ export async function updateTax(
       .where(eq(taxSettings.id, id))
       .returning()
     if (!updated) throw new Error("Tax setting not found")
+    // Removing default status (or deactivating) could leave the tenant with no
+    // usable default — auto-promote another active tax so one always exists.
+    await ensureActiveDefaultTax(tx)
     await writeAudit(tx, ctx, {
       action: "tax.updated",
       entityType: "tax_setting",
@@ -103,6 +140,9 @@ export async function deleteTax(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
   await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     await tx.delete(taxSettings).where(eq(taxSettings.id, id))
+    // If we just removed the default, promote another active tax so new
+    // quotations still resolve a default.
+    await ensureActiveDefaultTax(tx)
     await writeAudit(tx, ctx, {
       action: "tax.deleted",
       entityType: "tax_setting",

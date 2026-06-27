@@ -9,7 +9,6 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import {
@@ -27,31 +26,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { DocumentViewerButton } from "@/components/document-viewer"
+import { SalesOrderStatusBadge } from "./status-badge"
+import { GlobalSubmitSalesOrderDialog } from "./global-submit-dialog"
 import { formatDate } from "@/lib/format"
 import { ResubmitDialog } from "./resubmit-dialog"
 import {
   approveSalesOrder,
   rejectSalesOrder,
   type SalesOrderRow,
+  type SalesOrderProjectOption,
 } from "./actions"
-
-function StatusBadge({ status }: { status: SalesOrderRow["status"] }) {
-  if (status === "approved") {
-    return (
-      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-        Approved
-      </Badge>
-    )
-  }
-  if (status === "rejected") {
-    return <Badge variant="destructive">Rejected</Badge>
-  }
-  return (
-    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-      Pending review
-    </Badge>
-  )
-}
 
 function ApproveDialog({
   order,
@@ -179,11 +163,14 @@ export function SalesOrdersTable({
   data,
   canApprove,
   canSubmit,
+  projects,
 }: {
   data: SalesOrderRow[]
   canApprove: boolean
   canSubmit: boolean
+  projects: SalesOrderProjectOption[]
 }) {
+  const router = useRouter()
   const [approveTarget, setApproveTarget] = React.useState<SalesOrderRow | null>(
     null
   )
@@ -218,7 +205,7 @@ export function SalesOrdersTable({
           const o = row.original
           return (
             <div className="grid gap-0.5">
-              <StatusBadge status={o.status} />
+              <SalesOrderStatusBadge status={o.status} />
               {o.status === "rejected" && o.rejectReason ? (
                 <span
                   className="max-w-[16rem] truncate text-xs text-destructive"
@@ -302,7 +289,13 @@ export function SalesOrdersTable({
                     </Button>
                   }
                 />
-                <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onClick={() => router.push(`/projects/${order.projectId}`)}
+                  >
+                    Open in project
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   {canApprove ? (
                     <>
                       <DropdownMenuItem
@@ -338,7 +331,11 @@ export function SalesOrdersTable({
     }
 
     return cols
-  }, [canApprove, canSubmit])
+  }, [canApprove, canSubmit, router])
+
+  const submitAction = canSubmit ? (
+    <GlobalSubmitSalesOrderDialog projects={projects} />
+  ) : null
 
   return (
     <>
@@ -350,6 +347,13 @@ export function SalesOrdersTable({
         searchColumn="projectName"
         searchPlaceholder="Search by project…"
         emptyMessage="No sales orders yet."
+        emptyDescription={
+          canSubmit
+            ? "Submit a sales order against one of your projects to get started."
+            : "Sales orders are created from inside a project."
+        }
+        emptyAction={submitAction}
+        toolbar={submitAction}
       />
 
       {approveTarget ? (

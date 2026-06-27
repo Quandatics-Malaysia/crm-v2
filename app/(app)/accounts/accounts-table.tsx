@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { MoreHorizontal, Plus } from "lucide-react"
+import { Building2, MoreHorizontal, Plus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
@@ -110,8 +110,8 @@ function RowActions({
             <AlertDialogTitle>Delete account?</AlertDialogTitle>
             <AlertDialogDescription>
               This soft-deletes “{account.name}”. You must first remove its
-              contacts and close any opportunities or projects, otherwise the
-              delete is blocked.
+              contacts, close any opportunities or projects, and reassign any
+              child accounts or reseller links, otherwise the delete is blocked.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -236,7 +236,23 @@ export function AccountsTable({
       ]}
       searchColumn="name"
       searchPlaceholder="Search accounts…"
-      emptyMessage="No accounts yet."
+      emptyIcon={Building2}
+      emptyMessage="No accounts yet"
+      emptyDescription="Add a customer account to start tracking contacts and opportunities."
+      emptyAction={
+        <AccountForm
+          parentOptions={parentOptions}
+          endUserOptions={parentOptions}
+          industries={industries}
+          trigger={
+            <Button size="sm">
+              <Plus className="size-4" />
+              New account
+            </Button>
+          }
+          onSaved={() => router.refresh()}
+        />
+      }
       toolbar={
         <AccountForm
           parentOptions={parentOptions}

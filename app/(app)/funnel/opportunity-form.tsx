@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import type { Option, MemberOption, FunnelWithStages } from "@/lib/lookups"
 import {
   createOpportunity,
@@ -41,11 +42,30 @@ import {
   type OpportunityListRow,
 } from "./actions"
 
+/** Common ISO-4217 currencies offered in the picker (default is the first). */
+const CURRENCIES = [
+  "MYR",
+  "USD",
+  "SGD",
+  "EUR",
+  "GBP",
+  "AUD",
+  "JPY",
+  "CNY",
+  "HKD",
+  "IDR",
+  "THB",
+  "PHP",
+  "VND",
+  "INR",
+  "AED",
+] as const
+
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
   accountId: z.string().min(1, "Account is required"),
   primaryPersonId: z.string().optional(),
-  funnelId: z.string().min(1, "Pipeline is required"),
+  funnelId: z.string().min(1, "Funnel is required"),
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
@@ -75,6 +95,10 @@ export function OpportunityForm({
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
+
+  // Once a primary quotation exists its currency is frozen, so the opportunity
+  // currency must not diverge — the server rejects it and the field is locked.
+  const currencyLocked = mode === "edit" && !!opportunity?.primaryQuotationId
 
   // The primary quotation (net of tax) is the single source of truth for a
   // funnel's value, so the form has no manual Amount input. On create the value
@@ -142,7 +166,7 @@ export function OpportunityForm({
         toast.error(res.error)
         return
       }
-      toast.success("Funnel created")
+      toast.success("Opportunity created")
       setOpen(false)
       router.push(`/funnel/${res.data.id}`)
     } else if (opportunity) {
@@ -158,7 +182,7 @@ export function OpportunityForm({
         toast.error(res.error)
         return
       }
-      toast.success("Funnel updated")
+      toast.success("Opportunity updated")
       setOpen(false)
       router.refresh()
     }
@@ -167,17 +191,17 @@ export function OpportunityForm({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
-        render={trigger ?? <Button>New funnel</Button>}
+        render={trigger ?? <Button>New opportunity</Button>}
       />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New funnel" : "Edit funnel"}
+            {mode === "create" ? "New opportunity" : "Edit opportunity"}
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Create a deal and place it on the pipeline."
-              : "Update this funnel's details."}
+              ? "Create an opportunity and place it on a funnel."
+              : "Update this opportunity's details."}
           </DialogDescription>
         </DialogHeader>
 
@@ -191,7 +215,7 @@ export function OpportunityForm({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel required>Name</FormLabel>
                   <FormControl>
                     <Input placeholder="Acme renewal" {...field} />
                   </FormControl>
@@ -206,31 +230,23 @@ export function OpportunityForm({
                 name="accountId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Account</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(v) => {
-                        field.onChange(v)
-                        form.setValue("primaryPersonId", "")
-                      }}
-                      items={accounts.map((a) => ({
-                        value: a.id,
-                        label: a.name,
-                      }))}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Pick an account…" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {accounts.map((a) => (
-                          <SelectItem key={a.id} value={a.id}>
-                            {a.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormLabel required>Account</FormLabel>
+                    <FormControl>
+                      <Combobox
+                        value={field.value}
+                        onChange={(v) => {
+                          field.onChange(v)
+                          form.setValue("primaryPersonId", "")
+                        }}
+                        options={accounts.map((a) => ({
+                          value: a.id,
+                          label: a.name,
+                        }))}
+                        placeholder="Pick an account…"
+                        searchPlaceholder="Search accounts…"
+                        emptyMessage="No accounts found."
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -242,34 +258,26 @@ export function OpportunityForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Primary contact</FormLabel>
-                    <Select
-                      value={field.value || ""}
-                      onValueChange={field.onChange}
-                      disabled={!selectedAccountId || personOptions.length === 0}
-                      items={personOptions.map((p) => ({
-                        value: p.id,
-                        label: p.name,
-                      }))}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={
-                              !selectedAccountId
-                                ? "Pick an account first"
-                                : "Optional"
-                            }
-                          />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {personOptions.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Combobox
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        disabled={
+                          !selectedAccountId || personOptions.length === 0
+                        }
+                        options={personOptions.map((p) => ({
+                          value: p.id,
+                          label: p.name,
+                        }))}
+                        placeholder={
+                          !selectedAccountId
+                            ? "Pick an account first"
+                            : "Optional"
+                        }
+                        searchPlaceholder="Search contacts…"
+                        emptyMessage="No contacts for this account."
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -283,40 +291,31 @@ export function OpportunityForm({
                   name="funnelId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Pipeline</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={(v) => {
-                          field.onChange(v)
-                          const f = funnels.find((x) => x.id === v)
-                          const first = f
-                            ? [...f.stages]
-                                .filter((s) => s.kind === "OPEN")
-                                .sort(
-                                  (a, b) => a.sortOrder - b.sortOrder
-                                )[0] ?? f.stages[0]
-                            : undefined
-                          form.setValue("currentStageId", first?.id ?? "")
-                        }}
-                        items={funnels.map((f) => ({
-                          value: f.id,
-                          label: `${f.name}${f.isDefault ? " (default)" : ""}`,
-                        }))}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Pick a pipeline…" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {funnels.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name}
-                              {f.isDefault ? " (default)" : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel required>Funnel</FormLabel>
+                      <FormControl>
+                        <Combobox
+                          value={field.value}
+                          onChange={(v) => {
+                            field.onChange(v)
+                            const f = funnels.find((x) => x.id === v)
+                            const first = f
+                              ? [...f.stages]
+                                  .filter((s) => s.kind === "OPEN")
+                                  .sort(
+                                    (a, b) => a.sortOrder - b.sortOrder
+                                  )[0] ?? f.stages[0]
+                              : undefined
+                            form.setValue("currentStageId", first?.id ?? "")
+                          }}
+                          options={funnels.map((f) => ({
+                            value: f.id,
+                            label: `${f.name}${f.isDefault ? " (default)" : ""}`,
+                          }))}
+                          placeholder="Pick a funnel…"
+                          searchPlaceholder="Search funnels…"
+                          emptyMessage="No funnels found."
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -327,7 +326,7 @@ export function OpportunityForm({
                   name="currentStageId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Stage</FormLabel>
+                      <FormLabel required>Stage</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -362,28 +361,20 @@ export function OpportunityForm({
               name="ownerMemberId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Owner</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    items={members.map((m) => ({
-                      value: m.memberId,
-                      label: m.name,
-                    }))}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Pick an owner…" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {members.map((m) => (
-                        <SelectItem key={m.memberId} value={m.memberId}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel required>Owner</FormLabel>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={members.map((m) => ({
+                        value: m.memberId,
+                        label: m.name,
+                      }))}
+                      placeholder="Pick an owner…"
+                      searchPlaceholder="Search members…"
+                      emptyMessage="No members found."
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -394,13 +385,30 @@ export function OpportunityForm({
               name="currency"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Currency</FormLabel>
-                  <FormControl>
-                    <Input maxLength={3} {...field} />
-                  </FormControl>
+                  <FormLabel required>Currency</FormLabel>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={currencyLocked}
+                    items={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pick a currency…" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormDescription>
-                    The funnel&apos;s value is set by its primary quotation
-                    (net).
+                    {currencyLocked
+                      ? "Locked to the primary quotation's currency."
+                      : "The opportunity's value is set by its primary quotation (net)."}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

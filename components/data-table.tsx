@@ -29,6 +29,8 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/empty-state"
+import type { LucideIcon } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -58,7 +60,14 @@ export interface DataTableProps<TData, TValue> {
   data: TData[]
   searchColumn?: string
   searchPlaceholder?: string
+  /** Title shown in the empty state when there are no rows. */
   emptyMessage?: string
+  /** Optional guidance copy under the empty-state title. */
+  emptyDescription?: string
+  /** Optional icon for the empty state. */
+  emptyIcon?: LucideIcon
+  /** Optional call-to-action (e.g. a create button) for the empty state. */
+  emptyAction?: React.ReactNode
   toolbar?: React.ReactNode
   pageSize?: number
   /** Columns to expose as multi-select faceted filters. */
@@ -79,6 +88,9 @@ export function DataTable<TData, TValue>({
   searchColumn,
   searchPlaceholder = "Search…",
   emptyMessage = "No results.",
+  emptyDescription,
+  emptyIcon,
+  emptyAction,
   toolbar,
   pageSize = 10,
   facets,
@@ -131,6 +143,7 @@ export function DataTable<TData, TValue>({
         {searchCol ? (
           <Input
             placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
             value={(searchCol.getFilterValue() as string) ?? ""}
             onChange={(e) => searchCol.setFilterValue(e.target.value)}
             className="max-w-xs"
@@ -159,7 +172,7 @@ export function DataTable<TData, TValue>({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" aria-label="Toggle columns">
                   <SlidersHorizontal className="size-4" />
                   <span className="hidden sm:inline">Columns</span>
                 </Button>
@@ -214,11 +227,13 @@ export function DataTable<TData, TValue>({
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  {emptyMessage}
+                <TableCell colSpan={columns.length} className="p-0">
+                  <EmptyState
+                    icon={emptyIcon}
+                    title={emptyMessage}
+                    description={emptyDescription}
+                    action={emptyAction}
+                  />
                 </TableCell>
               </TableRow>
             )}

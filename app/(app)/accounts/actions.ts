@@ -575,6 +575,33 @@ export async function deleteAccount(id: string): Promise<ActionResult<void>> {
           "Close or remove this account's projects before deleting it."
         )
       }
+      // Self-references (parentAccountId / endUserAccountId) only FK-null on a
+      // hard delete, so block while any active account still points here —
+      // otherwise the hierarchy and reseller rollups resolve to a hidden row.
+      const [child] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(
+          and(eq(accounts.parentAccountId, id), isNull(accounts.deletedAt))
+        )
+        .limit(1)
+      if (child) {
+        throw new Error(
+          "Reassign this account's child accounts before deleting it."
+        )
+      }
+      const [reseller] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(
+          and(eq(accounts.endUserAccountId, id), isNull(accounts.deletedAt))
+        )
+        .limit(1)
+      if (reseller) {
+        throw new Error(
+          "This account is the end user for a reseller. Unlink it before deleting."
+        )
+      }
 
       await tx
         .update(accounts)

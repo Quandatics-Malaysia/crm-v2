@@ -69,6 +69,7 @@ const sourceLabel: Record<string, string> = {
   manual: "Manual",
   approval: "Via approval",
   quote_accept: "Quote accepted",
+  reopen: "Reopened",
 }
 
 const projectStatusVariant: Record<

@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatDate } from "@/lib/format"
+import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option } from "@/lib/lookups"
 import { AccountForm } from "./account-form"
 import { deleteAccount, type AccountListItem } from "./actions"
@@ -139,6 +140,9 @@ export function AccountsTable({
   industries: string[]
 }) {
   const router = useRouter()
+  const [newOpen, setNewOpen] = React.useState(false)
+  // Auto-open from the header "+ New" quick-create deep link (/accounts?new=1).
+  useOpenOnNewParam(() => setNewOpen(true))
 
   const columns = React.useMemo<ColumnDef<AccountListItem>[]>(
     () => [
@@ -258,6 +262,8 @@ export function AccountsTable({
           parentOptions={parentOptions}
           endUserOptions={parentOptions}
           industries={industries}
+          open={newOpen}
+          onOpenChange={setNewOpen}
           trigger={
             <Button size="sm">
               <Plus className="size-4" />

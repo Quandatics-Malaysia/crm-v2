@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option } from "@/lib/lookups"
 import { PersonForm } from "./person-form"
 import {
@@ -145,6 +146,9 @@ export function PersonsTable({
   accounts: Option[]
 }) {
   const router = useRouter()
+  const [newOpen, setNewOpen] = React.useState(false)
+  // Auto-open from the header "+ New" quick-create deep link (/persons?new=1).
+  useOpenOnNewParam(() => setNewOpen(true))
 
   const columns = React.useMemo<ColumnDef<PersonListItem>[]>(
     () => [
@@ -258,6 +262,8 @@ export function PersonsTable({
       toolbar={
         <PersonForm
           accounts={accounts}
+          open={newOpen}
+          onOpenChange={setNewOpen}
           trigger={
             <Button size="sm">
               <Plus className="size-4" />

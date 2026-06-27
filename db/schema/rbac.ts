@@ -27,7 +27,7 @@ export const tenantSettings = pgTable("tenant_settings", {
   approvalBypassTier: integer("approval_bypass_tier").notNull().default(40),
   taxInclusive: boolean("tax_inclusive").notNull().default(false),
   autoWinOnQuoteAccept: boolean("auto_win_on_quote_accept").notNull().default(true),
-  allowPasswordLogin: boolean("allow_password_login").notNull().default(false),
+  allowPasswordLogin: boolean("allow_password_login").notNull().default(true),
   /** Configurable industry picklist for accounts. */
   industries: jsonb("industries").$type<string[]>(),
   /** Quotation numbering config. */

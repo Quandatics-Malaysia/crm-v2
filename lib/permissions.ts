@@ -226,7 +226,7 @@ export type RoleTemplate = {
 
 /** Seeded once per tenant. Tier drives the "low tier needs approval" gate. */
 export const ROLE_TEMPLATES: RoleTemplate[] = [
-  { name: "Owner", description: "Full control of the entity", tier: 100, permissions: "*" },
+  { name: "Owner", description: "Full control of the workspace", tier: 100, permissions: "*" },
   { name: "Admin", description: "Administer users, roles, and settings", tier: 90, permissions: "*" },
   {
     name: "Manager",
@@ -248,7 +248,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
   },
   {
     name: "Viewer",
-    description: "Read-only access across the whole entity",
+    description: "Read-only access across the whole workspace",
     tier: 10,
     permissions: [...VIEW_ONLY, PERMISSIONS.RECORDS_VIEW_ALL],
   },

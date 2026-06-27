@@ -1353,7 +1353,7 @@ function TeamTable({ members }: { members: TenantMemberView[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Team</CardTitle>
+        <CardTitle>Members</CardTitle>
         <CardDescription>
           Read-only snapshot.{" "}
           <Link
@@ -1395,7 +1395,7 @@ export function SettingsClient({
         <TabsTrigger value="numbering">Numbering</TabsTrigger>
         <TabsTrigger value="industries">Industries</TabsTrigger>
         <TabsTrigger value="stages">Funnel Stages</TabsTrigger>
-        <TabsTrigger value="team">Team</TabsTrigger>
+        <TabsTrigger value="team">Members</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general" className="mt-4">

@@ -1,6 +1,6 @@
 "use server"
 
-import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
+import { and, desc, eq, inArray, type SQL } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { runInTenant } from "@/db"
@@ -88,16 +88,14 @@ export async function listIncomingApprovals(): Promise<ApprovalRow[]> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const canApprove = ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
     const conditions: SQL[] = [eq(stageApprovalRequests.status, "pending")]
-    // Approvers see everything routed to them; if they hold the broad approve
-    // permission they also see unrouted/other pending requests.
-    if (!canApprove && ctx.memberId) {
+    // A broad approver (or superadmin) can decide ANY pending request — see
+    // decideApproval() — including one routed to a now-disabled approver, which
+    // would otherwise sit pending and invisible. So they see every pending
+    // request in the tenant (runInTenant already scopes to the tenant). Everyone
+    // else only sees requests explicitly routed to them.
+    if (!canApprove) {
+      if (!ctx.memberId) return []
       conditions.push(eq(stageApprovalRequests.approverMemberId, ctx.memberId))
-    } else if (canApprove && ctx.memberId) {
-      const routed = or(
-        eq(stageApprovalRequests.approverMemberId, ctx.memberId),
-        isNull(stageApprovalRequests.approverMemberId)
-      )
-      if (routed) conditions.push(routed)
     }
 
     const rows = await buildApprovalQuery(tx, and(...conditions))

@@ -33,14 +33,14 @@ async function resolveFunnelStage(
   if (!funnelIdInput && !stageIdInput) {
     return { funnelId: null, currentStageId: null }
   }
-  if (!funnelIdInput) throw new Error("A pipeline is required to set a stage")
+  if (!funnelIdInput) throw new Error("A funnel is required to set a stage")
 
   const [funnel] = await tx
     .select({ id: funnels.id })
     .from(funnels)
     .where(and(eq(funnels.id, funnelIdInput), eq(funnels.tenantId, ctx.tenantId)))
     .limit(1)
-  if (!funnel) throw new Error("Pipeline not found")
+  if (!funnel) throw new Error("Funnel not found")
 
   if (!stageIdInput) return { funnelId: funnel.id, currentStageId: null }
 
@@ -49,7 +49,7 @@ async function resolveFunnelStage(
     .from(funnelStages)
     .where(and(eq(funnelStages.id, stageIdInput), eq(funnelStages.funnelId, funnel.id)))
     .limit(1)
-  if (!stage) throw new Error("Stage not found in this pipeline")
+  if (!stage) throw new Error("Stage not found in this funnel")
 
   return { funnelId: funnel.id, currentStageId: stage.id }
 }

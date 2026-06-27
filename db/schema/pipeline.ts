@@ -42,6 +42,7 @@ export const stageChangeSource = pgEnum("stage_change_source", [
   "manual",
   "approval",
   "quote_accept",
+  "reopen",
 ])
 
 /** Pipeline definition/template. A tenant may run several. */

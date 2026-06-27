@@ -207,7 +207,7 @@ async function applyStageMove(
   ctx: ServerContext,
   opp: OppRow,
   toStage: StageRow,
-  source: "manual" | "approval" | "quote_accept",
+  source: "manual" | "approval" | "quote_accept" | "reopen",
   approvalRequestId?: string | null,
   reason?: string | null
 ): Promise<void> {
@@ -426,14 +426,16 @@ export async function reopenOpportunity(
     if (target.kind !== "OPEN")
       throw new Error("A reopened deal must move to an open stage")
 
+    // The `reopen` source already marks this move as a reopen, so the reason is
+    // stored verbatim (no "Reopened:" prefix needed).
     await applyStageMove(
       tx,
       ctx,
       opp,
       target,
-      "manual",
+      "reopen",
       null,
-      input.reason?.trim() ? `Reopened: ${input.reason.trim()}` : "Reopened"
+      input.reason?.trim() || null
     )
   })
 }

@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
+import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option, MemberOption, FunnelWithStages } from "@/lib/lookups"
 import {
   createOpportunity,
@@ -95,6 +96,9 @@ export function OpportunityForm({
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
+  // Auto-open from the header "+ New" quick-create deep link (/funnel?new=1).
+  // Only the create form responds; edit instances ignore the flag.
+  useOpenOnNewParam(() => setOpen(true), mode === "create")
 
   // Once a primary quotation exists its currency is frozen, so the opportunity
   // currency must not diverge — the server rejects it and the field is locked.

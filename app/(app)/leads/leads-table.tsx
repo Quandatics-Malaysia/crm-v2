@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatDate } from "@/lib/format"
+import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import type { Option, FunnelWithStages, MemberOption } from "@/lib/lookups"
 
 import { LeadForm } from "./lead-form"
@@ -114,6 +115,8 @@ export function LeadsTable({
   }, [members])
 
   const [newOpen, setNewOpen] = React.useState(false)
+  // Auto-open from the header "+ New" quick-create deep link (/leads?new=1).
+  useOpenOnNewParam(() => setNewOpen(true))
   const [editLead, setEditLead] = React.useState<Lead | null>(null)
   const [convertLead, setConvertLead] = React.useState<Lead | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<Lead | null>(null)

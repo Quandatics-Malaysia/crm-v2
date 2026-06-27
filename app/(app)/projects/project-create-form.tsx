@@ -74,6 +74,7 @@ export function ProjectCreateForm({
   defaultAccountId,
   defaultOpportunityId,
   defaultValue,
+  defaultCurrency,
   defaultQuotationId,
   prefillQuoteNumber,
 }: {
@@ -82,6 +83,7 @@ export function ProjectCreateForm({
   defaultAccountId?: string
   defaultOpportunityId?: string
   defaultValue?: string
+  defaultCurrency?: string
   defaultQuotationId?: string
   prefillQuoteNumber?: string
 }) {
@@ -92,6 +94,11 @@ export function ProjectCreateForm({
   // not a visible form field — it travels alongside the (editable) value.
   const [quotationId, setQuotationId] = React.useState<string | undefined>(
     defaultQuotationId
+  )
+  // Source deal currency, carried through so the project isn't defaulted to MYR.
+  // Like quotationId, it travels alongside the value rather than as a field.
+  const [currency, setCurrency] = React.useState<string | undefined>(
+    defaultCurrency
   )
   // Quote number backing the "pre-filled from quotation …" note. Cleared when
   // the funnel is changed/removed and the new funnel has no source quote.
@@ -117,29 +124,30 @@ export function ProjectCreateForm({
 
   async function handleSubmit(values: ProjectFormValues) {
     setSubmitting(true)
-    try {
-      const opportunityId =
-        values.opportunityId && values.opportunityId !== NONE
-          ? values.opportunityId
-          : undefined
-      const { id } = await createProject({
-        name: values.name,
-        accountId: values.accountId,
-        opportunityId,
-        quotationId: opportunityId ? quotationId : undefined,
-        value: values.value || undefined,
-        startDate: values.startDate || undefined,
-        status: values.status,
-        codeNature: values.codeNature,
-        projectCode:
-          values.codeNature === "manual" ? values.projectCode : undefined,
-      })
-      toast.success("Project created")
-      router.push(`/projects/${id}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create project")
+    const opportunityId =
+      values.opportunityId && values.opportunityId !== NONE
+        ? values.opportunityId
+        : undefined
+    const res = await createProject({
+      name: values.name,
+      accountId: values.accountId,
+      opportunityId,
+      quotationId: opportunityId ? quotationId : undefined,
+      value: values.value || undefined,
+      currency: opportunityId ? currency : undefined,
+      startDate: values.startDate || undefined,
+      status: values.status,
+      codeNature: values.codeNature,
+      projectCode:
+        values.codeNature === "manual" ? values.projectCode : undefined,
+    })
+    if (!res.ok) {
+      toast.error(res.error)
       setSubmitting(false)
+      return
     }
+    toast.success("Project created")
+    router.push(`/projects/${res.data.id}`)
   }
 
   return (
@@ -271,13 +279,15 @@ export function ProjectCreateForm({
                     onValueChange={(v) => {
                       field.onChange(v)
                       if (!v || v === NONE) {
-                        // Detach: clear the linked quote + note. Value stays as-is.
+                        // Detach: clear the linked quote + note + currency.
+                        // Value stays as-is.
                         setQuotationId(undefined)
                         setQuoteNote(undefined)
+                        setCurrency(undefined)
                         return
                       }
                       // Derive the account from the chosen funnel, then re-prefill
-                      // the value + linked quote from that funnel's net.
+                      // the value + linked quote + currency from that funnel's net.
                       const opp = opportunities.find((o) => o.id === v)
                       if (opp) form.setValue("accountId", opp.accountId)
                       void prefillFromOpportunity(v).then((p) => {
@@ -285,6 +295,7 @@ export function ProjectCreateForm({
                         form.setValue("value", p.value)
                         setQuotationId(p.quotationId ?? undefined)
                         setQuoteNote(p.quoteNumber ?? undefined)
+                        setCurrency(p.currency)
                       })
                     }}
                     items={[

@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import {
   leads,
@@ -12,6 +12,11 @@ import {
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
 import { writeAudit } from "@/server/audit"
+import {
+  visibleMemberIds,
+  ownsOrManages,
+  canManageAllRecords,
+} from "@/lib/access-scope"
 import type { ServerContext } from "@/lib/server-context"
 
 export type ConversionResult = {
@@ -36,16 +41,36 @@ export async function convertLead(
   }
 ): Promise<ConversionResult> {
   return runInTenant(ctx.tenantId, async (tx) => {
+    // Lock the lead row so two concurrent converts can't both proceed (TOCTOU).
     const [lead] = await tx
       .select()
       .from(leads)
-      .where(eq(leads.id, input.leadId))
+      .where(and(eq(leads.id, input.leadId), isNull(leads.deletedAt)))
       .limit(1)
+      .for("update")
     if (!lead) throw new Error("Lead not found")
     if (lead.status === "converted") throw new Error("Lead already converted")
 
-    // Account: attach to an existing one, or create from the company name.
+    // Account: attach to an existing one, or create from the company name. When
+    // attaching to a caller-supplied account, validate it exists in this tenant
+    // and the caller owns/manages it (mirrors createPerson) — closes the
+    // cross-tenant FK / record-scope bypass.
     let accountId = input.existingAccountId ?? null
+    if (accountId) {
+      const visible = await visibleMemberIds(tx, ctx)
+      const [dest] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(and(eq(accounts.id, accountId), isNull(accounts.deletedAt)))
+        .limit(1)
+      if (!dest) throw new Error("Account not found")
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, dest.ownerMemberId)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
+    }
     if (!accountId) {
       const [acc] = await tx
         .insert(accounts)

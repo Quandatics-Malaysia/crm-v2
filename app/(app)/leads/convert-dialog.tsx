@@ -54,16 +54,20 @@ export function ConvertDialog({
   async function handleConvert() {
     setSubmitting(true)
     try {
-      const result = await convertLeadAction({
+      const res = await convertLeadAction({
         leadId: lead.id,
         createOpportunity,
         opportunityName: createOpportunity ? opportunityName : null,
         expectedCloseDate: createOpportunity ? expectedCloseDate || null : null,
         existingAccountId: accountId === NEW_ACCOUNT ? null : accountId,
       })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
 
-      if (result.opportunityId) {
-        const oppId = result.opportunityId
+      if (res.data.opportunityId) {
+        const oppId = res.data.opportunityId
         toast.success("Lead converted", {
           description: "A funnel was created.",
           action: {
@@ -77,8 +81,6 @@ export function ConvertDialog({
 
       onOpenChange(false)
       router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to convert lead")
     } finally {
       setSubmitting(false)
     }

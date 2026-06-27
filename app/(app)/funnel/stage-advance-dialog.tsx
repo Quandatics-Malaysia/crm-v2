@@ -30,6 +30,7 @@ import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
 import { formatPercent } from "@/lib/format"
 import { StageBadge } from "./stage-badge"
 import { advanceStageAction } from "./actions"
+import { selectableTargets } from "./stage-transitions"
 
 type Stage = {
   id: string
@@ -89,7 +90,8 @@ export function StageAdvanceDialog({
     () => [...stages].sort((a, b) => a.sortOrder - b.sortOrder),
     [stages]
   )
-  const selectable = ordered.filter((s) => s.id !== currentStageId)
+  // Only stages the server's state machine will actually accept as a move.
+  const selectable = selectableTargets(ordered, currentStageId)
   const target = ordered.find((s) => s.id === targetStageId)
   const needsApproval = target?.requiresApprovalToEnter ?? false
 
@@ -122,11 +124,16 @@ export function StageAdvanceDialog({
     }
     setSubmitting(true)
     try {
-      const result = await advanceStageAction({
+      const res = await advanceStageAction({
         opportunityId,
         targetStageId,
         reason: reason.trim() || undefined,
       })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      const result = res.data
       if (result.moved) {
         // Moved immediately — there's no approval request to attach to.
         toast.success("Stage advanced")
@@ -137,20 +144,16 @@ export function StageAdvanceDialog({
         toast.success("Sent for approval")
         // If a supporting file was picked, attach it to the new request.
         if (result.approvalRequestId && file) {
-          try {
-            const fd = new FormData()
-            fd.set("file", file)
-            fd.set("attachableType", "stage_approval_request")
-            fd.set("attachableId", result.approvalRequestId)
-            fd.set("revalidate", `/funnel/${opportunityId}`)
-            await uploadEntityAttachment(fd)
+          const fd = new FormData()
+          fd.set("file", file)
+          fd.set("attachableType", "stage_approval_request")
+          fd.set("attachableId", result.approvalRequestId)
+          fd.set("revalidate", `/funnel/${opportunityId}`)
+          const up = await uploadEntityAttachment(fd)
+          if (up.ok) {
             toast.success("Supporting document attached")
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : "Request sent, but the file could not be attached"
-            )
+          } else {
+            toast.error(up.error)
           }
         }
         // Keep the dialog open so the requester can attach more files.

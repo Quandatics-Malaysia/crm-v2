@@ -42,29 +42,29 @@ export function SubmitSalesOrderDialog({
       return
     }
     setSubmitting(true)
-    try {
-      // Each dropped document becomes its own sales-order submission, created
-      // atomically with its file so a row never exists without its document.
-      for (const file of files) {
-        const fd = new FormData()
-        fd.set("file", file)
-        fd.set("projectId", projectId)
-        if (notes.trim()) fd.set("notes", notes.trim())
-        await submitSalesOrderWithDocument(fd)
+    // Each dropped document becomes its own sales-order submission, created
+    // atomically with its file so a row never exists without its document.
+    for (const file of files) {
+      const fd = new FormData()
+      fd.set("file", file)
+      fd.set("projectId", projectId)
+      if (notes.trim()) fd.set("notes", notes.trim())
+      const res = await submitSalesOrderWithDocument(fd)
+      if (!res.ok) {
+        toast.error(res.error)
+        setSubmitting(false)
+        return
       }
-      toast.success(
-        files.length > 1
-          ? `${files.length} sales orders submitted`
-          : "Sales order submitted"
-      )
-      setOpen(false)
-      reset()
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Submit failed")
-    } finally {
-      setSubmitting(false)
     }
+    toast.success(
+      files.length > 1
+        ? `${files.length} sales orders submitted`
+        : "Sales order submitted"
+    )
+    setOpen(false)
+    reset()
+    router.refresh()
+    setSubmitting(false)
   }
 
   return (

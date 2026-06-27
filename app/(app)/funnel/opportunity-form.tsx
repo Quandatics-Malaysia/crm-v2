@@ -127,36 +127,40 @@ export function OpportunityForm({
   }, [funnels, selectedFunnelId])
 
   async function onSubmit(values: FormValues) {
-    try {
-      if (mode === "create") {
-        const { id } = await createOpportunity({
-          name: values.name,
-          accountId: values.accountId,
-          primaryPersonId: values.primaryPersonId || null,
-          funnelId: values.funnelId,
-          currentStageId: values.currentStageId,
-          ownerMemberId: values.ownerMemberId,
-          currency: values.currency,
-          expectedCloseDate: values.expectedCloseDate || null,
-        })
-        toast.success("Funnel created")
-        setOpen(false)
-        router.push(`/funnel/${id}`)
-      } else if (opportunity) {
-        await updateOpportunity(opportunity.id, {
-          name: values.name,
-          accountId: values.accountId,
-          primaryPersonId: values.primaryPersonId || null,
-          ownerMemberId: values.ownerMemberId,
-          currency: values.currency,
-          expectedCloseDate: values.expectedCloseDate || null,
-        })
-        toast.success("Funnel updated")
-        setOpen(false)
-        router.refresh()
+    if (mode === "create") {
+      const res = await createOpportunity({
+        name: values.name,
+        accountId: values.accountId,
+        primaryPersonId: values.primaryPersonId || null,
+        funnelId: values.funnelId,
+        currentStageId: values.currentStageId,
+        ownerMemberId: values.ownerMemberId,
+        currency: values.currency,
+        expectedCloseDate: values.expectedCloseDate || null,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong")
+      toast.success("Funnel created")
+      setOpen(false)
+      router.push(`/funnel/${res.data.id}`)
+    } else if (opportunity) {
+      const res = await updateOpportunity(opportunity.id, {
+        name: values.name,
+        accountId: values.accountId,
+        primaryPersonId: values.primaryPersonId || null,
+        ownerMemberId: values.ownerMemberId,
+        currency: values.currency,
+        expectedCloseDate: values.expectedCloseDate || null,
+      })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success("Funnel updated")
+      setOpen(false)
+      router.refresh()
     }
   }
 

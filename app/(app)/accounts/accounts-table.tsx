@@ -52,13 +52,14 @@ function RowActions({
   )
 
   async function onDelete() {
-    try {
-      await deleteAccount(account.id)
-      toast.success("Account deleted")
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    const res = await deleteAccount(account.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      setConfirmOpen(false)
+      return
     }
+    toast.success("Account deleted")
+    router.refresh()
     setConfirmOpen(false)
   }
 
@@ -108,8 +109,9 @@ function RowActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This soft-deletes “{account.name}”. Its contacts remain but the
-              account will no longer appear in lists.
+              This soft-deletes “{account.name}”. You must first remove its
+              contacts and close any opportunities or projects, otherwise the
+              delete is blocked.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

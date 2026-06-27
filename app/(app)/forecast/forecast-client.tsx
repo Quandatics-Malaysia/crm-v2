@@ -95,25 +95,52 @@ const columns: ColumnDef<ForecastRow>[] = [
 ]
 
 export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
-  const totals = React.useMemo(() => {
-    let opportunityValue = 0
-    let weightedValue = 0
+  // Aggregate per currency — opportunity currency is per-row, so summing across
+  // currencies into a single MYR figure would be an implicit-FX error. Mirror
+  // how v_pipeline_summary keeps one bucket per currency (no implicit FX).
+  const byCurrency = React.useMemo(() => {
+    const map = new Map<
+      string,
+      { currency: string; opportunityValue: number; weightedValue: number; count: number }
+    >()
     for (const r of rows) {
-      opportunityValue += Number(r.opportunityValue ?? 0)
-      weightedValue += Number(r.weightedValue ?? 0)
+      const currency = r.currency ?? "MYR"
+      const existing = map.get(currency) ?? {
+        currency,
+        opportunityValue: 0,
+        weightedValue: 0,
+        count: 0,
+      }
+      existing.opportunityValue += Number(r.opportunityValue ?? 0)
+      existing.weightedValue += Number(r.weightedValue ?? 0)
+      existing.count += 1
+      map.set(currency, existing)
     }
-    return { opportunityValue, weightedValue, openCount: rows.length }
+    return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency))
   }, [rows])
 
+  // Bucket per (forecast month, currency) so different currencies are never
+  // added together within a month card.
   const byMonth = React.useMemo(() => {
     const map = new Map<
       string,
-      { label: string; opportunityValue: number; weightedValue: number; count: number }
+      {
+        sortKey: string
+        label: string
+        currency: string
+        opportunityValue: number
+        weightedValue: number
+        count: number
+      }
     >()
     for (const r of rows) {
-      const key = r.forecastMonth ?? "__none__"
+      const currency = r.currency ?? "MYR"
+      const monthKey = r.forecastMonth ?? "__none__"
+      const key = `${monthKey}__${currency}`
       const existing = map.get(key) ?? {
+        sortKey: monthKey,
         label: monthLabel(r.forecastMonth),
+        currency,
         opportunityValue: 0,
         weightedValue: 0,
         count: 0,
@@ -124,55 +151,42 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
       map.set(key, existing)
     }
     return [...map.entries()]
-      .sort(([a], [b]) => {
-        if (a === "__none__") return 1
-        if (b === "__none__") return -1
-        return a.localeCompare(b)
+      .sort(([, a], [, b]) => {
+        if (a.sortKey === "__none__") return b.sortKey === "__none__" ? 0 : 1
+        if (b.sortKey === "__none__") return -1
+        const byKey = a.sortKey.localeCompare(b.sortKey)
+        return byKey !== 0 ? byKey : a.currency.localeCompare(b.currency)
       })
-      .map(([, v]) => v)
+      .map(([key, v]) => ({ key, ...v }))
   }, [rows])
-
-  const cards = [
-    {
-      title: "Weighted Forecast",
-      value: formatMoney(totals.weightedValue),
-      desc: "Σ value × stage probability",
-    },
-    {
-      title: "Open Pipeline Value",
-      value: formatMoney(totals.opportunityValue),
-      desc: "Σ net-of-tax funnel value",
-    },
-    {
-      title: "Open Funnels",
-      value: String(totals.openCount),
-      desc: "Deals contributing to forecast",
-    },
-  ]
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="bg-muted/40">
         <CardHeader>
           <CardDescription>Forecast total</CardDescription>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div>
-              <CardTitle className="text-3xl tabular-nums">
-                {formatMoney(totals.weightedValue)}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Total weighted value · Σ value × stage probability
-              </p>
+          {byCurrency.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No forecast-eligible funnels.
+            </p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {byCurrency.map((c) => (
+                <div key={c.currency}>
+                  <CardDescription>{c.currency}</CardDescription>
+                  <CardTitle className="text-3xl tabular-nums">
+                    {formatMoney(c.weightedValue, c.currency)}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Weighted value · Σ value × stage probability
+                  </p>
+                  <p className="mt-1 text-sm tabular-nums text-muted-foreground">
+                    {formatMoney(c.opportunityValue, c.currency)} funnel value
+                  </p>
+                </div>
+              ))}
             </div>
-            <div>
-              <CardTitle className="text-3xl tabular-nums">
-                {formatMoney(totals.opportunityValue)}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Total funnel value · Σ net-of-tax funnel value
-              </p>
-            </div>
-          </div>
+          )}
           <p className="mt-2 text-xs text-muted-foreground">
             Stages included in the forecast are configured in Settings → Funnel
             Stages.
@@ -181,29 +195,45 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map((c) => (
-          <Card key={c.title}>
+        {byCurrency.map((c) => (
+          <Card key={c.currency}>
             <CardHeader>
-              <CardDescription>{c.title}</CardDescription>
-              <CardTitle className="text-2xl tabular-nums">{c.value}</CardTitle>
-              <p className="text-xs text-muted-foreground">{c.desc}</p>
+              <CardDescription>Weighted Forecast · {c.currency}</CardDescription>
+              <CardTitle className="text-2xl tabular-nums">
+                {formatMoney(c.weightedValue, c.currency)}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {formatMoney(c.opportunityValue, c.currency)} funnel value ·{" "}
+                {c.count} funnel{c.count === 1 ? "" : "s"}
+              </p>
             </CardHeader>
           </Card>
         ))}
+        <Card>
+          <CardHeader>
+            <CardDescription>Forecast-eligible funnels</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">{rows.length}</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Deals contributing to forecast
+            </p>
+          </CardHeader>
+        </Card>
       </div>
 
       {byMonth.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {byMonth.map((m) => (
-            <Card key={m.label} size="sm">
+            <Card key={m.key} size="sm">
               <CardHeader>
-                <CardDescription>{m.label}</CardDescription>
+                <CardDescription>
+                  {m.label} · {m.currency}
+                </CardDescription>
                 <CardTitle className="text-lg tabular-nums">
-                  {formatMoney(m.weightedValue)}
+                  {formatMoney(m.weightedValue, m.currency)}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   {m.count} deal{m.count === 1 ? "" : "s"} ·{" "}
-                  {formatMoney(m.opportunityValue)} gross
+                  {formatMoney(m.opportunityValue, m.currency)} gross
                 </p>
               </CardHeader>
             </Card>
@@ -216,7 +246,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
         data={rows}
         searchColumn="opportunityName"
         searchPlaceholder="Search funnels…"
-        emptyMessage="No open funnels to forecast."
+        emptyMessage="No forecast-eligible funnels."
         pageSize={15}
       />
     </div>

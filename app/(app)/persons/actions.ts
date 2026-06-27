@@ -12,12 +12,16 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   accounts,
   persons,
   opportunities,
   funnelStages,
 } from "@/db/schema"
+
+/** Largest page we ever return from a list endpoint (defense against unbounded scans). */
+const LIST_LIMIT = 1000
 
 export type PersonRow = typeof persons.$inferSelect
 
@@ -64,14 +68,16 @@ export async function listPersons(): Promise<PersonListItem[]> {
         accountName: accounts.name,
       })
       .from(persons)
-      .leftJoin(accounts, eq(persons.accountId, accounts.id))
+      .innerJoin(accounts, eq(persons.accountId, accounts.id))
       .where(
         and(
           isNull(persons.deletedAt),
+          isNull(accounts.deletedAt),
           ownerScope(accounts.ownerMemberId, visible)
         )
       )
       .orderBy(asc(persons.firstName), asc(persons.lastName))
+      .limit(LIST_LIMIT)
 
     return rows.map((r) => ({ ...r.person, accountName: r.accountName }))
   })
@@ -91,8 +97,14 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
         accountOwner: accounts.ownerMemberId,
       })
       .from(persons)
-      .leftJoin(accounts, eq(persons.accountId, accounts.id))
-      .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
+      .innerJoin(accounts, eq(persons.accountId, accounts.id))
+      .where(
+        and(
+          eq(persons.id, id),
+          isNull(persons.deletedAt),
+          isNull(accounts.deletedAt)
+        )
+      )
       .limit(1)
     if (!row) return null
     if (!ownsOrManages(visible, row.accountOwner)) return null
@@ -148,192 +160,221 @@ async function clearOtherPrimaries(
     )
 }
 
-export async function createPerson(input: PersonInput): Promise<PersonRow> {
-  if (!input.accountId) throw new Error("A contact must belong to an account.")
+export async function createPerson(
+  input: PersonInput
+): Promise<ActionResult<PersonRow>> {
+  return runAction(async () => {
+    if (!input.accountId) throw new Error("A contact must belong to an account.")
 
-  const row = await withTenant(PERMISSIONS.PERSON_CREATE, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [account] = await tx
-      .select({ ownerMemberId: accounts.ownerMemberId })
-      .from(accounts)
-      .where(eq(accounts.id, input.accountId))
-      .limit(1)
-    if (
-      !canManageAllRecords(ctx) &&
-      !ownsOrManages(visible, account?.ownerMemberId ?? null)
-    ) {
-      throw new Error("FORBIDDEN: not permitted on this account")
-    }
+    const row = await withTenant(PERMISSIONS.PERSON_CREATE, async (tx, ctx) => {
+      const visible = await visibleMemberIds(tx, ctx)
+      const [account] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(and(eq(accounts.id, input.accountId), isNull(accounts.deletedAt)))
+        .limit(1)
+      if (!account) throw new Error("Account not found")
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, account.ownerMemberId)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
 
-    if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId)
+      if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId)
 
-    const [created] = await tx
-      .insert(persons)
-      .values({
-        tenantId: ctx.tenantId,
-        accountId: input.accountId,
-        firstName: input.firstName,
-        lastName: input.lastName || null,
-        title: input.title || null,
-        email: input.email || null,
-        phone: input.phone || null,
-        isPrimary: input.isPrimary ?? false,
+      const [created] = await tx
+        .insert(persons)
+        .values({
+          tenantId: ctx.tenantId,
+          accountId: input.accountId,
+          firstName: input.firstName,
+          lastName: input.lastName || null,
+          title: input.title || null,
+          email: input.email || null,
+          phone: input.phone || null,
+          isPrimary: input.isPrimary ?? false,
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "person.create",
+        entityType: "person",
+        entityId: created.id,
+        after: created,
       })
-      .returning()
-    await writeAudit(tx, ctx, {
-      action: "person.create",
-      entityType: "person",
-      entityId: created.id,
-      after: created,
+      await logActivity(tx, ctx, {
+        entityType: "person",
+        entityId: created.id,
+        type: "system",
+        subject: `Created contact ${fullName(created)}`,
+      })
+      return created
     })
-    await logActivity(tx, ctx, {
-      entityType: "person",
-      entityId: created.id,
-      type: "system",
-      subject: `Created contact ${fullName(created)}`,
-    })
-    return created
+    revalidatePath("/persons")
+    revalidatePath(`/accounts/${input.accountId}`)
+    return row
   })
-  revalidatePath("/persons")
-  revalidatePath(`/accounts/${input.accountId}`)
-  return row
 }
 
 export async function updatePerson(
   id: string,
   input: PersonInput
-): Promise<PersonRow> {
-  if (!input.accountId) throw new Error("A contact must belong to an account.")
+): Promise<ActionResult<PersonRow>> {
+  return runAction(async () => {
+    if (!input.accountId) throw new Error("A contact must belong to an account.")
 
-  const row = await withTenant(PERMISSIONS.PERSON_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(persons)
-      .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Contact not found.")
+    const row = await withTenant(PERMISSIONS.PERSON_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(persons)
+        .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Contact not found.")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    const [account] = await tx
-      .select({ ownerMemberId: accounts.ownerMemberId })
-      .from(accounts)
-      .where(eq(accounts.id, before.accountId))
-      .limit(1)
-    if (
-      !canManageAllRecords(ctx) &&
-      !ownsOrManages(visible, account?.ownerMemberId ?? null)
-    ) {
-      throw new Error("FORBIDDEN: not permitted on this account")
-    }
+      const visible = await visibleMemberIds(tx, ctx)
+      const [account] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(eq(accounts.id, before.accountId))
+        .limit(1)
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, account?.ownerMemberId ?? null)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
 
-    if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId, id)
+      // Reassigning to a different account: validate the destination exists in
+      // this tenant and the caller owns/manages it (mirrors createPerson) —
+      // closes the cross-tenant FK / record-scope bypass on the destination.
+      if (input.accountId !== before.accountId) {
+        const [dest] = await tx
+          .select({ ownerMemberId: accounts.ownerMemberId })
+          .from(accounts)
+          .where(and(eq(accounts.id, input.accountId), isNull(accounts.deletedAt)))
+          .limit(1)
+        if (!dest) throw new Error("Account not found")
+        if (
+          !canManageAllRecords(ctx) &&
+          !ownsOrManages(visible, dest.ownerMemberId)
+        ) {
+          throw new Error("FORBIDDEN: not permitted on this account")
+        }
+      }
 
-    const [updated] = await tx
-      .update(persons)
-      .set({
-        accountId: input.accountId,
-        firstName: input.firstName,
-        lastName: input.lastName || null,
-        title: input.title || null,
-        email: input.email || null,
-        phone: input.phone || null,
-        isPrimary: input.isPrimary ?? false,
-        updatedAt: new Date(),
+      if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId, id)
+
+      const [updated] = await tx
+        .update(persons)
+        .set({
+          accountId: input.accountId,
+          firstName: input.firstName,
+          lastName: input.lastName || null,
+          title: input.title || null,
+          email: input.email || null,
+          phone: input.phone || null,
+          isPrimary: input.isPrimary ?? false,
+          updatedAt: new Date(),
+        })
+        .where(eq(persons.id, id))
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "person.update",
+        entityType: "person",
+        entityId: id,
+        before,
+        after: updated,
       })
-      .where(eq(persons.id, id))
-      .returning()
-    await writeAudit(tx, ctx, {
-      action: "person.update",
-      entityType: "person",
-      entityId: id,
-      before,
-      after: updated,
+      await logActivity(tx, ctx, {
+        entityType: "person",
+        entityId: id,
+        type: "system",
+        subject: "Updated contact",
+      })
+      return updated
     })
-    await logActivity(tx, ctx, {
-      entityType: "person",
-      entityId: id,
-      type: "system",
-      subject: "Updated contact",
-    })
-    return updated
+    revalidatePath("/persons")
+    revalidatePath(`/accounts/${input.accountId}`)
+    return row
   })
-  revalidatePath("/persons")
-  revalidatePath(`/accounts/${input.accountId}`)
-  return row
 }
 
-export async function deletePerson(id: string): Promise<void> {
-  await withTenant(PERMISSIONS.PERSON_DELETE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(persons)
-      .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Contact not found.")
+export async function deletePerson(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.PERSON_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(persons)
+        .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Contact not found.")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    const [account] = await tx
-      .select({ ownerMemberId: accounts.ownerMemberId })
-      .from(accounts)
-      .where(eq(accounts.id, before.accountId))
-      .limit(1)
-    if (
-      !canManageAllRecords(ctx) &&
-      !ownsOrManages(visible, account?.ownerMemberId ?? null)
-    ) {
-      throw new Error("FORBIDDEN: not permitted on this account")
-    }
+      const visible = await visibleMemberIds(tx, ctx)
+      const [account] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(eq(accounts.id, before.accountId))
+        .limit(1)
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, account?.ownerMemberId ?? null)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
 
-    await tx
-      .update(persons)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(persons.id, id))
-    await writeAudit(tx, ctx, {
-      action: "person.delete",
-      entityType: "person",
-      entityId: id,
-      before,
+      await tx
+        .update(persons)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(persons.id, id))
+      await writeAudit(tx, ctx, {
+        action: "person.delete",
+        entityType: "person",
+        entityId: id,
+        before,
+      })
+      revalidatePath(`/accounts/${before.accountId}`)
     })
-    revalidatePath(`/accounts/${before.accountId}`)
+    revalidatePath("/persons")
   })
-  revalidatePath("/persons")
 }
 
 /** Makes the given contact the primary one for its account. */
-export async function setPrimaryPerson(id: string): Promise<void> {
-  await withTenant(PERMISSIONS.PERSON_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(persons)
-      .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Contact not found.")
+export async function setPrimaryPerson(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.PERSON_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(persons)
+        .where(and(eq(persons.id, id), isNull(persons.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Contact not found.")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    const [account] = await tx
-      .select({ ownerMemberId: accounts.ownerMemberId })
-      .from(accounts)
-      .where(eq(accounts.id, before.accountId))
-      .limit(1)
-    if (
-      !canManageAllRecords(ctx) &&
-      !ownsOrManages(visible, account?.ownerMemberId ?? null)
-    ) {
-      throw new Error("FORBIDDEN: not permitted on this account")
-    }
+      const visible = await visibleMemberIds(tx, ctx)
+      const [account] = await tx
+        .select({ ownerMemberId: accounts.ownerMemberId })
+        .from(accounts)
+        .where(eq(accounts.id, before.accountId))
+        .limit(1)
+      if (
+        !canManageAllRecords(ctx) &&
+        !ownsOrManages(visible, account?.ownerMemberId ?? null)
+      ) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
 
-    await clearOtherPrimaries(tx, before.accountId, id)
-    await tx
-      .update(persons)
-      .set({ isPrimary: true, updatedAt: new Date() })
-      .where(eq(persons.id, id))
-    await writeAudit(tx, ctx, {
-      action: "person.set_primary",
-      entityType: "person",
-      entityId: id,
-      before,
+      await clearOtherPrimaries(tx, before.accountId, id)
+      await tx
+        .update(persons)
+        .set({ isPrimary: true, updatedAt: new Date() })
+        .where(eq(persons.id, id))
+      await writeAudit(tx, ctx, {
+        action: "person.set_primary",
+        entityType: "person",
+        entityId: id,
+        before,
+      })
+      revalidatePath(`/accounts/${before.accountId}`)
     })
-    revalidatePath(`/accounts/${before.accountId}`)
+    revalidatePath("/persons")
   })
-  revalidatePath("/persons")
 }

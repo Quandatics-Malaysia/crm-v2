@@ -67,16 +67,16 @@ function ApproveDialog({
 
   async function onApprove() {
     setSubmitting(true)
-    try {
-      const { soNumber } = await approveSalesOrder(order.id)
-      toast.success(`Sales order approved — ${soNumber}`)
-      onOpenChange(false)
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Approve failed")
-    } finally {
+    const res = await approveSalesOrder(order.id)
+    if (!res.ok) {
+      toast.error(res.error)
       setSubmitting(false)
+      return
     }
+    toast.success(`Sales order approved — ${res.data.soNumber}`)
+    onOpenChange(false)
+    router.refresh()
+    setSubmitting(false)
   }
 
   return (
@@ -125,16 +125,16 @@ function RejectDialog({
       return
     }
     setSubmitting(true)
-    try {
-      await rejectSalesOrder(order.id, reason)
-      toast.success("Sales order rejected")
-      onOpenChange(false)
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Reject failed")
-    } finally {
+    const res = await rejectSalesOrder(order.id, reason)
+    if (!res.ok) {
+      toast.error(res.error)
       setSubmitting(false)
+      return
     }
+    toast.success("Sales order rejected")
+    onOpenChange(false)
+    router.refresh()
+    setSubmitting(false)
   }
 
   return (

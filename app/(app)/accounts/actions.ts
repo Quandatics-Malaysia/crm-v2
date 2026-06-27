@@ -12,6 +12,8 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { runAction, type ActionResult } from "@/lib/action-result"
+import type { Tx, ServerContext } from "@/lib/actions"
 import {
   accounts,
   persons,
@@ -22,6 +24,9 @@ import {
   member,
   user,
 } from "@/db/schema"
+
+/** Largest page we ever return from a list endpoint (defense against unbounded scans). */
+const LIST_LIMIT = 1000
 
 export type AccountRow = typeof accounts.$inferSelect
 export type PersonRow = typeof persons.$inferSelect
@@ -104,6 +109,7 @@ export async function listAccounts(): Promise<AccountListItem[]> {
         and(isNull(accounts.deletedAt), ownerScope(accounts.ownerMemberId, visible))
       )
       .orderBy(asc(accounts.name))
+      .limit(LIST_LIMIT)
 
     const byId = new Map(rows.map((r) => [r.account.id, r.account]))
     return rows.map((r) => ({
@@ -352,154 +358,286 @@ async function assertCodeUnique(
   }
 }
 
-export async function createAccount(input: AccountInput): Promise<AccountRow> {
-  const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
-    const code = normalizeCode(input.code)
-    if (code) await assertCodeUnique(tx, ctx.tenantId, code)
-    const { accountType, endUserAccountId } = resolveAccountType(input)
+/**
+ * Validate a prospective parent: it must exist (non-deleted) in this tenant, and
+ * walking its ancestor chain must never reach `selfId` — otherwise assigning it
+ * would create a multi-level cycle (A→B→A). `selfId` is omitted on create
+ * (a brand-new account can't yet be anyone's ancestor).
+ */
+async function assertParentValid(
+  tx: Tx,
+  parentId: string,
+  selfId?: string
+): Promise<void> {
+  const seen = new Set<string>(selfId ? [selfId] : [])
+  let cursor: string | null = parentId
+  while (cursor) {
+    if (seen.has(cursor)) {
+      throw new Error("This parent would create a circular account hierarchy.")
+    }
+    seen.add(cursor)
+    const [row]: { parentAccountId: string | null }[] = await tx
+      .select({ parentAccountId: accounts.parentAccountId })
+      .from(accounts)
+      .where(and(eq(accounts.id, cursor), isNull(accounts.deletedAt)))
+      .limit(1)
+    if (!row) throw new Error("Parent account not found")
+    cursor = row.parentAccountId
+  }
+}
 
-    const [created] = await tx
-      .insert(accounts)
-      .values({
-        tenantId: ctx.tenantId,
-        ownerMemberId: ctx.memberId,
-        name: input.name,
-        code,
-        parentAccountId: input.parentAccountId || null,
-        accountType,
-        endUserAccountId,
-        industry: input.industry || null,
-        website: input.website || null,
-        registrationNumber: input.registrationNumber || null,
-        billingAddress: cleanAddress(input.billingAddress),
+/**
+ * Validate a reseller's end-user destination: it must exist (non-deleted) in
+ * this tenant AND be a record the actor owns or manages — otherwise a reseller
+ * could be linked to an account outside their visibility (cross-tenant/owner
+ * write parity with the parent-account check). RLS already scopes the SELECT to
+ * the tenant; this layer narrows within it.
+ */
+async function assertEndUserValid(
+  tx: Tx,
+  ctx: ServerContext,
+  endUserAccountId: string
+): Promise<void> {
+  const [endUser] = await tx
+    .select({ ownerMemberId: accounts.ownerMemberId })
+    .from(accounts)
+    .where(and(eq(accounts.id, endUserAccountId), isNull(accounts.deletedAt)))
+    .limit(1)
+  if (!endUser) throw new Error("End-user account not found")
+  const visible = await visibleMemberIds(tx, ctx)
+  if (!canManageAllRecords(ctx) && !ownsOrManages(visible, endUser.ownerMemberId)) {
+    throw new Error("FORBIDDEN: not permitted on the chosen end-user account")
+  }
+}
+
+export async function createAccount(
+  input: AccountInput
+): Promise<ActionResult<AccountRow>> {
+  return runAction(async () => {
+    const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
+      const code = normalizeCode(input.code)
+      if (code) await assertCodeUnique(tx, ctx.tenantId, code)
+      const parentAccountId = input.parentAccountId || null
+      if (parentAccountId) await assertParentValid(tx, parentAccountId)
+      const { accountType, endUserAccountId } = resolveAccountType(input)
+      if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
+
+      const [created] = await tx
+        .insert(accounts)
+        .values({
+          tenantId: ctx.tenantId,
+          ownerMemberId: ctx.memberId,
+          name: input.name,
+          code,
+          parentAccountId,
+          accountType,
+          endUserAccountId,
+          industry: input.industry || null,
+          website: input.website || null,
+          registrationNumber: input.registrationNumber || null,
+          billingAddress: cleanAddress(input.billingAddress),
+        })
+        .returning()
+      await logActivity(tx, ctx, {
+        entityType: "account",
+        entityId: created.id,
+        type: "system",
+        subject: "Created",
       })
-      .returning()
-    await logActivity(tx, ctx, {
-      entityType: "account",
-      entityId: created.id,
-      type: "system",
-      subject: "Created",
+      await writeAudit(tx, ctx, {
+        action: "account.create",
+        entityType: "account",
+        entityId: created.id,
+        after: created,
+      })
+      return created
     })
-    await writeAudit(tx, ctx, {
-      action: "account.create",
-      entityType: "account",
-      entityId: created.id,
-      after: created,
-    })
-    return created
+    revalidatePath("/accounts")
+    return row
   })
-  revalidatePath("/accounts")
-  return row
 }
 
 export async function updateAccount(
   id: string,
   input: AccountInput
-): Promise<AccountRow> {
-  if (input.parentAccountId && input.parentAccountId === id) {
-    throw new Error("An account cannot be its own parent.")
-  }
-
-  const row = await withTenant(PERMISSIONS.ACCOUNT_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Account not found.")
-
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
-      throw new Error("FORBIDDEN: not permitted on this account")
+): Promise<ActionResult<AccountRow>> {
+  return runAction(async () => {
+    if (input.parentAccountId && input.parentAccountId === id) {
+      throw new Error("An account cannot be its own parent.")
     }
 
-    const code = normalizeCode(input.code)
-    if (code) await assertCodeUnique(tx, ctx.tenantId, code, id)
-    const { accountType, endUserAccountId } = resolveAccountType(input)
-    if (endUserAccountId === id) {
-      throw new Error("An account cannot be its own end user.")
-    }
+    const row = await withTenant(PERMISSIONS.ACCOUNT_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(accounts)
+        .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Account not found.")
 
-    const [updated] = await tx
-      .update(accounts)
-      .set({
-        name: input.name,
-        code,
-        parentAccountId: input.parentAccountId || null,
-        accountType,
-        endUserAccountId,
-        industry: input.industry || null,
-        website: input.website || null,
-        registrationNumber: input.registrationNumber || null,
-        billingAddress: cleanAddress(input.billingAddress),
-        updatedAt: new Date(),
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
+
+      const code = normalizeCode(input.code)
+      if (code) await assertCodeUnique(tx, ctx.tenantId, code, id)
+      const parentAccountId = input.parentAccountId || null
+      // Reject multi-level cycles (A→B→A) before persisting the new parent.
+      if (parentAccountId) await assertParentValid(tx, parentAccountId, id)
+      const { accountType, endUserAccountId } = resolveAccountType(input)
+      if (endUserAccountId === id) {
+        throw new Error("An account cannot be its own end user.")
+      }
+      if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
+
+      const [updated] = await tx
+        .update(accounts)
+        .set({
+          name: input.name,
+          code,
+          parentAccountId,
+          accountType,
+          endUserAccountId,
+          industry: input.industry || null,
+          website: input.website || null,
+          registrationNumber: input.registrationNumber || null,
+          billingAddress: cleanAddress(input.billingAddress),
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.id, id))
+        .returning()
+      await logActivity(tx, ctx, {
+        entityType: "account",
+        entityId: id,
+        type: "system",
+        subject: "Updated",
       })
-      .where(eq(accounts.id, id))
-      .returning()
-    await logActivity(tx, ctx, {
-      entityType: "account",
-      entityId: id,
-      type: "system",
-      subject: "Updated",
+      await writeAudit(tx, ctx, {
+        action: "account.update",
+        entityType: "account",
+        entityId: id,
+        before,
+        after: updated,
+      })
+      return updated
     })
-    await writeAudit(tx, ctx, {
-      action: "account.update",
-      entityType: "account",
-      entityId: id,
-      before,
-      after: updated,
-    })
-    return updated
+    revalidatePath("/accounts")
+    revalidatePath(`/accounts/${id}`)
+    return row
   })
-  revalidatePath("/accounts")
-  revalidatePath(`/accounts/${id}`)
-  return row
 }
 
-export async function deleteAccount(id: string): Promise<void> {
-  await withTenant(PERMISSIONS.ACCOUNT_DELETE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Account not found.")
+export async function deleteAccount(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.ACCOUNT_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(accounts)
+        .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Account not found.")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
-      throw new Error("FORBIDDEN: not permitted on this account")
-    }
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
+        throw new Error("FORBIDDEN: not permitted on this account")
+      }
 
-    await tx
-      .update(accounts)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(accounts.id, id))
-    await writeAudit(tx, ctx, {
-      action: "account.delete",
-      entityType: "account",
-      entityId: id,
-      before,
+      // Soft-delete doesn't cascade, so block while active dependents exist —
+      // otherwise contacts/opportunities/projects would be orphaned under a
+      // hidden account.
+      const [contact] = await tx
+        .select({ id: persons.id })
+        .from(persons)
+        .where(and(eq(persons.accountId, id), isNull(persons.deletedAt)))
+        .limit(1)
+      if (contact) {
+        throw new Error(
+          "Remove this account's contacts before deleting it."
+        )
+      }
+      const [opp] = await tx
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(and(eq(opportunities.accountId, id), isNull(opportunities.deletedAt)))
+        .limit(1)
+      if (opp) {
+        throw new Error(
+          "Close or remove this account's opportunities before deleting it."
+        )
+      }
+      const [project] = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.accountId, id), isNull(projects.deletedAt)))
+        .limit(1)
+      if (project) {
+        throw new Error(
+          "Close or remove this account's projects before deleting it."
+        )
+      }
+
+      await tx
+        .update(accounts)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(accounts.id, id))
+      await writeAudit(tx, ctx, {
+        action: "account.delete",
+        entityType: "account",
+        entityId: id,
+        before,
+      })
     })
+    revalidatePath("/accounts")
   })
-  revalidatePath("/accounts")
 }
 
-/** Parent-account options for a form, excluding the given account (no self-parenting). */
+/**
+ * Parent-account options for a form. Excludes the given account itself and all
+ * of its descendants, so a parent can never be picked that would form a cycle.
+ */
 export async function listParentOptions(
   excludeId?: string
 ): Promise<{ id: string; name: string }[]> {
   return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
-    return tx
-      .select({ id: accounts.id, name: accounts.name })
+    const rows = await tx
+      .select({
+        id: accounts.id,
+        name: accounts.name,
+        parentAccountId: accounts.parentAccountId,
+      })
       .from(accounts)
       .where(
-        and(
-          isNull(accounts.deletedAt),
-          excludeId ? ne(accounts.id, excludeId) : undefined,
-          ownerScope(accounts.ownerMemberId, visible)
-        )
+        and(isNull(accounts.deletedAt), ownerScope(accounts.ownerMemberId, visible))
       )
       .orderBy(asc(accounts.name))
+      .limit(LIST_LIMIT)
+
+    if (!excludeId) return rows.map(({ id, name }) => ({ id, name }))
+
+    // Build the descendant set of excludeId (self + transitive children) and
+    // drop it from the options — picking any of them would create a cycle.
+    const childrenOf = new Map<string, string[]>()
+    for (const r of rows) {
+      if (!r.parentAccountId) continue
+      const arr = childrenOf.get(r.parentAccountId)
+      if (arr) arr.push(r.id)
+      else childrenOf.set(r.parentAccountId, [r.id])
+    }
+    const excluded = new Set<string>([excludeId])
+    const stack = [excludeId]
+    while (stack.length) {
+      const cur = stack.pop() as string
+      for (const child of childrenOf.get(cur) ?? []) {
+        if (!excluded.has(child)) {
+          excluded.add(child)
+          stack.push(child)
+        }
+      }
+    }
+
+    return rows
+      .filter((r) => !excluded.has(r.id))
+      .map(({ id, name }) => ({ id, name }))
   })
 }

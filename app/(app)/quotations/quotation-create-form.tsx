@@ -27,25 +27,22 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { formatMoney } from "@/lib/format"
+import {
+  quotationLineSchema,
+  headerDiscountSchema,
+} from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
 
 const NO_TAX = "__none__"
-
-const lineSchema = z.object({
-  description: z.string().trim().min(1, "Required"),
-  quantity: z.string().trim().min(1, "Required"),
-  unitPrice: z.string().trim().min(1, "Required"),
-  discountPercent: z.string().trim(),
-})
 
 const schema = z.object({
   opportunityId: z.string().trim().min(1, "Select a funnel"),
   taxSettingId: z.string(),
   validUntil: z.string(),
   notes: z.string(),
-  headerDiscount: z.string().trim(),
-  lines: z.array(lineSchema).min(1, "Add at least one line item"),
+  headerDiscount: headerDiscountSchema,
+  lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -134,27 +131,27 @@ export function QuotationCreateForm({
 
   async function onSubmit(values: FormValues) {
     setBusy(true)
-    try {
-      const created = await createQuotation({
-        opportunityId: values.opportunityId,
-        taxSettingId:
-          values.taxSettingId === NO_TAX ? null : values.taxSettingId,
-        validUntil: values.validUntil || null,
-        notes: values.notes || null,
-        headerDiscount: values.headerDiscount || "0",
-        lines: values.lines.map((l) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent || "0",
-        })),
-      })
-      toast.success("Quotation created")
-      onCreated?.(created)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Create failed")
+    const res = await createQuotation({
+      opportunityId: values.opportunityId,
+      taxSettingId:
+        values.taxSettingId === NO_TAX ? null : values.taxSettingId,
+      validUntil: values.validUntil || null,
+      notes: values.notes || null,
+      headerDiscount: values.headerDiscount || "0",
+      lines: values.lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountPercent: l.discountPercent || "0",
+      })),
+    })
+    if (!res.ok) {
+      toast.error(res.error)
       setBusy(false)
+      return
     }
+    toast.success("Quotation created")
+    onCreated?.(res.data)
   }
 
   return (

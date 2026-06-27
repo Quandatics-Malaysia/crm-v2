@@ -49,12 +49,46 @@ async function memberHasPermission(
   return rows.length > 0
 }
 
+/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
+function isTerminalKind(kind: string): boolean {
+  return kind !== "OPEN"
+}
+
+/**
+ * Enforce the stage state machine for a single move:
+ *  - the deal can't move to the stage it's already in,
+ *  - a closed/parked (terminal) deal can't move at all without an explicit,
+ *    separately-handled reopen (none is wired today, so it's simply rejected),
+ *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
+ * OPEN → terminal (win / lose / park) is always allowed from an open stage.
+ */
+function assertTransitionAllowed(from: StageRow, to: StageRow): void {
+  if (from.id === to.id) throw new Error("The deal is already in this stage")
+  if (isTerminalKind(from.kind))
+    throw new Error("This deal is closed. Reopen it before changing its stage.")
+  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
+    throw new Error("Stage moves must advance forward in the pipeline")
+}
+
+/** Whether the actor may enter approval-gated stages without a request. */
+function canBypassApproval(
+  ctx: ServerContext,
+  settings: typeof tenantSettings.$inferSelect | undefined
+): boolean {
+  const bypassTier = settings?.approvalBypassTier ?? 40
+  return (
+    ctx.isSuperadmin ||
+    ctx.tierLevel >= bypassTier ||
+    ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
+  )
+}
+
 /** Walk the upline chain for the first ancestor that can approve; else any approver. */
 async function resolveApprover(
   tx: Tx,
   requesterMemberId: string,
   requesterTier: number
-): Promise<string | null> {
+): Promise<string> {
   let cursor = requesterMemberId
   const seen = new Set<string>([requesterMemberId])
   for (let i = 0; i < 25; i++) {
@@ -93,7 +127,61 @@ async function resolveApprover(
       )
     )
     .limit(1)
-  return fallback?.m ?? null
+  if (!fallback?.m)
+    throw new Error(
+      "No approver is available to route this request. Ask an administrator to grant the stage-approval permission."
+    )
+  return fallback.m
+}
+
+/**
+ * Create (or reuse) a pending approval request routed to the upline. Shared by
+ * manual gated advances and the quote-accept auto-win when the Won stage is
+ * approval-gated, so neither path can silently bypass the gate.
+ */
+async function createApprovalRequest(
+  tx: Tx,
+  ctx: ServerContext,
+  opp: OppRow,
+  target: StageRow,
+  reason: string
+): Promise<{ approvalRequestId: string }> {
+  if (!ctx.memberId) throw new Error("No member context")
+
+  const [existing] = await tx
+    .select({ id: stageApprovalRequests.id })
+    .from(stageApprovalRequests)
+    .where(
+      and(
+        eq(stageApprovalRequests.opportunityId, opp.id),
+        eq(stageApprovalRequests.targetStageId, target.id),
+        eq(stageApprovalRequests.status, "pending")
+      )
+    )
+    .limit(1)
+  if (existing) return { approvalRequestId: existing.id }
+
+  const approver = await resolveApprover(tx, ctx.memberId, ctx.tierLevel)
+  const [req] = await tx
+    .insert(stageApprovalRequests)
+    .values({
+      tenantId: ctx.tenantId,
+      opportunityId: opp.id,
+      requesterMemberId: ctx.memberId,
+      fromStageId: opp.currentStageId,
+      targetStageId: target.id,
+      reason: reason.trim(),
+      status: "pending",
+      approverMemberId: approver,
+    })
+    .returning()
+  await writeAudit(tx, ctx, {
+    action: "approval.requested",
+    entityType: "stage_approval_request",
+    entityId: req.id,
+    after: { opportunityId: opp.id, targetStage: target.code },
+  })
+  return { approvalRequestId: req.id }
 }
 
 async function applyStageMove(
@@ -102,7 +190,8 @@ async function applyStageMove(
   opp: OppRow,
   toStage: StageRow,
   source: "manual" | "approval" | "quote_accept",
-  approvalRequestId?: string | null
+  approvalRequestId?: string | null,
+  reason?: string | null
 ): Promise<void> {
   const status = kindToStatus(toStage.kind)
   const closing = status === "won" || status === "lost"
@@ -111,8 +200,12 @@ async function applyStageMove(
     .set({
       currentStageId: toStage.id,
       status,
-      closedAt: closing ? new Date() : null,
-      actualCloseDate: closing ? new Date().toISOString().slice(0, 10) : null,
+      // Preserve the original close timestamp/date if the deal was already
+      // closed; only stamp a new one when a still-open deal is being closed.
+      closedAt: closing ? opp.closedAt ?? new Date() : null,
+      actualCloseDate: closing
+        ? opp.actualCloseDate ?? new Date().toISOString().slice(0, 10)
+        : null,
     })
     .where(eq(opportunities.id, opp.id))
 
@@ -126,6 +219,7 @@ async function applyStageMove(
     probabilityAtChange: toStage.probability,
     valueAtChange: opp.amount,
     source,
+    reason: reason ?? null,
   })
 
   await writeAudit(tx, ctx, {
@@ -162,6 +256,13 @@ export async function requestStageAdvance(
       .limit(1)
     if (!opp) throw new Error("Opportunity not found")
 
+    const [from] = await tx
+      .select()
+      .from(funnelStages)
+      .where(eq(funnelStages.id, opp.currentStageId))
+      .limit(1)
+    if (!from) throw new Error("Current stage not found")
+
     const [target] = await tx
       .select()
       .from(funnelStages)
@@ -171,67 +272,52 @@ export async function requestStageAdvance(
     if (target.funnelId !== opp.funnelId)
       throw new Error("Stage does not belong to this funnel")
 
+    // Enforce the stage state machine before anything else.
+    assertTransitionAllowed(from, target)
+
     const [settings] = await tx
       .select()
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
-    const bypassTier = settings?.approvalBypassTier ?? 40
-    const canBypass =
-      ctx.isSuperadmin ||
-      ctx.tierLevel >= bypassTier ||
-      ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
-    const gated = target.requiresApprovalToEnter && !canBypass
+    const gated =
+      target.requiresApprovalToEnter && !canBypassApproval(ctx, settings)
 
     if (!gated) {
-      await applyStageMove(tx, ctx, opp, target, "manual")
+      await applyStageMove(
+        tx,
+        ctx,
+        opp,
+        target,
+        "manual",
+        null,
+        input.reason?.trim() || null
+      )
       return { moved: true }
     }
 
     if (!input.reason || !input.reason.trim())
       throw new Error("A reason is required for this approval")
-    if (!ctx.memberId) throw new Error("No member context")
 
-    const [existing] = await tx
-      .select({ id: stageApprovalRequests.id })
-      .from(stageApprovalRequests)
-      .where(
-        and(
-          eq(stageApprovalRequests.opportunityId, opp.id),
-          eq(stageApprovalRequests.targetStageId, target.id),
-          eq(stageApprovalRequests.status, "pending")
-        )
-      )
-      .limit(1)
-    if (existing) return { moved: false, approvalRequestId: existing.id }
-
-    const approver = await resolveApprover(tx, ctx.memberId, ctx.tierLevel)
-    const [req] = await tx
-      .insert(stageApprovalRequests)
-      .values({
-        tenantId: ctx.tenantId,
-        opportunityId: opp.id,
-        requesterMemberId: ctx.memberId,
-        fromStageId: opp.currentStageId,
-        targetStageId: target.id,
-        reason: input.reason.trim(),
-        status: "pending",
-        approverMemberId: approver,
-      })
-      .returning()
-    await writeAudit(tx, ctx, {
-      action: "approval.requested",
-      entityType: "stage_approval_request",
-      entityId: req.id,
-      after: { opportunityId: opp.id, targetStage: target.code },
-    })
-    return { moved: false, approvalRequestId: req.id }
+    const { approvalRequestId } = await createApprovalRequest(
+      tx,
+      ctx,
+      opp,
+      target,
+      input.reason
+    )
+    return { moved: false, approvalRequestId }
   })
 }
 
 /**
  * Move an opportunity to its funnel's WON stage. Called when a quotation is
- * accepted and the tenant has auto-win enabled. No-op if already won.
+ * accepted and the tenant has auto-win enabled. No-op if already won, and a
+ * no-op (never an override) when the deal is already closed/parked — accepting
+ * a quote must not silently reopen a Lost/KIV deal into Won. If the Won stage
+ * is approval-gated and the actor can't bypass, a pending approval request is
+ * raised instead of moving directly. Signature is intentionally stable;
+ * `acceptQuotation` (quotations folder) calls this.
  */
 export async function winOpportunity(
   ctx: ServerContext,
@@ -243,13 +329,36 @@ export async function winOpportunity(
       .from(opportunities)
       .where(eq(opportunities.id, opportunityId))
       .limit(1)
+      .for("update")
     if (!opp) return
+    // Status guard: only an OPEN deal may auto-win. Won (already), Lost, and
+    // KIV/on-hold deals are left untouched.
+    if (opp.status !== "open") return
+
     const [won] = await tx
       .select()
       .from(funnelStages)
       .where(and(eq(funnelStages.funnelId, opp.funnelId), eq(funnelStages.kind, "WON")))
       .limit(1)
     if (!won || opp.currentStageId === won.id) return
+
+    // Respect the Won stage's approval gate instead of bypassing it.
+    const [settings] = await tx
+      .select()
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    if (won.requiresApprovalToEnter && !canBypassApproval(ctx, settings)) {
+      await createApprovalRequest(
+        tx,
+        ctx,
+        opp,
+        won,
+        "Auto-win on quotation acceptance"
+      )
+      return
+    }
+
     await applyStageMove(tx, ctx, opp, won, "quote_accept")
   })
 }
@@ -264,21 +373,33 @@ export async function decideApproval(
   }
 ): Promise<void> {
   return runInTenant(ctx.tenantId, async (tx) => {
+    // Lock the request row so concurrent decisions serialize: a second caller
+    // blocks here until this tx commits, then sees status != 'pending'.
     const [req] = await tx
       .select()
       .from(stageApprovalRequests)
       .where(eq(stageApprovalRequests.id, input.requestId))
       .limit(1)
+      .for("update")
     if (!req) throw new Error("Request not found")
     if (req.status !== "pending") throw new Error("Request already decided")
 
     if (input.decision === "cancelled") {
       if (req.requesterMemberId !== ctx.memberId && !ctx.isSuperadmin)
         throw new Error("Only the requester can cancel")
-      await tx
+      // Conditional update guarded by status so a racing decision can't be
+      // overwritten; rowCount of 0 means it was already decided.
+      const cancelled = await tx
         .update(stageApprovalRequests)
         .set({ status: "cancelled", decidedAt: new Date(), decisionNote: input.note ?? null })
-        .where(eq(stageApprovalRequests.id, req.id))
+        .where(
+          and(
+            eq(stageApprovalRequests.id, req.id),
+            eq(stageApprovalRequests.status, "pending")
+          )
+        )
+        .returning({ id: stageApprovalRequests.id })
+      if (cancelled.length === 0) throw new Error("Request already decided")
       await writeAudit(tx, ctx, {
         action: "approval.cancelled",
         entityType: "stage_approval_request",
@@ -296,7 +417,7 @@ export async function decideApproval(
       throw new Error("Cannot approve your own request")
 
     if (input.decision === "rejected") {
-      await tx
+      const rejected = await tx
         .update(stageApprovalRequests)
         .set({
           status: "rejected",
@@ -304,7 +425,14 @@ export async function decideApproval(
           decidedAt: new Date(),
           decisionNote: input.note ?? null,
         })
-        .where(eq(stageApprovalRequests.id, req.id))
+        .where(
+          and(
+            eq(stageApprovalRequests.id, req.id),
+            eq(stageApprovalRequests.status, "pending")
+          )
+        )
+        .returning({ id: stageApprovalRequests.id })
+      if (rejected.length === 0) throw new Error("Request already decided")
       await writeAudit(tx, ctx, {
         action: "approval.rejected",
         entityType: "stage_approval_request",
@@ -313,20 +441,30 @@ export async function decideApproval(
       return
     }
 
+    // Approved: lock the opportunity, re-validate the transition against the
+    // deal's *current* stage (it may have closed since the request was filed),
+    // then claim the request atomically before applying the move.
     const [opp] = await tx
       .select()
       .from(opportunities)
       .where(eq(opportunities.id, req.opportunityId))
+      .limit(1)
+      .for("update")
+    if (!opp) throw new Error("Opportunity or stage missing")
+    const [from] = await tx
+      .select()
+      .from(funnelStages)
+      .where(eq(funnelStages.id, opp.currentStageId))
       .limit(1)
     const [target] = await tx
       .select()
       .from(funnelStages)
       .where(eq(funnelStages.id, req.targetStageId))
       .limit(1)
-    if (!opp || !target) throw new Error("Opportunity or stage missing")
+    if (!from || !target) throw new Error("Opportunity or stage missing")
+    assertTransitionAllowed(from, target)
 
-    await applyStageMove(tx, ctx, opp, target, "approval", req.id)
-    await tx
+    const claimed = await tx
       .update(stageApprovalRequests)
       .set({
         status: "approved",
@@ -334,7 +472,16 @@ export async function decideApproval(
         decidedAt: new Date(),
         decisionNote: input.note ?? null,
       })
-      .where(eq(stageApprovalRequests.id, req.id))
+      .where(
+        and(
+          eq(stageApprovalRequests.id, req.id),
+          eq(stageApprovalRequests.status, "pending")
+        )
+      )
+      .returning({ id: stageApprovalRequests.id })
+    if (claimed.length === 0) throw new Error("Request already decided")
+
+    await applyStageMove(tx, ctx, opp, target, "approval", req.id, req.reason)
     await writeAudit(tx, ctx, {
       action: "approval.approved",
       entityType: "stage_approval_request",

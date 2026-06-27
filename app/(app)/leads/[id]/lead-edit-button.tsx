@@ -28,14 +28,14 @@ export function LeadEditButton({
   const [open, setOpen] = React.useState(false)
 
   async function handleUpdate(values: LeadInput) {
-    try {
-      await updateLead(lead.id, values)
-      toast.success("Lead updated")
-      setOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update lead")
+    const res = await updateLead(lead.id, values)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Lead updated")
+    setOpen(false)
+    router.refresh()
   }
 
   return (

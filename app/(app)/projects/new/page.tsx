@@ -22,6 +22,7 @@ export default async function NewProjectPage({
   // When created from a funnel, pre-fill value + linked quotation from the
   // opportunity's source quote (net of tax). The value stays EDITABLE.
   let defaultValue: string | undefined
+  let defaultCurrency: string | undefined
   let defaultQuotationId: string | undefined
   let prefillQuoteNumber: string | undefined
   if (defaultOpportunityId) {
@@ -29,6 +30,7 @@ export default async function NewProjectPage({
     if (prefill) {
       defaultAccountId = prefill.accountId
       defaultValue = prefill.value
+      defaultCurrency = prefill.currency
       defaultQuotationId = prefill.quotationId ?? undefined
       prefillQuoteNumber = prefill.quoteNumber ?? undefined
     } else {
@@ -49,6 +51,7 @@ export default async function NewProjectPage({
           defaultAccountId={defaultAccountId}
           defaultOpportunityId={defaultOpportunityId}
           defaultValue={defaultValue}
+          defaultCurrency={defaultCurrency}
           defaultQuotationId={defaultQuotationId}
           prefillQuoteNumber={prefillQuoteNumber}
         />

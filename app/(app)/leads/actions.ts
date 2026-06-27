@@ -2,18 +2,57 @@
 
 import { and, eq, isNull, desc } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant, requireContext } from "@/lib/actions"
+import { withTenant, requireContext, type Tx, type ServerContext } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { leads, accounts, persons, funnels, funnelStages } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
 import { convertLead } from "@/server/services/conversion"
 import { logActivity } from "@/server/services/activity"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   visibleMemberIds,
   ownerScope,
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
+
+/** Largest page we ever return from a list endpoint (defense against unbounded scans). */
+const LIST_LIMIT = 1000
+
+/**
+ * Validate a caller-supplied (funnelId, currentStageId) pair against the tenant:
+ * the funnel must exist, and the stage must belong to it. A stage without a
+ * funnel is rejected. Returns the normalized ids to persist.
+ */
+async function resolveFunnelStage(
+  tx: Tx,
+  ctx: ServerContext,
+  funnelIdInput: string | null,
+  stageIdInput: string | null
+): Promise<{ funnelId: string | null; currentStageId: string | null }> {
+  if (!funnelIdInput && !stageIdInput) {
+    return { funnelId: null, currentStageId: null }
+  }
+  if (!funnelIdInput) throw new Error("A pipeline is required to set a stage")
+
+  const [funnel] = await tx
+    .select({ id: funnels.id })
+    .from(funnels)
+    .where(and(eq(funnels.id, funnelIdInput), eq(funnels.tenantId, ctx.tenantId)))
+    .limit(1)
+  if (!funnel) throw new Error("Pipeline not found")
+
+  if (!stageIdInput) return { funnelId: funnel.id, currentStageId: null }
+
+  const [stage] = await tx
+    .select({ id: funnelStages.id })
+    .from(funnelStages)
+    .where(and(eq(funnelStages.id, stageIdInput), eq(funnelStages.funnelId, funnel.id)))
+    .limit(1)
+  if (!stage) throw new Error("Stage not found in this pipeline")
+
+  return { funnelId: funnel.id, currentStageId: stage.id }
+}
 
 export type Lead = typeof leads.$inferSelect
 
@@ -42,6 +81,7 @@ export async function listLeads(): Promise<Lead[]> {
       .from(leads)
       .where(and(isNull(leads.deletedAt), ownerScope(leads.ownerMemberId, visible)))
       .orderBy(desc(leads.createdAt))
+      .limit(LIST_LIMIT)
   })
 }
 
@@ -112,258 +152,289 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
   })
 }
 
-export async function createLead(input: LeadInput): Promise<Lead> {
-  if (!input.name?.trim()) throw new Error("Name is required")
+export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> {
+  return runAction(async () => {
+    if (!input.name?.trim()) throw new Error("Name is required")
 
-  const row = await withTenant(PERMISSIONS.LEAD_CREATE, async (tx, ctx) => {
-    const [lead] = await tx
-      .insert(leads)
-      .values({
-        tenantId: ctx.tenantId,
-        name: input.name.trim(),
-        companyName: clean(input.companyName),
-        email: clean(input.email),
-        phone: clean(input.phone),
-        source: clean(input.source),
-        status: input.status ?? "new",
-        funnelId: clean(input.funnelId),
-        currentStageId: clean(input.currentStageId),
-        ownerMemberId: ctx.memberId,
+    const row = await withTenant(PERMISSIONS.LEAD_CREATE, async (tx, ctx) => {
+      const { funnelId, currentStageId } = await resolveFunnelStage(
+        tx,
+        ctx,
+        clean(input.funnelId),
+        clean(input.currentStageId)
+      )
+
+      const [lead] = await tx
+        .insert(leads)
+        .values({
+          tenantId: ctx.tenantId,
+          name: input.name.trim(),
+          companyName: clean(input.companyName),
+          email: clean(input.email),
+          phone: clean(input.phone),
+          source: clean(input.source),
+          status: input.status ?? "new",
+          funnelId,
+          currentStageId,
+          ownerMemberId: ctx.memberId,
+        })
+        .returning()
+
+      await logActivity(tx, ctx, {
+        entityType: "lead",
+        entityId: lead.id,
+        type: "system",
+        subject: "Created",
       })
-      .returning()
 
-    await logActivity(tx, ctx, {
-      entityType: "lead",
-      entityId: lead.id,
-      type: "system",
-      subject: "Created",
+      await writeAudit(tx, ctx, {
+        action: "lead.created",
+        entityType: "lead",
+        entityId: lead.id,
+        after: lead,
+      })
+      return lead
     })
 
-    await writeAudit(tx, ctx, {
-      action: "lead.created",
-      entityType: "lead",
-      entityId: lead.id,
-      after: lead,
-    })
-    return lead
+    revalidatePath("/leads")
+    return row
   })
-
-  revalidatePath("/leads")
-  return row
 }
 
-export async function updateLead(id: string, input: LeadInput): Promise<Lead> {
-  if (!input.name?.trim()) throw new Error("Name is required")
+export async function updateLead(
+  id: string,
+  input: LeadInput
+): Promise<ActionResult<Lead>> {
+  return runAction(async () => {
+    if (!input.name?.trim()) throw new Error("Name is required")
 
-  const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Lead not found")
+    const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this lead")
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
 
-    const nextStageId = clean(input.currentStageId)
+      const { funnelId, currentStageId: nextStageId } = await resolveFunnelStage(
+        tx,
+        ctx,
+        clean(input.funnelId),
+        clean(input.currentStageId)
+      )
 
-    const [lead] = await tx
-      .update(leads)
-      .set({
-        name: input.name.trim(),
-        companyName: clean(input.companyName),
-        email: clean(input.email),
-        phone: clean(input.phone),
-        source: clean(input.source),
-        status: input.status ?? before.status,
-        funnelId: clean(input.funnelId),
-        currentStageId: nextStageId,
-        updatedAt: new Date(),
-      })
-      .where(eq(leads.id, id))
-      .returning()
+      const [lead] = await tx
+        .update(leads)
+        .set({
+          name: input.name.trim(),
+          companyName: clean(input.companyName),
+          email: clean(input.email),
+          phone: clean(input.phone),
+          source: clean(input.source),
+          status: input.status ?? before.status,
+          funnelId,
+          currentStageId: nextStageId,
+          updatedAt: new Date(),
+        })
+        .where(eq(leads.id, id))
+        .returning()
 
-    await logActivity(tx, ctx, {
-      entityType: "lead",
-      entityId: id,
-      type: "system",
-      subject: "Updated",
-    })
-
-    // Record a dedicated stage-change activity when the stage moves.
-    if (before.currentStageId !== nextStageId) {
-      let toName = "—"
-      if (nextStageId) {
-        const [stage] = await tx
-          .select({ name: funnelStages.name })
-          .from(funnelStages)
-          .where(eq(funnelStages.id, nextStageId))
-          .limit(1)
-        toName = stage?.name ?? "—"
-      }
       await logActivity(tx, ctx, {
         entityType: "lead",
         entityId: id,
-        type: "stage_change",
-        subject: `Moved to ${toName}`,
+        type: "system",
+        subject: "Updated",
       })
-    }
 
-    await writeAudit(tx, ctx, {
-      action: "lead.updated",
-      entityType: "lead",
-      entityId: id,
-      before,
-      after: lead,
+      // Record a dedicated stage-change activity when the stage moves.
+      if (before.currentStageId !== nextStageId) {
+        let toName = "—"
+        if (nextStageId) {
+          const [stage] = await tx
+            .select({ name: funnelStages.name })
+            .from(funnelStages)
+            .where(eq(funnelStages.id, nextStageId))
+            .limit(1)
+          toName = stage?.name ?? "—"
+        }
+        await logActivity(tx, ctx, {
+          entityType: "lead",
+          entityId: id,
+          type: "stage_change",
+          subject: `Moved to ${toName}`,
+        })
+      }
+
+      await writeAudit(tx, ctx, {
+        action: "lead.updated",
+        entityType: "lead",
+        entityId: id,
+        before,
+        after: lead,
+      })
+      return lead
     })
-    return lead
-  })
 
-  revalidatePath("/leads")
-  revalidatePath(`/leads/${id}`)
-  return row
+    revalidatePath("/leads")
+    revalidatePath(`/leads/${id}`)
+    return row
+  })
 }
 
 /** Move a lead to a pipeline stage and log a stage_change activity. */
-export async function setLeadStage(id: string, stageId: string): Promise<Lead> {
-  const targetStageId = clean(stageId)
-  if (!targetStageId) throw new Error("A stage is required")
+export async function setLeadStage(
+  id: string,
+  stageId: string
+): Promise<ActionResult<Lead>> {
+  return runAction(async () => {
+    const targetStageId = clean(stageId)
+    if (!targetStageId) throw new Error("A stage is required")
 
-  const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Lead not found")
+    const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this lead")
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
 
-    const [stage] = await tx
-      .select({ id: funnelStages.id, name: funnelStages.name, funnelId: funnelStages.funnelId })
-      .from(funnelStages)
-      .where(eq(funnelStages.id, targetStageId))
-      .limit(1)
-    if (!stage) throw new Error("Stage not found")
+      const [stage] = await tx
+        .select({ id: funnelStages.id, name: funnelStages.name, funnelId: funnelStages.funnelId })
+        .from(funnelStages)
+        .where(eq(funnelStages.id, targetStageId))
+        .limit(1)
+      if (!stage) throw new Error("Stage not found")
 
-    const [lead] = await tx
-      .update(leads)
-      .set({
-        funnelId: stage.funnelId,
-        currentStageId: stage.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(leads.id, id))
-      .returning()
+      const [lead] = await tx
+        .update(leads)
+        .set({
+          funnelId: stage.funnelId,
+          currentStageId: stage.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(leads.id, id))
+        .returning()
 
-    if (before.currentStageId !== stage.id) {
-      await logActivity(tx, ctx, {
+      if (before.currentStageId !== stage.id) {
+        await logActivity(tx, ctx, {
+          entityType: "lead",
+          entityId: id,
+          type: "stage_change",
+          subject: `Moved to ${stage.name}`,
+        })
+      }
+
+      await writeAudit(tx, ctx, {
+        action: "lead.stage_changed",
         entityType: "lead",
         entityId: id,
-        type: "stage_change",
-        subject: `Moved to ${stage.name}`,
+        before,
+        after: lead,
       })
-    }
-
-    await writeAudit(tx, ctx, {
-      action: "lead.stage_changed",
-      entityType: "lead",
-      entityId: id,
-      before,
-      after: lead,
+      return lead
     })
-    return lead
-  })
 
-  revalidatePath("/leads")
-  revalidatePath(`/leads/${id}`)
-  return row
+    revalidatePath("/leads")
+    revalidatePath(`/leads/${id}`)
+    return row
+  })
 }
 
 /** Soft delete — never hard DELETE. */
-export async function deleteLead(id: string): Promise<void> {
-  await withTenant(PERMISSIONS.LEAD_DELETE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Lead not found")
+export async function deleteLead(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.LEAD_DELETE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this lead")
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
 
-    await tx
-      .update(leads)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(leads.id, id))
+      await tx
+        .update(leads)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(leads.id, id))
 
-    await writeAudit(tx, ctx, {
-      action: "lead.deleted",
-      entityType: "lead",
-      entityId: id,
-      before,
+      await writeAudit(tx, ctx, {
+        action: "lead.deleted",
+        entityType: "lead",
+        entityId: id,
+        before,
+      })
     })
-  })
 
-  revalidatePath("/leads")
+    revalidatePath("/leads")
+  })
 }
 
-export async function disqualifyLead(id: string, reason: string): Promise<Lead> {
-  const trimmed = (reason ?? "").trim()
-  if (!trimmed) throw new Error("A reason is required to disqualify")
+export async function disqualifyLead(
+  id: string,
+  reason: string
+): Promise<ActionResult<Lead>> {
+  return runAction(async () => {
+    const trimmed = (reason ?? "").trim()
+    if (!trimmed) throw new Error("A reason is required to disqualify")
 
-  const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
-    const [before] = await tx
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!before) throw new Error("Lead not found")
+    const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
 
-    const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this lead")
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
 
-    if (before.status === "converted")
-      throw new Error("Converted leads cannot be disqualified")
+      if (before.status === "converted")
+        throw new Error("Converted leads cannot be disqualified")
 
-    const [lead] = await tx
-      .update(leads)
-      .set({
-        status: "disqualified",
-        disqualifyReason: trimmed,
-        updatedAt: new Date(),
+      const [lead] = await tx
+        .update(leads)
+        .set({
+          status: "disqualified",
+          disqualifyReason: trimmed,
+          updatedAt: new Date(),
+        })
+        .where(eq(leads.id, id))
+        .returning()
+
+      await logActivity(tx, ctx, {
+        entityType: "lead",
+        entityId: id,
+        type: "system",
+        subject: "Disqualified",
+        body: trimmed,
       })
-      .where(eq(leads.id, id))
-      .returning()
 
-    await logActivity(tx, ctx, {
-      entityType: "lead",
-      entityId: id,
-      type: "system",
-      subject: "Disqualified",
-      body: trimmed,
+      await writeAudit(tx, ctx, {
+        action: "lead.disqualified",
+        entityType: "lead",
+        entityId: id,
+        before,
+        after: lead,
+      })
+      return lead
     })
 
-    await writeAudit(tx, ctx, {
-      action: "lead.disqualified",
-      entityType: "lead",
-      entityId: id,
-      before,
-      after: lead,
-    })
-    return lead
+    revalidatePath("/leads")
+    revalidatePath(`/leads/${id}`)
+    return row
   })
-
-  revalidatePath("/leads")
-  revalidatePath(`/leads/${id}`)
-  return row
 }
 
 export type ConvertLeadInput = {
@@ -375,33 +446,35 @@ export type ConvertLeadInput = {
 }
 
 export async function convertLeadAction(input: ConvertLeadInput) {
-  const ctx = await requireContext()
-  // Authorization is enforced by the convert permission before the service runs.
-  if (!ctx.can(PERMISSIONS.LEAD_CONVERT))
-    throw new Error(`FORBIDDEN: missing ${PERMISSIONS.LEAD_CONVERT}`)
+  return runAction(async () => {
+    const ctx = await requireContext()
+    // Authorization is enforced by the convert permission before the service runs.
+    if (!ctx.can(PERMISSIONS.LEAD_CONVERT))
+      throw new Error(`FORBIDDEN: missing ${PERMISSIONS.LEAD_CONVERT}`)
 
-  // Record-level gate: only convert a lead the caller owns/manages (or is elevated).
-  await withTenant(PERMISSIONS.LEAD_CONVERT, async (tx, gateCtx) => {
-    const visible = await visibleMemberIds(tx, gateCtx)
-    const [src] = await tx
-      .select({ ownerMemberId: leads.ownerMemberId })
-      .from(leads)
-      .where(and(eq(leads.id, input.leadId), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!src) throw new Error("Lead not found")
-    if (!canManageAllRecords(gateCtx) && !ownsOrManages(visible, src.ownerMemberId))
-      throw new Error("FORBIDDEN: not permitted on this lead")
+    // Record-level gate: only convert a lead the caller owns/manages (or is elevated).
+    await withTenant(PERMISSIONS.LEAD_CONVERT, async (tx, gateCtx) => {
+      const visible = await visibleMemberIds(tx, gateCtx)
+      const [src] = await tx
+        .select({ ownerMemberId: leads.ownerMemberId })
+        .from(leads)
+        .where(and(eq(leads.id, input.leadId), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!src) throw new Error("Lead not found")
+      if (!canManageAllRecords(gateCtx) && !ownsOrManages(visible, src.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
+    })
+
+    const result = await convertLead(ctx, {
+      leadId: input.leadId,
+      createOpportunity: input.createOpportunity,
+      opportunityName: clean(input.opportunityName) ?? undefined,
+      expectedCloseDate: clean(input.expectedCloseDate),
+      existingAccountId: clean(input.existingAccountId),
+    })
+
+    revalidatePath("/leads")
+    revalidatePath(`/leads/${input.leadId}`)
+    return result
   })
-
-  const result = await convertLead(ctx, {
-    leadId: input.leadId,
-    createOpportunity: input.createOpportunity,
-    opportunityName: clean(input.opportunityName) ?? undefined,
-    expectedCloseDate: clean(input.expectedCloseDate),
-    existingAccountId: clean(input.existingAccountId),
-  })
-
-  revalidatePath("/leads")
-  revalidatePath(`/leads/${input.leadId}`)
-  return result
 }

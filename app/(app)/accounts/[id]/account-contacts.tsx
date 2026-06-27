@@ -43,24 +43,25 @@ function ContactActions({ person }: { person: PersonRow }) {
   const [editOpen, setEditOpen] = React.useState(false)
 
   async function onDelete() {
-    try {
-      await deletePerson(person.id)
-      toast.success("Contact deleted")
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete")
+    const res = await deletePerson(person.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      setConfirmOpen(false)
+      return
     }
+    toast.success("Contact deleted")
+    router.refresh()
     setConfirmOpen(false)
   }
 
   async function onMakePrimary() {
-    try {
-      await setPrimaryPerson(person.id)
-      toast.success("Marked as primary contact")
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update")
+    const res = await setPrimaryPerson(person.id)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Marked as primary contact")
+    router.refresh()
   }
 
   return (

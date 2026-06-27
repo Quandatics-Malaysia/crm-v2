@@ -112,28 +112,25 @@ export function PersonForm({
   const accountLocked = !!presetAccountId && !editing
 
   async function onSubmit(values: FormValues) {
-    try {
-      const payload = {
-        accountId: values.accountId,
-        firstName: values.firstName,
-        lastName: values.lastName || null,
-        title: values.title || null,
-        email: values.email || null,
-        phone: values.phone || null,
-        isPrimary: values.isPrimary,
-      }
-      if (editing) {
-        await updatePerson(person!.id, payload)
-        toast.success("Contact updated")
-      } else {
-        await createPerson(payload)
-        toast.success("Contact created")
-      }
-      setOpen(false)
-      onSaved?.()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong")
+    const payload = {
+      accountId: values.accountId,
+      firstName: values.firstName,
+      lastName: values.lastName || null,
+      title: values.title || null,
+      email: values.email || null,
+      phone: values.phone || null,
+      isPrimary: values.isPrimary,
     }
+    const res = editing
+      ? await updatePerson(person!.id, payload)
+      : await createPerson(payload)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(editing ? "Contact updated" : "Contact created")
+    setOpen(false)
+    onSaved?.()
   }
 
   return (

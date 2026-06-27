@@ -78,19 +78,19 @@ export function ProjectEditButton({ project }: { project: ProjectRow }) {
   }, [open])
 
   async function onSubmit(values: FormValues) {
-    try {
-      await updateProject(project.id, {
-        name: values.name,
-        value: values.value || null,
-        startDate: values.startDate || null,
-        status: values.status,
-      })
-      toast.success("Project updated")
-      setOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong")
+    const res = await updateProject(project.id, {
+      name: values.name,
+      value: values.value || null,
+      startDate: values.startDate || null,
+      status: values.status,
+    })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Project updated")
+    setOpen(false)
+    router.refresh()
   }
 
   return (

@@ -18,6 +18,8 @@ import {
 import { nextProjectCode } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { opportunityNetValue } from "@/server/services/value"
+import { writeAudit } from "@/server/audit"
+import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   visibleMemberIds,
   ownerScope,
@@ -58,6 +60,8 @@ export type ProjectCreateInput = {
   opportunityId?: string
   quotationId?: string
   value?: string
+  /** ISO-4217 currency carried from the source opportunity/quotation; MYR if absent. */
+  currency?: string
   startDate?: string
   status?: string
   /** "auto" (system-generated) or "manual" (user-entered). Defaults to "auto". */
@@ -104,6 +108,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         )
       )
       .orderBy(desc(projects.createdAt))
+      .limit(500)
     return rows
   })
 }
@@ -146,7 +151,8 @@ function isStatus(v: string | undefined): v is ProjectStatus {
 
 export async function createProject(
   input: ProjectCreateInput
-): Promise<{ id: string; projectCode: string }> {
+): Promise<ActionResult<{ id: string; projectCode: string }>> {
+  return runAction(async () => {
   const created = await withTenant(
     PERMISSIONS.PROJECT_CREATE,
     async (tx, ctx) => {
@@ -195,6 +201,9 @@ export async function createProject(
           ownerMemberId: ctx.memberId,
           status: isStatus(input.status) ? input.status : "planning",
           value: input.value ? input.value : null,
+          // Carry the source deal currency through; the column defaults to MYR
+          // only when the caller has no currency to propagate.
+          ...(input.currency ? { currency: input.currency } : {}),
           startDate: input.startDate || null,
         })
         .returning({ id: projects.id, projectCode: projects.projectCode })
@@ -205,28 +214,62 @@ export async function createProject(
         type: "system",
         subject: "Project created",
       })
+
+      await writeAudit(tx, ctx, {
+        action: "project.created",
+        entityType: "project",
+        entityId: row.id,
+        after: {
+          projectCode: row.projectCode,
+          value: input.value ?? null,
+          currency: input.currency ?? "MYR",
+        },
+      })
       return row
     }
   )
   revalidatePath("/projects")
   return created
+  })
 }
 
 export async function updateProject(
   id: string,
   input: ProjectUpdateInput
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
+    // Lock the project row so this value edit serializes against concurrent
+    // milestone writes (which also lock it) before reconciling allocation.
     const [existing] = await tx
       .select()
       .from(projects)
       .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
       .limit(1)
+      .for("update")
     if (!existing) throw new Error("Project not found")
 
     const visible = await visibleMemberIds(tx, ctx)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId)) {
       throw new Error("FORBIDDEN: not permitted on this project")
+    }
+
+    const nextValue =
+      input.value === undefined
+        ? existing.value
+        : input.value
+          ? input.value
+          : null
+
+    // Value can't be lowered below the total already allocated to milestones,
+    // otherwise the project silently becomes over-allocated.
+    if (nextValue != null) {
+      const allocated = await allocatedTotal(tx, id)
+      if (cents(allocated) > cents(Number(nextValue))) {
+        throw new Error(
+          "Project value cannot be lower than the total already allocated to milestones."
+        )
+      }
     }
 
     await tx
@@ -243,12 +286,7 @@ export async function updateProject(
             ? existing.quotationId
             : input.quotationId || null,
         status: isStatus(input.status) ? input.status : existing.status,
-        value:
-          input.value === undefined
-            ? existing.value
-            : input.value
-              ? input.value
-              : null,
+        value: nextValue,
         startDate:
           input.startDate === undefined
             ? existing.startDate
@@ -263,12 +301,22 @@ export async function updateProject(
       type: "system",
       subject: "Project updated",
     })
+
+    await writeAudit(tx, ctx, {
+      action: "project.updated",
+      entityType: "project",
+      entityId: id,
+      before: { value: existing.value },
+      after: { value: nextValue },
+    })
   })
   revalidatePath("/projects")
   revalidatePath(`/projects/${id}`)
+  })
 }
 
-export async function deleteProject(id: string): Promise<void> {
+export async function deleteProject(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.PROJECT_DELETE, async (tx, ctx) => {
     const [existing] = await tx
       .select({ ownerMemberId: projects.ownerMemberId })
@@ -295,8 +343,15 @@ export async function deleteProject(id: string): Promise<void> {
       type: "system",
       subject: "Project deleted",
     })
+
+    await writeAudit(tx, ctx, {
+      action: "project.deleted",
+      entityType: "project",
+      entityId: id,
+    })
   })
   revalidatePath("/projects")
+  })
 }
 
 /** Open opportunities (funnels) for the create-form picker, with their account. */
@@ -326,6 +381,8 @@ export type ProjectPrefill = {
   accountId: string
   accountName: string | null
   value: string
+  /** Source deal currency, propagated to the project so it isn't defaulted to MYR. */
+  currency: string
   quotationId: string | null
   quoteNumber: string | null
   opportunityName: string
@@ -348,6 +405,7 @@ export async function prefillFromOpportunity(
         name: opportunities.name,
         accountId: opportunities.accountId,
         accountName: accounts.name,
+        currency: opportunities.currency,
         ownerMemberId: opportunities.ownerMemberId,
       })
       .from(opportunities)
@@ -371,6 +429,7 @@ export async function prefillFromOpportunity(
       accountId: opp.accountId,
       accountName: opp.accountName,
       value,
+      currency: opp.currency,
       quotationId: fromQuoteId,
       quoteNumber,
       opportunityName: opp.name,
@@ -477,7 +536,8 @@ export async function listMilestones(
 
 export async function createMilestone(
   input: MilestoneCreateInput
-): Promise<{ id: string }> {
+): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
   const created = await withTenant(
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
@@ -512,15 +572,30 @@ export async function createMilestone(
         input.percentage != null && input.percentage !== ""
           ? Number(input.percentage)
           : null
+      // Range-check the percentage regardless of whether it drives the amount,
+      // so an out-of-range value can't be persisted via a direct action call.
+      if (pct != null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
+        throw new Error("Percentage must be between 0 and 100.")
+      }
 
-      // Derive amount from percentage of the project value when amount omitted.
+      // Keep amount and percentage consistent: an explicit amount wins and the
+      // stored percentage is re-derived from it (against the project value);
+      // otherwise the amount is derived from the percentage. This stops the two
+      // fields drifting (e.g. "10%" attached to a 50%-of-value amount).
       let amount: string
+      let storedPct: number | null
       if (input.amount != null && input.amount !== "") {
         amount = input.amount
-      } else if (pct != null && Number.isFinite(pct)) {
+        storedPct =
+          projectValue > 0
+            ? Math.round((Number(amount) / projectValue) * 100 * 100) / 100
+            : pct
+      } else if (pct != null) {
         amount = (Math.round(projectValue * (pct / 100) * 100) / 100).toFixed(2)
+        storedPct = pct
       } else {
         amount = "0"
+        storedPct = null
       }
 
       // Reconciliation: total milestone amounts may not exceed the project
@@ -555,7 +630,10 @@ export async function createMilestone(
           quotationId: project.quotationId,
           title,
           amount,
-          percentage: pct != null && Number.isFinite(pct) ? String(pct) : null,
+          percentage:
+            storedPct != null && Number.isFinite(storedPct)
+              ? String(storedPct)
+              : null,
           dueDate: input.dueDate || null,
           sortOrder: Number(maxSort) + 1,
         })
@@ -567,17 +645,26 @@ export async function createMilestone(
         type: "system",
         subject: `Milestone added: ${title}`,
       })
+
+      await writeAudit(tx, ctx, {
+        action: "milestone.created",
+        entityType: "project",
+        entityId: input.projectId,
+        after: { milestoneId: row.id, title, amount },
+      })
       return row
     }
   )
   revalidatePath(`/projects/${input.projectId}`)
   return created
+  })
 }
 
 export async function updateMilestone(
   id: string,
   input: MilestoneUpdateInput
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const projectId = await withTenant(
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
@@ -607,27 +694,43 @@ export async function updateMilestone(
 
       const projectValue = project?.value ? Number(project.value) : 0
 
-      const nextPercentage =
-        input.percentage === undefined
-          ? existing.percentage
-          : input.percentage
-            ? input.percentage
-            : null
+      // Range-check any incoming percentage (0–100) before it's used.
+      const inputPct =
+        input.percentage !== undefined && input.percentage
+          ? Number(input.percentage)
+          : null
+      if (
+        input.percentage !== undefined &&
+        input.percentage &&
+        (!Number.isFinite(inputPct) ||
+          (inputPct as number) < 0 ||
+          (inputPct as number) > 100)
+      ) {
+        throw new Error("Percentage must be between 0 and 100.")
+      }
 
-      // An explicit amount always wins. Otherwise, if the percentage was just
-      // changed (and is non-null), re-derive the amount from it against the
-      // project value — mirroring createMilestone, so editing "% of value"
-      // keeps the amount and the allocation totals consistent.
+      // Keep amount and percentage consistent (mirrors createMilestone): an
+      // explicit amount edit re-derives the stored percentage from it; a
+      // percentage edit re-derives the amount. Untouched fields are preserved.
       let nextAmount: string
+      let nextPercentage: string | null
       if (input.amount !== undefined) {
         nextAmount = input.amount ? input.amount : "0"
-      } else if (input.percentage !== undefined && nextPercentage != null) {
-        const pct = Number(nextPercentage)
-        nextAmount = Number.isFinite(pct)
-          ? (Math.round(projectValue * (pct / 100) * 100) / 100).toFixed(2)
-          : existing.amount
+        nextPercentage =
+          projectValue > 0
+            ? String(
+                Math.round((Number(nextAmount) / projectValue) * 100 * 100) / 100
+              )
+            : existing.percentage
+      } else if (input.percentage !== undefined) {
+        nextPercentage = inputPct != null ? String(inputPct) : null
+        nextAmount =
+          inputPct != null
+            ? (Math.round(projectValue * (inputPct / 100) * 100) / 100).toFixed(2)
+            : existing.amount
       } else {
         nextAmount = existing.amount
+        nextPercentage = existing.percentage
       }
 
       // Reconciliation: block edits that push the milestone total over the
@@ -689,13 +792,23 @@ export async function updateMilestone(
             : `Milestone updated: ${nextTitle}`,
       })
 
+      await writeAudit(tx, ctx, {
+        action: "milestone.updated",
+        entityType: "project",
+        entityId: existing.projectId,
+        before: { amount: existing.amount, status: existing.status },
+        after: { milestoneId: id, amount: nextAmount, status: nextStatus },
+      })
+
       return existing.projectId
     }
   )
   revalidatePath(`/projects/${projectId}`)
+  })
 }
 
-export async function deleteMilestone(id: string): Promise<void> {
+export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const projectId = await withTenant(
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
@@ -734,10 +847,18 @@ export async function deleteMilestone(id: string): Promise<void> {
         type: "system",
         subject: `Milestone deleted: ${deleted.title}`,
       })
+
+      await writeAudit(tx, ctx, {
+        action: "milestone.deleted",
+        entityType: "project",
+        entityId: deleted.projectId,
+        before: { milestoneId: id, title: deleted.title },
+      })
       return deleted.projectId
     }
   )
   revalidatePath(`/projects/${projectId}`)
+  })
 }
 
 /**
@@ -749,7 +870,8 @@ export async function deleteMilestone(id: string): Promise<void> {
 export async function reorderMilestones(
   projectId: string,
   order: string[]
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
     const [project] = await tx
       .select({ ownerMemberId: projects.ownerMemberId })
@@ -774,6 +896,14 @@ export async function reorderMilestones(
           )
         )
     }
+
+    await writeAudit(tx, ctx, {
+      action: "milestone.reordered",
+      entityType: "project",
+      entityId: projectId,
+      after: { order },
+    })
   })
   revalidatePath(`/projects/${projectId}`)
+  })
 }

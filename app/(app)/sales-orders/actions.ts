@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
 import { runInTenant } from "@/db"
 import { PERMISSIONS } from "@/lib/permissions"
+import { runAction, type ActionResult } from "@/lib/action-result"
+import { writeAudit } from "@/server/audit"
 import {
   salesOrders,
   salesOrderStatus,
@@ -127,7 +129,8 @@ async function fetchRows(
         ownerScope(projects.ownerMemberId, scopeSO)
       )
     )
-    .orderBy(desc(salesOrders.submittedAt))) as Array<{
+    .orderBy(desc(salesOrders.submittedAt))
+    .limit(500)) as Array<{
     id: string
     projectId: string
     projectName: string
@@ -203,7 +206,8 @@ async function fetchRows(
  */
 export async function submitSalesOrderWithDocument(
   formData: FormData
-): Promise<{ id: string }> {
+): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
   const file = formData.get("file")
   const projectId = formData.get("projectId")
   const notesRaw = formData.get("notes")
@@ -266,12 +270,20 @@ export async function submitSalesOrderWithDocument(
       type: "system",
       subject: "Sales order submitted",
     })
+
+    await writeAudit(tx, ctx, {
+      action: "sales_order.submitted",
+      entityType: "sales_order",
+      entityId: created.id,
+      after: { projectId },
+    })
     return { id: created.id }
   })
 
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${projectId}`)
   return result
+  })
 }
 
 export type ResubmitSalesOrderInput = {
@@ -281,15 +293,18 @@ export type ResubmitSalesOrderInput = {
 export async function resubmitSalesOrder(
   id: string,
   input: ResubmitSalesOrderInput
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const projectId = await withTenant(
     PERMISSIONS.SALES_ORDER_SUBMIT,
     async (tx, ctx) => {
+      // Lock the SO row so a concurrent resubmit/approve can't double-act on it.
       const [so] = await tx
         .select({ status: salesOrders.status, projectId: salesOrders.projectId })
         .from(salesOrders)
         .where(eq(salesOrders.id, id))
         .limit(1)
+        .for("update")
       if (!so) throw new Error("Sales order not found")
       if (so.status !== "rejected")
         throw new Error("Only rejected sales orders can be resubmitted")
@@ -308,7 +323,9 @@ export async function resubmitSalesOrder(
       )
         throw new Error("FORBIDDEN: not permitted on this project")
 
-      await tx
+      // Conditional flip guards against a racing transition; assert exactly one
+      // still-rejected row changed.
+      const [updated] = await tx
         .update(salesOrders)
         .set({
           status: "submitted",
@@ -319,7 +336,10 @@ export async function resubmitSalesOrder(
           submittedByMemberId: ctx.memberId,
           submittedAt: new Date(),
         })
-        .where(eq(salesOrders.id, id))
+        .where(and(eq(salesOrders.id, id), eq(salesOrders.status, "rejected")))
+        .returning({ id: salesOrders.id })
+      if (!updated)
+        throw new Error("Only rejected sales orders can be resubmitted")
 
       await logActivity(tx, ctx, {
         entityType: "project",
@@ -327,24 +347,37 @@ export async function resubmitSalesOrder(
         type: "system",
         subject: "Sales order resubmitted",
       })
+
+      await writeAudit(tx, ctx, {
+        action: "sales_order.resubmitted",
+        entityType: "sales_order",
+        entityId: id,
+        after: { projectId: so.projectId },
+      })
       return so.projectId
     }
   )
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${projectId}`)
+  })
 }
 
 export async function approveSalesOrder(
   id: string
-): Promise<{ soNumber: string }> {
+): Promise<ActionResult<{ soNumber: string }>> {
+  return runAction(async () => {
   const result = await withTenant(
     PERMISSIONS.SALES_ORDER_APPROVE,
     async (tx, ctx) => {
+      // Lock the SO row first: minting the official number and flipping the
+      // status must be atomic so a concurrent approve can't burn a second
+      // number or double the activity/audit trail.
       const [so] = await tx
         .select({ status: salesOrders.status, projectId: salesOrders.projectId })
         .from(salesOrders)
         .where(eq(salesOrders.id, id))
         .limit(1)
+        .for("update")
       if (!so) throw new Error("Sales order not found")
       if (so.status !== "submitted")
         throw new Error("Only submitted sales orders can be approved")
@@ -367,7 +400,9 @@ export async function approveSalesOrder(
 
       const soNumber = await nextSoNumber(tx, ctx)
 
-      await tx
+      // Conditional flip guards against a racing transition; only mint against a
+      // still-submitted row and assert exactly one row changed.
+      const [updated] = await tx
         .update(salesOrders)
         .set({
           status: "approved",
@@ -375,7 +410,10 @@ export async function approveSalesOrder(
           reviewedByMemberId: ctx.memberId,
           reviewedAt: new Date(),
         })
-        .where(eq(salesOrders.id, id))
+        .where(and(eq(salesOrders.id, id), eq(salesOrders.status, "submitted")))
+        .returning({ id: salesOrders.id })
+      if (!updated)
+        throw new Error("Only submitted sales orders can be approved")
 
       await logActivity(tx, ctx, {
         entityType: "project",
@@ -383,33 +421,46 @@ export async function approveSalesOrder(
         type: "system",
         subject: `Sales order approved: ${soNumber}`,
       })
+
+      await writeAudit(tx, ctx, {
+        action: "sales_order.approved",
+        entityType: "sales_order",
+        entityId: id,
+        after: { soNumber, projectId: so.projectId },
+      })
       return { soNumber, projectId: so.projectId }
     }
   )
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${result.projectId}`)
   return { soNumber: result.soNumber }
+  })
 }
 
 export async function rejectSalesOrder(
   id: string,
   reason: string
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const trimmed = (reason ?? "").trim()
   if (!trimmed) throw new Error("A reason is required")
   const projectId = await withTenant(
     PERMISSIONS.SALES_ORDER_APPROVE,
     async (tx, ctx) => {
+      // Lock the SO row so a concurrent approve/reject can't double-act on it.
       const [so] = await tx
         .select({ status: salesOrders.status, projectId: salesOrders.projectId })
         .from(salesOrders)
         .where(eq(salesOrders.id, id))
         .limit(1)
+        .for("update")
       if (!so) throw new Error("Sales order not found")
       if (so.status !== "submitted")
         throw new Error("Only submitted sales orders can be rejected")
 
-      await tx
+      // Conditional flip guards against a racing transition; assert exactly one
+      // still-submitted row changed.
+      const [updated] = await tx
         .update(salesOrders)
         .set({
           status: "rejected",
@@ -417,7 +468,10 @@ export async function rejectSalesOrder(
           reviewedByMemberId: ctx.memberId,
           reviewedAt: new Date(),
         })
-        .where(eq(salesOrders.id, id))
+        .where(and(eq(salesOrders.id, id), eq(salesOrders.status, "submitted")))
+        .returning({ id: salesOrders.id })
+      if (!updated)
+        throw new Error("Only submitted sales orders can be rejected")
 
       await logActivity(tx, ctx, {
         entityType: "project",
@@ -425,11 +479,19 @@ export async function rejectSalesOrder(
         type: "system",
         subject: "Sales order rejected",
       })
+
+      await writeAudit(tx, ctx, {
+        action: "sales_order.rejected",
+        entityType: "sales_order",
+        entityId: id,
+        after: { reason: trimmed, projectId: so.projectId },
+      })
       return so.projectId
     }
   )
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${projectId}`)
+  })
 }
 
 /** All tenant sales orders, newest submission first. */

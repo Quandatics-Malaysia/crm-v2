@@ -56,22 +56,21 @@ function NewQuotationDialog({
       return
     }
     setCreating(true)
-    try {
-      const q = await createQuotation({
-        opportunityId,
-        taxSettingId: null,
-        validUntil: null,
-        notes: null,
-        lines: [],
-      })
-      toast.success("Quotation created")
-      setOpen(false)
-      router.push(`/quotations/${q.id}`)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Create failed")
-    } finally {
+    const res = await createQuotation({
+      opportunityId,
+      taxSettingId: null,
+      validUntil: null,
+      notes: null,
+      lines: [],
+    })
+    if (!res.ok) {
+      toast.error(res.error)
       setCreating(false)
+      return
     }
+    toast.success("Quotation created")
+    setOpen(false)
+    router.push(`/quotations/${res.data.id}`)
   }
 
   return (

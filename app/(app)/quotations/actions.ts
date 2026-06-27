@@ -1,9 +1,11 @@
 "use server"
 
-import { and, asc, desc, eq, isNull, ne } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, ne, notInArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import { runAction, type ActionResult } from "@/lib/action-result"
+import { assertValidQuotationNumbers } from "@/lib/validation-quotation"
 import {
   visibleMemberIds,
   ownerScope,
@@ -71,6 +73,7 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
         )
       )
       .orderBy(desc(quotations.createdAt))
+      .limit(500)
     return rows.map((r) => ({ ...r.q, opportunityName: r.opportunityName }))
   })
 }
@@ -214,7 +217,8 @@ export async function createQuotation(input: {
   notes: string | null
   headerDiscount?: string | null
   lines: LineInput[]
-}): Promise<QuotationRow> {
+}): Promise<ActionResult<QuotationRow>> {
+  return runAction(async () => {
   const row = await withTenant(PERMISSIONS.QUOTATION_CREATE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
@@ -233,6 +237,12 @@ export async function createQuotation(input: {
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
+    assertValidQuotationNumbers({
+      headerDiscount: input.headerDiscount,
+      lines: input.lines,
+      ratePercent: ratePercent ?? 0,
+      taxInclusive,
+    })
     const totals = computeQuotation({
       lines: input.lines.map((l) => ({
         quantity: l.quantity,
@@ -255,6 +265,7 @@ export async function createQuotation(input: {
         status: "draft",
         currency: opp.currency,
         taxSettingId: input.taxSettingId,
+        taxInclusive,
         subtotal: totals.subtotal.toFixed(2),
         headerDiscount: (Number(input.headerDiscount ?? 0) || 0).toFixed(2),
         discountTotal: totals.discountTotal.toFixed(2),
@@ -298,12 +309,14 @@ export async function createQuotation(input: {
   })
   revalidatePath("/quotations")
   return row
+  })
 }
 
 export async function updateQuotation(
   id: string,
   input: QuotationHeaderInput
-): Promise<QuotationRow> {
+): Promise<ActionResult<QuotationRow>> {
+  return runAction(async () => {
   const row = await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
     const [existing] = await tx
       .select()
@@ -324,6 +337,12 @@ export async function updateQuotation(
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
+    assertValidQuotationNumbers({
+      headerDiscount: input.headerDiscount,
+      lines: input.lines,
+      ratePercent: ratePercent ?? 0,
+      taxInclusive,
+    })
     const headerDiscount = Number(input.headerDiscount ?? 0) || 0
     const totals = computeQuotation({
       lines: input.lines.map((l) => ({
@@ -372,6 +391,7 @@ export async function updateQuotation(
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
   return row
+  })
 }
 
 async function insertLines(
@@ -400,7 +420,8 @@ async function insertLines(
   )
 }
 
-export async function sendQuotation(id: string): Promise<void> {
+export async function sendQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.QUOTATION_SEND, async (tx, ctx) => {
     const [q] = await tx
       .select()
@@ -419,16 +440,61 @@ export async function sendQuotation(id: string): Promise<void> {
     if (q.status !== "draft")
       throw new Error("Only draft quotations can be sent")
 
+    // Freeze the document: snapshot the tax rate AND recompute + persist the
+    // totals with that rate, so the sent quote no longer tracks the live tax
+    // option or tenant tax-inclusive flag. The detail view renders the stored
+    // columns for non-draft quotes.
     const ratePercent = await resolveTaxRate(tx, q.taxSettingId)
+    const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
+    const storedLines = await tx
+      .select()
+      .from(quotationLineItems)
+      .where(eq(quotationLineItems.quotationId, id))
+      .orderBy(asc(quotationLineItems.sortOrder))
+    const totals = computeQuotation({
+      lines: storedLines.map((l) => ({
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountPercent: l.discountPercent,
+      })),
+      ratePercent: ratePercent ?? 0,
+      headerDiscount: q.headerDiscount,
+      taxInclusive,
+    })
+
     await tx
       .update(quotations)
       .set({
         status: "sent",
         sentAt: new Date(),
         taxRateSnapshot: ratePercent,
+        taxInclusive,
+        subtotal: totals.subtotal.toFixed(2),
+        discountTotal: totals.discountTotal.toFixed(2),
+        taxTotal: totals.taxTotal.toFixed(2),
+        total: totals.total.toFixed(2),
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, id))
+
+    // Re-persist the per-line breakdown so it reconciles to the frozen header.
+    for (let i = 0; i < storedLines.length; i++) {
+      const c = totals.lines[i]
+      await tx
+        .update(quotationLineItems)
+        .set({
+          lineSubtotal: c.lineSubtotal.toFixed(2),
+          lineTax: c.lineTax.toFixed(2),
+          lineTotal: c.lineTotal.toFixed(2),
+        })
+        .where(eq(quotationLineItems.id, storedLines[i].id))
+    }
+
+    // Keep the opportunity amount aligned if this is the primary quote.
+    if (q.isPrimary) {
+      await syncOpportunityAmount(tx, ctx, q.opportunityId)
+    }
+
     await logActivity(tx, ctx, {
       entityType: "opportunity",
       entityId: q.opportunityId,
@@ -443,9 +509,11 @@ export async function sendQuotation(id: string): Promise<void> {
   })
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  })
 }
 
-export async function acceptQuotation(id: string): Promise<void> {
+export async function acceptQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   const result = await withTenant(PERMISSIONS.QUOTATION_ACCEPT, async (tx, ctx) => {
     const [q] = await tx
       .select()
@@ -521,9 +589,11 @@ export async function acceptQuotation(id: string): Promise<void> {
 
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  })
 }
 
-export async function rejectQuotation(id: string): Promise<void> {
+export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
     const [q] = await tx
       .select()
@@ -543,8 +613,11 @@ export async function rejectQuotation(id: string): Promise<void> {
       throw new Error("Only sent quotations can be rejected")
     await tx
       .update(quotations)
-      .set({ status: "rejected", updatedAt: new Date() })
+      .set({ status: "rejected", isPrimary: false, updatedAt: new Date() })
       .where(eq(quotations.id, id))
+    // A rejected quote must not keep driving the opportunity value: if it was
+    // the primary, promote another live quote (or clear) and re-sync.
+    await reassignPrimaryAfterRemoval(tx, ctx, q.opportunityId, id)
     await writeAudit(tx, ctx, {
       action: "quotation.rejected",
       entityType: "quotation",
@@ -553,9 +626,71 @@ export async function rejectQuotation(id: string): Promise<void> {
   })
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  })
 }
 
-export async function setPrimaryQuotation(id: string): Promise<void> {
+/**
+ * After a quote leaves the live set (deleted or rejected), if it was the
+ * opportunity's primary, promote another non-deleted, non-terminal quote (most
+ * recent first) — or clear the pointer when none remain — then re-sync the
+ * opportunity amount from the new primary's net.
+ */
+async function reassignPrimaryAfterRemoval(
+  tx: Tx,
+  ctx: Parameters<typeof syncOpportunityAmount>[1],
+  opportunityId: string,
+  removedQuotationId: string
+): Promise<void> {
+  const [opp] = await tx
+    .select({ primaryQuotationId: opportunities.primaryQuotationId })
+    .from(opportunities)
+    .where(eq(opportunities.id, opportunityId))
+    .limit(1)
+  if (opp?.primaryQuotationId !== removedQuotationId) return
+
+  const [candidate] = await tx
+    .select({ id: quotations.id })
+    .from(quotations)
+    .where(
+      and(
+        eq(quotations.opportunityId, opportunityId),
+        ne(quotations.id, removedQuotationId),
+        isNull(quotations.deletedAt),
+        notInArray(quotations.status, ["rejected", "expired", "void"])
+      )
+    )
+    .orderBy(desc(quotations.createdAt))
+    .limit(1)
+
+  if (candidate) {
+    await tx
+      .update(quotations)
+      .set({ isPrimary: false })
+      .where(
+        and(
+          eq(quotations.opportunityId, opportunityId),
+          ne(quotations.id, candidate.id)
+        )
+      )
+    await tx
+      .update(quotations)
+      .set({ isPrimary: true })
+      .where(eq(quotations.id, candidate.id))
+    await tx
+      .update(opportunities)
+      .set({ primaryQuotationId: candidate.id, updatedAt: new Date() })
+      .where(eq(opportunities.id, opportunityId))
+  } else {
+    await tx
+      .update(opportunities)
+      .set({ primaryQuotationId: null, updatedAt: new Date() })
+      .where(eq(opportunities.id, opportunityId))
+  }
+  await syncOpportunityAmount(tx, ctx, opportunityId)
+}
+
+export async function setPrimaryQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
     const [q] = await tx
       .select()
@@ -594,12 +729,17 @@ export async function setPrimaryQuotation(id: string): Promise<void> {
   })
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  })
 }
 
-export async function deleteQuotation(id: string): Promise<void> {
+export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.QUOTATION_DELETE, async (tx, ctx) => {
     const [existing] = await tx
-      .select({ oppOwner: opportunities.ownerMemberId })
+      .select({
+        opportunityId: quotations.opportunityId,
+        oppOwner: opportunities.ownerMemberId,
+      })
       .from(quotations)
       .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
@@ -614,6 +754,9 @@ export async function deleteQuotation(id: string): Promise<void> {
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .returning()
     if (!updated) throw new Error("Quotation not found")
+    // If this was the opportunity's primary, promote another live quote (or
+    // clear the pointer) and re-sync so a deleted quote stops driving value.
+    await reassignPrimaryAfterRemoval(tx, ctx, existing.opportunityId, id)
     await writeAudit(tx, ctx, {
       action: "quotation.deleted",
       entityType: "quotation",
@@ -621,4 +764,5 @@ export async function deleteQuotation(id: string): Promise<void> {
     })
   })
   revalidatePath("/quotations")
+  })
 }

@@ -39,9 +39,12 @@ export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> 
       next: tenantSettings.soNextNumber,
       pad: tenantSettings.soPadWidth,
     })
-  const assigned = (s?.next ?? 1) - 1
-  const entity = (s?.entityCode || "ENT").toUpperCase()
-  const running = String(assigned).padStart(s?.pad ?? 4, "0")
+  // A zero-row UPDATE means the tenant has no settings row — fail loudly rather
+  // than mint a bogus ENTSO-0000 that collides for every such tenant.
+  if (!s) throw new Error("Sales-order numbering is not configured for this tenant")
+  const assigned = s.next - 1
+  const entity = (s.entityCode || "ENT").toUpperCase()
+  const running = String(assigned).padStart(s.pad ?? 4, "0")
   return `${entity}SO-${running}`
 }
 

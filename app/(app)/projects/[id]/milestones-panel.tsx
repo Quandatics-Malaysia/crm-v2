@@ -17,6 +17,7 @@ import {
 import { InlineRename } from "@/components/inline-rename"
 import { formatDate, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import type { ActionResult } from "@/lib/action-result"
 import {
   createMilestone,
   deleteMilestone,
@@ -140,25 +141,28 @@ export function MilestonesPanel({
   )
   const remaining = value - allocated
 
-  function run(fn: () => Promise<unknown>, success?: string) {
+  function run(
+    fn: () => Promise<ActionResult<unknown>>,
+    success?: string
+  ) {
     startTransition(async () => {
-      try {
-        await fn()
-        if (success) toast.success(success)
-        router.refresh()
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Something went wrong")
+      const res = await fn()
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      if (success) toast.success(success)
+      router.refresh()
     })
   }
 
   /** Save via `run`, always resolving once the action settles (success or
    *  error, which `run` toasts) so inline editors never await a dead promise. */
-  function save(fn: () => Promise<unknown>) {
+  function save(fn: () => Promise<ActionResult<unknown>>) {
     return new Promise<void>((resolve) =>
       run(async () => {
         try {
-          await fn()
+          return await fn()
         } finally {
           resolve()
         }
@@ -180,19 +184,25 @@ export function MilestonesPanel({
       toast.error("Title is required")
       return
     }
-    run(async () => {
-      await createMilestone({
+    startTransition(async () => {
+      const res = await createMilestone({
         projectId,
         title: title.trim(),
         amount: amount || null,
         percentage: percentage || null,
         dueDate: dueDate || null,
       })
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
       setTitle("")
       setAmount("")
       setPercentage("")
       setDueDate("")
-    }, "Milestone added")
+      toast.success("Milestone added")
+      router.refresh()
+    })
   }
 
   return (
@@ -387,7 +397,7 @@ export function MilestonesPanel({
               <span className="font-semibold tabular-nums text-foreground">
                 {formatMoney(value, currency)}
               </span>{" "}
-              <span className="text-xs">(from quotation)</span>
+              <span className="text-xs">(project value)</span>
             </span>
             <span
               className={cn(

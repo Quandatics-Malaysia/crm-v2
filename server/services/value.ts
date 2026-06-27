@@ -1,8 +1,18 @@
 import "server-only"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull, notInArray } from "drizzle-orm"
 import type { Tx } from "@/db"
 import { quotations, opportunities } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
+
+/**
+ * Quote statuses that must never drive an opportunity's value/forecast: a
+ * deleted, rejected, expired or voided proposal is not a live commitment.
+ */
+const NON_VALUE_QUOTE_STATUS: ("rejected" | "expired" | "void")[] = [
+  "rejected",
+  "expired",
+  "void",
+]
 
 /**
  * Net (ex-tax) value of a quotation = subtotal − discount. This is the single
@@ -40,7 +50,13 @@ export async function syncOpportunityAmount(
       discountTotal: quotations.discountTotal,
     })
     .from(quotations)
-    .where(eq(quotations.id, opp.primaryQuotationId))
+    .where(
+      and(
+        eq(quotations.id, opp.primaryQuotationId),
+        isNull(quotations.deletedAt),
+        notInArray(quotations.status, NON_VALUE_QUOTE_STATUS)
+      )
+    )
     .limit(1)
   if (!q) return
 
@@ -71,7 +87,13 @@ export async function opportunityNetValue(
         quoteNumber: quotations.quoteNumber,
       })
       .from(quotations)
-      .where(eq(quotations.id, opp.primaryQuotationId))
+      .where(
+        and(
+          eq(quotations.id, opp.primaryQuotationId),
+          isNull(quotations.deletedAt),
+          notInArray(quotations.status, NON_VALUE_QUOTE_STATUS)
+        )
+      )
       .limit(1)
     if (q)
       return {

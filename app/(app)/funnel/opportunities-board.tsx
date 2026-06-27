@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 import type { FunnelWithStages } from "@/lib/lookups"
 import { advanceStageAction, type OpportunityListRow } from "./actions"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
+import { canTransition } from "./stage-transitions"
 
 function kindAccent(kind: string): string {
   switch (kind) {
@@ -206,27 +207,35 @@ export function OpportunitiesBoard({
 
     // Dropped on its own column — nothing to do.
     if (targetStageId === fromStageId) return
-    if (!stages.some((s) => s.id === targetStageId)) return
 
-    try {
-      const result = await advanceStageAction({ opportunityId, targetStageId })
-      if (result.moved) {
-        toast.success("Moved")
-        router.refresh()
-      } else {
-        // Service returned without moving (e.g. routed to approval already).
-        toast.success("Sent for approval")
-        router.refresh()
-      }
-    } catch {
-      // Gated stage: a reason is required. Open the stage-advance dialog
-      // pre-set to this opportunity and target so the user supplies one.
+    const fromStage = stages.find((s) => s.id === fromStageId)
+    const toStage = stages.find((s) => s.id === targetStageId)
+    if (!fromStage || !toStage) return
+
+    // Reject illegal moves up front so the board matches the server's rules.
+    if (!canTransition(fromStage, toStage)) {
+      toast.error("That stage move isn't allowed")
+      return
+    }
+
+    // Approval-gated target: open the dialog so the user supplies a reason.
+    // (A high-tier bypass user still moves immediately once they submit.)
+    if (toStage.requiresApprovalToEnter) {
       setGated({
         opportunityId,
         currentStageId: fromStageId ?? "",
         targetStageId,
       })
+      return
     }
+
+    const res = await advanceStageAction({ opportunityId, targetStageId })
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success(res.data.moved ? "Moved" : "Sent for approval")
+    router.refresh()
   }
 
   if (!defaultFunnel) {

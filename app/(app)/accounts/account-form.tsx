@@ -203,13 +203,14 @@ export function AccountForm({
         website: values.website || null,
         billingAddress,
       }
-      if (editing) {
-        await updateAccount(account!.id, payload)
-        toast.success("Account updated")
-      } else {
-        await createAccount(payload)
-        toast.success("Account created")
+      const res = editing
+        ? await updateAccount(account!.id, payload)
+        : await createAccount(payload)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
       }
+      toast.success(editing ? "Account updated" : "Account created")
       setOpen(false)
       onSaved?.()
     } catch (err) {

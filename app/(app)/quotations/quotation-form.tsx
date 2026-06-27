@@ -47,6 +47,11 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { formatMoney } from "@/lib/format"
+import type { ActionResult } from "@/lib/action-result"
+import {
+  quotationLineSchema,
+  headerDiscountSchema,
+} from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
 import {
   updateQuotation,
@@ -58,19 +63,12 @@ import {
   type QuotationDetail,
 } from "./actions"
 
-const lineSchema = z.object({
-  description: z.string().trim().min(1, "Required"),
-  quantity: z.string().trim().min(1, "Required"),
-  unitPrice: z.string().trim().min(1, "Required"),
-  discountPercent: z.string().trim(),
-})
-
 const schema = z.object({
   taxSettingId: z.string(),
   validUntil: z.string(),
   notes: z.string(),
-  headerDiscount: z.string().trim(),
-  lines: z.array(lineSchema),
+  headerDiscount: headerDiscountSchema,
+  lines: z.array(quotationLineSchema),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -145,47 +143,69 @@ export function QuotationForm({
     [watchedLines, ratePercent, watchedHeaderDiscount, taxInclusive]
   )
 
+  // A draft live-previews from the form; a sent/accepted/etc. quote is a frozen
+  // document — render the stored snapshot totals/line breakdown so editing a tax
+  // rate later never retro-alters it.
+  const display = isDraft
+    ? {
+        subtotal: totals.subtotal,
+        discountTotal: totals.discountTotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+      }
+    : {
+        subtotal: Number(quotation.subtotal),
+        discountTotal: Number(quotation.discountTotal),
+        taxTotal: Number(quotation.taxTotal),
+        total: Number(quotation.total),
+      }
+  const lineTotalAt = (i: number): number | string =>
+    isDraft ? totals.lines[i]?.lineTotal ?? 0 : lines[i]?.lineTotal ?? 0
+  // A draft tracks the live tenant flag; a frozen quote shows the value snapshot
+  // onto it at create/send time, so the label never drifts after a settings flip.
+  const labelTaxInclusive = isDraft ? taxInclusive : quotation.taxInclusive
+
   async function onSave(values: FormValues) {
     setBusy(true)
-    try {
-      await updateQuotation(quotation.id, {
-        taxSettingId:
-          values.taxSettingId === NO_TAX ? null : values.taxSettingId,
-        validUntil: values.validUntil || null,
-        notes: values.notes || null,
-        headerDiscount: values.headerDiscount || "0",
-        lines: values.lines.map((l) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent || "0",
-        })),
-      })
-      toast.success("Quotation saved")
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed")
-    } finally {
+    const res = await updateQuotation(quotation.id, {
+      taxSettingId:
+        values.taxSettingId === NO_TAX ? null : values.taxSettingId,
+      validUntil: values.validUntil || null,
+      notes: values.notes || null,
+      headerDiscount: values.headerDiscount || "0",
+      lines: values.lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        discountPercent: l.discountPercent || "0",
+      })),
+    })
+    if (!res.ok) {
+      toast.error(res.error)
       setBusy(false)
+      return
     }
+    toast.success("Quotation saved")
+    router.refresh()
+    setBusy(false)
   }
 
   async function runAction(
-    fn: () => Promise<void>,
+    fn: () => Promise<ActionResult<unknown>>,
     successMsg: string,
     options?: { redirect?: string }
   ) {
     setBusy(true)
-    try {
-      await fn()
-      toast.success(successMsg)
-      if (options?.redirect) router.push(options.redirect)
-      else router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Action failed")
-    } finally {
+    const res = await fn()
+    if (!res.ok) {
+      toast.error(res.error)
       setBusy(false)
+      return
     }
+    toast.success(successMsg)
+    if (options?.redirect) router.push(options.redirect)
+    else router.refresh()
+    setBusy(false)
   }
 
   return (
@@ -329,7 +349,6 @@ export function QuotationForm({
                   <p className="text-sm text-muted-foreground">No line items.</p>
                 ) : null}
                 {fields.map((f, i) => {
-                  const line = totals.lines[i]
                   return (
                     <div key={f.id} className="grid gap-3 rounded-lg border p-3">
                       <FormField
@@ -410,7 +429,7 @@ export function QuotationForm({
                         <div className="grid gap-2">
                           <FormLabel className="text-xs">Line total</FormLabel>
                           <div className="flex h-8 items-center text-sm tabular-nums">
-                            {formatMoney(line?.lineTotal ?? 0, quotation.currency)}
+                            {formatMoney(lineTotalAt(i), quotation.currency)}
                           </div>
                         </div>
                       </div>
@@ -450,14 +469,14 @@ export function QuotationForm({
             <Badge className="capitalize">{quotation.status}</Badge>
           </CardHeader>
           <CardContent className="grid gap-2 text-sm">
-            <Row label="Subtotal" value={formatMoney(totals.subtotal, quotation.currency)} />
+            <Row label="Subtotal" value={formatMoney(display.subtotal, quotation.currency)} />
             <Row
               label="Discount"
-              value={formatMoney(totals.discountTotal, quotation.currency)}
+              value={formatMoney(display.discountTotal, quotation.currency)}
             />
             <Row
-              label={`Tax${taxInclusive ? " (incl.)" : ""}`}
-              value={formatMoney(totals.taxTotal, quotation.currency)}
+              label={`Tax${labelTaxInclusive ? " (incl.)" : ""}`}
+              value={formatMoney(display.taxTotal, quotation.currency)}
             />
             {quotation.taxRateSnapshot != null ? (
               <Row
@@ -469,7 +488,7 @@ export function QuotationForm({
             <div className="flex items-center justify-between font-medium">
               <span>Total</span>
               <span className="tabular-nums">
-                {formatMoney(totals.total, quotation.currency)}
+                {formatMoney(display.total, quotation.currency)}
               </span>
             </div>
             {quotation.isPrimary ? (

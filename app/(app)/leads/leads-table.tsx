@@ -127,26 +127,26 @@ export function LeadsTable({
   }, [funnels])
 
   async function handleCreate(values: LeadInput) {
-    try {
-      await createLead(values)
-      toast.success("Lead created")
-      setNewOpen(false)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create lead")
+    const res = await createLead(values)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Lead created")
+    setNewOpen(false)
+    router.refresh()
   }
 
   async function handleUpdate(values: LeadInput) {
     if (!editLead) return
-    try {
-      await updateLead(editLead.id, values)
-      toast.success("Lead updated")
-      setEditLead(null)
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update lead")
+    const res = await updateLead(editLead.id, values)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
     }
+    toast.success("Lead updated")
+    setEditLead(null)
+    router.refresh()
   }
 
   const columns = React.useMemo<ColumnDef<Lead>[]>(
@@ -460,16 +460,14 @@ export function LeadsTable({
               variant="destructive"
               onClick={async () => {
                 if (!deleteTarget) return
-                try {
-                  await deleteLead(deleteTarget.id)
-                  toast.success("Lead deleted")
-                  setDeleteTarget(null)
-                  router.refresh()
-                } catch (err) {
-                  toast.error(
-                    err instanceof Error ? err.message : "Failed to delete lead"
-                  )
+                const res = await deleteLead(deleteTarget.id)
+                if (!res.ok) {
+                  toast.error(res.error)
+                  return
                 }
+                toast.success("Lead deleted")
+                setDeleteTarget(null)
+                router.refresh()
               }}
             >
               Delete
@@ -500,13 +498,13 @@ function DisqualifyDialog({
     }
     setSubmitting(true)
     try {
-      await disqualifyLead(lead.id, reason)
+      const res = await disqualifyLead(lead.id, reason)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
       toast.success("Lead disqualified")
       onDone()
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to disqualify lead"
-      )
     } finally {
       setSubmitting(false)
     }

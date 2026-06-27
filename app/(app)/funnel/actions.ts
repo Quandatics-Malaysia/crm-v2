@@ -26,6 +26,7 @@ import {
 } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
 import { requestStageAdvance } from "@/server/services/stage"
+import { runAction, type ActionResult } from "@/lib/action-result"
 
 export type OpportunityListRow = {
   id: string
@@ -268,7 +269,8 @@ export async function getOpportunity(
 
 export async function createOpportunity(
   input: OpportunityInput
-): Promise<{ id: string }> {
+): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
   const created = await withTenant(
     PERMISSIONS.OPPORTUNITY_CREATE,
     async (tx, ctx) => {
@@ -324,12 +326,14 @@ export async function createOpportunity(
   )
   revalidatePath("/funnel")
   return created
+  })
 }
 
 export async function updateOpportunity(
   id: string,
   input: Partial<OpportunityInput>
-): Promise<void> {
+): Promise<ActionResult> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
@@ -376,9 +380,11 @@ export async function updateOpportunity(
   })
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${id}`)
+  })
 }
 
-export async function deleteOpportunity(id: string): Promise<void> {
+export async function deleteOpportunity(id: string): Promise<ActionResult> {
+  return runAction(async () => {
   await withTenant(PERMISSIONS.OPPORTUNITY_DELETE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
@@ -405,6 +411,7 @@ export async function deleteOpportunity(id: string): Promise<void> {
     })
   })
   revalidatePath("/funnel")
+  })
 }
 
 /** All persons with their accountId, for client-side filtering in the form. */
@@ -474,7 +481,8 @@ export async function advanceStageAction(input: {
   opportunityId: string
   targetStageId: string
   reason?: string
-}): Promise<{ moved: boolean; approvalRequestId?: string }> {
+}): Promise<ActionResult<{ moved: boolean; approvalRequestId?: string }>> {
+  return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.STAGE_ADVANCE)
   await runInTenant(ctx.tenantId, async (tx) => {
@@ -497,4 +505,5 @@ export async function advanceStageAction(input: {
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${input.opportunityId}`)
   return result
+  })
 }

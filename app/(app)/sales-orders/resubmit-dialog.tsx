@@ -41,28 +41,33 @@ export function ResubmitDialog({
 
   async function onSubmit() {
     setSubmitting(true)
-    try {
-      await resubmitSalesOrder(order.id, {
-        notes: notes.trim() || undefined,
-      })
-      // A replacement document is optional on resubmit; upload if provided.
-      const file = files[0]
-      if (file) {
-        const fd = new FormData()
-        fd.set("file", file)
-        fd.set("attachableType", "sales_order")
-        fd.set("attachableId", order.id)
-        fd.set("revalidate", `/projects/${projectId}`)
-        await uploadEntityAttachment(fd)
-      }
-      toast.success("Sales order resubmitted")
-      onOpenChange(false)
-      router.refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Resubmit failed")
-    } finally {
+    const res = await resubmitSalesOrder(order.id, {
+      notes: notes.trim() || undefined,
+    })
+    if (!res.ok) {
+      toast.error(res.error)
       setSubmitting(false)
+      return
     }
+    // A replacement document is optional on resubmit; upload if provided.
+    const file = files[0]
+    if (file) {
+      const fd = new FormData()
+      fd.set("file", file)
+      fd.set("attachableType", "sales_order")
+      fd.set("attachableId", order.id)
+      fd.set("revalidate", `/projects/${projectId}`)
+      const up = await uploadEntityAttachment(fd)
+      if (!up.ok) {
+        toast.error(up.error)
+        setSubmitting(false)
+        return
+      }
+    }
+    toast.success("Sales order resubmitted")
+    onOpenChange(false)
+    router.refresh()
+    setSubmitting(false)
   }
 
   return (

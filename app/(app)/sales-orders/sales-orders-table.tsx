@@ -3,14 +3,11 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
-import { MoreHorizontal } from "lucide-react"
+import { CheckIcon, MoreHorizontal, XIcon } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,146 +15,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { DocumentViewerButton } from "@/components/document-viewer"
 import { SalesOrderStatusBadge } from "./status-badge"
 import { GlobalSubmitSalesOrderDialog } from "./global-submit-dialog"
 import { formatDate } from "@/lib/format"
 import { ResubmitDialog } from "./resubmit-dialog"
 import {
-  approveSalesOrder,
-  rejectSalesOrder,
+  ApproveSalesOrderDialog,
+  DeclineSalesOrderDialog,
+} from "./so-review-dialogs"
+import {
   type SalesOrderRow,
   type SalesOrderProjectOption,
 } from "./actions"
-
-function ApproveDialog({
-  order,
-  open,
-  onOpenChange,
-}: {
-  order: SalesOrderRow
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const router = useRouter()
-  const [submitting, setSubmitting] = React.useState(false)
-
-  async function onApprove() {
-    setSubmitting(true)
-    const res = await approveSalesOrder(order.id)
-    if (!res.ok) {
-      toast.error(res.error)
-      setSubmitting(false)
-      return
-    }
-    toast.success(`Sales order approved — ${res.data.soNumber}`)
-    onOpenChange(false)
-    router.refresh()
-    setSubmitting(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Approve sales order</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Approving issues a sales-order number for {order.projectName}.
-        </p>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={onApprove} disabled={submitting}>
-            {submitting ? "Approving…" : "Approve"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function RejectDialog({
-  order,
-  open,
-  onOpenChange,
-}: {
-  order: SalesOrderRow
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const router = useRouter()
-  const [reason, setReason] = React.useState("")
-  const [submitting, setSubmitting] = React.useState(false)
-
-  async function onReject() {
-    if (!reason.trim()) {
-      toast.error("A reason is required")
-      return
-    }
-    setSubmitting(true)
-    const res = await rejectSalesOrder(order.id, reason)
-    if (!res.ok) {
-      toast.error(res.error)
-      setSubmitting(false)
-      return
-    }
-    toast.success("Sales order rejected")
-    onOpenChange(false)
-    router.refresh()
-    setSubmitting(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Reject sales order</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="reject-reason">Reason</Label>
-          <Textarea
-            id="reject-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Missing signature, wrong amount…"
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onReject}
-            disabled={submitting}
-          >
-            {submitting ? "Rejecting…" : "Reject"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 export function SalesOrdersTable({
   data,
@@ -278,14 +148,37 @@ export function SalesOrdersTable({
           const order = row.original
           const pending = order.status === "submitted"
           const rejected = order.status === "rejected"
+          // Reviewers awaiting a decision get clearly-labelled primary Approve /
+          // destructive Decline buttons right on the row — never buried in a
+          // kebab — so the next action is unmistakable. The kebab keeps the
+          // secondary actions (open / resubmit).
           return (
-            <div className="flex justify-end">
+            <div className="flex items-center justify-end gap-2">
+              {canApprove && pending ? (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => setApproveTarget(order)}
+                  >
+                    <CheckIcon className="size-4" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setRejectTarget(order)}
+                  >
+                    <XIcon className="size-4" />
+                    Decline
+                  </Button>
+                </>
+              ) : null}
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
                     <Button variant="ghost" size="icon-sm">
                       <MoreHorizontal className="size-4" />
-                      <span className="sr-only">Open menu</span>
+                      <span className="sr-only">More actions</span>
                     </Button>
                   }
                 />
@@ -295,9 +188,9 @@ export function SalesOrdersTable({
                   >
                     Open in project
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   {canApprove ? (
                     <>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         disabled={!pending}
                         onClick={() => setApproveTarget(order)}
@@ -309,18 +202,20 @@ export function SalesOrdersTable({
                         disabled={!pending}
                         onClick={() => setRejectTarget(order)}
                       >
-                        Reject
+                        Decline
                       </DropdownMenuItem>
                     </>
                   ) : null}
-                  {canApprove && canSubmit ? <DropdownMenuSeparator /> : null}
                   {canSubmit ? (
-                    <DropdownMenuItem
-                      disabled={!rejected}
-                      onClick={() => setResubmitTarget(order)}
-                    >
-                      Resubmit
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={!rejected}
+                        onClick={() => setResubmitTarget(order)}
+                      >
+                        Resubmit
+                      </DropdownMenuItem>
+                    </>
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -358,7 +253,7 @@ export function SalesOrdersTable({
       />
 
       {approveTarget ? (
-        <ApproveDialog
+        <ApproveSalesOrderDialog
           key={approveTarget.id}
           order={approveTarget}
           open={!!approveTarget}
@@ -367,7 +262,7 @@ export function SalesOrdersTable({
       ) : null}
 
       {rejectTarget ? (
-        <RejectDialog
+        <DeclineSalesOrderDialog
           key={rejectTarget.id}
           order={rejectTarget}
           open={!!rejectTarget}

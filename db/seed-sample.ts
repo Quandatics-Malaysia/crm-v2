@@ -401,8 +401,9 @@ async function main() {
     .values({
       id: PROJECT_ID,
       tenantId: TENANT_ID,
-      projectCode: "26-DEMO-STARKR-901",
+      projectCode: "2026-DEMO-STARKR-MSP-001",
       codeNature: "manual",
+      productTypeCode: "MSP",
       name: "Stark Managed Services — Year 1",
       accountId: accId("stark"),
       opportunityId: oppId("stark-msp"),

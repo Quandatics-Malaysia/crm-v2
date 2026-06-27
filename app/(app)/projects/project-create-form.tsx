@@ -49,10 +49,16 @@ const CODE_NATURE_OPTIONS = [
   { value: "manual", label: "Manual" },
 ]
 
+// The 5-segment project-code shape: {YYYY}-{ENTITY}-{ACCOUNT}-{TYPE}-{NNN}.
+// Segments are alphanumeric (no inner hyphens); first is a 4-digit year, last
+// is the running number. Used to validate a manually entered code.
+const PROJECT_CODE_RE = /^\d{4}-[A-Za-z0-9]+-[A-Za-z0-9]+-[A-Za-z0-9]+-\d+$/
+
 const projectSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
     accountId: z.string().min(1, "Account is required"),
+    productTypeCode: z.string().min(1, "Product type is required"),
     opportunityId: z.string().optional(),
     value: z.string().trim().optional(),
     startDate: z.string().trim().optional(),
@@ -64,15 +70,31 @@ const projectSchema = z
     (v) => v.codeNature !== "manual" || (v.projectCode?.trim().length ?? 0) > 0,
     { message: "Project code is required", path: ["projectCode"] }
   )
+  .refine(
+    (v) =>
+      v.codeNature !== "manual" ||
+      !v.projectCode?.trim() ||
+      PROJECT_CODE_RE.test(v.projectCode.trim()),
+    {
+      message: "Use the format YYYY-ENTITY-ACCOUNT-TYPE-NNN (e.g. 2026-DEMO-ACME-WEB-001)",
+      path: ["projectCode"],
+    }
+  )
 
 type ProjectFormValues = z.infer<typeof projectSchema>
 
 type AccountOption = { id: string; name: string }
 type OpportunityOption = { id: string; name: string; accountId: string }
+type ProductTypeOption = { code: string; name: string }
 
 export function ProjectCreateForm({
   accounts,
   opportunities,
+  productTypes,
+  entityCode,
+  codeYear,
+  accountCodes,
+  defaultName,
   defaultAccountId,
   defaultOpportunityId,
   defaultValue,
@@ -82,6 +104,14 @@ export function ProjectCreateForm({
 }: {
   accounts: AccountOption[]
   opportunities: OpportunityOption[]
+  productTypes: ProductTypeOption[]
+  /** ENTITY segment of the generated code (tenant entity code). */
+  entityCode: string
+  /** YYYY segment of the generated code (current local year). */
+  codeYear: number
+  /** Account short codes keyed by id, for the ACCOUNTCODE preview segment. */
+  accountCodes: Record<string, string>
+  defaultName?: string
   defaultAccountId?: string
   defaultOpportunityId?: string
   defaultValue?: string
@@ -119,8 +149,9 @@ export function ProjectCreateForm({
   const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
-      name: "",
+      name: defaultName ?? "",
       accountId: defaultAccountId ?? "",
+      productTypeCode: "",
       opportunityId: defaultOpportunityId ?? NONE,
       value: defaultValue ?? "",
       startDate: "",
@@ -131,6 +162,22 @@ export function ProjectCreateForm({
   })
 
   const codeNature = form.watch("codeNature")
+  const watchedAccountId = form.watch("accountId")
+  const watchedProductType = form.watch("productTypeCode")
+
+  // Live preview of the code the server will mint, mirroring nextProjectCode's
+  // {YYYY}-{ENTITY}-{ACCOUNTCODE}-{PRODUCTTYPE}-{NNN} shape. NNN is unknown until
+  // creation, so it's shown as "###". Segments fall back the same way the server
+  // does when a value isn't picked yet.
+  const previewCode = React.useMemo(() => {
+    const yyyy = String(codeYear)
+    const entity = (entityCode || "ENT").toUpperCase()
+    const acct = (accountCodes[watchedAccountId] || "ACC").toUpperCase()
+    const product = (watchedProductType || "TYPE").toUpperCase()
+    return `${yyyy}-${entity}-${acct}-${product}-###`
+  }, [codeYear, entityCode, accountCodes, watchedAccountId, watchedProductType])
+
+  const selectedAccountHasCode = Boolean(accountCodes[watchedAccountId])
 
   async function handleSubmit(values: ProjectFormValues) {
     setSubmitting(true)
@@ -141,6 +188,7 @@ export function ProjectCreateForm({
     const res = await createProject({
       name: values.name,
       accountId: values.accountId,
+      productTypeCode: values.productTypeCode,
       opportunityId,
       quotationId: opportunityId ? quotationId : undefined,
       value: values.value || undefined,
@@ -156,7 +204,7 @@ export function ProjectCreateForm({
       setSubmitting(false)
       return
     }
-    toast.success("Project created")
+    toast.success(`Project ${res.data.projectCode} created`)
     router.push(`/projects/${res.data.id}`)
   }
 
@@ -183,13 +231,45 @@ export function ProjectCreateForm({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="productTypeCode"
+              render={({ field, fieldState }) => (
+                <FormItem>
+                  <FormLabel required>Product type</FormLabel>
+                  <FormControl>
+                    <Combobox
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={productTypes.map((p) => ({
+                        value: p.code,
+                        label: `${p.name} (${p.code})`,
+                      }))}
+                      placeholder="Select a product type…"
+                      searchPlaceholder="Search product types…"
+                      emptyMessage={
+                        productTypes.length
+                          ? "No product types found."
+                          : "No product types yet — add them in Settings."
+                      }
+                      aria-invalid={!!fieldState.error}
+                    />
+                  </FormControl>
+                  <p className="text-muted-foreground text-xs">
+                    Sets the product-type segment of the project code.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="codeNature"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Project code</FormLabel>
+                    <FormLabel>Code assignment</FormLabel>
                     <Select
                       value={field.value}
                       onValueChange={(v) => {
@@ -216,11 +296,6 @@ export function ProjectCreateForm({
                         ))}
                       </SelectContent>
                     </Select>
-                    {codeNature !== "manual" ? (
-                      <p className="text-muted-foreground text-xs">
-                        A code is generated automatically on creation.
-                      </p>
-                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -235,7 +310,7 @@ export function ProjectCreateForm({
                       <FormLabel required>Code</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="e.g. PRJ-2026-001"
+                          placeholder="e.g. 2026-DEMO-ACME-WEB-001"
                           className="font-mono"
                           {...field}
                         />
@@ -246,6 +321,23 @@ export function ProjectCreateForm({
                 />
               ) : null}
             </div>
+
+            {codeNature === "manual" ? null : (
+              <div className="grid gap-1 rounded-lg border border-dashed bg-muted/30 p-3">
+                <span className="text-muted-foreground text-xs">
+                  Generated code (preview)
+                </span>
+                <span className="font-mono text-sm font-semibold">
+                  {previewCode}
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  ### becomes the next running number for {codeYear} on creation.
+                  {!selectedAccountHasCode
+                    ? " Set the account's code so ACCOUNT resolves."
+                    : null}
+                </span>
+              </div>
+            )}
 
             <FormField
               control={form.control}
@@ -301,6 +393,11 @@ export function ProjectCreateForm({
                         void prefillFromOpportunity(v).then((p) => {
                           if (!p) return
                           form.setValue("value", p.value)
+                          // Only fill the name when the user hasn't typed one,
+                          // so changing the funnel never clobbers an edit.
+                          if (!form.getValues("name").trim()) {
+                            form.setValue("name", p.opportunityName)
+                          }
                           setQuotationId(p.quotationId ?? undefined)
                           setQuoteNote(p.quoteNumber ?? undefined)
                           setCurrency(p.currency)

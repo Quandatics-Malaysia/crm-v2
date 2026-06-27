@@ -36,7 +36,7 @@ DECLARE
     'stage_approval_requests', 'attachments',
     'tax_settings', 'quotations', 'quotation_line_items',
     'custom_field_defs', 'activities', 'projects', 'payment_milestones',
-    'sales_orders'
+    'sales_orders', 'project_counters'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP

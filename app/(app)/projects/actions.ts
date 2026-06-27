@@ -15,7 +15,9 @@ import {
   paymentMilestones,
   paymentMilestoneStatus,
   salesOrders,
+  tenantSettings,
 } from "@/db/schema"
+import { toDateString } from "@/lib/dates"
 import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { opportunityNetValue } from "@/server/services/value"
@@ -69,6 +71,12 @@ export type ProjectCreateInput = {
   codeNature?: ProjectCodeNature
   /** Required when codeNature is "manual"; ignored otherwise. */
   projectCode?: string
+  /**
+   * Product-type code chosen from the tenant's product_types picklist. Used as
+   * the PRODUCTTYPE segment of an auto-generated code and snapshotted onto the
+   * project so its code stays stable if the picklist later changes.
+   */
+  productTypeCode?: string
 }
 
 export type ProjectUpdateInput = {
@@ -171,6 +179,10 @@ export async function createProject(
       const codeNature: ProjectCodeNature =
         input.codeNature === "manual" ? "manual" : "auto"
 
+      // Snapshotted onto the project (both natures) so the chosen product-type
+      // code stays stable even if the tenant later edits its picklist.
+      const productTypeCode = (input.productTypeCode ?? "").trim()
+
       let projectCode: string
       if (codeNature === "manual") {
         projectCode = (input.projectCode ?? "").trim()
@@ -188,7 +200,18 @@ export async function createProject(
           .limit(1)
         if (clash) throw new Error("Project code already exists")
       } else {
-        projectCode = await nextProjectCode(tx, ctx, acct.code ?? "")
+        // Foundation backfills account codes, but guard the gap: without a code
+        // the ACCOUNTCODE segment would silently fall back, so block and tell
+        // the user to set it rather than mint an ambiguous code.
+        if (!acct.code) {
+          throw new Error(
+            "This account has no account code yet. Set the account's code before creating a project."
+          )
+        }
+        projectCode = await nextProjectCode(tx, ctx, {
+          accountCode: acct.code,
+          productTypeCode,
+        })
       }
 
       let row: { id: string; projectCode: string }
@@ -199,6 +222,7 @@ export async function createProject(
             tenantId: ctx.tenantId,
             projectCode,
             codeNature,
+            productTypeCode: productTypeCode || null,
             name: input.name,
             accountId: input.accountId,
             opportunityId: input.opportunityId || null,
@@ -420,6 +444,53 @@ export async function listOpportunityOptions(): Promise<
         )
       )
       .orderBy(asc(opportunities.name))
+  })
+}
+
+export type ProductTypeOption = { code: string; name: string }
+
+export type ProjectCreateMeta = {
+  /** Tenant-managed product-type picklist for the required Product Type field. */
+  productTypes: ProductTypeOption[]
+  /** ENTITY segment of the project code (tenant_settings.entityCode). */
+  entityCode: string
+  /** Current local calendar year — the YYYY segment of the live code preview. */
+  year: number
+  /** Visible accounts' short codes, keyed by account id, for the live preview. */
+  accountCodes: Record<string, string>
+}
+
+/**
+ * Bundle of tenant data the create form needs to render the Product Type picker
+ * and the live project-code preview ({YYYY}-{ENTITY}-{ACCOUNTCODE}-{TYPE}-###).
+ */
+export async function listProjectCreateMeta(): Promise<ProjectCreateMeta> {
+  return withTenant(PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    const [s] = await tx
+      .select({
+        productTypes: tenantSettings.productTypes,
+        entityCode: tenantSettings.entityCode,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+
+    const accts = await tx
+      .select({ id: accounts.id, code: accounts.code })
+      .from(accounts)
+      .where(
+        and(isNull(accounts.deletedAt), ownerScope(accounts.ownerMemberId, visible))
+      )
+    const accountCodes: Record<string, string> = {}
+    for (const a of accts) if (a.code) accountCodes[a.id] = a.code
+
+    return {
+      productTypes: s?.productTypes ?? [],
+      entityCode: s?.entityCode ?? "",
+      year: Number(toDateString().slice(0, 4)),
+      accountCodes,
+    }
   })
 }
 

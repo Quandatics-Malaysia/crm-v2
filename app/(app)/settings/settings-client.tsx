@@ -72,6 +72,7 @@ import {
   updateSettings,
   updateNumbering,
   updateIndustries,
+  updateProductTypes,
   updateStage,
   createStage,
   deleteStage,
@@ -91,8 +92,11 @@ import {
   STAGE_KIND_DESCRIPTION,
   suggestKindForCode,
   defaultIncludeInForecast,
+  PRODUCT_TYPE_CODE_MAX,
+  normalizeProductTypeCode,
+  validateProductTypeCode,
 } from "./constants"
-import type { StageCode, StageKind } from "./constants"
+import type { StageCode, StageKind, ProductType } from "./constants"
 
 // ─── General ─────────────────────────────────────────────────────────────────
 
@@ -405,7 +409,6 @@ const numberingSchema = z.object({
   quotePrefix: z.string().trim().min(1, "Required"),
   quoteNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   quotePadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
-  projectNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   projectPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
 })
 
@@ -424,28 +427,27 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
       quotePrefix: settings.quotePrefix,
       quoteNextNumber: settings.quoteNextNumber,
       quotePadWidth: settings.quotePadWidth,
-      projectNextNumber: settings.projectNextNumber,
       projectPadWidth: settings.projectPadWidth,
     },
   })
 
+  const currentYear = new Date().getFullYear()
   const entityCode = (settings.entityCode || "ENTITY").toUpperCase()
   const values = useWatch({ control: form.control })
   const quotePreview = `${values.quotePrefix ?? ""}${pad(
     Number(values.quoteNextNumber) || 0,
     Number(values.quotePadWidth) || 1
   )}`
-  const projectPreview = `${entityCode}-ACME-${pad(
-    Number(values.projectNextNumber) || 0,
+  // Project codes are {YYYY}-{Entity}-{Account}-{ProductType}-{NNN}; the running
+  // number (NNN) resets to 1 each year, so the preview always shows the first.
+  const projectPreview = `${currentYear}-${entityCode}-ACME-WEB-${pad(
+    1,
     Number(values.projectPadWidth) || 1
   )}`
-  // The stored counter is (highest issued + 1); going below it re-issues numbers.
+  // The stored quote counter is (highest issued + 1); going below re-issues.
   const quoteBelowIssued =
     Number(values.quoteNextNumber) > 0 &&
     Number(values.quoteNextNumber) < settings.quoteNextNumber
-  const projectBelowIssued =
-    Number(values.projectNextNumber) > 0 &&
-    Number(values.projectNextNumber) < settings.projectNextNumber
 
   function onSubmit(raw: NumberingValues) {
     const parsed = numberingSchema.parse(raw)
@@ -460,7 +462,6 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
         quotePrefix: updated.quotePrefix,
         quoteNextNumber: updated.quoteNextNumber,
         quotePadWidth: updated.quotePadWidth,
-        projectNextNumber: updated.projectNextNumber,
         projectPadWidth: updated.projectPadWidth,
       })
       toast.success("Numbering saved")
@@ -549,43 +550,31 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
             <CardTitle>Project numbering</CardTitle>
             <CardDescription>
               Example code:{" "}
-              <span className="font-mono">{`{YY}-${projectPreview}`}</span>
+              <span className="font-mono">{projectPreview}</span>
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-5 sm:grid-cols-3">
-            <FormField
-              control={form.control}
-              name="projectNextNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Next number</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                      value={String(field.value ?? "")}
-                      onChange={(e) => field.onChange(e.target.value)}
-                    />
-                  </FormControl>
-                  {projectBelowIssued ? (
-                    <p className="text-sm text-destructive">
-                      Number {settings.projectNextNumber - 1} has already been
-                      issued. Saving a value below {settings.projectNextNumber}{" "}
-                      will collide with existing project codes.
-                    </p>
-                  ) : null}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <CardContent className="grid gap-5">
+            <p className="text-sm text-muted-foreground">
+              Project codes follow{" "}
+              <span className="font-mono">
+                {"{YYYY}-{Entity}-{Account}-{ProductType}-{NNN}"}
+              </span>
+              . The running number{" "}
+              <span className="font-mono">NNN</span> is assigned per project and{" "}
+              <span className="font-medium text-foreground">
+                resets to 1 at the start of every year
+              </span>{" "}
+              — there is no single ever-incrementing project number to set here.
+              The entity code comes from General settings, the account code from
+              the account, and the product type is chosen when the project is
+              created. Only the zero-pad width of the running number is
+              configured below.
+            </p>
             <FormField
               control={form.control}
               name="projectPadWidth"
               render={({ field }) => (
-                <FormItem>
+                <FormItem className="sm:max-w-[12rem]">
                   <FormLabel>Pad width</FormLabel>
                   <FormControl>
                     <Input
@@ -599,6 +588,9 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                       onChange={(e) => field.onChange(e.target.value)}
                     />
                   </FormControl>
+                  <FormDescription>
+                    Digits in the running number, e.g. width 3 → 001.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -713,6 +705,134 @@ function IndustriesCard({ industries }: { industries: string[] }) {
         <div className="flex justify-end">
           <Button type="button" onClick={save} disabled={isPending || !dirty}>
             {isPending ? "Saving…" : "Save industries"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Product types ───────────────────────────────────────────────────────────
+
+function ProductTypesCard({ productTypes }: { productTypes: ProductType[] }) {
+  const [items, setItems] = React.useState<ProductType[]>(productTypes)
+  const [codeDraft, setCodeDraft] = React.useState("")
+  const [nameDraft, setNameDraft] = React.useState("")
+  const [isPending, startTransition] = React.useTransition()
+
+  const dirty = React.useMemo(() => {
+    if (items.length !== productTypes.length) return true
+    return items.some(
+      (v, i) =>
+        v.code !== productTypes[i].code || v.name !== productTypes[i].name
+    )
+  }, [items, productTypes])
+
+  function add() {
+    const code = normalizeProductTypeCode(codeDraft)
+    const name = nameDraft.trim()
+    const codeError = validateProductTypeCode(code)
+    if (codeError) {
+      toast.error(codeError)
+      return
+    }
+    if (!name) {
+      toast.error("Enter a display name.")
+      return
+    }
+    if (items.some((v) => v.code === code)) {
+      toast.error(`Code "${code}" is already in the list.`)
+      return
+    }
+    setItems((prev) => [...prev, { code, name }])
+    setCodeDraft("")
+    setNameDraft("")
+  }
+
+  function remove(code: string) {
+    setItems((prev) => prev.filter((v) => v.code !== code))
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateProductTypes(items)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setItems(res.data)
+      toast.success("Product types saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Product types</CardTitle>
+        <CardDescription>
+          The picklist offered when creating a project. Each type has a short,
+          stable code used as the product-type segment of a project code (e.g.{" "}
+          <span className="font-mono">WEB</span> in{" "}
+          <span className="font-mono">2026-DEMO-ACME-WEB-001</span>).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={codeDraft}
+            onChange={(e) => setCodeDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                add()
+              }
+            }}
+            placeholder="Code, e.g. WEB"
+            maxLength={PRODUCT_TYPE_CODE_MAX}
+            className="uppercase sm:max-w-[10rem]"
+          />
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                add()
+              }
+            }}
+            placeholder="Display name, e.g. Web"
+          />
+          <Button type="button" variant="outline" onClick={add}>
+            <Plus className="size-4" />
+            Add
+          </Button>
+        </div>
+
+        {items.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {items.map((pt) => (
+              <Badge key={pt.code} variant="secondary" className="gap-1 pr-1">
+                <span className="font-mono">{pt.code}</span>
+                <span className="text-muted-foreground">·</span>
+                {pt.name}
+                <button
+                  type="button"
+                  onClick={() => remove(pt.code)}
+                  className="rounded-sm p-0.5 hover:bg-muted-foreground/20"
+                  aria-label={`Remove ${pt.code}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No product types yet.</p>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save product types"}
           </Button>
         </div>
       </CardContent>
@@ -1394,6 +1514,7 @@ export function SettingsClient({
         <TabsTrigger value="general">General</TabsTrigger>
         <TabsTrigger value="numbering">Numbering</TabsTrigger>
         <TabsTrigger value="industries">Industries</TabsTrigger>
+        <TabsTrigger value="product-types">Product Types</TabsTrigger>
         <TabsTrigger value="stages">Funnel Stages</TabsTrigger>
         <TabsTrigger value="team">Members</TabsTrigger>
       </TabsList>
@@ -1425,6 +1546,10 @@ export function SettingsClient({
 
       <TabsContent value="industries" className="mt-4">
         <IndustriesCard industries={settings.industries} />
+      </TabsContent>
+
+      <TabsContent value="product-types" className="mt-4">
+        <ProductTypesCard productTypes={settings.productTypes} />
       </TabsContent>
 
       <TabsContent value="stages" className="mt-4">

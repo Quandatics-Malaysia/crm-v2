@@ -331,6 +331,67 @@ function normalizeCode(code?: string | null): string | null {
 }
 
 /**
+ * Derive a short (3–5 char) upper-case alphanumeric base code from an account
+ * name. Falls back to "ACC" when the name has no usable characters. Mirrors
+ * db/backfill-project-codes.ts so manually-created and backfilled accounts get
+ * codes from the same algorithm.
+ */
+function baseCodeFromName(name: string): string {
+  const cleaned = (name || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .trim()
+  const words = cleaned.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return "ACC"
+  // Single word → first 3–5 chars. Multiple words → first word padded with the
+  // leading chars of following words until we reach ~5, keeping it readable.
+  let base = words[0].slice(0, 5)
+  for (let i = 1; i < words.length && base.length < 3; i++) {
+    base += words[i].slice(0, 3 - base.length)
+  }
+  base = base.slice(0, 5)
+  if (base.length < 3) base = (base + "ACC").slice(0, 3)
+  return base
+}
+
+/** Make `base` unique within `used` (per-tenant) by appending 2, 3, … */
+function uniqueCode(base: string, used: Set<string>): string {
+  if (!used.has(base)) {
+    used.add(base)
+    return base
+  }
+  for (let n = 2; ; n++) {
+    const candidate = `${base}${n}`
+    if (!used.has(candidate)) {
+      used.add(candidate)
+      return candidate
+    }
+  }
+}
+
+/**
+ * Auto-generate a tenant-unique account code from the name, used when the user
+ * leaves the code blank. Seeds the "used" set from the tenant's existing
+ * non-deleted codes (case-insensitive) so the result never collides — matching
+ * the uniqueness guarantee assertCodeUnique enforces on user-entered codes.
+ */
+async function generateAccountCode(
+  tx: Tx,
+  tenantId: string,
+  name: string
+): Promise<string> {
+  const rows = await tx
+    .select({ code: accounts.code })
+    .from(accounts)
+    .where(and(eq(accounts.tenantId, tenantId), isNull(accounts.deletedAt)))
+  const used = new Set<string>()
+  for (const r of rows) {
+    if (r.code && r.code.trim()) used.add(r.code.trim().toUpperCase())
+  }
+  return uniqueCode(baseCodeFromName(name), used)
+}
+
+/**
  * Ensure no other non-deleted account in this tenant already uses the given
  * (normalized) code, case-insensitively. On update pass selfId to exclude the
  * account being edited.
@@ -415,8 +476,12 @@ export async function createAccount(
 ): Promise<ActionResult<AccountRow>> {
   return runAction(async () => {
     const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
-      const code = normalizeCode(input.code)
+      // User-entered code is validated + uniqueness-checked; a blank code is
+      // auto-generated from the name so accounts.code is always populated (it
+      // feeds the project code).
+      let code = normalizeCode(input.code)
       if (code) await assertCodeUnique(tx, ctx.tenantId, code)
+      else code = await generateAccountCode(tx, ctx.tenantId, input.name)
       const parentAccountId = input.parentAccountId || null
       if (parentAccountId) await assertParentValid(tx, parentAccountId)
       const { accountType, endUserAccountId } = resolveAccountType(input)

@@ -181,6 +181,31 @@ export function MilestonesPanel({
   )
   const remaining = value - allocated
 
+  // Live two-way derivation in the add-row so the % isn't decorative: typing an
+  // amount fills the % of project value, and typing a % fills the amount. Both
+  // stay editable; derivation only runs when the project has a value to divide
+  // by. Mirrors the server's amount↔percentage reconciliation in createMilestone.
+  function onAmountInput(next: string) {
+    setAmount(next)
+    if (value > 0) {
+      setPercentage(
+        next === ""
+          ? ""
+          : String(Math.round((Number(next) / value) * 100 * 100) / 100)
+      )
+    }
+  }
+  function onPercentageInput(next: string) {
+    setPercentage(next)
+    if (value > 0) {
+      setAmount(
+        next === ""
+          ? ""
+          : (Math.round(value * (Number(next) / 100) * 100) / 100).toFixed(2)
+      )
+    }
+  }
+
   function run(
     fn: () => Promise<ActionResult<unknown>>,
     success?: string
@@ -440,7 +465,7 @@ export function MilestonesPanel({
             step="0.01"
             min="0"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => onAmountInput(e.target.value)}
             placeholder="0.00"
             className="sm:w-28"
           />
@@ -453,7 +478,7 @@ export function MilestonesPanel({
             min="0"
             max="100"
             value={percentage}
-            onChange={(e) => setPercentage(e.target.value)}
+            onChange={(e) => onPercentageInput(e.target.value)}
             placeholder="—"
             className="sm:w-20"
           />

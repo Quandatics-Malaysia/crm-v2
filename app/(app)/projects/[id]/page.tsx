@@ -57,6 +57,7 @@ export default async function ProjectDetailPage({
 
   const canUpdate = ctx.can(PERMISSIONS.PROJECT_UPDATE)
   const canSubmitSO = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)
+  const canApproveSO = ctx.can(PERMISSIONS.SALES_ORDER_APPROVE)
 
   const revalidate = `/projects/${id}`
 
@@ -94,12 +95,6 @@ export default async function ProjectDetailPage({
                 <CardTitle>Overview</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-4">
-                <div className="grid gap-1">
-                  <span className="text-xs text-muted-foreground">Code</span>
-                  <span className="font-mono text-sm font-semibold">
-                    {project.projectCode}
-                  </span>
-                </div>
                 <div className="grid gap-1">
                   <span className="text-xs text-muted-foreground">Status</span>
                   <Badge
@@ -188,15 +183,16 @@ export default async function ProjectDetailPage({
               </CardContent>
             </Card>
 
+            {/* The panel renders its own "Sales orders" heading + submit
+                action, so this card intentionally omits a CardTitle to avoid a
+                doubled heading. */}
             <Card>
-              <CardHeader>
-                <CardTitle>Sales Orders</CardTitle>
-              </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <ProjectSalesOrders
                   projectId={id}
                   orders={salesOrders}
                   canSubmit={canSubmitSO}
+                  canApprove={canApproveSO}
                 />
               </CardContent>
             </Card>

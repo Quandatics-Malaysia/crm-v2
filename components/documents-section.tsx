@@ -3,11 +3,14 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, FileIcon, Trash2Icon } from "lucide-react"
+import { PaperclipIcon, Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { DocumentViewerButton } from "@/components/document-viewer"
+import {
+  DocumentViewerButton,
+  FileTypeIcon,
+} from "@/components/document-viewer"
 import { InlineRename } from "@/components/inline-rename"
 import {
   uploadEntityAttachment,
@@ -30,6 +33,16 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
 }
 
 /**
@@ -110,39 +123,55 @@ export function DocumentsSection({
       {documents.length === 0 ? (
         <p className="text-sm text-muted-foreground">No documents yet.</p>
       ) : (
-        <ul className="grid gap-1">
+        <ul className="grid gap-1.5">
           {documents.map((d) => (
             <li
               key={d.id}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+              className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/40"
             >
-              <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-              {d.ownedHere ? (
-                <InlineRename
-                  value={d.fileName}
-                  onSave={(next) => onRename(d.id, next)}
-                  className="flex-1"
-                />
-              ) : (
-                <span className="flex-1 truncate">{d.fileName}</span>
-              )}
-              <Badge variant="secondary" className="text-[10px]">
+              <FileTypeIcon
+                contentType={d.contentType}
+                className="size-5 shrink-0 text-muted-foreground"
+              />
+              <div className="flex min-w-0 flex-1 flex-col">
+                {d.ownedHere ? (
+                  <InlineRename
+                    value={d.fileName}
+                    onSave={(next) => onRename(d.id, next)}
+                    className="truncate font-medium"
+                  />
+                ) : (
+                  <span className="truncate font-medium">{d.fileName}</span>
+                )}
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{fmtBytes(d.byteSize)}</span>
+                  {fmtDate(d.createdAt) ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{fmtDate(d.createdAt)}</span>
+                    </>
+                  ) : null}
+                </span>
+              </div>
+              <Badge variant="secondary" className="shrink-0 text-[10px]">
                 {d.source}
               </Badge>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
-                {fmtBytes(d.byteSize)}
-              </span>
-              <DocumentViewerButton file={d} />
-              {d.ownedHere ? (
-                <button
-                  type="button"
-                  onClick={() => onDelete(d.id)}
-                  className="text-muted-foreground hover:text-destructive"
-                  title="Remove"
-                >
-                  <Trash2Icon className="size-4" />
-                </button>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-0.5">
+                <DocumentViewerButton file={d} />
+                {d.ownedHere ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onDelete(d.id)}
+                    className="text-muted-foreground hover:text-destructive"
+                    title="Remove"
+                    aria-label={`Remove ${d.fileName}`}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

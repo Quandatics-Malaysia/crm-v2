@@ -282,7 +282,8 @@ export function AccountForm({
                       />
                     </FormControl>
                     <FormDescription>
-                      2–6 characters, unique (e.g. TTDC)
+                      Used in project codes — auto-generated from the name if
+                      left blank (e.g. TTDC)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

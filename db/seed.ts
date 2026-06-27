@@ -53,6 +53,14 @@ async function main() {
       organizationId: TENANT_ID,
       allowPasswordLogin: true,
       entityCode: "DEMO",
+      productTypes: [
+        { code: "CONSULT", name: "Consulting" },
+        { code: "IMPL", name: "Implementation" },
+        { code: "MSP", name: "Managed Services" },
+        { code: "WEB", name: "Web" },
+        { code: "INFRA", name: "Infrastructure" },
+        { code: "SUPP", name: "Support" },
+      ],
       industries: [
         "Agriculture",
         "Construction",

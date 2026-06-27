@@ -113,6 +113,13 @@
       "when": 1782563954560,
       "tag": "0015_password_login_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1782573111446,
+      "tag": "0016_product_types_project_counters",
+      "breakpoints": true
     }
   ]
 }

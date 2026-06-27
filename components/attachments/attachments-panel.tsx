@@ -3,10 +3,13 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, Trash2Icon, FileIcon } from "lucide-react"
+import { PaperclipIcon, Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { DocumentViewerButton } from "@/components/document-viewer"
+import {
+  DocumentViewerButton,
+  FileTypeIcon,
+} from "@/components/document-viewer"
 import { InlineRename } from "@/components/inline-rename"
 import {
   uploadEntityAttachment,
@@ -20,6 +23,16 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
 }
 
 /** Reusable file list + upload for any CRM entity. */
@@ -95,30 +108,46 @@ export function AttachmentsPanel({
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No files attached.</p>
       ) : (
-        <ul className="grid gap-1">
+        <ul className="grid gap-1.5">
           {items.map((a) => (
             <li
               key={a.id}
-              className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+              className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-sm transition-colors hover:bg-muted/40"
             >
-              <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-              <InlineRename
-                value={a.fileName}
-                onSave={(next) => onRename(a.id, next)}
-                className="flex-1"
+              <FileTypeIcon
+                contentType={a.contentType}
+                className="size-5 shrink-0 text-muted-foreground"
               />
-              <span className="text-xs text-muted-foreground">
-                {fmtBytes(a.byteSize)}
-              </span>
-              <DocumentViewerButton file={a} />
-              <button
-                type="button"
-                onClick={() => onDelete(a.id)}
-                className="text-muted-foreground hover:text-destructive"
-                title="Remove"
-              >
-                <Trash2Icon className="size-4" />
-              </button>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <InlineRename
+                  value={a.fileName}
+                  onSave={(next) => onRename(a.id, next)}
+                  className="truncate font-medium"
+                />
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{fmtBytes(a.byteSize)}</span>
+                  {fmtDate(a.createdAt) ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{fmtDate(a.createdAt)}</span>
+                    </>
+                  ) : null}
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <DocumentViewerButton file={a} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => onDelete(a.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Remove"
+                  aria-label={`Remove ${a.fileName}`}
+                >
+                  <Trash2Icon className="size-4" />
+                </Button>
+              </div>
             </li>
           ))}
         </ul>

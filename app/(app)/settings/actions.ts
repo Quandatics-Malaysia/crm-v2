@@ -2,7 +2,8 @@
 
 import { and, asc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import type { StageCode, StageKind } from "./constants"
+import type { StageCode, StageKind, ProductType } from "./constants"
+import { normalizeProductTypeCode, validateProductTypeCode } from "./constants"
 import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
@@ -35,6 +36,7 @@ export type TenantSettingsView = {
   projectNextNumber: number
   projectPadWidth: number
   industries: string[]
+  productTypes: ProductType[]
 }
 
 export type TenantMemberView = {
@@ -60,7 +62,8 @@ export type UpdateNumberingInput = {
   quotePrefix: string
   quoteNextNumber: number
   quotePadWidth: number
-  projectNextNumber: number
+  // The project running number now resets per year and lives in
+  // `project_counters`; only the zero-pad width is configured here.
   projectPadWidth: number
 }
 
@@ -115,6 +118,7 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
     projectNextNumber: row.projectNextNumber,
     projectPadWidth: row.projectPadWidth,
     industries: row.industries ?? [],
+    productTypes: row.productTypes ?? [],
   }
 }
 
@@ -189,13 +193,8 @@ export async function updateNumbering(
   if (quotePrefix.length === 0) {
     throw new Error("Quotation prefix is required.")
   }
-  for (const [label, n] of [
-    ["Quotation next number", input.quoteNextNumber],
-    ["Project next number", input.projectNextNumber],
-  ] as const) {
-    if (!Number.isInteger(n) || n < 1) {
-      throw new Error(`${label} must be a positive integer.`)
-    }
+  if (!Number.isInteger(input.quoteNextNumber) || input.quoteNextNumber < 1) {
+    throw new Error("Quotation next number must be a positive integer.")
   }
   for (const [label, n] of [
     ["Quotation pad width", input.quotePadWidth],
@@ -210,20 +209,18 @@ export async function updateNumbering(
     quotePrefix,
     quoteNextNumber: input.quoteNextNumber,
     quotePadWidth: input.quotePadWidth,
-    projectNextNumber: input.projectNextNumber,
+    // projectNextNumber is intentionally not written here — the project running
+    // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
     updatedAt: new Date(),
   }
 
   const view = await runInTenant(ctx.tenantId, async (tx) => {
-    // The stored counter is always (highest issued number + 1). Lowering it
-    // below the current value would re-issue numbers already on live documents
-    // and surface later as cryptic unique-constraint failures.
+    // The stored quote counter is always (highest issued number + 1). Lowering
+    // it below the current value would re-issue numbers already on live
+    // documents and surface later as cryptic unique-constraint failures.
     const [current] = await tx
-      .select({
-        quoteNextNumber: tenantSettings.quoteNextNumber,
-        projectNextNumber: tenantSettings.projectNextNumber,
-      })
+      .select({ quoteNextNumber: tenantSettings.quoteNextNumber })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
@@ -231,11 +228,6 @@ export async function updateNumbering(
       if (input.quoteNextNumber < current.quoteNextNumber) {
         throw new Error(
           `Quotation next number can't go below ${current.quoteNextNumber} — number ${current.quoteNextNumber - 1} has already been issued.`
-        )
-      }
-      if (input.projectNextNumber < current.projectNextNumber) {
-        throw new Error(
-          `Project next number can't go below ${current.projectNextNumber} — number ${current.projectNextNumber - 1} has already been issued.`
         )
       }
     }
@@ -297,6 +289,59 @@ export async function updateIndustries(
       after: { industries: cleaned },
     })
     return updated.industries ?? []
+  })
+
+  revalidatePath("/settings")
+  return saved
+  })
+}
+
+/** Replace the tenant's product-type picklist (used in project codes). */
+export async function updateProductTypes(
+  productTypes: ProductType[]
+): Promise<ActionResult<ProductType[]>> {
+  return runAction(async () => {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+  const cleaned: ProductType[] = []
+  const seenCodes = new Set<string>()
+  for (const raw of productTypes ?? []) {
+    const code = normalizeProductTypeCode(raw?.code ?? "")
+    const name = (raw?.name ?? "").trim()
+    const codeError = validateProductTypeCode(code)
+    if (codeError) throw new Error(codeError)
+    if (name.length === 0) {
+      throw new Error(`Name is required for product type "${code}".`)
+    }
+    if (seenCodes.has(code)) {
+      throw new Error(`Duplicate product-type code "${code}".`)
+    }
+    seenCodes.add(code)
+    cleaned.push({ code, name })
+  }
+  cleaned.sort((a, b) => a.code.localeCompare(b.code))
+
+  const saved = await runInTenant(ctx.tenantId, async (tx) => {
+    const [updated] = await tx
+      .insert(tenantSettings)
+      .values({
+        organizationId: ctx.tenantId,
+        status: "active",
+        productTypes: cleaned,
+      })
+      .onConflictDoUpdate({
+        target: tenantSettings.organizationId,
+        set: { productTypes: cleaned, updatedAt: new Date() },
+      })
+      .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.product_types_updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: { productTypes: cleaned },
+    })
+    return updated.productTypes ?? []
   })
 
   revalidatePath("/settings")

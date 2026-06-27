@@ -30,6 +30,15 @@ export const tenantSettings = pgTable("tenant_settings", {
   allowPasswordLogin: boolean("allow_password_login").notNull().default(true),
   /** Configurable industry picklist for accounts. */
   industries: jsonb("industries").$type<string[]>(),
+  /**
+   * Tenant-managed product-type picklist. Each entry is a short stable code +
+   * a display name; the chosen code is snapshotted onto a project and used as
+   * the PRODUCTTYPE segment of its project code.
+   */
+  productTypes: jsonb("product_types")
+    .$type<{ code: string; name: string }[]>()
+    .notNull()
+    .default([]),
   /** Quotation numbering config. */
   quotePrefix: text("quote_prefix").notNull().default("Q-"),
   quoteNextNumber: integer("quote_next_number").notNull().default(1),
@@ -37,9 +46,15 @@ export const tenantSettings = pgTable("tenant_settings", {
   /** SO numbering config (per entity): {EntityCode}SO-0001. */
   soNextNumber: integer("so_next_number").notNull().default(1),
   soPadWidth: integer("so_pad_width").notNull().default(4),
-  /** Short code for this entity, used in project codes ({YY}-{Entity}-{Account}-{n}). */
+  /** Short code for this entity, used in project codes ({YYYY}-{Entity}-{Account}-{ProductType}-{n}). */
   entityCode: text("entity_code"),
+  /**
+   * DEPRECATED for projects: the per-year running number now lives in
+   * `project_counters` (keyed by tenant + year). Kept to avoid a destructive
+   * migration; do not use for new project numbering.
+   */
   projectNextNumber: integer("project_next_number").notNull().default(1),
+  /** Zero-pad width for the running number in project codes. */
   projectPadWidth: integer("project_pad_width").notNull().default(3),
   ...timestamps,
 })

@@ -55,3 +55,36 @@ export function suggestKindForCode(code: StageCode): StageKind {
 export function defaultIncludeInForecast(kind: StageKind): boolean {
   return kind === "OPEN" || kind === "WON"
 }
+
+// ─── Product types ─────────────────────────────────────────────────────────
+
+/**
+ * A tenant-managed product type: a short stable CODE used as the PRODUCTTYPE
+ * segment of a project code ({YYYY}-{Entity}-{Account}-{ProductType}-{NNN}),
+ * plus a human-readable display NAME.
+ */
+export type ProductType = { code: string; name: string }
+
+/** Max length for a product-type code (keeps project codes short). */
+export const PRODUCT_TYPE_CODE_MAX = 8
+
+/** Trim + uppercase a product-type code for storage/comparison. */
+export function normalizeProductTypeCode(raw: string): string {
+  return (raw ?? "").trim().toUpperCase()
+}
+
+/**
+ * Validate a normalized product-type code. Returns an error message, or null
+ * when valid. A valid code is non-empty, at most PRODUCT_TYPE_CODE_MAX chars,
+ * and made of uppercase letters and digits only (so it is safe in a code).
+ */
+export function validateProductTypeCode(code: string): string | null {
+  if (code.length === 0) return "Code is required."
+  if (code.length > PRODUCT_TYPE_CODE_MAX) {
+    return `Code must be ${PRODUCT_TYPE_CODE_MAX} characters or fewer.`
+  }
+  if (!/^[A-Z0-9]+$/.test(code)) {
+    return "Code must be uppercase letters and digits only."
+  }
+  return null
+}

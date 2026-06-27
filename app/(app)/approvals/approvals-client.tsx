@@ -270,9 +270,18 @@ function IncomingCard({ row, onDone }: { row: ApprovalRow; onDone: () => void })
         </div>
         <Attachments requestId={row.id} />
         <Separator />
-        <div className="flex items-center justify-end gap-2">
-          <DecisionDialog row={row} decision="rejected" onDone={onDone} />
-          <DecisionDialog row={row} decision="approved" onDone={onDone} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm text-muted-foreground">
+            Approve to let{" "}
+            <span className="font-medium text-foreground">
+              {row.opportunityName}
+            </span>{" "}
+            advance to {row.targetStageName}, or decline to keep it in place.
+          </span>
+          <div className="flex items-center gap-2">
+            <DecisionDialog row={row} decision="rejected" onDone={onDone} />
+            <DecisionDialog row={row} decision="approved" onDone={onDone} />
+          </div>
         </div>
       </CardContent>
     </Card>

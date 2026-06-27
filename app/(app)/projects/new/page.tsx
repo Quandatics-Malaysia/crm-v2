@@ -1,59 +1,94 @@
 import { redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
-import { PageBody, PageHeader } from "@/components/page-header"
+import { PageBody } from "@/components/page-header"
 import { listAccountOptions } from "@/lib/lookups"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { listOpportunityOptions, prefillFromOpportunity } from "../actions"
+import {
+  listOpportunityOptions,
+  listProjectCreateMeta,
+  prefillFromOpportunity,
+} from "../actions"
 import { ProjectCreateForm } from "../project-create-form"
 
 export default async function NewProjectPage({
   searchParams,
 }: {
-  searchParams: Promise<{ accountId?: string; opportunityId?: string }>
+  searchParams: Promise<{
+    accountId?: string
+    opportunityId?: string
+    quotationId?: string
+  }>
 }) {
   const ctx = await requireContext()
   // No create permission -> there's no affordance to land here; bounce back.
   if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) redirect("/projects")
   const sp = await searchParams
-  const [accounts, opportunities] = await Promise.all([
+  const [accounts, opportunities, meta] = await Promise.all([
     listAccountOptions(),
     listOpportunityOptions(),
+    listProjectCreateMeta(),
   ])
 
   // Prefill from query: explicit opportunity wins and derives its account.
   let defaultAccountId = sp.accountId
   const defaultOpportunityId = sp.opportunityId
 
-  // When created from a funnel, pre-fill value + linked quotation from the
-  // opportunity's source quote (net of tax). The value stays EDITABLE.
+  // When created from a funnel, pre-fill name + value + linked quotation from the
+  // opportunity's source quote (net of tax) so the user mostly just picks the
+  // product type. The value stays EDITABLE.
+  let defaultName: string | undefined
   let defaultValue: string | undefined
   let defaultCurrency: string | undefined
-  let defaultQuotationId: string | undefined
+  // A bare ?quotationId= (no funnel) still links the source quote on the project.
+  let defaultQuotationId: string | undefined = sp.quotationId
   let prefillQuoteNumber: string | undefined
   if (defaultOpportunityId) {
     const prefill = await prefillFromOpportunity(defaultOpportunityId)
     if (prefill) {
       defaultAccountId = prefill.accountId
+      defaultName = prefill.opportunityName
       defaultValue = prefill.value
       defaultCurrency = prefill.currency
-      defaultQuotationId = prefill.quotationId ?? undefined
+      defaultQuotationId = prefill.quotationId ?? defaultQuotationId
       prefillQuoteNumber = prefill.quoteNumber ?? undefined
     } else {
       // Fall back to deriving the account from the funnel options.
       const opp = opportunities.find((o) => o.id === defaultOpportunityId)
-      if (opp) defaultAccountId = opp.accountId
+      if (opp) {
+        defaultAccountId = opp.accountId
+        defaultName = opp.name
+      }
     }
   }
 
+  const fromQuote = Boolean(defaultOpportunityId || defaultQuotationId)
+
   return (
     <>
-      <SiteHeader title="New project" />
+      {/* Title lives only in the top bar; the body shows a one-line nudge
+          instead of repeating "New project" as a second heading. */}
+      <SiteHeader
+        title="New project"
+        breadcrumbs={[
+          { label: "Projects", href: "/projects" },
+          { label: "New project" },
+        ]}
+      />
       <PageBody>
-        <PageHeader title="New project" />
+        <p className="text-sm text-muted-foreground">
+          {fromQuote
+            ? "From the accepted quotation — pick a product type to generate the project code, then create."
+            : "Pick a product type to generate the project code."}
+        </p>
         <ProjectCreateForm
           accounts={accounts}
           opportunities={opportunities}
+          productTypes={meta.productTypes}
+          entityCode={meta.entityCode}
+          codeYear={meta.year}
+          accountCodes={meta.accountCodes}
+          defaultName={defaultName}
           defaultAccountId={defaultAccountId}
           defaultOpportunityId={defaultOpportunityId}
           defaultValue={defaultValue}

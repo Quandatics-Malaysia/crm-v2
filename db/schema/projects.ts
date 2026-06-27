@@ -3,11 +3,13 @@ import {
   pgEnum,
   uuid,
   text,
+  integer,
   numeric,
   char,
   date,
   unique,
   foreignKey,
+  primaryKey,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
 import { accounts } from "./crm"
@@ -25,7 +27,9 @@ export const projectStatus = pgEnum("project_status", [
 
 /**
  * A delivery project created from a won (or any) funnel/opportunity.
- * Project code format: {YY}-{EntityCode}-{AccountCode}-{running}.
+ * Project code format: {YYYY}-{EntityCode}-{AccountCode}-{ProductType}-{running}
+ * (e.g. 2026-DEMO-ACME-WEB-001). The running number resets per year per tenant
+ * (see `projectCounters`).
  */
 export const projects = pgTable(
   "projects",
@@ -38,6 +42,12 @@ export const projects = pgTable(
     /** "auto" (system-generated code) or "manual" (user-entered). */
     codeNature: text("code_nature").notNull().default("auto"),
     name: text("name").notNull(),
+    /**
+     * Snapshot of the product-type code chosen at creation (from the tenant's
+     * product_types picklist). Used as the PRODUCTTYPE segment of the project
+     * code so the code stays stable even if the picklist later changes.
+     */
+    productTypeCode: text("product_type_code"),
     // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
     accountId: uuid("account_id").notNull(),
     // the funnel this project was created from
@@ -67,4 +77,21 @@ export const projects = pgTable(
       name: "projects_tenant_account_fk",
     }).onDelete("restrict"),
   ]
+)
+
+/**
+ * Per-year, per-tenant running counter for project codes. `next_number` is the
+ * value to assign next; it is bumped atomically (INSERT … ON CONFLICT DO UPDATE)
+ * when a project code is minted, so the NNN segment resets to 1 each new year.
+ */
+export const projectCounters = pgTable(
+  "project_counters",
+  {
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    year: integer("year").notNull(),
+    nextNumber: integer("next_number").notNull().default(1),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.year] })]
 )

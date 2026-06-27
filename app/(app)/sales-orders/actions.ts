@@ -14,6 +14,8 @@ import {
   member,
   user,
   attachments,
+  opportunities,
+  quotations,
 } from "@/db/schema"
 import { storage } from "@/lib/storage"
 import { nextSoNumber, isDuplicateNumberError } from "@/server/services/numbering"
@@ -41,6 +43,13 @@ export type SalesOrderRow = {
   submittedAt: string
   reviewedAt: string | null
   document?: { id: string; fileName: string; contentType: string }
+  /** Review context, so an approver isn't deciding blind. */
+  amount: string | null
+  currency: string
+  /** Source funnel (the deal this project came from), if any. */
+  funnelName: string | null
+  /** Reference of the accepted quotation this project was based on, if any. */
+  quoteNumber: string | null
 }
 
 /**
@@ -95,6 +104,10 @@ type RawRow = {
   notes: string | null
   submittedAt: Date
   reviewedAt: Date | null
+  amount: string | null
+  currency: string
+  funnelName: string | null
+  quoteNumber: string | null
 }
 
 async function fetchRows(
@@ -120,9 +133,17 @@ async function fetchRows(
       notes: salesOrders.notes,
       submittedAt: salesOrders.submittedAt,
       reviewedAt: salesOrders.reviewedAt,
+      amount: projects.value,
+      currency: projects.currency,
+      funnelName: opportunities.name,
+      quoteNumber: quotations.quoteNumber,
     })
     .from(salesOrders)
     .innerJoin(projects, eq(salesOrders.projectId, projects.id))
+    // Review context inherited from the parent project: the funnel it came from
+    // and the accepted quotation it was based on (both optional).
+    .leftJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+    .leftJoin(quotations, eq(projects.quotationId, quotations.id))
     .where(
       and(
         // Never surface SOs whose parent project was soft-deleted — soft-delete
@@ -148,6 +169,10 @@ async function fetchRows(
     notes: string | null
     submittedAt: Date
     reviewedAt: Date | null
+    amount: string | null
+    currency: string
+    funnelName: string | null
+    quoteNumber: string | null
   }>
 
   // Resolve member -> user display names in one pass.
@@ -191,6 +216,10 @@ async function fetchRows(
       notes: r.notes,
       submittedAt: r.submittedAt,
       reviewedAt: r.reviewedAt,
+      amount: r.amount,
+      currency: r.currency,
+      funnelName: r.funnelName,
+      quoteNumber: r.quoteNumber,
     }
     return {
       ...raw,

@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import {
   listAccountOptions,
   listMembers,
@@ -138,6 +139,13 @@ export default async function OpportunityDetailPage({
   )
   const pendingApproval = detail.pendingApproval
 
+  // Per-affordance gates — mirrors the server-action permission checks so a
+  // read-only role sees a clean detail view with no create/edit/advance CTAs.
+  const canUpdate = ctx.can(PERMISSIONS.OPPORTUNITY_UPDATE)
+  const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
+  const canCreateQuote = ctx.can(PERMISSIONS.QUOTATION_CREATE)
+  const canCreateProject = ctx.can(PERMISSIONS.PROJECT_CREATE)
+
   // Build the list-shaped row the edit form expects from the detail payload.
   const editRow: OpportunityListRow = {
     id: opp.id,
@@ -176,29 +184,35 @@ export default async function OpportunityDetailPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <QuotationCreateDialog opportunityId={opp.id} />
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={
-                <Link
-                  href={`/projects/new?opportunityId=${opp.id}&accountId=${opp.accountId}`}
-                />
-              }
-            >
-              <FolderPlusIcon />
-              Create project
-            </Button>
-            <OpportunityForm
-              mode="edit"
-              accounts={accounts}
-              persons={persons}
-              members={members}
-              funnels={funnels}
-              defaultOwnerMemberId={ctx.memberId}
-              opportunity={editRow}
-              trigger={<Button variant="outline">Edit</Button>}
-            />
+            {canCreateQuote ? (
+              <QuotationCreateDialog opportunityId={opp.id} />
+            ) : null}
+            {canCreateProject ? (
+              <Button
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <Link
+                    href={`/projects/new?opportunityId=${opp.id}&accountId=${opp.accountId}`}
+                  />
+                }
+              >
+                <FolderPlusIcon />
+                Create project
+              </Button>
+            ) : null}
+            {canUpdate ? (
+              <OpportunityForm
+                mode="edit"
+                accounts={accounts}
+                persons={persons}
+                members={members}
+                funnels={funnels}
+                defaultOwnerMemberId={ctx.memberId}
+                opportunity={editRow}
+                trigger={<Button variant="outline">Edit</Button>}
+              />
+            ) : null}
             {pendingApproval ? (
               <Button
                 variant="outline"
@@ -208,7 +222,7 @@ export default async function OpportunityDetailPage({
                 <ClockIcon />
                 Awaiting approval
               </Button>
-            ) : terminal ? (
+            ) : !canAdvance ? null : terminal ? (
               reopenable ? (
                 <StageReopenDialog
                   opportunityId={opp.id}

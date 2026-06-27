@@ -58,21 +58,30 @@ function CardBody({ c }: { c: OpportunityListRow }) {
   )
 }
 
-function DraggableCard({ c }: { c: OpportunityListRow }) {
+function DraggableCard({
+  c,
+  draggable,
+}: {
+  c: OpportunityListRow
+  draggable: boolean
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: c.id,
     data: { stageId: c.stageId },
+    disabled: !draggable,
   })
+
+  // Read-only users keep a navigable card but no drag handles attached.
+  const dragProps = draggable ? { ...attributes, ...listeners } : {}
 
   return (
     <Card
-      ref={setNodeRef}
+      ref={draggable ? setNodeRef : undefined}
       className={cn(
         "gap-0 py-0 transition-colors hover:border-primary/50",
         isDragging && "opacity-40"
       )}
-      {...attributes}
-      {...listeners}
+      {...dragProps}
     >
       <CardContent className="px-3 py-3">
         {/* The Link stays navigable: the PointerSensor only starts a drag
@@ -90,13 +99,16 @@ function DraggableCard({ c }: { c: OpportunityListRow }) {
 function StageColumn({
   stage,
   cards,
+  draggable,
 }: {
   stage: Stage
   cards: OpportunityListRow[]
+  draggable: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
     data: { stageId: stage.id },
+    disabled: !draggable,
   })
   const total = cards.reduce((sum, c) => sum + Number(c.amount ?? 0), 0)
 
@@ -127,7 +139,7 @@ function StageColumn({
 
       <div className="flex min-h-2 flex-col gap-2">
         {cards.map((c) => (
-          <DraggableCard key={c.id} c={c} />
+          <DraggableCard key={c.id} c={c} draggable={draggable} />
         ))}
         {cards.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
@@ -142,9 +154,13 @@ function StageColumn({
 export function OpportunitiesBoard({
   data,
   funnels,
+  canAdvance,
 }: {
   data: OpportunityListRow[]
   funnels: FunnelWithStages[]
+  /** When false the board is read-only: cards aren't draggable and drops are
+   * ignored, so a user without stage-advance can't move funnels. */
+  canAdvance: boolean
 }) {
   const router = useRouter()
   const sensors = useSensors(
@@ -214,6 +230,8 @@ export function OpportunitiesBoard({
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null)
+    // Fail-closed: ignore drops entirely for read-only users.
+    if (!canAdvance) return
     const { active, over } = event
     if (!over) return
 
@@ -282,6 +300,7 @@ export function OpportunitiesBoard({
               key={stage.id}
               stage={stage}
               cards={byStage.get(stage.id) ?? []}
+              draggable={canAdvance}
             />
           ))}
         </div>

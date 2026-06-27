@@ -154,11 +154,15 @@ export function MilestonesPanel({
   milestones,
   projectValue,
   currency,
+  canManage = true,
 }: {
   projectId: string
   milestones: MilestoneItem[]
   projectValue: string | null
   currency: string
+  /** When false the panel is read-only: no inline edits, status changes,
+   * reordering, deletes, or add-row (gated on project.update). */
+  canManage?: boolean
 }) {
   const router = useRouter()
   const [pending, startTransition] = React.useTransition()
@@ -251,55 +255,73 @@ export function MilestonesPanel({
               className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 sm:grid-cols-[1fr_auto_auto_auto]"
             >
               <div className="min-w-0">
-                <InlineRename
-                  value={m.title}
-                  onSave={(next) =>
-                    save(() => updateMilestone(m.id, { title: next }))
-                  }
-                  className="text-sm font-medium"
-                />
+                {canManage ? (
+                  <InlineRename
+                    value={m.title}
+                    onSave={(next) =>
+                      save(() => updateMilestone(m.id, { title: next }))
+                    }
+                    className="text-sm font-medium"
+                  />
+                ) : (
+                  <span className="text-sm font-medium">{m.title}</span>
+                )}
                 <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                  <InlineValue
-                    value={m.dueDate ?? ""}
-                    display={m.dueDate ? formatDate(m.dueDate) : "No due date"}
-                    formatDraft={(v) => (v ? formatDate(v) : "No due date")}
-                    type="date"
-                    title="Click to edit due date"
-                    onSave={(next) =>
-                      save(() =>
-                        updateMilestone(m.id, { dueDate: next || null })
-                      )
-                    }
-                  />
+                  {canManage ? (
+                    <InlineValue
+                      value={m.dueDate ?? ""}
+                      display={m.dueDate ? formatDate(m.dueDate) : "No due date"}
+                      formatDraft={(v) => (v ? formatDate(v) : "No due date")}
+                      type="date"
+                      title="Click to edit due date"
+                      onSave={(next) =>
+                        save(() =>
+                          updateMilestone(m.id, { dueDate: next || null })
+                        )
+                      }
+                    />
+                  ) : (
+                    <span>{m.dueDate ? formatDate(m.dueDate) : "No due date"}</span>
+                  )}
                   <span aria-hidden>·</span>
-                  <InlineValue
-                    value={m.percentage ? String(Number(m.percentage)) : ""}
-                    display={m.percentage ? `${Number(m.percentage)}%` : "—%"}
-                    formatDraft={(v) => (v ? `${Number(v)}%` : "—%")}
-                    type="number"
-                    title="Click to edit percent of value"
-                    onSave={(next) =>
-                      save(() =>
-                        updateMilestone(m.id, { percentage: next || null })
-                      )
-                    }
-                    inputClassName="w-16"
-                  />
+                  {canManage ? (
+                    <InlineValue
+                      value={m.percentage ? String(Number(m.percentage)) : ""}
+                      display={m.percentage ? `${Number(m.percentage)}%` : "—%"}
+                      formatDraft={(v) => (v ? `${Number(v)}%` : "—%")}
+                      type="number"
+                      title="Click to edit percent of value"
+                      onSave={(next) =>
+                        save(() =>
+                          updateMilestone(m.id, { percentage: next || null })
+                        )
+                      }
+                      inputClassName="w-16"
+                    />
+                  ) : (
+                    <span>{m.percentage ? `${Number(m.percentage)}%` : "—%"}</span>
+                  )}
                 </div>
               </div>
 
-              <InlineValue
-                value={m.amount ?? ""}
-                display={formatMoney(m.amount, currency)}
-                formatDraft={(v) => formatMoney(v || "0", currency)}
-                type="number"
-                title="Click to edit amount"
-                onSave={(next) =>
-                  save(() => updateMilestone(m.id, { amount: next || null }))
-                }
-                className="text-sm font-semibold tabular-nums"
-                inputClassName="w-24 text-right tabular-nums"
-              />
+              {canManage ? (
+                <InlineValue
+                  value={m.amount ?? ""}
+                  display={formatMoney(m.amount, currency)}
+                  formatDraft={(v) => formatMoney(v || "0", currency)}
+                  type="number"
+                  title="Click to edit amount"
+                  onSave={(next) =>
+                    save(() => updateMilestone(m.id, { amount: next || null }))
+                  }
+                  className="text-sm font-semibold tabular-nums"
+                  inputClassName="w-24 text-right tabular-nums"
+                />
+              ) : (
+                <span className="text-sm font-semibold tabular-nums">
+                  {formatMoney(m.amount, currency)}
+                </span>
+              )}
 
               <Select
                 value={m.status}
@@ -309,6 +331,7 @@ export function MilestonesPanel({
                     "Milestone updated"
                   )
                 }
+                disabled={!canManage}
                 items={STATUS_OPTIONS}
               >
                 <SelectTrigger size="sm" className="w-28">
@@ -331,6 +354,7 @@ export function MilestonesPanel({
                 </SelectContent>
               </Select>
 
+              {canManage ? (
               <div className="flex items-center gap-0.5">
                 <Button
                   type="button"
@@ -388,6 +412,7 @@ export function MilestonesPanel({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -395,6 +420,7 @@ export function MilestonesPanel({
         <p className="text-sm text-muted-foreground">No milestones yet.</p>
       )}
 
+      {canManage ? (
       <form
         onSubmit={onAdd}
         className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-[1fr_auto_auto_auto_auto] sm:items-end"
@@ -446,6 +472,7 @@ export function MilestonesPanel({
           Add
         </Button>
       </form>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm">
         {hasValue ? (

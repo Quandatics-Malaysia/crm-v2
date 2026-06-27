@@ -1,6 +1,9 @@
+import { redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody, PageHeader } from "@/components/page-header"
 import { Card, CardContent } from "@/components/ui/card"
+import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import { listOpportunityOptions, getQuotationFormMeta } from "../actions"
 import { NewQuotationForm } from "./new-quotation-form"
 
@@ -9,6 +12,9 @@ export default async function NewQuotationPage({
 }: {
   searchParams: Promise<{ opportunityId?: string }>
 }) {
+  const ctx = await requireContext()
+  // No create permission -> there's no affordance to land here; bounce back.
+  if (!ctx.can(PERMISSIONS.QUOTATION_CREATE)) redirect("/quotations")
   const sp = await searchParams
   const [opportunities, meta] = await Promise.all([
     listOpportunityOptions(),

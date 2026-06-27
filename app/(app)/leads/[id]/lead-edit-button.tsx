@@ -13,6 +13,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { FunnelWithStages } from "@/lib/lookups"
 import { LeadForm } from "../lead-form"
 import { updateLead, type Lead, type LeadInput } from "../actions"
@@ -25,6 +27,7 @@ export function LeadEditButton({
   funnels: FunnelWithStages[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
   const [open, setOpen] = React.useState(false)
 
   async function handleUpdate(values: LeadInput) {
@@ -37,6 +40,8 @@ export function LeadEditButton({
     setOpen(false)
     router.refresh()
   }
+
+  if (!perms.has(PERMISSIONS.LEAD_UPDATE)) return null
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

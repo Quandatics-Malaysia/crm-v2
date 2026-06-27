@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Forbidden } from "@/components/forbidden"
 
 export default function AppError({
   error,
@@ -19,9 +20,19 @@ export default function AppError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // Authorization failures bubble up as Error("FORBIDDEN: missing <key>") from
+  // assertCan. They are an expected outcome of reaching a page by URL that the
+  // role can't access — render a friendly access-denied state (never the raw
+  // permission key) instead of the generic crash boundary.
+  const isForbidden = error.message?.startsWith("FORBIDDEN") ?? false
+
   useEffect(() => {
-    console.error(error)
-  }, [error])
+    if (!isForbidden) console.error(error)
+  }, [error, isForbidden])
+
+  if (isForbidden) {
+    return <Forbidden />
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-6">

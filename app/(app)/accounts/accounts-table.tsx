@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { Option } from "@/lib/lookups"
 import { AccountForm } from "./account-form"
 import { deleteAccount, restoreAccount, type AccountListItem } from "./actions"
@@ -43,6 +45,9 @@ function RowActions({
   industries: string[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canUpdate = perms.has(PERMISSIONS.ACCOUNT_UPDATE)
+  const canDelete = perms.has(PERMISSIONS.ACCOUNT_DELETE)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
 
@@ -79,18 +84,20 @@ function RowActions({
 
   return (
     <div className="flex justify-end">
-      <AccountForm
-        account={account}
-        parentOptions={editOptions}
-        endUserOptions={editOptions}
-        industries={industries}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSaved={() => {
-          setEditOpen(false)
-          router.refresh()
-        }}
-      />
+      {canUpdate ? (
+        <AccountForm
+          account={account}
+          parentOptions={editOptions}
+          endUserOptions={editOptions}
+          industries={industries}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onSaved={() => {
+            setEditOpen(false)
+            router.refresh()
+          }}
+        />
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -105,16 +112,22 @@ function RowActions({
           <DropdownMenuItem nativeButton={false} render={<Link href={`/accounts/${account.id}`} />}>
             View
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            Delete
-          </DropdownMenuItem>
+          {canUpdate ? (
+            <DropdownMenuItem onClick={() => setEditOpen(true)}>
+              Edit
+            </DropdownMenuItem>
+          ) : null}
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -154,6 +167,8 @@ export function AccountsTable({
   industries: string[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canCreate = perms.has(PERMISSIONS.ACCOUNT_CREATE)
   const [newOpen, setNewOpen] = React.useState(false)
   // Auto-open from the header "+ New" quick-create deep link (/accounts?new=1).
   useOpenOnNewParam(() => setNewOpen(true))
@@ -259,34 +274,38 @@ export function AccountsTable({
       emptyMessage="No accounts yet"
       emptyDescription="Add a customer account to start tracking contacts and Funnels."
       emptyAction={
-        <AccountForm
-          parentOptions={parentOptions}
-          endUserOptions={parentOptions}
-          industries={industries}
-          trigger={
-            <Button size="sm">
-              <Plus className="size-4" />
-              New account
-            </Button>
-          }
-          onSaved={() => router.refresh()}
-        />
+        canCreate ? (
+          <AccountForm
+            parentOptions={parentOptions}
+            endUserOptions={parentOptions}
+            industries={industries}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-4" />
+                New account
+              </Button>
+            }
+            onSaved={() => router.refresh()}
+          />
+        ) : undefined
       }
       toolbar={
-        <AccountForm
-          parentOptions={parentOptions}
-          endUserOptions={parentOptions}
-          industries={industries}
-          open={newOpen}
-          onOpenChange={setNewOpen}
-          trigger={
-            <Button size="sm">
-              <Plus className="size-4" />
-              New account
-            </Button>
-          }
-          onSaved={() => router.refresh()}
-        />
+        canCreate ? (
+          <AccountForm
+            parentOptions={parentOptions}
+            endUserOptions={parentOptions}
+            industries={industries}
+            open={newOpen}
+            onOpenChange={setNewOpen}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-4" />
+                New account
+              </Button>
+            }
+            onSaved={() => router.refresh()}
+          />
+        ) : undefined
       }
     />
   )

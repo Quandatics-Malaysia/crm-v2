@@ -1,4 +1,5 @@
 import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import {
   listAccountOptions,
   listMembers,
@@ -22,7 +23,10 @@ export default async function OpportunitiesPage() {
     listFunnelsWithStages(),
   ])
 
-  const newButton = (
+  const canCreate = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
+  const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
+
+  const newButton = canCreate ? (
     <OpportunityForm
       mode="create"
       accounts={accounts}
@@ -31,7 +35,7 @@ export default async function OpportunitiesPage() {
       funnels={funnels}
       defaultOwnerMemberId={ctx.memberId}
     />
-  )
+  ) : undefined
 
   return (
     <>
@@ -43,13 +47,19 @@ export default async function OpportunitiesPage() {
               <TabsTrigger value="board">Board</TabsTrigger>
               <TabsTrigger value="list">List</TabsTrigger>
             </TabsList>
-            <TabsContent value="board" className="contents">
-              {newButton}
-            </TabsContent>
+            {newButton ? (
+              <TabsContent value="board" className="contents">
+                {newButton}
+              </TabsContent>
+            ) : null}
           </div>
 
           <TabsContent value="board" className="pt-2">
-            <OpportunitiesBoard data={rows} funnels={funnels} />
+            <OpportunitiesBoard
+              data={rows}
+              funnels={funnels}
+              canAdvance={canAdvance}
+            />
           </TabsContent>
 
           <TabsContent value="list" className="pt-2">

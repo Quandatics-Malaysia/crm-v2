@@ -26,6 +26,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import { PersonForm } from "../../persons/person-form"
 import {
   deletePerson,
@@ -39,6 +41,9 @@ function fullName(p: { firstName: string; lastName: string | null }) {
 
 function ContactActions({ person }: { person: PersonRow }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canUpdate = perms.has(PERMISSIONS.PERSON_UPDATE)
+  const canDelete = perms.has(PERMISSIONS.PERSON_DELETE)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
 
@@ -66,16 +71,18 @@ function ContactActions({ person }: { person: PersonRow }) {
 
   return (
     <div className="flex justify-end">
-      <PersonForm
-        person={person}
-        presetAccountId={person.accountId}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSaved={() => {
-          setEditOpen(false)
-          router.refresh()
-        }}
-      />
+      {canUpdate ? (
+        <PersonForm
+          person={person}
+          presetAccountId={person.accountId}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onSaved={() => {
+            setEditOpen(false)
+            router.refresh()
+          }}
+        />
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -87,21 +94,27 @@ function ContactActions({ person }: { person: PersonRow }) {
           }
         />
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
-            Edit
-          </DropdownMenuItem>
-          {!person.isPrimary ? (
+          {canUpdate ? (
+            <DropdownMenuItem onClick={() => setEditOpen(true)}>
+              Edit
+            </DropdownMenuItem>
+          ) : null}
+          {canUpdate && !person.isPrimary ? (
             <DropdownMenuItem onClick={onMakePrimary}>
               Make primary
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            Delete
-          </DropdownMenuItem>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -136,6 +149,8 @@ export function AccountContacts({
   contacts: PersonRow[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canCreate = perms.has(PERMISSIONS.PERSON_CREATE)
 
   const columns = React.useMemo<ColumnDef<PersonRow>[]>(
     () => [
@@ -204,16 +219,18 @@ export function AccountContacts({
       emptyMessage="No contacts on this account yet."
       pageSize={5}
       toolbar={
-        <PersonForm
-          presetAccountId={accountId}
-          trigger={
-            <Button size="sm">
-              <Plus className="size-4" />
-              Add contact
-            </Button>
-          }
-          onSaved={() => router.refresh()}
-        />
+        canCreate ? (
+          <PersonForm
+            presetAccountId={accountId}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-4" />
+                Add contact
+              </Button>
+            }
+            onSaved={() => router.refresh()}
+          />
+        ) : undefined
       }
     />
   )

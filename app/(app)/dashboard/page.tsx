@@ -4,11 +4,8 @@ import {
   CalendarClock,
   ArrowRight,
   Inbox,
-  TrendingUp,
-  Target,
   UserPlus,
   Building2,
-  type LucideIcon,
 } from "lucide-react"
 import { isBefore } from "date-fns"
 
@@ -24,10 +21,10 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { formatMoney, formatDate } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { formatDate } from "@/lib/format"
 import { getDashboardData, type FollowUpDue } from "./actions"
 import { GettingStarted, type ChecklistItem } from "./getting-started"
+import { KpiSection } from "./kpi-section"
 
 const ENTITY_HREF: Record<string, string> = {
   account: "/accounts",
@@ -48,58 +45,6 @@ const ENTITY_LABEL: Record<string, string> = {
   lead: "Lead",
   opportunity: "Funnel",
   project: "Project",
-}
-
-/** Tinted icon-chip palettes for the KPI cards. */
-const CHIP: Record<"sky" | "violet" | "amber" | "red" | "muted", string> = {
-  sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  violet:
-    "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  red: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-  muted: "bg-muted text-muted-foreground",
-}
-
-function KpiCard({
-  label,
-  value,
-  hint,
-  icon: Icon,
-  chip,
-  attention,
-}: {
-  label: string
-  value: React.ReactNode
-  hint: string
-  icon: LucideIcon
-  chip: keyof typeof CHIP
-  /** Accent ring when the metric needs action. */
-  attention?: "amber" | "red"
-}) {
-  return (
-    <Card
-      className={cn(
-        attention === "amber" && "ring-1 ring-amber-500/40",
-        attention === "red" && "ring-1 ring-red-500/40"
-      )}
-    >
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-sm text-muted-foreground">{label}</span>
-          <span
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-md",
-              CHIP[chip]
-            )}
-          >
-            <Icon className="size-4" />
-          </span>
-        </div>
-        <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </CardHeader>
-    </Card>
-  )
 }
 
 function RowLink({
@@ -163,9 +108,12 @@ export default async function DashboardPage() {
   const data = await getDashboardData()
   const now = new Date()
 
-  const approvalsCount = data.myPendingApprovals.length
+  const approvalsCount = data.pendingApprovals.length
   const followUpsCount = data.followUpsDue.length
   const hasOverdue = data.followUpsDue.some((f) => isBefore(f.dueAt, now))
+  const approvalsTitle = data.canApproveAll
+    ? "Pending Approvals"
+    : "Approvals Assigned to Me"
 
   const checklist: ChecklistItem[] = [
     {
@@ -222,54 +170,15 @@ export default async function DashboardPage() {
 
             <GettingStarted items={checklist} />
 
-            {/* KPI row */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <KpiCard
-                label="My Open Funnel Value"
-                icon={TrendingUp}
-                chip="sky"
-                value={
-                  data.myOpenPipeline.mixed ? (
-                    <span className="text-base font-medium text-muted-foreground">
-                      Multiple currencies
-                    </span>
-                  ) : (
-                    formatMoney(
-                      data.myOpenPipeline.total,
-                      data.myOpenPipeline.currency ?? undefined
-                    )
-                  )
-                }
-                hint="Sum of your open funnel value"
-              />
-              <KpiCard
-                label="My Open Funnels"
-                icon={Target}
-                chip="violet"
-                value={data.myOpenPipeline.count}
-                hint="Funnels you own still in flight"
-              />
-              <KpiCard
-                label="Pending My Approval"
-                icon={ClipboardCheck}
-                chip={approvalsCount > 0 ? "amber" : "muted"}
-                attention={approvalsCount > 0 ? "amber" : undefined}
-                value={approvalsCount}
-                hint="Stage requests awaiting you"
-              />
-              <KpiCard
-                label="Follow-ups Due"
-                icon={CalendarClock}
-                chip={
-                  hasOverdue ? "red" : followUpsCount > 0 ? "amber" : "muted"
-                }
-                attention={
-                  hasOverdue ? "red" : followUpsCount > 0 ? "amber" : undefined
-                }
-                value={followUpsCount}
-                hint="Next 7 days assigned to you"
-              />
-            </div>
+            {/* KPI row (My/Team toggle on the funnel rollup for view-all roles) */}
+            <KpiSection
+              myPipeline={data.myOpenPipeline}
+              orgPipeline={data.orgOpenPipeline}
+              approvalsCount={approvalsCount}
+              canApproveAll={data.canApproveAll}
+              followUpsCount={followUpsCount}
+              hasOverdue={hasOverdue}
+            />
 
             {/* Action lists */}
             <div className="grid gap-4 lg:grid-cols-2">
@@ -278,7 +187,7 @@ export default async function DashboardPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <ClipboardCheck className="size-4" />
-                    My Pending Approvals
+                    {approvalsTitle}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -290,7 +199,7 @@ export default async function DashboardPage() {
                     />
                   ) : (
                     <div className="flex flex-col divide-y">
-                      {data.myPendingApprovals.map((a) => (
+                      {data.pendingApprovals.map((a) => (
                         <RowLink
                           key={a.id}
                           href={`/funnel/${a.opportunityId}`}

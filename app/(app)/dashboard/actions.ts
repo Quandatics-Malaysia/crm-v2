@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, isNull, lte, asc, sql } from "drizzle-orm"
+import { and, eq, isNull, lte, asc, sql, type SQL } from "drizzle-orm"
 import { requireContext } from "@/lib/server-context"
 import { db, runInTenant } from "@/db"
 import {
@@ -13,6 +13,8 @@ import {
   taxSettings,
   member,
 } from "@/db/schema"
+import { canViewAllRecords } from "@/lib/access-scope"
+import { PERMISSIONS } from "@/lib/permissions"
 
 export type PendingApproval = {
   id: string
@@ -57,9 +59,22 @@ export type GettingStarted = {
 }
 
 export type DashboardData = {
-  myPendingApprovals: PendingApproval[]
+  /** Pending stage-approval requests the user can actually action: every
+   *  pending request in the tenant for a broad approver, otherwise only those
+   *  routed to them. Mirrors /approvals "Incoming" so the two never disagree. */
+  pendingApprovals: PendingApproval[]
+  /** True when the user is a broad approver (sees/acts on all pending requests),
+   *  so the UI titles the card "Pending Approvals" rather than "Assigned to me". */
+  canApproveAll: boolean
   followUpsDue: FollowUpDue[]
+  /** The current member's own open funnel rollup ("My"). */
   myOpenPipeline: OpenPipeline
+  /** Tenant-wide open funnel rollup ("Team"), present only for view-all roles
+   *  (records.view_all / superadmin) so an Owner/Viewer who owns nothing still
+   *  lands on a useful page. Null otherwise. */
+  orgOpenPipeline: OpenPipeline | null
+  /** True when the user may see all records (drives the My/Team toggle). */
+  canViewAll: boolean
   /** True when the tenant has no leads/accounts/contacts/funnels yet — render
    *  the "Get started" hero instead of the "all caught up" dashboard. */
   isFirstRun: boolean
@@ -74,10 +89,27 @@ export type DashboardData = {
 export async function getDashboardData(): Promise<DashboardData> {
   const ctx = await requireContext()
   const memberId = ctx.memberId
+  const canViewAll = canViewAllRecords(ctx)
+  // A broad approver (or superadmin) can decide ANY pending request — see
+  // listIncomingApprovals()/decideApproval() — so the dashboard must count those
+  // too, otherwise it says "all caught up" while /approvals shows Incoming (n).
+  const canApproveAll =
+    ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 
   return runInTenant(ctx.tenantId, async (tx) => {
-    // No member row → nothing personal to surface.
-    const myPendingApprovals: PendingApproval[] = memberId
+    // Broad approvers see every pending request in the tenant; everyone else
+    // only the ones routed to them. With no member row and no broad approval,
+    // there is nothing actionable to surface.
+    const approvalWhere: SQL | undefined = canApproveAll
+      ? eq(stageApprovalRequests.status, "pending")
+      : memberId
+        ? and(
+            eq(stageApprovalRequests.approverMemberId, memberId),
+            eq(stageApprovalRequests.status, "pending")
+          )
+        : undefined
+
+    const pendingApprovals: PendingApproval[] = approvalWhere
       ? (
           await tx
             .select({
@@ -92,12 +124,7 @@ export async function getDashboardData(): Promise<DashboardData> {
               opportunities,
               eq(opportunities.id, stageApprovalRequests.opportunityId)
             )
-            .where(
-              and(
-                eq(stageApprovalRequests.approverMemberId, memberId),
-                eq(stageApprovalRequests.status, "pending")
-              )
-            )
+            .where(approvalWhere)
             .orderBy(asc(stageApprovalRequests.requestedAt))
         ).map((r) => ({
           id: r.id,
@@ -137,27 +164,45 @@ export async function getDashboardData(): Promise<DashboardData> {
       : []
 
     // Grouped by currency so we never sum across currencies (no implicit FX).
-    const pipelineRows = memberId
-      ? await tx
-          .select({
-            currency: opportunities.currency,
-            count: sql<number>`count(*)::int`,
-            total: sql<string>`coalesce(sum(${opportunities.amount}), 0)`,
-          })
-          .from(opportunities)
-          .where(
-            and(
-              eq(opportunities.ownerMemberId, memberId),
-              eq(opportunities.status, "open"),
-              isNull(opportunities.deletedAt)
-            )
+    // `ownerFilter` undefined → tenant-wide rollup (RLS still scopes to tenant).
+    const pipelineFor = async (
+      ownerFilter: SQL | undefined
+    ): Promise<OpenPipeline> => {
+      const rows = await tx
+        .select({
+          currency: opportunities.currency,
+          count: sql<number>`count(*)::int`,
+          total: sql<string>`coalesce(sum(${opportunities.amount}), 0)`,
+        })
+        .from(opportunities)
+        .where(
+          and(
+            eq(opportunities.status, "open"),
+            isNull(opportunities.deletedAt),
+            ownerFilter
           )
-          .groupBy(opportunities.currency)
-      : []
+        )
+        .groupBy(opportunities.currency)
 
-    const count = pipelineRows.reduce((n, r) => n + Number(r.count), 0)
-    const mixed = pipelineRows.length > 1
-    const primary = pipelineRows[0]
+      const count = rows.reduce((n, r) => n + Number(r.count), 0)
+      const mixed = rows.length > 1
+      const primary = rows[0]
+      return {
+        count,
+        total: mixed ? "0" : primary?.total ?? "0",
+        currency: mixed ? null : primary?.currency ?? null,
+        mixed,
+      }
+    }
+
+    const myOpenPipeline: OpenPipeline = memberId
+      ? await pipelineFor(eq(opportunities.ownerMemberId, memberId))
+      : { count: 0, total: "0", currency: null, mixed: false }
+    // Tenant-wide rollup only for view-all roles; gives an Owner/Viewer who owns
+    // nothing a useful landing page (the My/Team toggle defaults to this).
+    const orgOpenPipeline: OpenPipeline | null = canViewAll
+      ? await pipelineFor(undefined)
+      : null
 
     // Tenant-wide existence checks for first-run detection + the getting-started
     // checklist. RLS scopes each count to the active tenant. Run sequentially —
@@ -218,14 +263,12 @@ export async function getDashboardData(): Promise<DashboardData> {
       oppCount === 0
 
     return {
-      myPendingApprovals,
+      pendingApprovals,
+      canApproveAll,
       followUpsDue,
-      myOpenPipeline: {
-        count,
-        total: mixed ? "0" : primary?.total ?? "0",
-        currency: mixed ? null : primary?.currency ?? null,
-        mixed,
-      },
+      myOpenPipeline,
+      orgOpenPipeline,
+      canViewAll,
       isFirstRun,
       gettingStarted,
     }

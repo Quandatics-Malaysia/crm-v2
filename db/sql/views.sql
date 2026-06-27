@@ -48,8 +48,11 @@ WHERE o.deleted_at IS NULL
 
 -- Pipeline summary: counts + amounts per stage per funnel, grouped by currency
 -- so amounts in different currencies are never summed together (no implicit FX);
--- a multi-currency tenant gets one row per (stage, currency). `currency` is
--- appended last so CREATE OR REPLACE stays column-order compatible.
+-- a multi-currency tenant gets one row per (stage, currency). The grain also
+-- carries `owner_member_id` so the action layer can apply record-level owner
+-- scoping (a Rep must not see other owners' pipeline); callers re-aggregate
+-- across owners after filtering. `currency` then `owner_member_id` are appended
+-- last so CREATE OR REPLACE stays column-order compatible.
 CREATE OR REPLACE VIEW v_pipeline_summary
 WITH (security_invoker = true) AS
 SELECT
@@ -63,12 +66,13 @@ SELECT
   COALESCE(SUM(o.amount), 0)     AS total_amount,
   COALESCE(SUM(o.amount * fs.probability / 100.0), 0)::numeric(14, 2)
                                  AS weighted_amount,
-  o.currency
+  o.currency,
+  o.owner_member_id
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL
   AND o.tenant_id = current_setting('app.current_tenant', true)
-GROUP BY o.tenant_id, o.funnel_id, o.currency, fs.code, fs.name, fs.kind, fs.sort_order;
+GROUP BY o.tenant_id, o.funnel_id, o.currency, o.owner_member_id, fs.code, fs.name, fs.kind, fs.sort_order;
 
 -- Stage velocity: average seconds an opportunity spent in each stage.
 CREATE OR REPLACE VIEW v_stage_velocity

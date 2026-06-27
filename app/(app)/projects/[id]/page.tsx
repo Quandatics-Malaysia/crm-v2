@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/card"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
+import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -45,12 +47,16 @@ export default async function ProjectDetailPage({
   const { project, accountName, opportunityName, quotationNumber, ownerName } =
     detail
 
-  const [activity, documents, milestones, salesOrders] = await Promise.all([
+  const [activity, documents, milestones, salesOrders, ctx] = await Promise.all([
     listEntityTimeline("project", id),
     listEntityDocuments("project", id),
     listMilestones(id),
     listProjectSalesOrders(id),
+    requireContext(),
   ])
+
+  const canUpdate = ctx.can(PERMISSIONS.PROJECT_UPDATE)
+  const canSubmitSO = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)
 
   const revalidate = `/projects/${id}`
 
@@ -77,7 +83,7 @@ export default async function ProjectDetailPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ProjectEditButton project={project} />
+            {canUpdate ? <ProjectEditButton project={project} /> : null}
           </div>
         </div>
 
@@ -177,6 +183,7 @@ export default async function ProjectDetailPage({
                   milestones={milestones}
                   projectValue={project.value}
                   currency={project.currency}
+                  canManage={canUpdate}
                 />
               </CardContent>
             </Card>
@@ -186,7 +193,11 @@ export default async function ProjectDetailPage({
                 <CardTitle>Sales Orders</CardTitle>
               </CardHeader>
               <CardContent>
-                <ProjectSalesOrders projectId={id} orders={salesOrders} />
+                <ProjectSalesOrders
+                  projectId={id}
+                  orders={salesOrders}
+                  canSubmit={canSubmitSO}
+                />
               </CardContent>
             </Card>
 

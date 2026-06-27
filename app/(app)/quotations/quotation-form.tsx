@@ -84,25 +84,59 @@ const NO_TAX = "__none__"
 
 type TaxOption = { id: string; name: string; ratePercent: string; isDefault: boolean }
 
+/** Per-affordance permission gates for the quotation actions. Defaults to fully
+ * permitted so the component stays drop-in for any caller that omits them. */
+export type QuotationPerms = {
+  canUpdate: boolean
+  canSend: boolean
+  canAccept: boolean
+  canDelete: boolean
+  canCreateProject: boolean
+}
+
+const ALL_QUOTATION_PERMS: QuotationPerms = {
+  canUpdate: true,
+  canSend: true,
+  canAccept: true,
+  canDelete: true,
+  canCreateProject: true,
+}
+
 export function QuotationForm({
   detail,
   taxOptions,
   taxInclusive,
   hasProject = false,
+  perms = ALL_QUOTATION_PERMS,
 }: {
   detail: QuotationDetail
   taxOptions: TaxOption[]
   taxInclusive: boolean
   /** True when a non-deleted project already exists for this quotation. */
   hasProject?: boolean
+  perms?: QuotationPerms
 }) {
   const router = useRouter()
   const { quotation, lines, opportunityName } = detail
   const isDraft = quotation.status === "draft"
   const isSent = quotation.status === "sent"
   const isAccepted = quotation.status === "accepted"
+  // A draft is only editable when the user also holds the update permission.
+  const canEditDraft = isDraft && perms.canUpdate
   const createProjectHref = `/projects/new?opportunityId=${quotation.opportunityId}`
   const [busy, setBusy] = React.useState(false)
+
+  // Whether the Actions card has anything to show for this user/status.
+  const showSend = isDraft && perms.canSend
+  const showAcceptReject = isSent && perms.canAccept
+  const showCreateProject = isAccepted && !hasProject && perms.canCreateProject
+  const showSetPrimary =
+    !quotation.isPrimary &&
+    (quotation.status === "accepted" || quotation.status === "sent") &&
+    perms.canUpdate
+  const showDelete = perms.canDelete
+  const hasAnyAction =
+    showSend || showAcceptReject || showCreateProject || showSetPrimary || showDelete
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -342,7 +376,7 @@ export function QuotationForm({
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
-                        disabled={!isDraft}
+                        disabled={!canEditDraft}
                         items={[
                           { value: NO_TAX, label: "No tax" },
                           ...taxOptions.map((t) => ({
@@ -376,7 +410,7 @@ export function QuotationForm({
                     <FormItem>
                       <FormLabel>Valid until</FormLabel>
                       <FormControl>
-                        <Input type="date" disabled={!isDraft} {...field} />
+                        <Input type="date" disabled={!canEditDraft} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -393,7 +427,7 @@ export function QuotationForm({
                           type="number"
                           step="0.01"
                           min="0"
-                          disabled={!isDraft}
+                          disabled={!canEditDraft}
                           placeholder="0.00"
                           {...field}
                         />
@@ -411,7 +445,7 @@ export function QuotationForm({
                       <FormControl>
                         <Textarea
                           rows={3}
-                          disabled={!isDraft}
+                          disabled={!canEditDraft}
                           placeholder="Optional notes for the customer…"
                           {...field}
                         />
@@ -426,7 +460,7 @@ export function QuotationForm({
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle>Line items</CardTitle>
-                {isDraft ? (
+                {canEditDraft ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -467,7 +501,7 @@ export function QuotationForm({
                             <FormControl>
                               <Input
                                 placeholder="Service description"
-                                disabled={!isDraft}
+                                disabled={!canEditDraft}
                                 {...field}
                               />
                             </FormControl>
@@ -489,7 +523,7 @@ export function QuotationForm({
                                   type="number"
                                   step="0.001"
                                   min="0"
-                                  disabled={!isDraft}
+                                  disabled={!canEditDraft}
                                   {...field}
                                 />
                               </FormControl>
@@ -510,7 +544,7 @@ export function QuotationForm({
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  disabled={!isDraft}
+                                  disabled={!canEditDraft}
                                   {...field}
                                 />
                               </FormControl>
@@ -529,7 +563,7 @@ export function QuotationForm({
                                   type="number"
                                   step="0.001"
                                   min="0"
-                                  disabled={!isDraft}
+                                  disabled={!canEditDraft}
                                   {...field}
                                 />
                               </FormControl>
@@ -544,7 +578,7 @@ export function QuotationForm({
                           </div>
                         </div>
                       </div>
-                      {isDraft ? (
+                      {canEditDraft ? (
                         <div className="flex justify-end">
                           <Button
                             type="button"
@@ -563,7 +597,7 @@ export function QuotationForm({
               </CardContent>
             </Card>
 
-            {isDraft ? (
+            {canEditDraft ? (
               <div className="flex justify-end">
                 <Button type="submit" disabled={busy}>
                   {busy ? "Saving…" : "Save draft"}
@@ -617,12 +651,13 @@ export function QuotationForm({
           </CardContent>
         </Card>
 
+        {hasAnyAction ? (
         <Card>
           <CardHeader>
             <CardTitle>Actions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {isDraft ? (
+            {showSend ? (
               <AlertDialog>
                 <AlertDialogTrigger
                   render={
@@ -657,7 +692,7 @@ export function QuotationForm({
                 </AlertDialogContent>
               </AlertDialog>
             ) : null}
-            {isSent ? (
+            {showAcceptReject ? (
               <>
                 <AlertDialog>
                   <AlertDialogTrigger
@@ -724,7 +759,7 @@ export function QuotationForm({
                 </AlertDialog>
               </>
             ) : null}
-            {isAccepted && !hasProject ? (
+            {showCreateProject ? (
               <Button
                 variant="default"
                 disabled={busy}
@@ -734,8 +769,7 @@ export function QuotationForm({
                 Create project
               </Button>
             ) : null}
-            {!quotation.isPrimary &&
-            (quotation.status === "accepted" || quotation.status === "sent") ? (
+            {showSetPrimary ? (
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
@@ -753,41 +787,44 @@ export function QuotationForm({
               </div>
             ) : null}
 
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={
-                  <Button variant="destructive" disabled={busy}>
-                    Delete
-                  </Button>
-                }
-              />
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this quotation?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This soft-deletes {quotation.quoteNumber}. It will no longer
-                    appear in the list.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    onClick={() =>
-                      runAction(
-                        () => deleteQuotation(quotation.id),
-                        "Quotation deleted",
-                        { redirect: "/quotations" }
-                      )
-                    }
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            {showDelete ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="destructive" disabled={busy}>
+                      Delete
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this quotation?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This soft-deletes {quotation.quoteNumber}. It will no
+                      longer appear in the list.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      onClick={() =>
+                        runAction(
+                          () => deleteQuotation(quotation.id),
+                          "Quotation deleted",
+                          { redirect: "/quotations" }
+                        )
+                      }
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
           </CardContent>
         </Card>
+        ) : null}
       </div>
     </div>
   )

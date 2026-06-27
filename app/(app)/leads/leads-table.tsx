@@ -39,6 +39,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { Option, FunnelWithStages, MemberOption } from "@/lib/lookups"
 
 import { LeadForm } from "./lead-form"
@@ -107,6 +109,11 @@ export function LeadsTable({
   members: MemberOption[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canCreate = perms.has(PERMISSIONS.LEAD_CREATE)
+  const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
+  const canDelete = perms.has(PERMISSIONS.LEAD_DELETE)
+  const canConvert = perms.has(PERMISSIONS.LEAD_CONVERT)
 
   // Resolve an owner member id to its display name for the Owner column/facet.
   const ownerNameById = React.useMemo(() => {
@@ -339,28 +346,38 @@ export function LeadsTable({
                   >
                     View
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setEditLead(lead)}>
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={isConverted}
-                    onClick={() => setConvertLead(lead)}
-                  >
-                    Convert
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={isConverted || lead.status === "disqualified"}
-                    onClick={() => setDisqualifyTarget(lead)}
-                  >
-                    Disqualify
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => setDeleteTarget(lead)}
-                  >
-                    Delete
-                  </DropdownMenuItem>
+                  {canUpdate ? (
+                    <DropdownMenuItem onClick={() => setEditLead(lead)}>
+                      Edit
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canConvert ? (
+                    <DropdownMenuItem
+                      disabled={isConverted}
+                      onClick={() => setConvertLead(lead)}
+                    >
+                      Convert
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canUpdate ? (
+                    <DropdownMenuItem
+                      disabled={isConverted || lead.status === "disqualified"}
+                      onClick={() => setDisqualifyTarget(lead)}
+                    >
+                      Disqualify
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setDeleteTarget(lead)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -368,7 +385,7 @@ export function LeadsTable({
         },
       },
     ],
-    [stageNameById, ownerNameById]
+    [stageNameById, ownerNameById, canUpdate, canDelete, canConvert]
   )
 
   return (
@@ -389,24 +406,28 @@ export function LeadsTable({
         emptyMessage="No leads yet"
         emptyDescription="Capture your first lead to start working it toward a funnel."
         emptyAction={
-          <Button size="sm" onClick={() => setNewOpen(true)}>
-            New lead
-          </Button>
+          canCreate ? (
+            <Button size="sm" onClick={() => setNewOpen(true)}>
+              New lead
+            </Button>
+          ) : undefined
         }
         toolbar={
-          <Dialog open={newOpen} onOpenChange={setNewOpen}>
-            <DialogTrigger render={<Button size="sm">New lead</Button>} />
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>New lead</DialogTitle>
-              </DialogHeader>
-              <LeadForm
-                funnels={funnels}
-                onSubmit={handleCreate}
-                submitLabel="Create lead"
-              />
-            </DialogContent>
-          </Dialog>
+          canCreate ? (
+            <Dialog open={newOpen} onOpenChange={setNewOpen}>
+              <DialogTrigger render={<Button size="sm">New lead</Button>} />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>New lead</DialogTitle>
+                </DialogHeader>
+                <LeadForm
+                  funnels={funnels}
+                  onSubmit={handleCreate}
+                  submitLabel="Create lead"
+                />
+              </DialogContent>
+            </Dialog>
+          ) : undefined
         }
       />
 

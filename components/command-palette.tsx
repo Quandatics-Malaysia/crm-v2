@@ -46,6 +46,16 @@ import { globalSearch, type SearchHit } from "@/app/(app)/_shared/search-actions
  */
 const PermissionsContext = React.createContext<Set<string>>(new Set())
 
+/**
+ * Client-side permission set provided by {@link HeaderActionsProvider}. Reuse
+ * this to gate UI affordances (edit/create/advance buttons) so the chrome and
+ * page components share one permission source. Returns a `Set<string>` of
+ * permission keys; call `.has(PERMISSIONS.X)` to check.
+ */
+export function usePermissions() {
+  return React.useContext(PermissionsContext)
+}
+
 export function HeaderActionsProvider({
   permissions,
   children,

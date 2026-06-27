@@ -1,6 +1,9 @@
+import { redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody, PageHeader } from "@/components/page-header"
 import { listAccountOptions } from "@/lib/lookups"
+import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import { listOpportunityOptions, prefillFromOpportunity } from "../actions"
 import { ProjectCreateForm } from "../project-create-form"
 
@@ -9,6 +12,9 @@ export default async function NewProjectPage({
 }: {
   searchParams: Promise<{ accountId?: string; opportunityId?: string }>
 }) {
+  const ctx = await requireContext()
+  // No create permission -> there's no affordance to land here; bounce back.
+  if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) redirect("/projects")
   const sp = await searchParams
   const [accounts, opportunities] = await Promise.all([
     listAccountOptions(),

@@ -101,9 +101,11 @@ function NewQuotationDialog({
 export function QuotationsTable({
   data,
   opportunities,
+  canCreate,
 }: {
   data: QuotationListItem[]
   opportunities: { id: string; name: string }[]
+  canCreate: boolean
 }) {
   const columns: ColumnDef<QuotationListItem>[] = [
     {
@@ -164,7 +166,9 @@ export function QuotationsTable({
       searchColumn="quoteNumber"
       searchPlaceholder="Search by number…"
       emptyMessage="No quotations yet."
-      toolbar={<NewQuotationDialog opportunities={opportunities} />}
+      toolbar={
+        canCreate ? <NewQuotationDialog opportunities={opportunities} /> : undefined
+      }
     />
   )
 }

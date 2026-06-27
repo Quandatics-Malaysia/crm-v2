@@ -12,6 +12,7 @@ import {
   tenantSettings,
 } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
+import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
 
 export type MemberOption = { memberId: string; name: string; email: string }
 export type Option = { id: string; name: string }
@@ -28,31 +29,42 @@ export async function listMembers(): Promise<MemberOption[]> {
 
 export async function listAccountOptions(): Promise<Option[]> {
   const ctx = await requireContext()
-  return runInTenant(ctx.tenantId, (tx) =>
-    tx
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select({ id: accounts.id, name: accounts.name })
       .from(accounts)
-      .where(isNull(accounts.deletedAt))
+      .where(
+        and(
+          isNull(accounts.deletedAt),
+          ownerScope(accounts.ownerMemberId, visible)
+        )
+      )
       .orderBy(asc(accounts.name))
-  )
+  })
 }
 
 export async function listPersonOptions(accountId?: string): Promise<Option[]> {
   const ctx = await requireContext()
-  return runInTenant(ctx.tenantId, (tx) =>
-    tx
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
       .select({
         id: persons.id,
         name: persons.firstName,
       })
       .from(persons)
+      .innerJoin(accounts, eq(persons.accountId, accounts.id))
       .where(
-        accountId
-          ? and(isNull(persons.deletedAt), eq(persons.accountId, accountId))
-          : isNull(persons.deletedAt)
+        and(
+          isNull(persons.deletedAt),
+          isNull(accounts.deletedAt),
+          ownerScope(accounts.ownerMemberId, visible),
+          accountId ? eq(persons.accountId, accountId) : undefined
+        )
       )
       .orderBy(asc(persons.firstName))
-  )
+  })
 }
 
 export type FunnelWithStages = {

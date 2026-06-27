@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { eq } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
+import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions } from "@/lib/lookups"
@@ -37,15 +38,24 @@ export default async function QuotationDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [detail, taxOptions, taxInclusive, attachments, project] =
+  const [detail, taxOptions, taxInclusive, attachments, project, ctx] =
     await Promise.all([
       getQuotation(id),
       listTaxOptions(),
       getTaxInclusive(),
       listEntityAttachments("quotation", id),
       getProjectForQuotation(id),
+      requireContext(),
     ])
   if (!detail) notFound()
+
+  const perms = {
+    canUpdate: ctx.can(PERMISSIONS.QUOTATION_UPDATE),
+    canSend: ctx.can(PERMISSIONS.QUOTATION_SEND),
+    canAccept: ctx.can(PERMISSIONS.QUOTATION_ACCEPT),
+    canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),
+    canCreateProject: ctx.can(PERMISSIONS.PROJECT_CREATE),
+  }
 
   return (
     <>
@@ -105,6 +115,7 @@ export default async function QuotationDetailPage({
           taxOptions={taxOptions}
           taxInclusive={taxInclusive}
           hasProject={!!project}
+          perms={perms}
         />
 
         <Card>

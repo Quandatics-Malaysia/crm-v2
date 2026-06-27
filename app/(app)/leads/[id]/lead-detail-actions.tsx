@@ -14,6 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { Option } from "@/lib/lookups"
 import { ConvertDialog } from "../convert-dialog"
 import { disqualifyLead, type Lead } from "../actions"
@@ -30,6 +32,9 @@ export function LeadDetailActions({
   lead: Lead
   accountOptions: Option[]
 }) {
+  const perms = usePermissions()
+  const canConvert = perms.has(PERMISSIONS.LEAD_CONVERT)
+  const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
   const [convertOpen, setConvertOpen] = React.useState(false)
   const [disqualifyOpen, setDisqualifyOpen] = React.useState(false)
 
@@ -38,21 +43,25 @@ export function LeadDetailActions({
 
   return (
     <>
-      <Button
-        size="sm"
-        disabled={isConverted}
-        onClick={() => setConvertOpen(true)}
-      >
-        Convert
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={isConverted || isDisqualified}
-        onClick={() => setDisqualifyOpen(true)}
-      >
-        Disqualify
-      </Button>
+      {canConvert ? (
+        <Button
+          size="sm"
+          disabled={isConverted}
+          onClick={() => setConvertOpen(true)}
+        >
+          Convert
+        </Button>
+      ) : null}
+      {canUpdate ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isConverted || isDisqualified}
+          onClick={() => setDisqualifyOpen(true)}
+        >
+          Disqualify
+        </Button>
+      ) : null}
 
       {convertOpen ? (
         <ConvertDialog

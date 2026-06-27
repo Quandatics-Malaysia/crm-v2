@@ -28,6 +28,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { Option } from "@/lib/lookups"
 import { PersonForm } from "./person-form"
 import {
@@ -49,6 +51,9 @@ function RowActions({
   accounts: Option[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canUpdate = perms.has(PERMISSIONS.PERSON_UPDATE)
+  const canDelete = perms.has(PERMISSIONS.PERSON_DELETE)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
 
@@ -89,16 +94,18 @@ function RowActions({
 
   return (
     <div className="flex justify-end">
-      <PersonForm
-        accounts={accounts}
-        person={person}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSaved={() => {
-          setEditOpen(false)
-          router.refresh()
-        }}
-      />
+      {canUpdate ? (
+        <PersonForm
+          accounts={accounts}
+          person={person}
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          onSaved={() => {
+            setEditOpen(false)
+            router.refresh()
+          }}
+        />
+      ) : null}
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -110,21 +117,27 @@ function RowActions({
           }
         />
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setEditOpen(true)}>
-            Edit
-          </DropdownMenuItem>
-          {!person.isPrimary ? (
+          {canUpdate ? (
+            <DropdownMenuItem onClick={() => setEditOpen(true)}>
+              Edit
+            </DropdownMenuItem>
+          ) : null}
+          {canUpdate && !person.isPrimary ? (
             <DropdownMenuItem onClick={onMakePrimary}>
               Make primary
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            Delete
-          </DropdownMenuItem>
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -160,6 +173,8 @@ export function PersonsTable({
   accounts: Option[]
 }) {
   const router = useRouter()
+  const perms = usePermissions()
+  const canCreate = perms.has(PERMISSIONS.PERSON_CREATE)
   const [newOpen, setNewOpen] = React.useState(false)
   // Auto-open from the header "+ New" quick-create deep link (/persons?new=1).
   useOpenOnNewParam(() => setNewOpen(true))
@@ -257,16 +272,18 @@ export function PersonsTable({
       emptyMessage="No contacts yet"
       emptyDescription="Add a contact and link them to an account to start engaging."
       emptyAction={
-        <PersonForm
-          accounts={accounts}
-          trigger={
-            <Button size="sm">
-              <Plus className="size-4" />
-              New contact
-            </Button>
-          }
-          onSaved={() => router.refresh()}
-        />
+        canCreate ? (
+          <PersonForm
+            accounts={accounts}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-4" />
+                New contact
+              </Button>
+            }
+            onSaved={() => router.refresh()}
+          />
+        ) : undefined
       }
       facets={[
         { columnId: "accountName", title: "Account" },
@@ -275,18 +292,20 @@ export function PersonsTable({
       tableId="persons"
       cap={1000}
       toolbar={
-        <PersonForm
-          accounts={accounts}
-          open={newOpen}
-          onOpenChange={setNewOpen}
-          trigger={
-            <Button size="sm">
-              <Plus className="size-4" />
-              New contact
-            </Button>
-          }
-          onSaved={() => router.refresh()}
-        />
+        canCreate ? (
+          <PersonForm
+            accounts={accounts}
+            open={newOpen}
+            onOpenChange={setNewOpen}
+            trigger={
+              <Button size="sm">
+                <Plus className="size-4" />
+                New contact
+              </Button>
+            }
+            onSaved={() => router.refresh()}
+          />
+        ) : undefined
       }
     />
   )

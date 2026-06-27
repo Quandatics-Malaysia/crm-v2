@@ -13,9 +13,12 @@ import { type SalesOrderRow } from "./actions"
 export function ProjectSalesOrders({
   projectId,
   orders,
+  canSubmit = true,
 }: {
   projectId: string
   orders: SalesOrderRow[]
+  /** Gated on sales_order.submit — hides submit/resubmit for read-only roles. */
+  canSubmit?: boolean
 }) {
   const [resubmitTarget, setResubmitTarget] = React.useState<SalesOrderRow | null>(
     null
@@ -25,7 +28,7 @@ export function ProjectSalesOrders({
     <div className="grid gap-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Sales orders</h3>
-        <SubmitSalesOrderDialog projectId={projectId} />
+        {canSubmit ? <SubmitSalesOrderDialog projectId={projectId} /> : null}
       </div>
 
       {orders.length === 0 ? (
@@ -71,16 +74,18 @@ export function ProjectSalesOrders({
                       Rejected: {o.rejectReason}
                     </p>
                   ) : null}
-                  <div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setResubmitTarget(o)}
-                    >
-                      Resubmit
-                    </Button>
-                  </div>
+                  {canSubmit ? (
+                    <div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setResubmitTarget(o)}
+                      >
+                        Resubmit
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </li>

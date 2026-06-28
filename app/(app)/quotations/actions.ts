@@ -47,6 +47,8 @@ export type QuotationHeaderInput = {
   validUntil: string | null
   notes: string | null
   headerDiscount?: string | null
+  /** Tenant product-type code (tenant_settings.product_types[].code), editable. */
+  productTypeCode?: string | null
   lines: LineInput[]
 }
 
@@ -169,6 +171,7 @@ export type TaxOption = {
 export async function getQuotationFormMeta(): Promise<{
   taxOptions: TaxOption[]
   taxInclusive: boolean
+  productTypes: { code: string; name: string }[]
 }> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const taxOptions = await tx
@@ -182,7 +185,12 @@ export async function getQuotationFormMeta(): Promise<{
       .where(eq(taxSettings.isActive, true))
       .orderBy(asc(taxSettings.name))
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
-    return { taxOptions, taxInclusive }
+    const [settings] = await tx
+      .select({ productTypes: tenantSettings.productTypes })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    return { taxOptions, taxInclusive, productTypes: settings?.productTypes ?? [] }
   })
 }
 
@@ -217,6 +225,8 @@ export async function createQuotation(input: {
   validUntil: string | null
   notes: string | null
   headerDiscount?: string | null
+  /** Optional override; defaults to the funnel's product type when omitted. */
+  productTypeCode?: string | null
   lines: LineInput[]
 }): Promise<ActionResult<QuotationRow>> {
   return runAction(async () => {
@@ -228,6 +238,7 @@ export async function createQuotation(input: {
         currency: opportunities.currency,
         primaryQuotationId: opportunities.primaryQuotationId,
         ownerMemberId: opportunities.ownerMemberId,
+        productTypeCode: opportunities.productTypeCode,
       })
       .from(opportunities)
       .where(and(eq(opportunities.id, input.opportunityId), isNull(opportunities.deletedAt)))
@@ -235,6 +246,11 @@ export async function createQuotation(input: {
     if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
       throw new Error("FORBIDDEN")
+
+    // Inherit the funnel's product type as the default when the user didn't
+    // pick one; the quotation keeps it editable from here on.
+    const productTypeCode =
+      (input.productTypeCode?.trim() || null) ?? opp.productTypeCode ?? null
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
@@ -265,6 +281,7 @@ export async function createQuotation(input: {
         quoteNumber,
         status: "draft",
         currency: opp.currency,
+        productTypeCode,
         taxSettingId: input.taxSettingId,
         taxInclusive,
         subtotal: totals.subtotal.toFixed(2),
@@ -360,6 +377,7 @@ export async function updateQuotation(
       .update(quotations)
       .set({
         taxSettingId: input.taxSettingId,
+        productTypeCode: input.productTypeCode?.trim() || null,
         subtotal: totals.subtotal.toFixed(2),
         headerDiscount: headerDiscount.toFixed(2),
         discountTotal: totals.discountTotal.toFixed(2),

@@ -250,20 +250,24 @@ async function main() {
 
   // ── 4. opportunities (funnels) across stages ──────────────────────────────
   const oppId = (k: string) => det(`opportunity:${k}`)
+  // productType codes below come from the tenant's product_types picklist
+  // seeded in seed.ts (CONSULT/IMPL/MSP/WEB/INFRA/SUPP). The funnel's
+  // product_type_code is inherited by its quotations (see section 5).
   const oppValues = [
-    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31" },
-    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30" },
+    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31", productType: "IMPL" },
+    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30", productType: "INFRA" },
     // sales1-owned, currently at gated 2c → the pending approval below advances it to 3b
-    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15" },
-    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31" },
-    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31" },
+    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15", productType: "CONSULT" },
+    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31", productType: "WEB" },
+    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31", productType: "IMPL" },
     // Won — carries the accepted primary quote + project + milestones + SO
-    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true },
+    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true, productType: "MSP" },
     // Lost
-    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year" },
+    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", productType: "INFRA" },
     // KIV / parked
-    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01" },
+    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", productType: "CONSULT" },
   ]
+  const oppProductType = new Map(oppValues.map((o) => [o.k, o.productType]))
   for (const o of oppValues) {
     const closeTs = o.closed ? new Date("2026-06-01T08:00:00Z") : null
     await db
@@ -279,6 +283,7 @@ async function main() {
         ownerMemberId: o.owner,
         amount: o.amount,
         currency: "MYR",
+        productTypeCode: o.productType,
         status: o.status as "open" | "won" | "lost" | "on_hold",
         expectedCloseDate: o.expected ?? null,
         actualCloseDate: closeTs ? "2026-06-01" : null,
@@ -352,6 +357,8 @@ async function main() {
         isPrimary: q.isPrimary,
         status: q.status,
         currency: "MYR",
+        // inherited from the source funnel on create (editable thereafter)
+        productTypeCode: oppProductType.get(q.opp) ?? null,
         taxSettingId: tax.id,
         taxRateSnapshot: taxRate,
         taxInclusive: false,

@@ -5,7 +5,7 @@ import { withTenant } from "@/lib/actions"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { tenantSettings } from "@/db/schema"
-import { listTaxOptions } from "@/lib/lookups"
+import { listTaxOptions, listProductTypes } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -38,15 +38,23 @@ export default async function QuotationDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [detail, taxOptions, taxInclusive, attachments, project, ctx] =
-    await Promise.all([
-      getQuotation(id),
-      listTaxOptions(),
-      getTaxInclusive(),
-      listEntityAttachments("quotation", id),
-      getProjectForQuotation(id),
-      requireContext(),
-    ])
+  const [
+    detail,
+    taxOptions,
+    taxInclusive,
+    productTypes,
+    attachments,
+    project,
+    ctx,
+  ] = await Promise.all([
+    getQuotation(id),
+    listTaxOptions(),
+    getTaxInclusive(),
+    listProductTypes(),
+    listEntityAttachments("quotation", id),
+    getProjectForQuotation(id),
+    requireContext(),
+  ])
   if (!detail) notFound()
 
   const perms = {
@@ -114,6 +122,7 @@ export default async function QuotationDetailPage({
           detail={detail}
           taxOptions={taxOptions}
           taxInclusive={taxInclusive}
+          productTypes={productTypes}
           hasProject={!!project}
           perms={perms}
         />

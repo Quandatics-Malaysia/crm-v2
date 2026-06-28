@@ -48,6 +48,7 @@ export type OpportunityListRow = {
   funnelId: string
   funnelIsDefault: boolean
   primaryQuotationId: string | null
+  productTypeCode: string | null
 }
 
 export type OpportunityInput = {
@@ -60,6 +61,8 @@ export type OpportunityInput = {
   amount?: string | null
   currency: string
   expectedCloseDate?: string | null
+  /** Default product type for the deal (code from tenant product_types). */
+  productTypeCode?: string | null
 }
 
 /** All open + closed opportunities (non-deleted), with denormalized lookups. */
@@ -86,6 +89,7 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         funnelId: opportunities.funnelId,
         funnelIsDefault: funnels.isDefault,
         primaryQuotationId: opportunities.primaryQuotationId,
+        productTypeCode: opportunities.productTypeCode,
         createdAt: opportunities.createdAt,
       })
       .from(opportunities)
@@ -326,6 +330,7 @@ export async function createOpportunity(
           ownerMemberId,
           amount: input.amount ? input.amount : null,
           currency: input.currency || "MYR",
+          productTypeCode: input.productTypeCode || null,
           expectedCloseDate: input.expectedCloseDate || null,
         })
         .returning({ id: opportunities.id })
@@ -415,6 +420,10 @@ export async function updateOpportunity(
               ? input.amount
               : null,
         currency: input.currency ?? existing.currency,
+        productTypeCode:
+          input.productTypeCode === undefined
+            ? existing.productTypeCode
+            : input.productTypeCode || null,
         expectedCloseDate:
           input.expectedCloseDate === undefined
             ? existing.expectedCloseDate

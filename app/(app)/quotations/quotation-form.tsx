@@ -72,6 +72,7 @@ import {
 
 const schema = z.object({
   taxSettingId: z.string(),
+  productTypeCode: z.string(),
   validUntil: z.string(),
   notes: z.string(),
   headerDiscount: headerDiscountSchema,
@@ -81,8 +82,11 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 const NO_TAX = "__none__"
+/** Sentinel for "no product type" in the editable picker. */
+const NO_PRODUCT_TYPE = "__none__"
 
 type TaxOption = { id: string; name: string; ratePercent: string; isDefault: boolean }
+type ProductTypeOption = { code: string; name: string }
 
 /** Per-affordance permission gates for the quotation actions. Defaults to fully
  * permitted so the component stays drop-in for any caller that omits them. */
@@ -106,12 +110,15 @@ export function QuotationForm({
   detail,
   taxOptions,
   taxInclusive,
+  productTypes = [],
   hasProject = false,
   perms = ALL_QUOTATION_PERMS,
 }: {
   detail: QuotationDetail
   taxOptions: TaxOption[]
   taxInclusive: boolean
+  /** Tenant product-type picklist; empty hides the picker. */
+  productTypes?: ProductTypeOption[]
   /** True when a non-deleted project already exists for this quotation. */
   hasProject?: boolean
   perms?: QuotationPerms
@@ -143,6 +150,7 @@ export function QuotationForm({
     mode: "onBlur",
     defaultValues: {
       taxSettingId: quotation.taxSettingId ?? NO_TAX,
+      productTypeCode: quotation.productTypeCode ?? NO_PRODUCT_TYPE,
       validUntil: quotation.validUntil ?? "",
       notes: quotation.notes ?? "",
       headerDiscount: quotation.headerDiscount ?? "0",
@@ -212,11 +220,28 @@ export function QuotationForm({
   // onto it at create/send time, so the label never drifts after a settings flip.
   const labelTaxInclusive = isDraft ? taxInclusive : quotation.taxInclusive
 
+  // Product-type options for the picker. Include the quote's stored code even if
+  // it's no longer in the tenant picklist, so a stale snapshot stays selectable.
+  const productTypeItems = React.useMemo(() => {
+    const items = productTypes.map((p) => ({ value: p.code, label: p.name }))
+    const current = quotation.productTypeCode
+    if (current && !items.some((p) => p.value === current))
+      items.push({ value: current, label: current })
+    return items
+  }, [productTypes, quotation.productTypeCode])
+  const productTypeName =
+    productTypeItems.find((p) => p.value === quotation.productTypeCode)?.label ??
+    quotation.productTypeCode
+
   async function onSave(values: FormValues) {
     setBusy(true)
     const res = await updateQuotation(quotation.id, {
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
+      productTypeCode:
+        values.productTypeCode === NO_PRODUCT_TYPE
+          ? null
+          : values.productTypeCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
       headerDiscount: values.headerDiscount || "0",
@@ -403,6 +428,41 @@ export function QuotationForm({
                     </FormItem>
                   )}
                 />
+                {productTypeItems.length > 0 ? (
+                  <FormField
+                    control={form.control}
+                    name="productTypeCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Product type</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          disabled={!canEditDraft}
+                          items={[
+                            { value: NO_PRODUCT_TYPE, label: "None" },
+                            ...productTypeItems,
+                          ]}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="None" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value={NO_PRODUCT_TYPE}>None</SelectItem>
+                            {productTypeItems.map((p) => (
+                              <SelectItem key={p.value} value={p.value}>
+                                {p.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
                 <FormField
                   control={form.control}
                   name="validUntil"
@@ -637,6 +697,10 @@ export function QuotationForm({
                 {formatMoney(display.total, quotation.currency)}
               </span>
             </div>
+            <Row
+              label="Product type"
+              value={productTypeName ?? "—"}
+            />
             {quotation.isPrimary ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <Badge variant="secondary" className="w-fit">

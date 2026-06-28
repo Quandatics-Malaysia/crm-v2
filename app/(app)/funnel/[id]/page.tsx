@@ -12,6 +12,7 @@ import {
   listAccountOptions,
   listMembers,
   listFunnelsWithStages,
+  listProductTypes,
 } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
@@ -101,6 +102,7 @@ export default async function OpportunityDetailPage({
     persons,
     members,
     funnels,
+    productTypes,
     activity,
     documents,
     relatedProjects,
@@ -110,10 +112,18 @@ export default async function OpportunityDetailPage({
     listPersonsWithAccount(),
     listMembers(),
     listFunnelsWithStages(),
+    listProductTypes(),
     listActivities("opportunity", id),
     listOpportunityDocuments(id),
     listOpportunityProjects(id),
   ])
+
+  // Resolve the product-type display name for the overview (falls back to the
+  // raw code if the picklist entry was renamed/removed).
+  const productTypeName = opp.productTypeCode
+    ? productTypes.find((p) => p.code === opp.productTypeCode)?.name ??
+      opp.productTypeCode
+    : null
 
   // Stage progress ladder, built from this funnel's stages.
   const progressStages = detail.funnelStagesList.map((s) => ({
@@ -167,6 +177,7 @@ export default async function OpportunityDetailPage({
     funnelIsDefault:
       funnels.find((f) => f.id === opp.funnelId)?.isDefault ?? false,
     primaryQuotationId: opp.primaryQuotationId,
+    productTypeCode: opp.productTypeCode,
   }
 
   return (
@@ -208,6 +219,7 @@ export default async function OpportunityDetailPage({
                 persons={persons}
                 members={members}
                 funnels={funnels}
+                productTypes={productTypes}
                 defaultOwnerMemberId={ctx.memberId}
                 opportunity={editRow}
                 trigger={<Button variant="outline">Edit</Button>}
@@ -316,6 +328,12 @@ export default async function OpportunityDetailPage({
                   <Badge variant="secondary" className="capitalize">
                     {opp.status.replace(/_/g, " ")}
                   </Badge>
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    Product type
+                  </span>
+                  <span className="text-sm">{productTypeName ?? "—"}</span>
                 </div>
                 <div className="grid gap-1">
                   <span className="text-xs text-muted-foreground">Owner</span>

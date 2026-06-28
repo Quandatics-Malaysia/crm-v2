@@ -127,6 +127,22 @@ export async function listIndustries(): Promise<string[]> {
   return s?.industries ?? []
 }
 
+/**
+ * Tenant-managed product-type picklist (code + display name). Flows
+ * Funnel → Quotation → Project. Read from tenant_settings, tenant-scoped.
+ */
+export async function listProductTypes(): Promise<{ code: string; name: string }[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ productTypes: tenantSettings.productTypes })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.productTypes ?? []
+}
+
 export async function listTaxOptions(): Promise<
   { id: string; name: string; ratePercent: string; isDefault: boolean }[]
 > {

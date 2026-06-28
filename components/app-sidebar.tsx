@@ -146,11 +146,11 @@ export function AppSidebar({
                 render={
                   <SidebarMenuButton
                     size="lg"
-                    className="data-[state=open]:bg-sidebar-accent"
+                    className="rounded-[8px] border border-transparent hover:border-sidebar-border data-[state=open]:border-sidebar-border data-[state=open]:bg-sidebar-accent"
                   />
                 }
               >
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-[8px] bg-sidebar-primary text-sidebar-primary-foreground">
                   <BuildingIcon className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
@@ -231,9 +231,16 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-                <Avatar className="size-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg">
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size="lg"
+                    className="rounded-[8px] border border-transparent hover:border-sidebar-border data-[state=open]:border-sidebar-border data-[state=open]:bg-sidebar-accent"
+                  />
+                }
+              >
+                <Avatar className="size-8 rounded-full border border-sidebar-border">
+                  <AvatarFallback className="rounded-full bg-sidebar-accent text-xs font-medium text-sidebar-accent-foreground">
                     {initials}
                   </AvatarFallback>
                 </Avatar>

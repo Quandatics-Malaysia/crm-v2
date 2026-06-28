@@ -38,6 +38,7 @@ export default async function NewQuotationPage({
               defaultOpportunityId={defaultOpportunityId}
               taxOptions={meta.taxOptions}
               taxInclusive={meta.taxInclusive}
+              productTypes={meta.productTypes}
             />
           </CardContent>
         </Card>

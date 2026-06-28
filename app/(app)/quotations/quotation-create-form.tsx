@@ -37,10 +37,13 @@ import { computeQuotation } from "@/server/services/quotation-math"
 import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
 
 const NO_TAX = "__none__"
+/** Sentinel: leave product type to the funnel's default (server inherits it). */
+const INHERIT_PRODUCT_TYPE = "__inherit__"
 
 const schema = z.object({
   opportunityId: z.string().trim().min(1, "Select a funnel"),
   taxSettingId: z.string(),
+  productTypeCode: z.string(),
   validUntil: z.string(),
   notes: z.string(),
   headerDiscount: headerDiscountSchema,
@@ -50,6 +53,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export type OpportunityOption = { id: string; name: string }
+export type ProductTypeOption = { code: string; name: string }
 
 /**
  * Shared quotation CREATE form. Used by both the `/quotations/new` page and the
@@ -59,6 +63,7 @@ export type OpportunityOption = { id: string; name: string }
 export function QuotationCreateForm({
   taxOptions,
   taxInclusive,
+  productTypes = [],
   opportunities,
   opportunityId,
   defaultOpportunityId,
@@ -69,6 +74,8 @@ export function QuotationCreateForm({
 }: {
   taxOptions: TaxOption[]
   taxInclusive: boolean
+  /** Tenant product-type picklist; empty hides the picker. */
+  productTypes?: ProductTypeOption[]
   /** Picker options. Omit/empty when `opportunityId` is fixed. */
   opportunities?: OpportunityOption[]
   /** Pre-bound funnel; when set the picker is hidden. */
@@ -92,6 +99,7 @@ export function QuotationCreateForm({
     defaultValues: {
       opportunityId: opportunityId ?? defaultOpportunityId ?? "",
       taxSettingId: defaultTaxId,
+      productTypeCode: INHERIT_PRODUCT_TYPE,
       validUntil: "",
       notes: "",
       headerDiscount: "0",
@@ -138,6 +146,10 @@ export function QuotationCreateForm({
       opportunityId: values.opportunityId,
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
+      productTypeCode:
+        values.productTypeCode === INHERIT_PRODUCT_TYPE
+          ? null
+          : values.productTypeCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
       headerDiscount: values.headerDiscount || "0",
@@ -223,6 +235,51 @@ export function QuotationCreateForm({
               </FormItem>
             )}
           />
+
+          {productTypes.length > 0 ? (
+            <FormField
+              control={form.control}
+              name="productTypeCode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Product type</FormLabel>
+                  <Select
+                    value={field.value}
+                    onValueChange={(v) =>
+                      field.onChange(v ?? INHERIT_PRODUCT_TYPE)
+                    }
+                    items={[
+                      {
+                        value: INHERIT_PRODUCT_TYPE,
+                        label: "Use funnel default",
+                      },
+                      ...productTypes.map((p) => ({
+                        value: p.code,
+                        label: p.name,
+                      })),
+                    ]}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Use funnel default" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={INHERIT_PRODUCT_TYPE}>
+                        Use funnel default
+                      </SelectItem>
+                      {productTypes.map((p) => (
+                        <SelectItem key={p.code} value={p.code}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ) : null}
 
           <FormField
             control={form.control}

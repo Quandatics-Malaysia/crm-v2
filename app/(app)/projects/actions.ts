@@ -179,9 +179,11 @@ export async function createProject(
       const codeNature: ProjectCodeNature =
         input.codeNature === "manual" ? "manual" : "auto"
 
-      // Snapshotted onto the project (both natures) so the chosen product-type
-      // code stays stable even if the tenant later edits its picklist.
-      const productTypeCode = (input.productTypeCode ?? "").trim()
+      // Snapshotted onto the project (both natures) so the resolved product-type
+      // code stays stable even if the tenant later edits its picklist. Derived
+      // upstream from the source quotation/funnel; fall back to a safe "GEN"
+      // rather than blocking when nothing resolved (matches nextProjectCode).
+      const productTypeCode = (input.productTypeCode ?? "").trim() || "GEN"
 
       let projectCode: string
       if (codeNature === "manual") {
@@ -503,13 +505,22 @@ export type ProjectPrefill = {
   quotationId: string | null
   quoteNumber: string | null
   opportunityName: string
+  /**
+   * Product-type code DERIVED for the project, snapshotted from the source
+   * quotation when present, else the funnel's default, else the tenant's first
+   * product type. Empty string when nothing resolves (form treats it as a
+   * prefilled-but-editable suggestion; createProject defaults to "GEN").
+   */
+  productTypeCode: string
 }
 
 /**
  * Prefill a new project from a funnel (opportunity). Value, quotationId and
  * quoteNumber are derived from the opportunity's net (ex-tax) deal value via
  * the shared value service — i.e. the source quotation. The account is read
- * from the opportunity so the form can preselect it.
+ * from the opportunity so the form can preselect it. The product-type code is
+ * derived from that source quotation (fallback: the funnel's product_type_code,
+ * then the tenant's first product type) so the form prefills it editable.
  */
 export async function prefillFromOpportunity(
   opportunityId: string
@@ -523,6 +534,7 @@ export async function prefillFromOpportunity(
         accountId: opportunities.accountId,
         accountName: accounts.name,
         currency: opportunities.currency,
+        productTypeCode: opportunities.productTypeCode,
         ownerMemberId: opportunities.ownerMemberId,
       })
       .from(opportunities)
@@ -542,6 +554,27 @@ export async function prefillFromOpportunity(
       opportunityId
     )
 
+    // Derive the product type: the accepted/source quotation snapshot wins, then
+    // the funnel's default, then the tenant's first configured product type.
+    let productTypeCode: string | null = null
+    if (fromQuoteId) {
+      const [q] = await tx
+        .select({ code: quotations.productTypeCode })
+        .from(quotations)
+        .where(eq(quotations.id, fromQuoteId))
+        .limit(1)
+      productTypeCode = q?.code ?? null
+    }
+    if (!productTypeCode) productTypeCode = opp.productTypeCode ?? null
+    if (!productTypeCode) {
+      const [s] = await tx
+        .select({ productTypes: tenantSettings.productTypes })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      productTypeCode = s?.productTypes?.[0]?.code ?? null
+    }
+
     return {
       accountId: opp.accountId,
       accountName: opp.accountName,
@@ -550,6 +583,7 @@ export async function prefillFromOpportunity(
       quotationId: fromQuoteId,
       quoteNumber,
       opportunityName: opp.name,
+      productTypeCode: productTypeCode ?? "",
     }
   })
 }

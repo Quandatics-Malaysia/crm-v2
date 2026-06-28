@@ -124,6 +124,12 @@ export const opportunities = pgTable(
   primaryQuotationId: uuid("primary_quotation_id"),
   amount: numeric("amount", { precision: 14, scale: 2 }),
   currency: char("currency", { length: 3 }).notNull().default("MYR"),
+  /**
+   * Default product type for this funnel (code from
+   * tenant_settings.product_types). Acts as the deal's default and is inherited
+   * by quotations on create. Nullable until the tenant assigns one.
+   */
+  productTypeCode: text("product_type_code"),
   expectedCloseDate: date("expected_close_date"),
   actualCloseDate: date("actual_close_date"),
   status: opportunityStatus("status").notNull().default("open"),

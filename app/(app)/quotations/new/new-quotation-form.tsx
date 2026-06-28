@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   QuotationCreateForm,
   type OpportunityOption,
+  type ProductTypeOption,
 } from "../quotation-create-form"
 import type { TaxOption } from "../actions"
 
@@ -17,11 +18,13 @@ export function NewQuotationForm({
   defaultOpportunityId,
   taxOptions,
   taxInclusive,
+  productTypes,
 }: {
   opportunities: OpportunityOption[]
   defaultOpportunityId?: string
   taxOptions: TaxOption[]
   taxInclusive: boolean
+  productTypes: ProductTypeOption[]
 }) {
   const router = useRouter()
   return (
@@ -30,6 +33,7 @@ export function NewQuotationForm({
       defaultOpportunityId={defaultOpportunityId}
       taxOptions={taxOptions}
       taxInclusive={taxInclusive}
+      productTypes={productTypes}
       submitLabel="Create draft"
       onCancel={() => router.push("/quotations")}
       onCreated={(q) => router.push(`/quotations/${q.id}`)}

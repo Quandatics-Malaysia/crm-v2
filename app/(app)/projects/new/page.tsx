@@ -40,6 +40,9 @@ export default async function NewProjectPage({
   let defaultName: string | undefined
   let defaultValue: string | undefined
   let defaultCurrency: string | undefined
+  // Product type DERIVED from the source quotation/funnel; from scratch it
+  // suggests the tenant's first product type. Editable in the form either way.
+  let defaultProductTypeCode: string | undefined = meta.productTypes[0]?.code
   // A bare ?quotationId= (no funnel) still links the source quote on the project.
   let defaultQuotationId: string | undefined = sp.quotationId
   let prefillQuoteNumber: string | undefined
@@ -50,6 +53,7 @@ export default async function NewProjectPage({
       defaultName = prefill.opportunityName
       defaultValue = prefill.value
       defaultCurrency = prefill.currency
+      defaultProductTypeCode = prefill.productTypeCode || defaultProductTypeCode
       defaultQuotationId = prefill.quotationId ?? defaultQuotationId
       prefillQuoteNumber = prefill.quoteNumber ?? undefined
     } else {
@@ -78,8 +82,8 @@ export default async function NewProjectPage({
       <PageBody>
         <p className="text-sm text-muted-foreground">
           {fromQuote
-            ? "From the accepted quotation — pick a product type to generate the project code, then create."
-            : "Pick a product type to generate the project code."}
+            ? "From the accepted quotation — account, value and product type are prefilled; review and create."
+            : "The product type is suggested from your settings and feeds the project code — adjust if needed."}
         </p>
         <ProjectCreateForm
           accounts={accounts}
@@ -91,6 +95,7 @@ export default async function NewProjectPage({
           defaultName={defaultName}
           defaultAccountId={defaultAccountId}
           defaultOpportunityId={defaultOpportunityId}
+          defaultProductTypeCode={defaultProductTypeCode}
           defaultValue={defaultValue}
           defaultCurrency={defaultCurrency}
           defaultQuotationId={defaultQuotationId}

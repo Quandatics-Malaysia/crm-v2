@@ -120,6 +120,13 @@
       "when": 1782573111446,
       "tag": "0016_product_types_project_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782632429571,
+      "tag": "0017_product_type_codes",
+      "breakpoints": true
     }
   ]
 }

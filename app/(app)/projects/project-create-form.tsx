@@ -58,7 +58,9 @@ const projectSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
     accountId: z.string().min(1, "Account is required"),
-    productTypeCode: z.string().min(1, "Product type is required"),
+    // Optional: derived/prefilled from the source quotation or funnel and shown
+    // as an editable override. When left blank the server defaults it to "GEN".
+    productTypeCode: z.string().trim().optional(),
     opportunityId: z.string().optional(),
     value: z.string().trim().optional(),
     startDate: z.string().trim().optional(),
@@ -97,6 +99,7 @@ export function ProjectCreateForm({
   defaultName,
   defaultAccountId,
   defaultOpportunityId,
+  defaultProductTypeCode,
   defaultValue,
   defaultCurrency,
   defaultQuotationId,
@@ -114,6 +117,8 @@ export function ProjectCreateForm({
   defaultName?: string
   defaultAccountId?: string
   defaultOpportunityId?: string
+  /** Product-type code derived from the source quotation/funnel; editable. */
+  defaultProductTypeCode?: string
   defaultValue?: string
   defaultCurrency?: string
   defaultQuotationId?: string
@@ -151,7 +156,7 @@ export function ProjectCreateForm({
     defaultValues: {
       name: defaultName ?? "",
       accountId: defaultAccountId ?? "",
-      productTypeCode: "",
+      productTypeCode: defaultProductTypeCode ?? "",
       opportunityId: defaultOpportunityId ?? NONE,
       value: defaultValue ?? "",
       startDate: "",
@@ -173,7 +178,7 @@ export function ProjectCreateForm({
     const yyyy = String(codeYear)
     const entity = (entityCode || "ENT").toUpperCase()
     const acct = (accountCodes[watchedAccountId] || "ACC").toUpperCase()
-    const product = (watchedProductType || "TYPE").toUpperCase()
+    const product = (watchedProductType || "GEN").toUpperCase()
     return `${yyyy}-${entity}-${acct}-${product}-###`
   }, [codeYear, entityCode, accountCodes, watchedAccountId, watchedProductType])
 
@@ -188,7 +193,7 @@ export function ProjectCreateForm({
     const res = await createProject({
       name: values.name,
       accountId: values.accountId,
-      productTypeCode: values.productTypeCode,
+      productTypeCode: values.productTypeCode || undefined,
       opportunityId,
       quotationId: opportunityId ? quotationId : undefined,
       value: values.value || undefined,
@@ -236,10 +241,10 @@ export function ProjectCreateForm({
               name="productTypeCode"
               render={({ field, fieldState }) => (
                 <FormItem>
-                  <FormLabel required>Product type</FormLabel>
+                  <FormLabel>Product type</FormLabel>
                   <FormControl>
                     <Combobox
-                      value={field.value}
+                      value={field.value ?? ""}
                       onChange={field.onChange}
                       options={productTypes.map((p) => ({
                         value: p.code,
@@ -256,7 +261,8 @@ export function ProjectCreateForm({
                     />
                   </FormControl>
                   <p className="text-muted-foreground text-xs">
-                    Sets the product-type segment of the project code.
+                    Derived from the source quotation — editable. Sets the
+                    product-type segment of the project code (defaults to GEN).
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -401,6 +407,11 @@ export function ProjectCreateForm({
                           setQuotationId(p.quotationId ?? undefined)
                           setQuoteNote(p.quoteNumber ?? undefined)
                           setCurrency(p.currency)
+                          // Prefill the derived product type (still editable);
+                          // skip when nothing resolved so a prior pick stays.
+                          if (p.productTypeCode) {
+                            form.setValue("productTypeCode", p.productTypeCode)
+                          }
                         })
                       }}
                       options={[

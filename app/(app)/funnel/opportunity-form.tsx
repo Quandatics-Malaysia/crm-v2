@@ -72,10 +72,14 @@ const schema = z.object({
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
+  productTypeCode: z.string().optional(),
   expectedCloseDate: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
+
+/** Sentinel for the "no product type" Select option (empty string is invalid). */
+const NO_PRODUCT_TYPE = "__none__"
 
 export function OpportunityForm({
   mode,
@@ -83,6 +87,7 @@ export function OpportunityForm({
   persons,
   members,
   funnels,
+  productTypes = [],
   defaultOwnerMemberId,
   opportunity,
   trigger,
@@ -92,6 +97,8 @@ export function OpportunityForm({
   persons: (Option & { accountId: string })[]
   members: MemberOption[]
   funnels: FunnelWithStages[]
+  /** Tenant product-type picklist (code + name) from listProductTypes(). */
+  productTypes?: { code: string; name: string }[]
   defaultOwnerMemberId: string | null
   opportunity?: OpportunityListRow
   trigger?: React.ReactElement
@@ -130,6 +137,7 @@ export function OpportunityForm({
           currentStageId: opportunity.stageId,
           ownerMemberId: opportunity.ownerMemberId,
           currency: opportunity.currency ?? "MYR",
+          productTypeCode: opportunity.productTypeCode ?? "",
           expectedCloseDate: opportunity.expectedCloseDate ?? "",
         }
       : {
@@ -140,6 +148,7 @@ export function OpportunityForm({
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
           currency: "MYR",
+          productTypeCode: "",
           expectedCloseDate: "",
         },
   })
@@ -181,6 +190,7 @@ export function OpportunityForm({
         currentStageId: values.currentStageId,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
+        productTypeCode: values.productTypeCode || null,
         expectedCloseDate: values.expectedCloseDate || null,
       })
       if (!res.ok) {
@@ -197,6 +207,7 @@ export function OpportunityForm({
         primaryPersonId: values.primaryPersonId || null,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
+        productTypeCode: values.productTypeCode || null,
         expectedCloseDate: values.expectedCloseDate || null,
       })
       if (!res.ok) {
@@ -435,6 +446,48 @@ export function OpportunityForm({
                     {currencyLocked
                       ? "Locked to the primary quotation's currency."
                       : "The Funnel's value is set by its primary quotation (net)."}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="productTypeCode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Product type</FormLabel>
+                  <Select
+                    value={field.value || NO_PRODUCT_TYPE}
+                    onValueChange={(v) =>
+                      field.onChange(v === NO_PRODUCT_TYPE ? "" : v)
+                    }
+                    items={[
+                      { value: NO_PRODUCT_TYPE, label: "None" },
+                      ...productTypes.map((p) => ({
+                        value: p.code,
+                        label: p.name,
+                      })),
+                    ]}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select product type…" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={NO_PRODUCT_TYPE}>None</SelectItem>
+                      {productTypes.map((p) => (
+                        <SelectItem key={p.code} value={p.code}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    Default product type for the deal. Inherited by quotations
+                    and editable there.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

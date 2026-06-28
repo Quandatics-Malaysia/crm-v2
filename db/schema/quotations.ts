@@ -64,6 +64,12 @@ export const quotations = pgTable(
     isPrimary: boolean("is_primary").notNull().default(false),
     status: quotationStatus("status").notNull().default("draft"),
     currency: char("currency", { length: 3 }).notNull().default("MYR"),
+    /**
+     * Product type for this quote (code from tenant_settings.product_types).
+     * Inherited from the funnel on create, editable thereafter, and later
+     * snapshotted onto the project. Nullable until set.
+     */
+    productTypeCode: text("product_type_code"),
     taxSettingId: uuid("tax_setting_id").references(() => taxSettings.id, {
       onDelete: "set null",
     }),

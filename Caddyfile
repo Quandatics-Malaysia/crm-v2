@@ -1,15 +1,8 @@
-# Caddy terminates TLS (automatic Let's Encrypt for a real {$DOMAIN}; internal
-# self-signed for localhost) and reverse-proxies to the Next.js standalone server.
-{
-	email {$ACME_EMAIL}
-}
-
-{$DOMAIN} {
+:8081 {
 	encode gzip zstd
 	reverse_proxy web:3000
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"

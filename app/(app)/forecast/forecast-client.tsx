@@ -155,7 +155,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
           </p>
         </CardHeader>
       </Card>
-
+{/* 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {byCurrency.map((c) => (
           <Card key={c.currency}>
@@ -180,7 +180,7 @@ export function ForecastClient({ rows }: { rows: ForecastRow[] }) {
             </p>
           </CardHeader>
         </Card>
-      </div>
+      </div> */}
 
       <DataTable
         columns={columns}

@@ -363,6 +363,67 @@ export async function setLeadStage(
   })
 }
 
+/**
+ * Quick lead-status change from the clickable status path. Only the pre-outcome
+ * statuses are settable here (new/contacted/qualified); reaching Converted goes
+ * through the Convert flow and Disqualified needs a reason, so both are refused.
+ */
+export async function setLeadStatus(
+  id: string,
+  status: string
+): Promise<ActionResult<Lead>> {
+  return runAction(async () => {
+    const allowed = ["new", "contacted", "qualified"] as const
+    const next = status as (typeof allowed)[number]
+    if (!allowed.includes(next))
+      throw new Error("Use Convert or Disqualify to reach that status")
+
+    const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
+      const [before] = await tx
+        .select()
+        .from(leads)
+        .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
+        .limit(1)
+      if (!before) throw new Error("Lead not found")
+
+      const visible = await visibleMemberIds(tx, ctx)
+      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
+        throw new Error("FORBIDDEN: not permitted on this lead")
+
+      if (before.status === "converted")
+        throw new Error("Converted leads cannot change status")
+
+      const [lead] = await tx
+        .update(leads)
+        .set({ status: next, updatedAt: new Date() })
+        .where(eq(leads.id, id))
+        .returning()
+
+      if (before.status !== next) {
+        await logActivity(tx, ctx, {
+          entityType: "lead",
+          entityId: id,
+          type: "stage_change",
+          subject: `Status set to ${next}`,
+        })
+      }
+
+      await writeAudit(tx, ctx, {
+        action: "lead.status_changed",
+        entityType: "lead",
+        entityId: id,
+        before,
+        after: lead,
+      })
+      return lead
+    })
+
+    revalidatePath("/leads")
+    revalidatePath(`/leads/${id}`)
+    return row
+  })
+}
+
 /** Soft delete — never hard DELETE. */
 export async function deleteLead(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {

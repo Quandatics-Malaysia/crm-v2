@@ -145,6 +145,7 @@ export default async function LeadDetailPage({
 
         <LeadDetailBody
           leadId={id}
+          status={lead.status}
           fields={detail}
           leadSteps={leadProgress.steps}
           leadNote={leadProgress.note}

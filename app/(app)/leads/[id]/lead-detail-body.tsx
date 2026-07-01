@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,21 +10,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import { usePermissions } from "@/components/command-palette"
+import { PERMISSIONS } from "@/lib/permissions"
 import { type ProgressStep } from "@/components/stage-progress"
 import {
   StagePathView,
   type PathStep,
+  type PathStepState,
   type PathNote,
 } from "@/components/stage-path-view"
+import { setLeadStatus, setLeadStage } from "../actions"
 
-/** Map the dot-stepper steps onto the shared chevron-path steps. */
-function toPathSteps(steps: ProgressStep[]): PathStep[] {
-  return steps.map((s) => ({
-    id: s.id,
-    label: s.label,
-    state: s.state === "terminal" ? "upcoming" : s.state,
-    tone: s.tone,
-  }))
+/** Map the dot-stepper steps onto the shared chevron-path steps, marking which
+ *  segments are clickable via the supplied predicate. */
+function toPathSteps(
+  steps: ProgressStep[],
+  isClickable: (id: string, state: PathStepState) => boolean
+): PathStep[] {
+  return steps.map((s) => {
+    const state: PathStepState = s.state === "terminal" ? "upcoming" : s.state
+    return {
+      id: s.id,
+      label: s.label,
+      state,
+      tone: s.tone,
+      clickable: isClickable(s.id, state),
+    }
+  })
 }
 
 export type LeadConverted = {
@@ -36,6 +50,7 @@ export type LeadConverted = {
 
 export type LeadDetailData = {
   leadId: string
+  status: string
   fields: { label: string; value: React.ReactNode }[]
   leadSteps: ProgressStep[]
   leadNote: PathNote
@@ -50,6 +65,7 @@ export type LeadDetailData = {
  *  progress and tabbed Activity/Documents on the right. */
 export function LeadDetailBody({
   leadId,
+  status,
   fields,
   leadSteps,
   leadNote,
@@ -60,7 +76,46 @@ export function LeadDetailBody({
   files,
 }: LeadDetailData) {
   const [tab, setTab] = React.useState("activity")
+  const router = useRouter()
+  const perms = usePermissions()
+  const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
   const revalidate = `/leads/${leadId}`
+
+  // Converted/disqualified leads are terminal — their status is locked.
+  const terminal = status === "converted" || status === "disqualified"
+  const interactive = canUpdate && !terminal
+  // Only the pre-outcome statuses are click-settable; Convert/Disqualify have
+  // their own flows in the page header.
+  const STATUS_SETTABLE = ["new", "contacted", "qualified"]
+
+  async function changeStatus(next: string) {
+    const res = await setLeadStatus(leadId, next)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success("Lead status updated")
+    router.refresh()
+  }
+
+  async function changeFunnelStage(stageId: string) {
+    const res = await setLeadStage(leadId, stageId)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    toast.success("Stage updated")
+    router.refresh()
+  }
+
+  const leadPathSteps = toPathSteps(
+    leadSteps,
+    (id, state) =>
+      interactive && STATUS_SETTABLE.includes(id) && state !== "current"
+  )
+  const funnelPathSteps = funnelSteps
+    ? toPathSteps(funnelSteps, (_id, state) => interactive && state !== "current")
+    : null
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -84,49 +139,50 @@ export function LeadDetailBody({
           </CardContent>
         </Card>
 
-        {converted &&
-        (converted.accountId ||
-          converted.personId ||
-          converted.opportunityId) ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Related</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <RelatedQuickLinks
-                items={[
-                  ...(converted.accountId
-                    ? [
-                        {
-                          kind: "account" as const,
-                          label: converted.accountName ?? "Account",
-                          href: `/accounts/${converted.accountId}`,
-                        },
-                      ]
-                    : []),
-                  ...(converted.personId
-                    ? [
-                        {
-                          kind: "contact" as const,
-                          label: converted.personName ?? "Contact",
-                          href: `/persons/${converted.personId}`,
-                        },
-                      ]
-                    : []),
-                  ...(converted.opportunityId
-                    ? [
-                        {
-                          kind: "funnel" as const,
-                          label: converted.funnelName ?? "Funnel",
-                          href: `/funnel/${converted.opportunityId}`,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            </CardContent>
-          </Card>
-        ) : null}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Related</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RelatedQuickLinks
+              items={[
+                ...(converted?.accountId
+                  ? [
+                      {
+                        kind: "account" as const,
+                        label: converted.accountName ?? "Account",
+                        href: `/accounts/${converted.accountId}`,
+                      },
+                    ]
+                  : []),
+                ...(converted?.personId
+                  ? [
+                      {
+                        kind: "contact" as const,
+                        label: converted.personName ?? "Contact",
+                        href: `/persons/${converted.personId}`,
+                      },
+                    ]
+                  : []),
+                ...(converted?.opportunityId
+                  ? [
+                      {
+                        kind: "funnel" as const,
+                        label: converted.funnelName ?? "Funnel",
+                        href: `/funnel/${converted.opportunityId}`,
+                      },
+                    ]
+                  : []),
+                {
+                  kind: "document" as const,
+                  label: "Documents",
+                  count: files.length,
+                  onSelect: () => setTab("documents"),
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       {/* Right column — progress + tabbed Activity / Documents */}
@@ -136,12 +192,27 @@ export function LeadDetailBody({
             <CardTitle className="text-base">Progress</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-6">
-            <StagePathView steps={toPathSteps(leadSteps)} note={leadNote} />
-            {funnelSteps ? (
+            <StagePathView
+              steps={leadPathSteps}
+              note={leadNote}
+              hint={
+                interactive && !leadNote
+                  ? "Click a stage to update the lead status."
+                  : undefined
+              }
+              onStepClick={interactive ? changeStatus : undefined}
+            />
+            {funnelPathSteps ? (
               <div className="border-t pt-6">
                 <StagePathView
-                  steps={toPathSteps(funnelSteps)}
+                  steps={funnelPathSteps}
                   note={funnelNote}
+                  hint={
+                    interactive && !funnelNote
+                      ? "Click a stage to move the lead's funnel."
+                      : undefined
+                  }
+                  onStepClick={interactive ? changeFunnelStage : undefined}
                 />
               </div>
             ) : null}

@@ -32,6 +32,14 @@ import type {
 import type { DealCostRow } from "../cost-actions"
 import type { ContractYearRow } from "../contract-actions"
 
+/**
+ * The Cost & margin tracker is hidden for now — the model isn't mature and its
+ * margin (quoted revenue − cost) doesn't reconcile with the intercompany
+ * "recognized %" cut, which confuses more than it helps. The panel, actions and
+ * schema are kept intact; flip this to re-enable once the model is settled.
+ */
+const SHOW_COST_MARGIN = false
+
 const quoteStatusVariant: Record<
   string,
   "default" | "secondary" | "destructive" | "outline"
@@ -476,7 +484,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
                 { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
                 { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
-                { kind: "account", label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") },
+                ...(SHOW_COST_MARGIN
+                  ? [{ kind: "account" as const, label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") }]
+                  : []),
                 { kind: "funnel", label: "Contract", count: contractYears.length, onSelect: () => setTab("contract") },
               ]}
             />
@@ -527,12 +537,14 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     {projects.length}
                   </Badge>
                 </TabsTrigger>
-                <TabsTrigger value="costs">
-                  Costs &amp; margin
-                  <Badge variant="secondary" className="ml-1.5">
-                    {costs.length}
-                  </Badge>
-                </TabsTrigger>
+                {SHOW_COST_MARGIN ? (
+                  <TabsTrigger value="costs">
+                    Costs &amp; margin
+                    <Badge variant="secondary" className="ml-1.5">
+                      {costs.length}
+                    </Badge>
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="contract">
                   Contract
                   <Badge variant="secondary" className="ml-1.5">
@@ -593,15 +605,17 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 />
               </TabsContent>
 
-              <TabsContent value="costs" className="mt-4">
-                <CostsPanel
-                  opportunityId={opportunityId}
-                  costs={costs}
-                  revenue={costRevenue}
-                  currency={currency}
-                  canManage={canManageCosts}
-                />
-              </TabsContent>
+              {SHOW_COST_MARGIN ? (
+                <TabsContent value="costs" className="mt-4">
+                  <CostsPanel
+                    opportunityId={opportunityId}
+                    costs={costs}
+                    revenue={costRevenue}
+                    currency={currency}
+                    canManage={canManageCosts}
+                  />
+                </TabsContent>
+              ) : null}
 
               <TabsContent value="contract" className="mt-4">
                 <ContractPanel

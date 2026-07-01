@@ -4,7 +4,8 @@ import {
   listAccountOptions,
   listMembers,
   listFunnelsWithStages,
-  listProductTypes,
+  listProjectNatures,
+  listCustomFunnelFields,
 } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
@@ -16,15 +17,23 @@ import { OpportunityForm } from "./opportunity-form"
 
 export default async function OpportunitiesPage() {
   const ctx = await requireContext()
-  const [rows, accounts, persons, members, funnels, productTypes] =
-    await Promise.all([
-      listOpportunities(),
-      listAccountOptions(),
-      listPersonsWithAccount(),
-      listMembers(),
-      listFunnelsWithStages(),
-      listProductTypes(),
-    ])
+  const [
+    rows,
+    accounts,
+    persons,
+    members,
+    funnels,
+    projectNatures,
+    customFunnelFields,
+  ] = await Promise.all([
+    listOpportunities(),
+    listAccountOptions(),
+    listPersonsWithAccount(),
+    listMembers(),
+    listFunnelsWithStages(),
+    listProjectNatures(),
+    listCustomFunnelFields(),
+  ])
 
   const canCreate = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
   const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
@@ -36,7 +45,8 @@ export default async function OpportunitiesPage() {
       persons={persons}
       members={members}
       funnels={funnels}
-      productTypes={productTypes}
+      projectNatures={projectNatures}
+      customFieldDefs={customFunnelFields}
       defaultOwnerMemberId={ctx.memberId}
     />
   ) : undefined

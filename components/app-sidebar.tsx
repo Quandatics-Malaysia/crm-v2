@@ -12,6 +12,7 @@ import {
   StampIcon,
   FileTextIcon,
   FolderKanbanIcon,
+  PackageIcon,
   ReceiptIcon,
   TrendingUpIcon,
   ScrollTextIcon,
@@ -49,11 +50,14 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { CreateEntityDialog } from "@/components/create-entity-dialog"
 import { authClient } from "@/lib/auth-client"
 import { PERMISSIONS } from "@/lib/permissions"
+import { cn } from "@/lib/utils"
 
 type NavItem = {
   title: string
   url: string
   icon: React.ComponentType<{ className?: string }>
+  /** Salesforce-style object tile colour (Tailwind bg-* class). */
+  tile: string
   permission?: string
 }
 
@@ -62,38 +66,39 @@ type NavSection = { label: string | null; items: NavItem[] }
 const NAV_SECTIONS: NavSection[] = [
   {
     label: null,
-    items: [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon }],
+    items: [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboardIcon, tile: "bg-blue-500" }],
   },
   {
     label: "CRM",
     items: [
-      { title: "Leads", url: "/leads", icon: TargetIcon, permission: PERMISSIONS.LEAD_VIEW },
-      { title: "Accounts", url: "/accounts", icon: Building2Icon, permission: PERMISSIONS.ACCOUNT_VIEW },
-      { title: "Contacts", url: "/persons", icon: UsersIcon, permission: PERMISSIONS.PERSON_VIEW },
+      { title: "Leads", url: "/leads", icon: TargetIcon, tile: "bg-teal-500", permission: PERMISSIONS.LEAD_VIEW },
+      { title: "Accounts", url: "/accounts", icon: Building2Icon, tile: "bg-orange-500", permission: PERMISSIONS.ACCOUNT_VIEW },
+      { title: "Contacts", url: "/persons", icon: UsersIcon, tile: "bg-violet-500", permission: PERMISSIONS.PERSON_VIEW },
     ],
   },
   {
     label: "Sales",
     items: [
-      { title: "Funnel", url: "/funnel", icon: FilterIcon, permission: PERMISSIONS.OPPORTUNITY_VIEW },
-      { title: "Quotations", url: "/quotations", icon: FileTextIcon, permission: PERMISSIONS.QUOTATION_VIEW },
-      { title: "Projects", url: "/projects", icon: FolderKanbanIcon, permission: PERMISSIONS.PROJECT_VIEW },
-      { title: "Sales Orders", url: "/sales-orders", icon: ReceiptIcon, permission: PERMISSIONS.SALES_ORDER_VIEW },
-      { title: "Approvals", url: "/approvals", icon: StampIcon, permission: PERMISSIONS.STAGE_ADVANCE },
+      { title: "Funnel", url: "/funnel", icon: FilterIcon, tile: "bg-amber-500", permission: PERMISSIONS.OPPORTUNITY_VIEW },
+      { title: "Quotations", url: "/quotations", icon: FileTextIcon, tile: "bg-green-600", permission: PERMISSIONS.QUOTATION_VIEW },
+      { title: "Products", url: "/products", icon: PackageIcon, tile: "bg-sky-500", permission: PERMISSIONS.PRODUCT_VIEW },
+      { title: "Projects", url: "/projects", icon: FolderKanbanIcon, tile: "bg-indigo-500", permission: PERMISSIONS.PROJECT_VIEW },
+      { title: "Sales Orders", url: "/sales-orders", icon: ReceiptIcon, tile: "bg-pink-600", permission: PERMISSIONS.SALES_ORDER_VIEW },
+      { title: "Approvals", url: "/approvals", icon: StampIcon, tile: "bg-rose-500", permission: PERMISSIONS.STAGE_ADVANCE },
     ],
   },
   {
     label: "Insights",
     items: [
-      { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, permission: PERMISSIONS.FORECAST_VIEW },
-      { title: "Audit", url: "/audit", icon: ScrollTextIcon, permission: PERMISSIONS.AUDIT_VIEW },
+      { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW },
+      { title: "Audit", url: "/audit", icon: ScrollTextIcon, tile: "bg-slate-500", permission: PERMISSIONS.AUDIT_VIEW },
     ],
   },
   {
     label: "Admin",
     items: [
-      { title: "Team & roles", url: "/team", icon: ShieldCheckIcon, permission: PERMISSIONS.TENANT_MANAGE_USERS },
-      { title: "Settings", url: "/settings", icon: Settings2Icon, permission: PERMISSIONS.TENANT_SETTINGS },
+      { title: "Team & roles", url: "/team", icon: ShieldCheckIcon, tile: "bg-cyan-600", permission: PERMISSIONS.TENANT_MANAGE_USERS },
+      { title: "Settings", url: "/settings", icon: Settings2Icon, tile: "bg-gray-500", permission: PERMISSIONS.TENANT_SETTINGS },
     ],
   },
 ]
@@ -215,7 +220,14 @@ export function AppSidebar({
                           />
                         }
                       >
-                        <item.icon className="size-4" />
+                        <span
+                          className={cn(
+                            "flex size-6 shrink-0 items-center justify-center rounded-[5px] text-white",
+                            item.tile
+                          )}
+                        >
+                          <item.icon className="size-3.5" />
+                        </span>
                         <span>{item.title}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

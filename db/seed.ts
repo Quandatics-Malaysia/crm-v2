@@ -53,13 +53,19 @@ async function main() {
       organizationId: TENANT_ID,
       allowPasswordLogin: true,
       entityCode: "DEMO",
-      productTypes: [
+      projectNatures: [
         { code: "CONSULT", name: "Consulting" },
         { code: "IMPL", name: "Implementation" },
         { code: "MSP", name: "Managed Services" },
         { code: "WEB", name: "Web" },
         { code: "INFRA", name: "Infrastructure" },
         { code: "SUPP", name: "Support" },
+      ],
+      productCodes: [
+        { code: "COACHING", name: "Coaching" },
+        { code: "TRAINING", name: "Training" },
+        { code: "LICENSE", name: "Licensing" },
+        { code: "SUPPORT", name: "Support" },
       ],
       industries: [
         "Agriculture",
@@ -145,6 +151,7 @@ async function main() {
         sortOrder: s.sortOrder,
         requiresApprovalToEnter: s.requiresApprovalToEnter,
         includeInForecast: s.includeInForecast,
+        requiredFields: [],
       }))
     )
   }

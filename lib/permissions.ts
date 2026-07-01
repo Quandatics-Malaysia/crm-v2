@@ -39,6 +39,11 @@ export const PERMISSIONS = {
   QUOTATION_ACCEPT: "quotation.accept",
   TAX_VIEW: "tax.view",
   TAX_CONFIGURE: "tax.configure",
+  // products (standardised catalog)
+  PRODUCT_VIEW: "product.view",
+  PRODUCT_CREATE: "product.create",
+  PRODUCT_UPDATE: "product.update",
+  PRODUCT_DELETE: "product.delete",
   // projects
   PROJECT_VIEW: "project.view",
   PROJECT_CREATE: "project.create",
@@ -72,6 +77,7 @@ const VIEW_ONLY: PermissionKey[] = [
   PERMISSIONS.QUOTATION_VIEW,
   PERMISSIONS.TAX_VIEW,
   PERMISSIONS.FORECAST_VIEW,
+  PERMISSIONS.PRODUCT_VIEW,
   PERMISSIONS.PROJECT_VIEW,
   PERMISSIONS.SALES_ORDER_VIEW,
 ]
@@ -103,6 +109,9 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.PERSON_DELETE,
   PERMISSIONS.OPPORTUNITY_DELETE,
   PERMISSIONS.PROJECT_DELETE,
+  PERMISSIONS.PRODUCT_CREATE,
+  PERMISSIONS.PRODUCT_UPDATE,
+  PERMISSIONS.PRODUCT_DELETE,
   PERMISSIONS.STAGE_ADVANCE_APPROVE,
   PERMISSIONS.QUOTATION_SEND,
   PERMISSIONS.QUOTATION_ACCEPT,
@@ -168,6 +177,15 @@ export const PERMISSION_GROUPS: {
       { key: PERMISSIONS.QUOTATION_ACCEPT, label: "Accept quotations" },
       { key: PERMISSIONS.TAX_VIEW, label: "View tax settings" },
       { key: PERMISSIONS.TAX_CONFIGURE, label: "Configure tax" },
+    ],
+  },
+  {
+    group: "Products",
+    items: [
+      { key: PERMISSIONS.PRODUCT_VIEW, label: "View products" },
+      { key: PERMISSIONS.PRODUCT_CREATE, label: "Create products" },
+      { key: PERMISSIONS.PRODUCT_UPDATE, label: "Edit products" },
+      { key: PERMISSIONS.PRODUCT_DELETE, label: "Delete products" },
     ],
   },
   {

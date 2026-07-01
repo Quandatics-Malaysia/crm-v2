@@ -1,7 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { and, asc, desc, eq, isNull, ne } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm"
 import { withTenant, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
@@ -18,6 +18,7 @@ import {
   persons,
   opportunities,
   funnelStages,
+  projects,
 } from "@/db/schema"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
@@ -38,10 +39,18 @@ export type PersonOpportunity = {
   stageProbability: string | null
 }
 
+export type PersonProject = {
+  id: string
+  name: string
+  projectCode: string | null
+  status: string
+}
+
 export type PersonDetail = {
   person: PersonRow
   accountName: string | null
   opportunities: PersonOpportunity[]
+  projects: PersonProject[]
 }
 
 function fullName(p: { firstName: string; lastName: string | null }) {
@@ -113,7 +122,7 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
       .select({
         id: opportunities.id,
         name: opportunities.name,
-        amount: opportunities.amount,
+        amount: opportunities.estimatedAmount,
         currency: opportunities.currency,
         status: opportunities.status,
         stageName: funnelStages.name,
@@ -133,10 +142,31 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
       )
       .orderBy(desc(opportunities.updatedAt))
 
+    // Projects that belong to this contact's funnels (the deals they're on).
+    const oppIds = opps.map((o) => o.id)
+    const projs = oppIds.length
+      ? await tx
+          .select({
+            id: projects.id,
+            name: projects.name,
+            projectCode: projects.projectCode,
+            status: projects.status,
+          })
+          .from(projects)
+          .where(
+            and(
+              inArray(projects.opportunityId, oppIds),
+              isNull(projects.deletedAt)
+            )
+          )
+          .orderBy(desc(projects.updatedAt))
+      : []
+
     return {
       person: row.person,
       accountName: row.accountName,
       opportunities: opps,
+      projects: projs,
     }
   })
 }

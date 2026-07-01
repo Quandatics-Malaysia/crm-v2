@@ -6,13 +6,15 @@ import { useRouter } from "next/navigation"
 import { useForm, useFieldArray, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Plus, Trash2, HelpCircleIcon } from "lucide-react"
+import { Plus, Trash2, HelpCircleIcon, PrinterIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Combobox } from "@/components/ui/combobox"
 import { Badge } from "@/components/ui/badge"
+import type { ProductOption } from "@/lib/lookups"
 import { StatusBadge } from "@/components/status-badge"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -53,6 +55,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatMoney, formatDate } from "@/lib/format"
 import type { ActionResult } from "@/lib/action-result"
 import {
@@ -72,7 +75,7 @@ import {
 
 const schema = z.object({
   taxSettingId: z.string(),
-  productTypeCode: z.string(),
+  projectNatureCode: z.string(),
   validUntil: z.string(),
   notes: z.string(),
   headerDiscount: headerDiscountSchema,
@@ -82,11 +85,11 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 const NO_TAX = "__none__"
-/** Sentinel for "no product type" in the editable picker. */
-const NO_PRODUCT_TYPE = "__none__"
+/** Sentinel for "no project nature" in the editable picker. */
+const NO_PROJECT_NATURE = "__none__"
 
 type TaxOption = { id: string; name: string; ratePercent: string; isDefault: boolean }
-type ProductTypeOption = { code: string; name: string }
+type ProjectNatureOption = { code: string; name: string }
 
 /** Per-affordance permission gates for the quotation actions. Defaults to fully
  * permitted so the component stays drop-in for any caller that omits them. */
@@ -110,15 +113,18 @@ export function QuotationForm({
   detail,
   taxOptions,
   taxInclusive,
-  productTypes = [],
+  projectNatures = [],
+  products = [],
   hasProject = false,
   perms = ALL_QUOTATION_PERMS,
 }: {
   detail: QuotationDetail
   taxOptions: TaxOption[]
   taxInclusive: boolean
-  /** Tenant product-type picklist; empty hides the picker. */
-  productTypes?: ProductTypeOption[]
+  /** Tenant project-nature picklist; empty hides the picker. */
+  projectNatures?: ProjectNatureOption[]
+  /** Active catalog products for the line-item picker. */
+  products?: ProductOption[]
   /** True when a non-deleted project already exists for this quotation. */
   hasProject?: boolean
   perms?: QuotationPerms
@@ -132,6 +138,9 @@ export function QuotationForm({
   const canEditDraft = isDraft && perms.canUpdate
   const createProjectHref = `/projects/new?opportunityId=${quotation.opportunityId}`
   const [busy, setBusy] = React.useState(false)
+  // "Build" = the editor; "Preview" = the finished quotation document (toggle
+  // like the funnel board/list).
+  const [view, setView] = React.useState("build")
 
   // Whether the Actions card has anything to show for this user/status.
   const showSend = isDraft && perms.canSend
@@ -150,21 +159,61 @@ export function QuotationForm({
     mode: "onBlur",
     defaultValues: {
       taxSettingId: quotation.taxSettingId ?? NO_TAX,
-      productTypeCode: quotation.productTypeCode ?? NO_PRODUCT_TYPE,
+      projectNatureCode: quotation.projectNatureCode ?? NO_PROJECT_NATURE,
       validUntil: quotation.validUntil ?? "",
       notes: quotation.notes ?? "",
       headerDiscount: quotation.headerDiscount ?? "0",
       lines:
         lines.length > 0
           ? lines.map((l) => ({
+              productId: l.productId ?? "",
+              uom: l.uom ?? "",
               description: l.description,
               quantity: l.quantity,
               unitPrice: l.unitPrice,
-              discountPercent: l.discountPercent,
+              discountAmount: l.discountAmount,
             }))
-          : [{ description: "", quantity: "1", unitPrice: "0", discountPercent: "0" }],
+          : [
+              {
+                productId: "",
+                uom: "",
+                description: "",
+                quantity: "1",
+                unitPrice: "0",
+                discountAmount: "0",
+              },
+            ],
     },
   })
+
+  // Product picker items + a helper that fills a line from the chosen product.
+  const NO_PRODUCT = "__custom__"
+  const productItems = React.useMemo(
+    () => [
+      { value: NO_PRODUCT, label: "Custom line (no product)" },
+      ...products.map((p) => ({ value: p.id, label: p.name })),
+    ],
+    [products]
+  )
+  const applyProduct = React.useCallback(
+    (index: number, productId: string) => {
+      if (productId === NO_PRODUCT) {
+        form.setValue(`lines.${index}.productId`, "")
+        return
+      }
+      const p = products.find((x) => x.id === productId)
+      if (!p) return
+      form.setValue(`lines.${index}.productId`, p.id)
+      form.setValue(`lines.${index}.description`, p.description || p.name, {
+        shouldValidate: true,
+      })
+      form.setValue(`lines.${index}.unitPrice`, Number(p.standardPrice).toString(), {
+        shouldValidate: true,
+      })
+      form.setValue(`lines.${index}.uom`, p.uom ?? "")
+    },
+    [products, form]
+  )
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -189,7 +238,7 @@ export function QuotationForm({
         lines: (watchedLines ?? []).map((l) => ({
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent,
+          discountAmount: l.discountAmount,
         })),
         ratePercent,
         headerDiscount: watchedHeaderDiscount || "0",
@@ -220,36 +269,58 @@ export function QuotationForm({
   // onto it at create/send time, so the label never drifts after a settings flip.
   const labelTaxInclusive = isDraft ? taxInclusive : quotation.taxInclusive
 
-  // Product-type options for the picker. Include the quote's stored code even if
+  // Rows for the read-only Preview document — live form values for a draft, the
+  // frozen snapshot otherwise.
+  const previewLines = isDraft
+    ? (watchedLines ?? []).map((l, i) => ({
+        description: l.description,
+        quantity: l.quantity,
+        uom: l.uom,
+        unitPrice: l.unitPrice,
+        discount: l.discountAmount,
+        lineTotal: totals.lines[i]?.lineTotal ?? 0,
+      }))
+    : lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        uom: l.uom ?? "",
+        unitPrice: l.unitPrice,
+        discount: l.discountAmount,
+        lineTotal: l.lineTotal,
+      }))
+
+  // Project-nature options for the picker. Include the quote's stored code even if
   // it's no longer in the tenant picklist, so a stale snapshot stays selectable.
-  const productTypeItems = React.useMemo(() => {
-    const items = productTypes.map((p) => ({ value: p.code, label: p.name }))
-    const current = quotation.productTypeCode
+  const projectNatureItems = React.useMemo(() => {
+    const items = projectNatures.map((p) => ({ value: p.code, label: p.name }))
+    const current = quotation.projectNatureCode
     if (current && !items.some((p) => p.value === current))
       items.push({ value: current, label: current })
     return items
-  }, [productTypes, quotation.productTypeCode])
-  const productTypeName =
-    productTypeItems.find((p) => p.value === quotation.productTypeCode)?.label ??
-    quotation.productTypeCode
+  }, [projectNatures, quotation.projectNatureCode])
+  const projectNatureName =
+    projectNatureItems.find((p) => p.value === quotation.projectNatureCode)?.label ??
+    quotation.projectNatureCode
 
   async function onSave(values: FormValues) {
     setBusy(true)
     const res = await updateQuotation(quotation.id, {
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
-      productTypeCode:
-        values.productTypeCode === NO_PRODUCT_TYPE
+      projectNatureCode:
+        values.projectNatureCode === NO_PROJECT_NATURE
           ? null
-          : values.productTypeCode,
+          : values.projectNatureCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
+        productId: l.productId || null,
+        uom: l.uom || null,
         description: l.description,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountPercent: l.discountPercent || "0",
+        discountAmount: l.discountAmount || "0",
       })),
     })
     if (!res.ok) {
@@ -343,8 +414,14 @@ export function QuotationForm({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="lg:col-span-2">
+    <Tabs value={view} onValueChange={setView} className="gap-4">
+      <TabsList>
+        <TabsTrigger value="build">Build</TabsTrigger>
+        <TabsTrigger value="preview">Preview</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="build" className="grid gap-6 lg:grid-cols-4">
+      <div className="lg:col-span-3">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
             {!isDraft ? (
@@ -376,7 +453,7 @@ export function QuotationForm({
                     {opportunityName ? (
                       <Link
                         href={`/funnel/${quotation.opportunityId}`}
-                        className="text-sm font-medium text-primary hover:underline"
+                        className="text-sm font-medium link"
                       >
                         {opportunityName}
                       </Link>
@@ -428,20 +505,20 @@ export function QuotationForm({
                     </FormItem>
                   )}
                 />
-                {productTypeItems.length > 0 ? (
+                {projectNatureItems.length > 0 ? (
                   <FormField
                     control={form.control}
-                    name="productTypeCode"
+                    name="projectNatureCode"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Product type</FormLabel>
+                        <FormLabel>Project nature</FormLabel>
                         <Select
                           value={field.value}
                           onValueChange={field.onChange}
                           disabled={!canEditDraft}
                           items={[
-                            { value: NO_PRODUCT_TYPE, label: "None" },
-                            ...productTypeItems,
+                            { value: NO_PROJECT_NATURE, label: "None" },
+                            ...projectNatureItems,
                           ]}
                         >
                           <FormControl>
@@ -450,8 +527,8 @@ export function QuotationForm({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value={NO_PRODUCT_TYPE}>None</SelectItem>
-                            {productTypeItems.map((p) => (
+                            <SelectItem value={NO_PROJECT_NATURE}>None</SelectItem>
+                            {projectNatureItems.map((p) => (
                               <SelectItem key={p.value} value={p.value}>
                                 {p.label}
                               </SelectItem>
@@ -527,10 +604,12 @@ export function QuotationForm({
                     size="sm"
                     onClick={() =>
                       append({
+                        productId: "",
+                        uom: "",
                         description: "",
                         quantity: "1",
                         unitPrice: "0",
-                        discountPercent: "0",
+                        discountAmount: "0",
                       })
                     }
                   >
@@ -538,122 +617,138 @@ export function QuotationForm({
                   </Button>
                 ) : null}
               </CardHeader>
-              <CardContent className="grid gap-4">
-                {fields.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No line items.</p>
-                ) : null}
+              <CardContent className="grid gap-3">
                 {form.formState.errors.lines?.root ? (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.lines.root.message}
                   </p>
                 ) : null}
-                {fields.map((f, i) => {
-                  return (
-                    <div key={f.id} className="grid gap-3 rounded-lg border p-3">
-                      <FormField
-                        control={form.control}
-                        name={`lines.${i}.description`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs" required>
-                              Description
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Service description"
-                                disabled={!canEditDraft}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        <FormField
-                          control={form.control}
-                          name={`lines.${i}.quantity`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs" required>
-                                Qty
-                              </FormLabel>
-                              <FormControl>
+                {fields.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No line items.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs text-muted-foreground">
+                          <th className="w-8 py-2 pr-2 font-medium">#</th>
+                          <th className="py-2 pr-2 font-medium">Product</th>
+                          <th className="py-2 pr-2 font-medium">Description</th>
+                          <th className="w-20 py-2 pr-2 text-right font-medium">
+                            Qty
+                          </th>
+                          <th className="w-14 py-2 pr-2 font-medium">UOM</th>
+                          <th className="w-28 py-2 pr-2 text-right font-medium">
+                            Unit price
+                          </th>
+                          <th className="w-28 py-2 pr-2 text-right font-medium">
+                            Disc ({quotation.currency})
+                          </th>
+                          <th className="w-28 py-2 pr-2 text-right font-medium">
+                            Line total
+                          </th>
+                          {canEditDraft ? <th className="w-8 py-2" /> : null}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fields.map((f, i) => {
+                          const line = watchedLines?.[i]
+                          return (
+                            <tr
+                              key={f.id}
+                              className="border-b align-middle last:border-0"
+                            >
+                              <td className="py-1.5 pr-2 text-muted-foreground tabular-nums">
+                                {i + 1}
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                {products.length > 0 ? (
+                                  <Combobox
+                                    value={line?.productId || NO_PRODUCT}
+                                    onChange={(v) =>
+                                      applyProduct(i, v || NO_PRODUCT)
+                                    }
+                                    options={productItems}
+                                    disabled={!canEditDraft}
+                                    placeholder="Pick a product…"
+                                    searchPlaceholder="Search products…"
+                                    emptyMessage="No products found."
+                                    className="min-w-44"
+                                  />
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <Input
+                                  className="min-w-44"
+                                  placeholder="Description"
+                                  disabled={!canEditDraft}
+                                  {...form.register(`lines.${i}.description`)}
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
                                 <Input
                                   type="number"
                                   step="0.001"
                                   min="0"
+                                  className="w-20 text-right tabular-nums"
                                   disabled={!canEditDraft}
-                                  {...field}
+                                  {...form.register(`lines.${i}.quantity`)}
                                 />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name={`lines.${i}.unitPrice`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs" required>
-                                Unit price
-                              </FormLabel>
-                              <FormControl>
+                              </td>
+                              <td className="py-1.5 pr-2 text-muted-foreground">
+                                {line?.uom || "—"}
+                              </td>
+                              <td
+                                className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground"
+                                title="Inherited from the product — pick a product to set it"
+                              >
+                                {formatMoney(
+                                  line?.unitPrice ?? 0,
+                                  quotation.currency
+                                )}
+                              </td>
+                              <td className="py-1.5 pr-2">
                                 <Input
                                   type="number"
                                   step="0.01"
                                   min="0"
+                                  className="w-24 text-right tabular-nums"
                                   disabled={!canEditDraft}
-                                  {...field}
+                                  {...form.register(`lines.${i}.discountAmount`)}
                                 />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name={`lines.${i}.discountPercent`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs">Disc %</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  step="0.001"
-                                  min="0"
-                                  disabled={!canEditDraft}
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <div className="grid gap-2">
-                          <FormLabel className="text-xs">Line total</FormLabel>
-                          <div className="flex h-8 items-center text-sm tabular-nums">
-                            {formatMoney(lineTotalAt(i), quotation.currency)}
-                          </div>
-                        </div>
-                      </div>
-                      {canEditDraft ? (
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={fields.length === 1}
-                            onClick={() => remove(i)}
-                          >
-                            <Trash2 /> Remove
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })}
+                              </td>
+                              <td className="py-1.5 pr-2 text-right font-medium tabular-nums">
+                                {formatMoney(lineTotalAt(i), quotation.currency)}
+                              </td>
+                              {canEditDraft ? (
+                                <td className="py-1.5 text-right">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    disabled={fields.length === 1}
+                                    onClick={() => remove(i)}
+                                    aria-label="Remove line"
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                </td>
+                              ) : null}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {canEditDraft ? (
+                  <p className="text-xs text-muted-foreground">
+                    Pick a product to set the line — its <strong>unit price</strong>{" "}
+                    is inherited and can&apos;t be edited here. Adjust qty and
+                    discount inline.
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
 
@@ -698,8 +793,8 @@ export function QuotationForm({
               </span>
             </div>
             <Row
-              label="Product type"
-              value={productTypeName ?? "—"}
+              label="Project nature"
+              value={projectNatureName ?? "—"}
             />
             {quotation.isPrimary ? (
               <div className="mt-1 flex items-center gap-1.5">
@@ -890,7 +985,157 @@ export function QuotationForm({
         </Card>
         ) : null}
       </div>
-    </div>
+      </TabsContent>
+
+      <TabsContent value="preview" className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            This is how your quotation prints as a PDF.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={
+              <Link
+                href={`/quotations/${quotation.id}/preview`}
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            }
+          >
+            <PrinterIcon className="size-4" />
+            Open / Print PDF
+          </Button>
+        </div>
+
+        {/* PDF-style A4 document floating on a desk background. */}
+        <div className="flex justify-center rounded-lg bg-muted/40 p-4 sm:p-6">
+          <div className="w-[210mm] max-w-full min-h-[297mm] overflow-hidden rounded-sm bg-white text-zinc-900 shadow-lg ring-1 ring-zinc-200">
+            <div className="h-2 w-full bg-red-600" />
+            <div className="grid gap-6 p-[14mm]">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 pb-5">
+              <div className="grid gap-0.5">
+                <span className="text-[0.65rem] font-medium uppercase tracking-[0.2em] text-zinc-400">
+                  Quotation
+                </span>
+                <span className="font-mono text-xl font-semibold text-red-600">
+                  {quotation.quoteNumber}
+                </span>
+                {opportunityName ? (
+                  <span className="text-sm text-zinc-500">{opportunityName}</span>
+                ) : null}
+              </div>
+              <div className="grid justify-items-end gap-1 text-sm">
+                <StatusBadge status={quotation.status} className="capitalize" />
+                {quotation.validUntil ? (
+                  <span className="text-zinc-500">
+                    Valid until {formatDate(quotation.validUntil)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {detail.accountName ? (
+              <div className="grid gap-0.5">
+                <span className="text-[0.65rem] font-medium uppercase tracking-[0.2em] text-zinc-400">
+                  Bill to
+                </span>
+                <span className="font-medium">{detail.accountName}</span>
+              </div>
+            ) : null}
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-left text-xs text-zinc-400">
+                    <th className="w-8 py-2 pr-2 font-medium">#</th>
+                    <th className="py-2 pr-2 font-medium">Description</th>
+                    <th className="py-2 pr-2 text-right font-medium">Qty</th>
+                    <th className="py-2 pr-2 font-medium">UOM</th>
+                    <th className="py-2 pr-2 text-right font-medium">Unit price</th>
+                    <th className="py-2 pr-2 text-right font-medium">Disc</th>
+                    <th className="py-2 pr-2 text-right font-medium">Line total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewLines.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-3 text-zinc-400">
+                        No line items.
+                      </td>
+                    </tr>
+                  ) : (
+                    previewLines.map((l, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-zinc-200 last:border-0"
+                      >
+                        <td className="py-2 pr-2 text-zinc-400 tabular-nums">
+                          {i + 1}
+                        </td>
+                        <td className="py-2 pr-2">{l.description || "—"}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums">
+                          {l.quantity}
+                        </td>
+                        <td className="py-2 pr-2 text-zinc-500">
+                          {l.uom || "—"}
+                        </td>
+                        <td className="py-2 pr-2 text-right tabular-nums">
+                          {formatMoney(l.unitPrice, quotation.currency)}
+                        </td>
+                        <td className="py-2 pr-2 text-right tabular-nums">
+                          {Number(l.discount) > 0
+                            ? `−${formatMoney(l.discount, quotation.currency)}`
+                            : "—"}
+                        </td>
+                        <td className="py-2 pr-2 text-right font-medium tabular-nums">
+                          {formatMoney(l.lineTotal, quotation.currency)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="ml-auto grid w-full max-w-xs gap-1 text-sm">
+              <DocRow
+                label="Subtotal"
+                value={formatMoney(display.subtotal, quotation.currency)}
+              />
+              <DocRow
+                label="Discount"
+                value={formatMoney(display.discountTotal, quotation.currency)}
+              />
+              <DocRow
+                label={`Tax${labelTaxInclusive ? " (incl.)" : ""}`}
+                value={formatMoney(display.taxTotal, quotation.currency)}
+              />
+              <div className="my-1 border-t border-zinc-200" />
+              <div className="flex items-center justify-between text-base font-semibold">
+                <span>Total</span>
+                <span className="tabular-nums">
+                  {formatMoney(display.total, quotation.currency)}
+                </span>
+              </div>
+            </div>
+
+            {(isDraft ? form.watch("notes") : quotation.notes) ? (
+              <div className="grid gap-0.5 border-t border-zinc-200 pt-4">
+                <span className="text-[0.65rem] font-medium uppercase tracking-[0.2em] text-zinc-400">
+                  Notes
+                </span>
+                <p className="text-sm whitespace-pre-wrap text-zinc-600">
+                  {isDraft ? form.watch("notes") : quotation.notes}
+                </p>
+              </div>
+            ) : null}
+            </div>
+          </div>
+        </div>
+      </TabsContent>
+    </Tabs>
   )
 }
 
@@ -899,6 +1144,16 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between text-muted-foreground">
       <span>{label}</span>
       <span className="tabular-nums text-foreground">{value}</span>
+    </div>
+  )
+}
+
+/** Totals row inside the white PDF-style preview document (fixed zinc colours). */
+function DocRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-zinc-500">
+      <span>{label}</span>
+      <span className="tabular-nums text-zinc-900">{value}</span>
     </div>
   )
 }

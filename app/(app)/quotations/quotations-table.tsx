@@ -114,7 +114,7 @@ export function QuotationsTable({
       cell: ({ row }) => (
         <Link
           href={`/quotations/${row.original.id}`}
-          className="font-medium underline-offset-4 hover:underline"
+          className="font-medium link"
         >
           {row.original.quoteNumber}
         </Link>

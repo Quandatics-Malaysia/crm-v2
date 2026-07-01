@@ -11,6 +11,7 @@ import {
   ActivityIcon,
   ArrowRightIcon,
   PaperclipIcon,
+  PlusIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -82,6 +83,9 @@ export function ActivityTimeline({
   const [dueAt, setDueAt] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [showAll, setShowAll] = React.useState(false)
+  // The composer is collapsed by default so the timeline reads cleanly; the
+  // "Log activity" button reveals the full form on demand.
+  const [composerOpen, setComposerOpen] = React.useState(false)
 
   const VISIBLE = 4
   const visible = showAll ? items : items.slice(0, VISIBLE)
@@ -121,6 +125,7 @@ export function ActivityTimeline({
         return
       }
       reset()
+      setComposerOpen(false)
       toast.success("Activity logged")
       router.refresh()
     } finally {
@@ -130,6 +135,18 @@ export function ActivityTimeline({
 
   return (
     <div className="grid gap-4">
+      {!composerOpen ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="justify-self-start"
+          onClick={() => setComposerOpen(true)}
+        >
+          <PlusIcon className="size-4" />
+          Log activity
+        </Button>
+      ) : (
       <form onSubmit={submit} className="grid gap-3 rounded-lg border p-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
@@ -205,11 +222,25 @@ export function ActivityTimeline({
               className="w-44"
             />
           </div>
-          <Button type="submit" size="sm" disabled={busy}>
-            Log activity
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                reset()
+                setComposerOpen(false)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={busy}>
+              Log activity
+            </Button>
+          </div>
         </div>
       </form>
+      )}
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No activity yet.</p>

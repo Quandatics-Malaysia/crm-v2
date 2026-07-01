@@ -1,0 +1,2 @@
+ALTER TABLE "quotation_line_items" ALTER COLUMN "discount_percent" SET DATA TYPE numeric(14, 2);--> statement-breakpoint
+ALTER TABLE "quotation_line_items" ALTER COLUMN "discount_percent" SET DEFAULT '0';

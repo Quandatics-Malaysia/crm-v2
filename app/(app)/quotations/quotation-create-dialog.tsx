@@ -17,6 +17,7 @@ import {
   getQuotationFormMeta,
   type TaxOption,
 } from "./actions"
+import type { ProductOption } from "@/lib/lookups"
 import { QuotationCreateForm } from "./quotation-create-form"
 
 /**
@@ -35,7 +36,8 @@ export function QuotationCreateDialog({
   const [meta, setMeta] = React.useState<{
     taxOptions: TaxOption[]
     taxInclusive: boolean
-    productTypes: { code: string; name: string }[]
+    projectNatures: { code: string; name: string }[]
+    products: ProductOption[]
   } | null>(null)
   const [loading, setLoading] = React.useState(false)
 
@@ -74,7 +76,8 @@ export function QuotationCreateDialog({
             opportunityId={opportunityId}
             taxOptions={meta.taxOptions}
             taxInclusive={meta.taxInclusive}
-            productTypes={meta.productTypes}
+            projectNatures={meta.projectNatures}
+            products={meta.products}
             onCancel={() => setOpen(false)}
             onCreated={() => {
               setOpen(false)

@@ -40,8 +40,6 @@ export const paymentMilestones = pgTable(
   }),
   title: text("title").notNull(),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
-  /** Optional share of the quotation total (display/derivation aid). */
-  percentage: numeric("percentage", { precision: 5, scale: 2 }),
   dueDate: date("due_date"),
   status: paymentMilestoneStatus("status").notNull().default("pending"),
   sortOrder: integer("sort_order").notNull().default(0),

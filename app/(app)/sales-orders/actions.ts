@@ -113,7 +113,8 @@ type RawRow = {
 async function fetchRows(
   tx: Parameters<Parameters<typeof withTenant>[1]>[0],
   ctx: Parameters<Parameters<typeof withTenant>[1]>[1],
-  projectId?: string
+  projectId?: string,
+  salesOrderId?: string
 ): Promise<SalesOrderRow[]> {
   // Sales orders inherit visibility from their parent project's owner.
   // Approvers must still see every submitted SO, so they bypass owner scoping.
@@ -150,6 +151,7 @@ async function fetchRows(
         // doesn't fire the cascade FK, so they'd otherwise dangle in this list.
         isNull(projects.deletedAt),
         projectId ? eq(salesOrders.projectId, projectId) : undefined,
+        salesOrderId ? eq(salesOrders.id, salesOrderId) : undefined,
         ownerScope(projects.ownerMemberId, scopeSO)
       )
     )
@@ -591,4 +593,12 @@ export async function listProjectSalesOrders(
   return withTenant(PERMISSIONS.SALES_ORDER_VIEW, (tx, ctx) =>
     fetchRows(tx, ctx, projectId)
   )
+}
+
+/** One sales order with its review context, or null if not visible. */
+export async function getSalesOrder(id: string): Promise<SalesOrderRow | null> {
+  return withTenant(PERMISSIONS.SALES_ORDER_VIEW, async (tx, ctx) => {
+    const [row] = await fetchRows(tx, ctx, undefined, id)
+    return row ?? null
+  })
 }

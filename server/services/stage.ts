@@ -13,6 +13,13 @@ import {
   tenantSettings,
 } from "@/db/schema"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  buildStageGate,
+  missingFromKeys,
+  requiresCloseRemarks,
+  closeRemarksLabel,
+  type StageGateState,
+} from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import type { ServerContext } from "@/lib/server-context"
@@ -292,6 +299,37 @@ export async function requestStageAdvance(
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
+
+    // Entry requirements: the information that must be on the funnel before it
+    // may enter this stage (mirrors Salesforce's "fill the info to mark this
+    // stage" gate). Authoritative — the dialog pre-checks the same rules.
+    // Presets read real columns; custom fields read opp.customFields.
+    const presets: StageGateState = {
+      hasEstimate:
+        opp.estimatedAmount != null && Number(opp.estimatedAmount) > 0,
+      hasCloseDate: !!opp.expectedCloseDate,
+      hasContact: !!opp.primaryPersonId,
+      hasNature:
+        Array.isArray(opp.projectNatures) && opp.projectNatures.length > 0,
+      hasQuote: !!opp.primaryQuotationId,
+    }
+    const stageGate = buildStageGate(
+      presets,
+      (opp.customFields ?? {}) as Record<string, unknown>,
+      settings?.customFunnelFields ?? []
+    )
+    const missing = missingFromKeys(target.requiredFields, stageGate)
+    if (missing.length > 0) {
+      throw new Error(
+        `Add ${missing.map((m) => m.label).join(", ")} before moving to ${target.name}.`
+      )
+    }
+    if (requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
+      throw new Error(
+        `${closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
+      )
+    }
+
     const gated =
       target.requiresApprovalToEnter && !canBypassApproval(ctx, settings)
 

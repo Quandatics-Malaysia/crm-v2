@@ -2,13 +2,23 @@
 
 import { and, asc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import type { StageCode, StageKind, ProductType } from "./constants"
-import { normalizeProductTypeCode, validateProductTypeCode } from "./constants"
+import type { StageCode, StageKind, ProjectNature, ProductCode } from "./constants"
+import {
+  normalizeProjectNatureCode,
+  validateProjectNatureCode,
+  normalizeProductCode,
+  validateProductCode,
+} from "./constants"
 import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  CUSTOM_FIELD_TYPES,
+  type CustomFunnelField,
+  type CustomFieldType,
+} from "@/lib/stage-gate"
 import {
   tenantSettings,
   membershipProfiles,
@@ -36,7 +46,9 @@ export type TenantSettingsView = {
   projectNextNumber: number
   projectPadWidth: number
   industries: string[]
-  productTypes: ProductType[]
+  projectNatures: ProjectNature[]
+  productCodes: ProductCode[]
+  customFunnelFields: CustomFunnelField[]
 }
 
 export type TenantMemberView = {
@@ -118,7 +130,9 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
     projectNextNumber: row.projectNextNumber,
     projectPadWidth: row.projectPadWidth,
     industries: row.industries ?? [],
-    productTypes: row.productTypes ?? [],
+    projectNatures: row.projectNatures ?? [],
+    productCodes: row.productCodes ?? [],
+    customFunnelFields: row.customFunnelFields ?? [],
   }
 }
 
@@ -296,26 +310,26 @@ export async function updateIndustries(
   })
 }
 
-/** Replace the tenant's product-type picklist (used in project codes). */
-export async function updateProductTypes(
-  productTypes: ProductType[]
-): Promise<ActionResult<ProductType[]>> {
+/** Replace the tenant's project-nature picklist (used in project codes). */
+export async function updateProjectNatures(
+  projectNatures: ProjectNature[]
+): Promise<ActionResult<ProjectNature[]>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
-  const cleaned: ProductType[] = []
+  const cleaned: ProjectNature[] = []
   const seenCodes = new Set<string>()
-  for (const raw of productTypes ?? []) {
-    const code = normalizeProductTypeCode(raw?.code ?? "")
+  for (const raw of projectNatures ?? []) {
+    const code = normalizeProjectNatureCode(raw?.code ?? "")
     const name = (raw?.name ?? "").trim()
-    const codeError = validateProductTypeCode(code)
+    const codeError = validateProjectNatureCode(code)
     if (codeError) throw new Error(codeError)
     if (name.length === 0) {
-      throw new Error(`Name is required for product type "${code}".`)
+      throw new Error(`Name is required for project nature "${code}".`)
     }
     if (seenCodes.has(code)) {
-      throw new Error(`Duplicate product-type code "${code}".`)
+      throw new Error(`Duplicate project-nature code "${code}".`)
     }
     seenCodes.add(code)
     cleaned.push({ code, name })
@@ -328,20 +342,162 @@ export async function updateProductTypes(
       .values({
         organizationId: ctx.tenantId,
         status: "active",
-        productTypes: cleaned,
+        projectNatures: cleaned,
       })
       .onConflictDoUpdate({
         target: tenantSettings.organizationId,
-        set: { productTypes: cleaned, updatedAt: new Date() },
+        set: { projectNatures: cleaned, updatedAt: new Date() },
       })
       .returning()
     await writeAudit(tx, ctx, {
-      action: "settings.product_types_updated",
+      action: "settings.project_natures_updated",
       entityType: "tenant_settings",
       entityId: ctx.tenantId,
-      after: { productTypes: cleaned },
+      after: { projectNatures: cleaned },
     })
-    return updated.productTypes ?? []
+    return updated.projectNatures ?? []
+  })
+
+  revalidatePath("/settings")
+  return saved
+  })
+}
+
+/** Replace the tenant's product-code picklist (product lines for the catalog). */
+export async function updateProductCodes(
+  productCodes: ProductCode[]
+): Promise<ActionResult<ProductCode[]>> {
+  return runAction(async () => {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+  const cleaned: ProductCode[] = []
+  const seenCodes = new Set<string>()
+  for (const raw of productCodes ?? []) {
+    const code = normalizeProductCode(raw?.code ?? "")
+    const name = (raw?.name ?? "").trim()
+    const codeError = validateProductCode(code)
+    if (codeError) throw new Error(codeError)
+    if (name.length === 0) {
+      throw new Error(`Name is required for product code "${code}".`)
+    }
+    if (seenCodes.has(code)) {
+      throw new Error(`Duplicate product code "${code}".`)
+    }
+    seenCodes.add(code)
+    cleaned.push({ code, name })
+  }
+  cleaned.sort((a, b) => a.code.localeCompare(b.code))
+
+  const saved = await runInTenant(ctx.tenantId, async (tx) => {
+    const [updated] = await tx
+      .insert(tenantSettings)
+      .values({
+        organizationId: ctx.tenantId,
+        status: "active",
+        productCodes: cleaned,
+      })
+      .onConflictDoUpdate({
+        target: tenantSettings.organizationId,
+        set: { productCodes: cleaned, updatedAt: new Date() },
+      })
+      .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.product_codes_updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: { productCodes: cleaned },
+    })
+    return updated.productCodes ?? []
+  })
+
+  revalidatePath("/settings")
+  return saved
+  })
+}
+
+/**
+ * Tenant-defined custom funnel fields. Each row is a free-text label; the key is
+ * auto-slugged (prefixed `cf_` so it can never collide with a preset field key)
+ * and stays stable so existing data/requirements keep referencing it.
+ */
+export async function updateCustomFunnelFields(
+  fields: {
+    key?: string
+    label: string
+    type?: string
+    options?: string[]
+    description?: string
+    category?: string
+  }[]
+): Promise<ActionResult<CustomFunnelField[]>> {
+  return runAction(async () => {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+  const validTypes = new Set(CUSTOM_FIELD_TYPES.map((t) => t.value))
+  const cleaned: CustomFunnelField[] = []
+  const seen = new Set<string>()
+  for (const raw of fields ?? []) {
+    const label = (raw?.label ?? "").trim()
+    if (!label) continue // skip blank rows
+    let key = (raw?.key ?? "").trim()
+    if (!key) {
+      const slug = label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 40)
+      key = `cf_${slug || "field"}`
+    }
+    if (!key.startsWith("cf_")) key = `cf_${key}`
+    if (seen.has(key)) {
+      let i = 2
+      while (seen.has(`${key}_${i}`)) i++
+      key = `${key}_${i}`
+    }
+    seen.add(key)
+    const type: CustomFieldType = validTypes.has(raw?.type as CustomFieldType)
+      ? (raw!.type as CustomFieldType)
+      : "text"
+    const options =
+      type === "select"
+        ? (raw?.options ?? [])
+            .map((o) => o.trim())
+            .filter((o) => o.length > 0)
+        : undefined
+    const description = (raw?.description ?? "").trim() || undefined
+    const category = (raw?.category ?? "").trim() || undefined
+    cleaned.push({
+      key,
+      label,
+      type,
+      ...(options ? { options } : {}),
+      ...(description ? { description } : {}),
+      ...(category ? { category } : {}),
+    })
+  }
+
+  const saved = await runInTenant(ctx.tenantId, async (tx) => {
+    const [updated] = await tx
+      .insert(tenantSettings)
+      .values({
+        organizationId: ctx.tenantId,
+        status: "active",
+        customFunnelFields: cleaned,
+      })
+      .onConflictDoUpdate({
+        target: tenantSettings.organizationId,
+        set: { customFunnelFields: cleaned, updatedAt: new Date() },
+      })
+      .returning()
+    await writeAudit(tx, ctx, {
+      action: "settings.custom_funnel_fields_updated",
+      entityType: "tenant_settings",
+      entityId: ctx.tenantId,
+      after: { customFunnelFields: cleaned },
+    })
+    return updated.customFunnelFields ?? []
   })
 
   revalidatePath("/settings")
@@ -396,11 +552,29 @@ export type StageUpdateInput = {
   requiresApprovalToEnter: boolean
   includeInForecast: boolean
   sortOrder: number
+  /** Configurable entry requirements (RequirableFieldKey values). */
+  requiredFields: string[]
 }
 
 export type StageCreateInput = StageUpdateInput & {
   code: StageCode
   kind: StageKind
+}
+
+/** Valid requirement keys for a stage: preset fields + the tenant's custom fields. */
+async function allowedRequiredKeys(
+  tx: Tx,
+  tenantId: string
+): Promise<Set<string>> {
+  const [s] = await tx
+    .select({ c: tenantSettings.customFunnelFields })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .limit(1)
+  // Only the tenant's own custom fields can gate a stage (no preset fields).
+  const keys = new Set<string>()
+  for (const f of s?.c ?? []) keys.add(f.key)
+  return keys
 }
 
 /** Resolve the tenant's default funnel id (falls back to first active funnel). */
@@ -459,6 +633,7 @@ export async function updateStage(
   return runAction(async () => {
   validateStage(input)
   const row = await withStageTenant(async (tx, ctx) => {
+    const allowed = await allowedRequiredKeys(tx, ctx.tenantId)
     const [updated] = await tx
       .update(funnelStages)
       .set({
@@ -467,6 +642,7 @@ export async function updateStage(
         requiresApprovalToEnter: input.requiresApprovalToEnter,
         includeInForecast: input.includeInForecast,
         sortOrder: input.sortOrder,
+        requiredFields: input.requiredFields.filter((k) => allowed.has(k)),
         updatedAt: new Date(),
       })
       .where(eq(funnelStages.id, id))
@@ -493,6 +669,7 @@ export async function createStage(
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
   const row = await runInTenant(ctx.tenantId, async (tx) => {
+    const allowed = await allowedRequiredKeys(tx, ctx.tenantId)
     const funnelId = await resolveDefaultFunnelId(tx, ctx.tenantId)
     if (!funnelId) throw new Error("No funnel configured for this entity.")
 
@@ -519,6 +696,7 @@ export async function createStage(
         sortOrder: input.sortOrder,
         requiresApprovalToEnter: input.requiresApprovalToEnter,
         includeInForecast: input.includeInForecast,
+        requiredFields: input.requiredFields.filter((k) => allowed.has(k)),
       })
       .returning()
     await writeAudit(tx, ctx, {

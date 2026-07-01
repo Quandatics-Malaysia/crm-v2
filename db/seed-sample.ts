@@ -48,6 +48,8 @@ const {
   paymentMilestones,
   salesOrders,
   leads,
+  products,
+  contractYears,
 } = schema
 
 const TENANT_ID = "demo-entity"
@@ -250,24 +252,24 @@ async function main() {
 
   // ── 4. opportunities (funnels) across stages ──────────────────────────────
   const oppId = (k: string) => det(`opportunity:${k}`)
-  // productType codes below come from the tenant's product_types picklist
+  // projectNature codes below come from the tenant's product_types picklist
   // seeded in seed.ts (CONSULT/IMPL/MSP/WEB/INFRA/SUPP). The funnel's
   // product_type_code is inherited by its quotations (see section 5).
   const oppValues = [
-    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31", productType: "IMPL" },
-    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30", productType: "INFRA" },
+    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31", projectNature: "IMPL" },
+    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30", projectNature: "INFRA" },
     // sales1-owned, currently at gated 2c → the pending approval below advances it to 3b
-    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15", productType: "CONSULT" },
-    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31", productType: "WEB" },
-    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31", productType: "IMPL" },
+    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15", projectNature: "CONSULT" },
+    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31", projectNature: "WEB" },
+    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31", projectNature: "IMPL" },
     // Won — carries the accepted primary quote + project + milestones + SO
-    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true, productType: "MSP" },
+    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true, projectNature: "MSP" },
     // Lost
-    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", productType: "INFRA" },
+    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", projectNature: "INFRA" },
     // KIV / parked
-    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", productType: "CONSULT" },
+    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", projectNature: "CONSULT" },
   ]
-  const oppProductType = new Map(oppValues.map((o) => [o.k, o.productType]))
+  const oppProjectNature = new Map(oppValues.map((o) => [o.k, o.projectNature]))
   for (const o of oppValues) {
     const closeTs = o.closed ? new Date("2026-06-01T08:00:00Z") : null
     await db
@@ -282,8 +284,20 @@ async function main() {
         currentStageId: stage.get(o.stage)!,
         ownerMemberId: o.owner,
         amount: o.amount,
+        // Estimated Funnel Amount drives the forecast; seed it from the deal value.
+        estimatedAmount: o.amount,
+        // Demo an intercompany middle-man deal: a partner handles delivery and
+        // we recognize only 10% as the contracting middle-man.
+        isIntercompany: o.k === "umbrella-crm",
+        recognizedPercent: o.k === "umbrella-crm" ? "10.00" : null,
+        handlingPartnerAccountId:
+          o.k === "umbrella-crm" ? accId("stark") : null,
+        projectYear: o.expected ? Number(o.expected.slice(0, 4)) : null,
         currency: "MYR",
-        productTypeCode: o.productType,
+        projectNatureCode: o.projectNature,
+        // Demo a multi-nature deal (License + Consulting + Managed Services).
+        projectNatures:
+          o.k === "umbrella-crm" ? ["WEB", "CONSULT", "MSP"] : null,
         status: o.status as "open" | "won" | "lost" | "on_hold",
         expectedCloseDate: o.expected ?? null,
         actualCloseDate: closeTs ? "2026-06-01" : null,
@@ -296,7 +310,7 @@ async function main() {
 
   // ── 5. quotations (draft / sent / accepted) + line items ──────────────────
   const quoteId = (k: string) => det(`quotation:${k}`)
-  type QLine = { description: string; quantity: number; unitPrice: number; discountPercent?: number }
+  type QLine = { description: string; quantity: number; unitPrice: number; discountAmount?: number }
   const quoteSpecs: {
     k: string
     opp: string
@@ -358,7 +372,7 @@ async function main() {
         status: q.status,
         currency: "MYR",
         // inherited from the source funnel on create (editable thereafter)
-        productTypeCode: oppProductType.get(q.opp) ?? null,
+        projectNatureCode: oppProjectNature.get(q.opp) ?? null,
         taxSettingId: tax.id,
         taxRateSnapshot: taxRate,
         taxInclusive: false,
@@ -385,7 +399,7 @@ async function main() {
           description: line.description,
           quantity: String(line.quantity),
           unitPrice: String(line.unitPrice),
-          discountPercent: String(line.discountPercent ?? 0),
+          discountAmount: String(line.discountAmount ?? 0),
           taxSettingId: tax.id,
           lineSubtotal: String(lc.lineSubtotal),
           lineTax: String(lc.lineTax),
@@ -410,7 +424,7 @@ async function main() {
       tenantId: TENANT_ID,
       projectCode: "2026-DEMO-STARKR-MSP-001",
       codeNature: "manual",
-      productTypeCode: "MSP",
+      projectNatureCode: "MSP",
       name: "Stark Managed Services — Year 1",
       accountId: accId("stark"),
       opportunityId: oppId("stark-msp"),
@@ -426,8 +440,8 @@ async function main() {
 
   // ── 7. payment milestones reconciling to the accepted quote total ─────────
   const milestones = [
-    { k: "deposit", title: "Deposit (50%)", amount: "20140.00", percentage: "50.00", due: "2026-06-15", status: "invoiced", sort: 0 },
-    { k: "completion", title: "On completion (50%)", amount: "20140.00", percentage: "50.00", due: "2026-12-15", status: "pending", sort: 1 },
+    { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
+    { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
   ]
   for (const m of milestones) {
     await db
@@ -439,7 +453,6 @@ async function main() {
         quotationId: quoteId("stark-accepted"),
         title: m.title,
         amount: m.amount,
-        percentage: m.percentage,
         dueDate: m.due,
         status: m.status as "pending" | "invoiced" | "paid",
         sortOrder: m.sort,
@@ -505,6 +518,57 @@ async function main() {
         source: l.source,
         status: l.status as "new" | "contacted" | "qualified",
         ownerMemberId: l.owner,
+      })
+      .onConflictDoNothing()
+  }
+
+  // ── 11. products (standardised catalog) ───────────────────────────────────
+  const productValues = [
+    { k: "coaching-bi", name: "Coaching - Business Intelligence", productCode: "COACHING", subcategory: "Data Analytics", uom: "Day", price: "15000.00", description: "HRDF Claimable RM10,500" },
+    { k: "training-pbi", name: "Training - Power BI Fundamentals", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "8000.00", description: "2-day instructor-led course" },
+    { k: "license-annual", name: "Platform License - Annual", productCode: "LICENSE", subcategory: "Subscription", uom: "Year", price: "36000.00", description: "Per-tenant annual subscription" },
+    { k: "support-prem", name: "Premium Support", productCode: "SUPPORT", subcategory: "Managed Services", uom: "Month", price: "5000.00", description: "Priority SLA, 8x5 coverage" },
+  ]
+  for (const p of productValues) {
+    await db
+      .insert(products)
+      .values({
+        id: det(`product:${p.k}`),
+        tenantId: TENANT_ID,
+        name: p.name,
+        productCode: p.productCode,
+        subcategory: p.subcategory,
+        uom: p.uom,
+        currency: "MYR",
+        standardPrice: p.price,
+        description: p.description,
+        isActive: true,
+      })
+      .onConflictDoNothing()
+  }
+
+  // ── 12. multi-year contract on the interco deal ───────────────────────────
+  const umbrellaOppId = oppId("umbrella-crm")
+  const contractYearValues = [
+    { y: 2024, t: "Y1 — License + PS + AMS", a: "47700.00", s: "invoiced" },
+    { y: 2025, t: "Y2 — License + AMS", a: "42000.00", s: "planned" },
+    { y: 2026, t: "Y3 — License + AMS", a: "42000.00", s: "planned" },
+    { y: 2027, t: "Y4 — License + AMS", a: "43500.00", s: "planned" },
+    { y: 2028, t: "Y5 (subject to change)", a: "45000.00", s: "planned" },
+  ]
+  for (const cy of contractYearValues) {
+    await db
+      .insert(contractYears)
+      .values({
+        id: det(`contractyear:umbrella:${cy.y}`),
+        tenantId: TENANT_ID,
+        opportunityId: umbrellaOppId,
+        year: cy.y,
+        title: cy.t,
+        amount: cy.a,
+        currency: "MYR",
+        status: cy.s,
+        sortOrder: cy.y,
       })
       .onConflictDoNothing()
   }

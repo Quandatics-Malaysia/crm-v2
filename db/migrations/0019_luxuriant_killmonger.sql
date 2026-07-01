@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_settings" ADD COLUMN "product_codes" jsonb DEFAULT '[]'::jsonb NOT NULL;

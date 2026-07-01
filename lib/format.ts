@@ -9,11 +9,6 @@ export function formatMoney(
   }).format(Number.isFinite(n) ? (n as number) : 0)
 }
 
-export function formatNumber(value: string | number | null | undefined): string {
-  const n = typeof value === "string" ? Number(value) : (value ?? 0)
-  return new Intl.NumberFormat("en-MY").format(Number.isFinite(n) ? (n as number) : 0)
-}
-
 export function formatDate(d: string | Date | null | undefined): string {
   if (!d) return "—"
   const date = typeof d === "string" ? new Date(d) : d

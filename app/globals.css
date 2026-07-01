@@ -4,6 +4,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@layer components {
+  /*
+   * Global link style — ONE source of truth for record/navigation links.
+   * The theme is grayscale, so links use a sky accent to read as clickable in
+   * both light and dark mode. Apply `link` to any <a>/<Link> that points at a
+   * record; combine freely with font-medium / font-mono / text-xs etc.
+   * Written as plain CSS (not @apply) so the custom `dark` variant resolves.
+   */
+  .link {
+    color: var(--primary);
+    text-underline-offset: 2px;
+  }
+  .link:hover {
+    text-decoration-line: underline;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -54,7 +71,8 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* Salesforce brand blue (#0176d3) — primary buttons, accents, active nav. */
+  --primary: oklch(0.56 0.158 250);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -65,24 +83,25 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.205 0 0);
+  --ring: oklch(0.56 0.158 250);
   /* Distinguishable analytics hues: one branded indigo + supporting spectrum. */
   --chart-1: oklch(0.55 0.22 264);
   --chart-2: oklch(0.65 0.16 162);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.62 0.21 25);
   --chart-5: oklch(0.58 0.2 320);
-  --radius: 0;
+  --radius: 0.25rem;
   --radius-pill: 9999px;
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary: oklch(0.56 0.158 250);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
+  --sidebar-ring: oklch(0.56 0.158 250);
+  /* Light-gray page (#f3f3f3) so white cards read as raised, à la Lightning. */
+  --background: oklch(0.967 0 0);
   --foreground: oklch(0.145 0 0);
 }
 
@@ -93,8 +112,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.62 0.16 250);
+  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -104,7 +123,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.62 0.16 250);
   /* Lighter variants of the same hues for legibility on dark surfaces. */
   --chart-1: oklch(0.67 0.2 264);
   --chart-2: oklch(0.74 0.15 162);
@@ -113,12 +132,12 @@
   --chart-5: oklch(0.68 0.19 320);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.62 0.16 250);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: oklch(0.62 0.16 250);
 }
 
 @layer base {
@@ -135,6 +154,18 @@
   *:focus-visible {
     @apply outline-2 outline-offset-2 outline-ring;
   }
+  /* Hide the up/down spinner on number inputs — it clutters tables/forms.
+     Safari/Chrome need the -webkit- prefix on the spin-button pseudo-elements. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 /* Respect users who prefer reduced motion: disable animations/transitions. */
@@ -146,5 +177,49 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Print isolation for document views (e.g. the quotation preview). Hide all app
+ * chrome (sidebar, header, action bars) and render only the element with
+ * id="quote-doc", flush to the page. Uses the visibility trick so we don't have
+ * to enumerate every chrome selector.
+ */
+/* Standard A4 page with sensible margins for the printed quotation. */
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #quote-doc,
+  #quote-doc * {
+    visibility: visible !important;
+  }
+  #quote-doc {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* Clean pagination: repeat the line-item header on every page, never split a
+     row, and keep the totals/notes blocks whole across the A4 page break. */
+  #quote-doc thead {
+    display: table-header-group;
+  }
+  #quote-doc tr,
+  #quote-doc .avoid-break {
+    break-inside: avoid;
   }
 }

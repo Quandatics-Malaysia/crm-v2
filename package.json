@@ -14,6 +14,7 @@
     "db:seed-sample": "tsx db/seed-sample.ts",
     "db:backfill-codes": "tsx db/backfill-project-codes.ts",
     "db:setup": "tsx db/migrate.ts && tsx db/seed.ts",
+    "db:setup-seeded": "tsx db/migrate.ts && tsx db/seed.ts && tsx db/seed-sample.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

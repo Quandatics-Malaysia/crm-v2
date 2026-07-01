@@ -70,6 +70,8 @@ export type AccountInput = {
   endUserAccountId?: string | null
   industry?: string | null
   website?: string | null
+  /** Main office / switchboard phone. */
+  phone?: string | null
   registrationNumber?: string | null
   billingAddress?: BillingAddress | null
 }
@@ -192,7 +194,7 @@ export async function getAccount(id: string) {
         opportunityId: opportunities.id,
         name: opportunities.name,
         status: opportunities.status,
-        amount: opportunities.amount,
+        amount: opportunities.estimatedAmount,
         currency: opportunities.currency,
         funnelId: opportunities.funnelId,
         stageId: funnelStages.id,
@@ -499,6 +501,7 @@ export async function createAccount(
           endUserAccountId,
           industry: input.industry || null,
           website: input.website || null,
+          phone: input.phone || null,
           registrationNumber: input.registrationNumber || null,
           billingAddress: cleanAddress(input.billingAddress),
         })
@@ -565,6 +568,7 @@ export async function updateAccount(
           endUserAccountId,
           industry: input.industry || null,
           website: input.website || null,
+          phone: input.phone || null,
           registrationNumber: input.registrationNumber || null,
           billingAddress: cleanAddress(input.billingAddress),
           updatedAt: new Date(),

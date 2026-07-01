@@ -25,6 +25,22 @@ npm run dev                     # http://localhost:3000
 ```
 The seed creates a **Demo Entity** and a demo Owner login (printed at the end, default `admin@demo.local` / `Password123!`).
 
+To start with a populated demo (extra logins + sample customers/funnels/quotations) instead of an empty entity, use the seeded setup — same as `db:setup`, plus `db/seed-sample.ts` layered on top:
+```bash
+npm run db:setup-seeded         # migrations + RLS + views + base seed + sample data
+```
+This adds four more logins under the Demo Entity (all password `Password123!`) and a set of sample customers, contacts, funnels, quotations, a won project, and leads to play with:
+
+| Email | Role | Tier |
+| --- | --- | --- |
+| `admin@demo.local` | Owner (superadmin) | 100 |
+| `manager@demo.local` | Manager | 60 |
+| `sales1@demo.local` | Rep | 20 |
+| `sales2@demo.local` | Rep | 20 |
+| `viewer@demo.local` | Viewer | 10 |
+
+The sample seed is idempotent and **dev-only** — don't run it on an internet-exposed deployment (it mints well-known default credentials). It is intentionally not part of the production Docker `migrate` step.
+
 ## Production (Docker, internet-exposed)
 ```bash
 # set these in your shell / .env for compose (REQUIRED — compose fails fast if unset):

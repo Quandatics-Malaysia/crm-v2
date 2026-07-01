@@ -82,7 +82,7 @@ export function DocumentViewerButton({ file }: { file: ViewableFile }) {
         )}
       </Button>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex h-[92vh] w-[96vw] max-w-7xl flex-col gap-0 overflow-hidden p-0">
+        <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-7xl">
           <DialogHeader className="flex flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5 pr-12">
             <FileTypeIcon
               contentType={file.contentType}
@@ -131,6 +131,8 @@ export function DocumentViewerButton({ file }: { file: ViewableFile }) {
                 className="mx-auto h-full w-full object-contain"
               />
             ) : isPdf(file.contentType) ? (
+              // The browser's built-in PDF viewer supplies its own zoom / fit
+              // controls; #view=FitH just sets the initial fit-to-width.
               <iframe
                 src={`${src}#view=FitH`}
                 title={file.fileName}

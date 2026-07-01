@@ -29,6 +29,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  CUSTOM_FIELD_TYPES,
+  groupCustomFields,
+  type CustomFunnelField,
+  type CustomFieldType,
+} from "@/lib/stage-gate"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -72,7 +79,9 @@ import {
   updateSettings,
   updateNumbering,
   updateIndustries,
-  updateProductTypes,
+  updateProjectNatures,
+  updateProductCodes,
+  updateCustomFunnelFields,
   updateStage,
   createStage,
   deleteStage,
@@ -89,14 +98,16 @@ import {
   STAGE_KINDS,
   STAGE_CODE_LABELS,
   STAGE_KIND_LABELS,
-  STAGE_KIND_DESCRIPTION,
   suggestKindForCode,
   defaultIncludeInForecast,
-  PRODUCT_TYPE_CODE_MAX,
-  normalizeProductTypeCode,
-  validateProductTypeCode,
+  PROJECT_NATURE_CODE_MAX,
+  normalizeProjectNatureCode,
+  validateProjectNatureCode,
+  PRODUCT_CODE_MAX,
+  normalizeProductCode,
+  validateProductCode,
 } from "./constants"
-import type { StageCode, StageKind, ProductType } from "./constants"
+import type { StageCode, StageKind, ProjectNature, ProductCode } from "./constants"
 
 // ─── General ─────────────────────────────────────────────────────────────────
 
@@ -438,7 +449,7 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
     Number(values.quoteNextNumber) || 0,
     Number(values.quotePadWidth) || 1
   )}`
-  // Project codes are {YYYY}-{Entity}-{Account}-{ProductType}-{NNN}; the running
+  // Project codes are {YYYY}-{Entity}-{Account}-{ProjectNature}-{NNN}; the running
   // number (NNN) resets to 1 each year, so the preview always shows the first.
   const projectPreview = `${currentYear}-${entityCode}-ACME-WEB-${pad(
     1,
@@ -557,7 +568,7 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
             <p className="text-sm text-muted-foreground">
               Project codes follow{" "}
               <span className="font-mono">
-                {"{YYYY}-{Entity}-{Account}-{ProductType}-{NNN}"}
+                {"{YYYY}-{Entity}-{Account}-{ProjectNature}-{NNN}"}
               </span>
               . The running number{" "}
               <span className="font-mono">NNN</span> is assigned per project and{" "}
@@ -566,7 +577,7 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
               </span>{" "}
               — there is no single ever-incrementing project number to set here.
               The entity code comes from General settings, the account code from
-              the account, and the product type is chosen when the project is
+              the account, and the project nature is chosen when the project is
               created. Only the zero-pad width of the running number is
               configured below.
             </p>
@@ -712,26 +723,26 @@ function IndustriesCard({ industries }: { industries: string[] }) {
   )
 }
 
-// ─── Product types ───────────────────────────────────────────────────────────
+// ─── Project natures ───────────────────────────────────────────────────────────
 
-function ProductTypesCard({ productTypes }: { productTypes: ProductType[] }) {
-  const [items, setItems] = React.useState<ProductType[]>(productTypes)
+function ProjectNaturesCard({ projectNatures }: { projectNatures: ProjectNature[] }) {
+  const [items, setItems] = React.useState<ProjectNature[]>(projectNatures)
   const [codeDraft, setCodeDraft] = React.useState("")
   const [nameDraft, setNameDraft] = React.useState("")
   const [isPending, startTransition] = React.useTransition()
 
   const dirty = React.useMemo(() => {
-    if (items.length !== productTypes.length) return true
+    if (items.length !== projectNatures.length) return true
     return items.some(
       (v, i) =>
-        v.code !== productTypes[i].code || v.name !== productTypes[i].name
+        v.code !== projectNatures[i].code || v.name !== projectNatures[i].name
     )
-  }, [items, productTypes])
+  }, [items, projectNatures])
 
   function add() {
-    const code = normalizeProductTypeCode(codeDraft)
+    const code = normalizeProjectNatureCode(codeDraft)
     const name = nameDraft.trim()
-    const codeError = validateProductTypeCode(code)
+    const codeError = validateProjectNatureCode(code)
     if (codeError) {
       toast.error(codeError)
       return
@@ -755,23 +766,23 @@ function ProductTypesCard({ productTypes }: { productTypes: ProductType[] }) {
 
   function save() {
     startTransition(async () => {
-      const res = await updateProductTypes(items)
+      const res = await updateProjectNatures(items)
       if (!res.ok) {
         toast.error(res.error)
         return
       }
       setItems(res.data)
-      toast.success("Product types saved")
+      toast.success("Project natures saved")
     })
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Product types</CardTitle>
+        <CardTitle>Project natures</CardTitle>
         <CardDescription>
           The picklist offered when creating a project. Each type has a short,
-          stable code used as the product-type segment of a project code (e.g.{" "}
+          stable code used as the project-nature segment of a project code (e.g.{" "}
           <span className="font-mono">WEB</span> in{" "}
           <span className="font-mono">2026-DEMO-ACME-WEB-001</span>).
         </CardDescription>
@@ -788,7 +799,7 @@ function ProductTypesCard({ productTypes }: { productTypes: ProductType[] }) {
               }
             }}
             placeholder="Code, e.g. WEB"
-            maxLength={PRODUCT_TYPE_CODE_MAX}
+            maxLength={PROJECT_NATURE_CODE_MAX}
             className="uppercase sm:max-w-[10rem]"
           />
           <Input
@@ -827,12 +838,377 @@ function ProductTypesCard({ productTypes }: { productTypes: ProductType[] }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No product types yet.</p>
+          <p className="text-sm text-muted-foreground">No project natures yet.</p>
         )}
 
         <div className="flex justify-end">
           <Button type="button" onClick={save} disabled={isPending || !dirty}>
-            {isPending ? "Saving…" : "Save product types"}
+            {isPending ? "Saving…" : "Save project natures"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Product codes ───────────────────────────────────────────────────────────
+
+function ProductCodesCard({ productCodes }: { productCodes: ProductCode[] }) {
+  const [items, setItems] = React.useState<ProductCode[]>(productCodes)
+  const [codeDraft, setCodeDraft] = React.useState("")
+  const [nameDraft, setNameDraft] = React.useState("")
+  const [isPending, startTransition] = React.useTransition()
+
+  const dirty = React.useMemo(() => {
+    if (items.length !== productCodes.length) return true
+    return items.some(
+      (v, i) => v.code !== productCodes[i].code || v.name !== productCodes[i].name
+    )
+  }, [items, productCodes])
+
+  function add() {
+    const code = normalizeProductCode(codeDraft)
+    const name = nameDraft.trim()
+    const codeError = validateProductCode(code)
+    if (codeError) {
+      toast.error(codeError)
+      return
+    }
+    if (!name) {
+      toast.error("Enter a display name.")
+      return
+    }
+    if (items.some((v) => v.code === code)) {
+      toast.error(`Code "${code}" is already in the list.`)
+      return
+    }
+    setItems((prev) => [...prev, { code, name }])
+    setCodeDraft("")
+    setNameDraft("")
+  }
+
+  function remove(code: string) {
+    setItems((prev) => prev.filter((v) => v.code !== code))
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateProductCodes(items)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setItems(res.data)
+      toast.success("Product codes saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Product codes</CardTitle>
+        <CardDescription>
+          The product lines available in the catalog. Each standardised product
+          is classified under one of these codes (e.g.{" "}
+          <span className="font-mono">COACHING</span> · Coaching).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={codeDraft}
+            onChange={(e) => setCodeDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                add()
+              }
+            }}
+            placeholder="Code, e.g. COACHING"
+            maxLength={PRODUCT_CODE_MAX}
+            className="uppercase sm:max-w-[12rem]"
+          />
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                add()
+              }
+            }}
+            placeholder="Display name, e.g. Coaching"
+          />
+          <Button type="button" variant="outline" onClick={add}>
+            <Plus className="size-4" />
+            Add
+          </Button>
+        </div>
+
+        {items.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {items.map((pc) => (
+              <Badge key={pc.code} variant="secondary" className="gap-1 pr-1">
+                <span className="font-mono">{pc.code}</span>
+                <span className="text-muted-foreground">·</span>
+                {pc.name}
+                <button
+                  type="button"
+                  onClick={() => remove(pc.code)}
+                  className="rounded-sm p-0.5 hover:bg-muted-foreground/20"
+                  aria-label={`Remove ${pc.code}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No product codes yet.</p>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save product codes"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CustomFunnelFieldsCard({ fields }: { fields: CustomFunnelField[] }) {
+  const [items, setItems] = React.useState<CustomFunnelField[]>(fields)
+  const [labelDraft, setLabelDraft] = React.useState("")
+  const [typeDraft, setTypeDraft] = React.useState<CustomFieldType>("text")
+  const [optionsDraft, setOptionsDraft] = React.useState("")
+  const [descDraft, setDescDraft] = React.useState("")
+  const [categoryDraft, setCategoryDraft] = React.useState("")
+  const [isPending, startTransition] = React.useTransition()
+
+  const dirty = React.useMemo(() => {
+    if (items.length !== fields.length) return true
+    return items.some(
+      (v, i) =>
+        v.key !== fields[i].key ||
+        v.label !== fields[i].label ||
+        (v.type ?? "text") !== (fields[i].type ?? "text") ||
+        (v.description ?? "") !== (fields[i].description ?? "") ||
+        (v.category ?? "") !== (fields[i].category ?? "") ||
+        (v.options ?? []).join("|") !== (fields[i].options ?? []).join("|")
+    )
+  }, [items, fields])
+
+  const grouped = React.useMemo(() => groupCustomFields(items), [items])
+
+  const typeLabel = (t?: CustomFieldType) =>
+    CUSTOM_FIELD_TYPES.find((x) => x.value === (t ?? "text"))?.label ?? "Text"
+
+  function add() {
+    const label = labelDraft.trim()
+    if (!label) {
+      toast.error("Enter a field name.")
+      return
+    }
+    if (items.some((v) => v.label.toLowerCase() === label.toLowerCase())) {
+      toast.error(`"${label}" is already in the list.`)
+      return
+    }
+    const options =
+      typeDraft === "select"
+        ? optionsDraft.split(",").map((o) => o.trim()).filter(Boolean)
+        : undefined
+    if (typeDraft === "select" && (!options || options.length === 0)) {
+      toast.error("Add at least one dropdown option (comma-separated).")
+      return
+    }
+    const description = descDraft.trim() || undefined
+    const category = categoryDraft.trim() || undefined
+    // Blank key → the server slugs a stable `cf_…` key on save.
+    setItems((prev) => [
+      ...prev,
+      {
+        key: "",
+        label,
+        type: typeDraft,
+        ...(options ? { options } : {}),
+        ...(description ? { description } : {}),
+        ...(category ? { category } : {}),
+      },
+    ])
+    setLabelDraft("")
+    setOptionsDraft("")
+    setDescDraft("")
+    // Keep the category so several fields can be added to the same section fast.
+    setTypeDraft("text")
+  }
+
+  function remove(idx: number) {
+    setItems((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateCustomFunnelFields(
+        items.map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type ?? "text",
+          options: f.options,
+          description: f.description,
+          category: f.category,
+        }))
+      )
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setItems(res.data)
+      toast.success("Custom fields saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Custom funnel fields</CardTitle>
+        <CardDescription>
+          Your own fields that salespeople fill on each funnel — text, number,
+          date, a yes/no checkbox, or a dropdown. Require any per stage under
+          Funnel stages below; the gate blocks advancing until they&apos;re
+          filled in.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-3 rounded-lg border bg-muted/30 p-3">
+          <p className="text-sm font-medium">Add a field</p>
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">
+              Section (optional)
+            </label>
+            <Input
+              value={categoryDraft}
+              onChange={(e) => setCategoryDraft(e.target.value)}
+              placeholder="e.g. Power Sponsor — groups fields together"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <label className="text-xs text-muted-foreground">Field name</label>
+              <Input
+                value={labelDraft}
+                onChange={(e) => setLabelDraft(e.target.value)}
+                placeholder="e.g. Budget confirmed"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <label className="text-xs text-muted-foreground">Type</label>
+              <Select
+                value={typeDraft}
+                onValueChange={(v) => setTypeDraft(v as CustomFieldType)}
+                items={CUSTOM_FIELD_TYPES}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CUSTOM_FIELD_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {typeDraft === "select" ? (
+            <div className="grid gap-1.5">
+              <label className="text-xs text-muted-foreground">
+                Dropdown choices
+              </label>
+              <Input
+                value={optionsDraft}
+                onChange={(e) => setOptionsDraft(e.target.value)}
+                placeholder="Comma-separated, e.g. Low, Medium, High"
+              />
+            </div>
+          ) : null}
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">
+              Help text (optional)
+            </label>
+            <Input
+              value={descDraft}
+              onChange={(e) => setDescDraft(e.target.value)}
+              placeholder="Shown under the field on the funnel"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={add}>
+              <Plus className="size-4" />
+              Add field
+            </Button>
+          </div>
+        </div>
+
+        {items.length > 0 ? (
+          <div className="grid gap-4">
+            {grouped.map((g) => (
+              <div key={g.category ?? "__none__"} className="grid gap-2">
+                {g.category ? (
+                  <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    {g.category}
+                  </p>
+                ) : null}
+                {g.fields.map((f) => {
+                  const i = items.indexOf(f)
+                  return (
+                    <div
+                      key={f.key || f.label}
+                      className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <div className="grid min-w-0 gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{f.label}</span>
+                          <Badge
+                            variant="outline"
+                            className="text-xs font-normal"
+                          >
+                            {typeLabel(f.type)}
+                          </Badge>
+                          {f.type === "select" && f.options?.length ? (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {f.options.join(" · ")}
+                            </span>
+                          ) : null}
+                        </div>
+                        {f.description ? (
+                          <span className="text-xs text-muted-foreground">
+                            {f.description}
+                          </span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => remove(i)}
+                        className="ml-auto rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20"
+                        aria-label={`Remove ${f.label}`}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No custom fields yet.</p>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save custom fields"}
           </Button>
         </div>
       </CardContent>
@@ -856,6 +1232,7 @@ const stageSchema = z.object({
   sortOrder: z.coerce.number().int().min(0, "≥ 0"),
   requiresApprovalToEnter: z.boolean(),
   includeInForecast: z.boolean(),
+  requiredFields: z.array(z.string()),
 })
 
 type StageValues = z.input<typeof stageSchema>
@@ -871,6 +1248,7 @@ function StageDialog({
   initial,
   usedCodes,
   nextSortOrder,
+  customFields,
   trigger,
 }: {
   open: boolean
@@ -878,10 +1256,18 @@ function StageDialog({
   initial?: FunnelStageRow
   usedCodes: StageCode[]
   nextSortOrder: number
+  /** Tenant custom funnel fields — requirable alongside the presets. */
+  customFields: CustomFunnelField[]
   trigger?: React.ReactNode
 }) {
   const router = useRouter()
   const [saving, setSaving] = React.useState(false)
+
+  // Only the tenant's own custom fields can be required at a stage.
+  const requirableEntries = React.useMemo(
+    () => customFields.map((f) => [f.key, f.label] as const),
+    [customFields]
+  )
 
   const availableCodes = React.useMemo(
     () =>
@@ -901,6 +1287,7 @@ function StageDialog({
       sortOrder: initial?.sortOrder ?? nextSortOrder,
       requiresApprovalToEnter: initial?.requiresApprovalToEnter ?? false,
       includeInForecast: initial?.includeInForecast ?? true,
+      requiredFields: initial?.requiredFields ?? [],
     },
   })
 
@@ -914,6 +1301,7 @@ function StageDialog({
         sortOrder: initial?.sortOrder ?? nextSortOrder,
         requiresApprovalToEnter: initial?.requiresApprovalToEnter ?? false,
         includeInForecast: initial?.includeInForecast ?? true,
+        requiredFields: initial?.requiredFields ?? [],
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -929,6 +1317,7 @@ function StageDialog({
           requiresApprovalToEnter: parsed.requiresApprovalToEnter,
           includeInForecast: parsed.includeInForecast,
           sortOrder: parsed.sortOrder,
+          requiredFields: parsed.requiredFields,
         })
       : await createStage({
           code: parsed.code,
@@ -938,6 +1327,7 @@ function StageDialog({
           requiresApprovalToEnter: parsed.requiresApprovalToEnter,
           includeInForecast: parsed.includeInForecast,
           sortOrder: parsed.sortOrder,
+          requiredFields: parsed.requiredFields,
         })
     setSaving(false)
     if (!res.ok) {
@@ -952,13 +1342,10 @@ function StageDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {trigger}
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{initial ? "Edit stage" : "New stage"}</DialogTitle>
-          <DialogDescription>
-            Stages define the funnel. The forecast inclusion toggle decides
-            whether a stage&apos;s funnels count toward the billing forecast.
-          </DialogDescription>
+          <DialogDescription>Configure this funnel stage.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
@@ -1000,7 +1387,6 @@ function StageDialog({
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>Locked after creation.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1039,7 +1425,6 @@ function StageDialog({
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>{STAGE_KIND_DESCRIPTION}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1101,13 +1486,10 @@ function StageDialog({
               control={form.control}
               name="requiresApprovalToEnter"
               render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between gap-4">
-                  <div className="grid gap-1">
-                    <FormLabel>Requires approval to enter</FormLabel>
-                    <FormDescription>
-                      Advancing into this stage needs sign-off.
-                    </FormDescription>
-                  </div>
+                <FormItem className="flex flex-row items-center justify-between gap-4 space-y-0">
+                  <FormLabel className="font-normal">
+                    Requires approval to enter
+                  </FormLabel>
                   <FormControl>
                     <Switch
                       checked={field.value}
@@ -1121,19 +1503,60 @@ function StageDialog({
               control={form.control}
               name="includeInForecast"
               render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between gap-4">
-                  <div className="grid gap-1">
-                    <FormLabel>Include in forecast</FormLabel>
-                    <FormDescription>
-                      Count this stage&apos;s funnels in the billing forecast.
-                    </FormDescription>
-                  </div>
+                <FormItem className="flex flex-row items-center justify-between gap-4 space-y-0">
+                  <FormLabel className="font-normal">Include in forecast</FormLabel>
                   <FormControl>
                     <Switch
                       checked={field.value}
                       onCheckedChange={field.onChange}
                     />
                   </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="requiredFields"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Required before entering this stage</FormLabel>
+                  <FormDescription>
+                    Custom fields a funnel must fill in first.
+                  </FormDescription>
+                  {requirableEntries.length === 0 ? (
+                    <p className="pt-1 text-sm text-muted-foreground">
+                      No custom fields yet — add some under “Custom funnel
+                      fields” first.
+                    </p>
+                  ) : (
+                    <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                      {requirableEntries.map(([key, label]) => {
+                        const checked = field.value.includes(key)
+                        return (
+                          <label
+                            key={key}
+                            className="flex items-center gap-2 text-sm"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(c) =>
+                                field.onChange(
+                                  c
+                                    ? [...field.value, key]
+                                    : field.value.filter(
+                                        (k: string) => k !== key
+                                      )
+                                )
+                              }
+                            />
+                            {label}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -1157,6 +1580,7 @@ function StageRowActions({
   index,
   total,
   onMove,
+  customFields,
 }: {
   stage: FunnelStageRow
   usedCodes: StageCode[]
@@ -1164,6 +1588,7 @@ function StageRowActions({
   index: number
   total: number
   onMove: (index: number, dir: -1 | 1) => void
+  customFields: CustomFunnelField[]
 }) {
   const router = useRouter()
   const [editOpen, setEditOpen] = React.useState(false)
@@ -1229,6 +1654,7 @@ function StageRowActions({
         initial={stage}
         usedCodes={usedCodes}
         nextSortOrder={nextSortOrder}
+        customFields={customFields}
       />
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -1256,7 +1682,13 @@ function StageRowActions({
   )
 }
 
-function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
+function FunnelStagesCard({
+  funnel,
+  customFields,
+}: {
+  funnel: DefaultFunnelView
+  customFields: CustomFunnelField[]
+}) {
   const router = useRouter()
   const [createOpen, setCreateOpen] = React.useState(false)
   const [reordering, setReordering] = React.useState(false)
@@ -1377,6 +1809,7 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
           index={row.index}
           total={rows.length}
           onMove={move}
+          customFields={customFields}
         />
       ),
     },
@@ -1415,6 +1848,7 @@ function FunnelStagesCard({ funnel }: { funnel: DefaultFunnelView }) {
                 onOpenChange={setCreateOpen}
                 usedCodes={usedCodes}
                 nextSortOrder={nextSortOrder}
+                customFields={customFields}
                 trigger={
                   <DialogTrigger render={<Button size="sm">New stage</Button>} />
                 }
@@ -1514,7 +1948,8 @@ export function SettingsClient({
         <TabsTrigger value="general">General</TabsTrigger>
         <TabsTrigger value="numbering">Numbering</TabsTrigger>
         <TabsTrigger value="industries">Industries</TabsTrigger>
-        <TabsTrigger value="product-types">Product Types</TabsTrigger>
+        <TabsTrigger value="project-natures">Project Natures</TabsTrigger>
+        <TabsTrigger value="product-codes">Product Codes</TabsTrigger>
         <TabsTrigger value="stages">Funnel Stages</TabsTrigger>
         <TabsTrigger value="team">Members</TabsTrigger>
       </TabsList>
@@ -1548,12 +1983,17 @@ export function SettingsClient({
         <IndustriesCard industries={settings.industries} />
       </TabsContent>
 
-      <TabsContent value="product-types" className="mt-4">
-        <ProductTypesCard productTypes={settings.productTypes} />
+      <TabsContent value="project-natures" className="mt-4">
+        <ProjectNaturesCard projectNatures={settings.projectNatures} />
       </TabsContent>
 
-      <TabsContent value="stages" className="mt-4">
-        <FunnelStagesCard funnel={funnel} />
+      <TabsContent value="product-codes" className="mt-4">
+        <ProductCodesCard productCodes={settings.productCodes} />
+      </TabsContent>
+
+      <TabsContent value="stages" className="mt-4 grid gap-4">
+        <FunnelStagesCard funnel={funnel} customFields={settings.customFunnelFields} />
+        <CustomFunnelFieldsCard fields={settings.customFunnelFields} />
       </TabsContent>
 
       <TabsContent value="team" className="mt-4">

@@ -34,16 +34,19 @@ import {
   headerDiscountSchema,
 } from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
+import type { ProductOption } from "@/lib/lookups"
 import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
 
 const NO_TAX = "__none__"
-/** Sentinel: leave product type to the funnel's default (server inherits it). */
-const INHERIT_PRODUCT_TYPE = "__inherit__"
+/** Sentinel: leave project nature to the funnel's default (server inherits it). */
+const INHERIT_PROJECT_NATURE = "__inherit__"
+/** Sentinel: a free-text line with no linked product. */
+const NO_PRODUCT = "__custom__"
 
 const schema = z.object({
   opportunityId: z.string().trim().min(1, "Select a funnel"),
   taxSettingId: z.string(),
-  productTypeCode: z.string(),
+  projectNatureCode: z.string(),
   validUntil: z.string(),
   notes: z.string(),
   headerDiscount: headerDiscountSchema,
@@ -53,7 +56,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export type OpportunityOption = { id: string; name: string }
-export type ProductTypeOption = { code: string; name: string }
+export type ProjectNatureOption = { code: string; name: string }
 
 /**
  * Shared quotation CREATE form. Used by both the `/quotations/new` page and the
@@ -63,7 +66,8 @@ export type ProductTypeOption = { code: string; name: string }
 export function QuotationCreateForm({
   taxOptions,
   taxInclusive,
-  productTypes = [],
+  projectNatures = [],
+  products = [],
   opportunities,
   opportunityId,
   defaultOpportunityId,
@@ -74,8 +78,10 @@ export function QuotationCreateForm({
 }: {
   taxOptions: TaxOption[]
   taxInclusive: boolean
-  /** Tenant product-type picklist; empty hides the picker. */
-  productTypes?: ProductTypeOption[]
+  /** Tenant project-nature picklist; empty hides the picker. */
+  projectNatures?: ProjectNatureOption[]
+  /** Active catalog products for the line-item picker. */
+  products?: ProductOption[]
   /** Picker options. Omit/empty when `opportunityId` is fixed. */
   opportunities?: OpportunityOption[]
   /** Pre-bound funnel; when set the picker is hidden. */
@@ -99,12 +105,19 @@ export function QuotationCreateForm({
     defaultValues: {
       opportunityId: opportunityId ?? defaultOpportunityId ?? "",
       taxSettingId: defaultTaxId,
-      productTypeCode: INHERIT_PRODUCT_TYPE,
+      projectNatureCode: INHERIT_PROJECT_NATURE,
       validUntil: "",
       notes: "",
       headerDiscount: "0",
       lines: [
-        { description: "", quantity: "1", unitPrice: "0", discountPercent: "0" },
+        {
+          productId: "",
+          uom: "",
+          description: "",
+          quantity: "1",
+          unitPrice: "0",
+          discountAmount: "0",
+        },
       ],
     },
   })
@@ -113,6 +126,36 @@ export function QuotationCreateForm({
     control: form.control,
     name: "lines",
   })
+
+  // Product picker items + a helper that fills a line from the chosen product.
+  const productItems = React.useMemo(
+    () => [
+      { value: NO_PRODUCT, label: "Custom line (no product)" },
+      ...products.map((p) => ({ value: p.id, label: p.name })),
+    ],
+    [products]
+  )
+  const applyProduct = React.useCallback(
+    (index: number, productId: string) => {
+      if (productId === NO_PRODUCT) {
+        form.setValue(`lines.${index}.productId`, "")
+        return
+      }
+      const p = products.find((x) => x.id === productId)
+      if (!p) return
+      form.setValue(`lines.${index}.productId`, p.id)
+      form.setValue(`lines.${index}.description`, p.description || p.name, {
+        shouldValidate: true,
+      })
+      form.setValue(
+        `lines.${index}.unitPrice`,
+        Number(p.standardPrice).toString(),
+        { shouldValidate: true }
+      )
+      form.setValue(`lines.${index}.uom`, p.uom ?? "")
+    },
+    [products, form]
+  )
 
   const watchedLines = useWatch({ control: form.control, name: "lines" })
   const watchedTaxId = useWatch({ control: form.control, name: "taxSettingId" })
@@ -131,7 +174,7 @@ export function QuotationCreateForm({
         lines: (watchedLines ?? []).map((l) => ({
           quantity: l.quantity,
           unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent,
+          discountAmount: l.discountAmount,
         })),
         ratePercent,
         headerDiscount: watchedDiscount || "0",
@@ -146,18 +189,20 @@ export function QuotationCreateForm({
       opportunityId: values.opportunityId,
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
-      productTypeCode:
-        values.productTypeCode === INHERIT_PRODUCT_TYPE
+      projectNatureCode:
+        values.projectNatureCode === INHERIT_PROJECT_NATURE
           ? null
-          : values.productTypeCode,
+          : values.projectNatureCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
+        productId: l.productId || null,
+        uom: l.uom || null,
         description: l.description,
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountPercent: l.discountPercent || "0",
+        discountAmount: l.discountAmount || "0",
       })),
     })
     if (!res.ok) {
@@ -236,24 +281,24 @@ export function QuotationCreateForm({
             )}
           />
 
-          {productTypes.length > 0 ? (
+          {projectNatures.length > 0 ? (
             <FormField
               control={form.control}
-              name="productTypeCode"
+              name="projectNatureCode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Product type</FormLabel>
+                  <FormLabel>Project nature</FormLabel>
                   <Select
                     value={field.value}
                     onValueChange={(v) =>
-                      field.onChange(v ?? INHERIT_PRODUCT_TYPE)
+                      field.onChange(v ?? INHERIT_PROJECT_NATURE)
                     }
                     items={[
                       {
-                        value: INHERIT_PRODUCT_TYPE,
+                        value: INHERIT_PROJECT_NATURE,
                         label: "Use funnel default",
                       },
-                      ...productTypes.map((p) => ({
+                      ...projectNatures.map((p) => ({
                         value: p.code,
                         label: p.name,
                       })),
@@ -265,10 +310,10 @@ export function QuotationCreateForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={INHERIT_PRODUCT_TYPE}>
+                      <SelectItem value={INHERIT_PROJECT_NATURE}>
                         Use funnel default
                       </SelectItem>
-                      {productTypes.map((p) => (
+                      {projectNatures.map((p) => (
                         <SelectItem key={p.code} value={p.code}>
                           {p.name}
                         </SelectItem>
@@ -337,10 +382,12 @@ export function QuotationCreateForm({
               size="sm"
               onClick={() =>
                 append({
+                  productId: "",
+                  uom: "",
                   description: "",
                   quantity: "1",
                   unitPrice: "0",
-                  discountPercent: "0",
+                  discountAmount: "0",
                 })
               }
             >
@@ -356,6 +403,28 @@ export function QuotationCreateForm({
             const line = totals.lines[i]
             return (
               <div key={f.id} className="grid gap-3 rounded-lg border p-3">
+                {products.length > 0 ? (
+                  <FormField
+                    control={form.control}
+                    name={`lines.${i}.productId`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Product</FormLabel>
+                        <FormControl>
+                          <Combobox
+                            value={field.value || NO_PRODUCT}
+                            onChange={(v) => applyProduct(i, v || NO_PRODUCT)}
+                            options={productItems}
+                            placeholder="Pick a product…"
+                            searchPlaceholder="Search products…"
+                            emptyMessage="No products found."
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
                 <FormField
                   control={form.control}
                   name={`lines.${i}.description`}
@@ -404,12 +473,12 @@ export function QuotationCreateForm({
                   />
                   <FormField
                     control={form.control}
-                    name={`lines.${i}.discountPercent`}
+                    name={`lines.${i}.discountAmount`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-xs">Disc %</FormLabel>
+                        <FormLabel className="text-xs">Discount ({currency})</FormLabel>
                         <FormControl>
-                          <Input type="number" step="0.001" min="0" {...field} />
+                          <Input type="number" step="0.01" min="0" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

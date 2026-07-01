@@ -16,6 +16,7 @@ import {
 import { sql } from "drizzle-orm"
 import { organization } from "./auth"
 import { opportunities } from "./pipeline"
+import { products } from "./products"
 import { timestamps, softDelete } from "./_helpers"
 
 export const quotationStatus = pgEnum("quotation_status", [
@@ -65,11 +66,11 @@ export const quotations = pgTable(
     status: quotationStatus("status").notNull().default("draft"),
     currency: char("currency", { length: 3 }).notNull().default("MYR"),
     /**
-     * Product type for this quote (code from tenant_settings.product_types).
+     * Project nature for this quote (code from tenant_settings.product_types).
      * Inherited from the funnel on create, editable thereafter, and later
      * snapshotted onto the project. Nullable until set.
      */
-    productTypeCode: text("product_type_code"),
+    projectNatureCode: text("product_type_code"),
     taxSettingId: uuid("tax_setting_id").references(() => taxSettings.id, {
       onDelete: "set null",
     }),
@@ -112,10 +113,21 @@ export const quotationLineItems = pgTable(
   quotationId: uuid("quotation_id")
     .notNull()
     .references(() => quotations.id, { onDelete: "cascade" }),
+  /** Optional link to the standardised product this line was created from. */
+  productId: uuid("product_id").references(() => products.id, {
+    onDelete: "set null",
+  }),
   description: text("description").notNull(),
+  /** Unit of measure snapshot (from the product, or free-text). */
+  uom: text("uom"),
   quantity: numeric("quantity", { precision: 12, scale: 3 }).notNull().default("1"),
   unitPrice: numeric("unit_price", { precision: 14, scale: 2 }).notNull().default("0"),
-  discountPercent: numeric("discount_percent", { precision: 6, scale: 3 })
+  /**
+   * Absolute per-line discount (money), subtracted from qty × unit price.
+   * Physical column is the legacy name `discount_percent` (kept to avoid a
+   * destructive rename) but now holds an absolute amount, widened to (14,2).
+   */
+  discountAmount: numeric("discount_percent", { precision: 14, scale: 2 })
     .notNull()
     .default("0"),
   taxSettingId: uuid("tax_setting_id").references(() => taxSettings.id, {

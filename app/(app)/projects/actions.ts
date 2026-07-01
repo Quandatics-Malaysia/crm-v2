@@ -72,11 +72,11 @@ export type ProjectCreateInput = {
   /** Required when codeNature is "manual"; ignored otherwise. */
   projectCode?: string
   /**
-   * Product-type code chosen from the tenant's product_types picklist. Used as
-   * the PRODUCTTYPE segment of an auto-generated code and snapshotted onto the
+   * Project-nature code chosen from the tenant's product_types picklist. Used as
+   * the PROJECTNATURE segment of an auto-generated code and snapshotted onto the
    * project so its code stays stable if the picklist later changes.
    */
-  productTypeCode?: string
+  projectNatureCode?: string
 }
 
 export type ProjectUpdateInput = {
@@ -179,11 +179,11 @@ export async function createProject(
       const codeNature: ProjectCodeNature =
         input.codeNature === "manual" ? "manual" : "auto"
 
-      // Snapshotted onto the project (both natures) so the resolved product-type
+      // Snapshotted onto the project (both natures) so the resolved project-nature
       // code stays stable even if the tenant later edits its picklist. Derived
       // upstream from the source quotation/funnel; fall back to a safe "GEN"
       // rather than blocking when nothing resolved (matches nextProjectCode).
-      const productTypeCode = (input.productTypeCode ?? "").trim() || "GEN"
+      const projectNatureCode = (input.projectNatureCode ?? "").trim() || "GEN"
 
       let projectCode: string
       if (codeNature === "manual") {
@@ -212,7 +212,7 @@ export async function createProject(
         }
         projectCode = await nextProjectCode(tx, ctx, {
           accountCode: acct.code,
-          productTypeCode,
+          projectNatureCode,
         })
       }
 
@@ -224,7 +224,7 @@ export async function createProject(
             tenantId: ctx.tenantId,
             projectCode,
             codeNature,
-            productTypeCode: productTypeCode || null,
+            projectNatureCode: projectNatureCode || null,
             name: input.name,
             accountId: input.accountId,
             opportunityId: input.opportunityId || null,
@@ -449,11 +449,11 @@ export async function listOpportunityOptions(): Promise<
   })
 }
 
-export type ProductTypeOption = { code: string; name: string }
+export type ProjectNatureOption = { code: string; name: string }
 
 export type ProjectCreateMeta = {
-  /** Tenant-managed product-type picklist for the required Product Type field. */
-  productTypes: ProductTypeOption[]
+  /** Tenant-managed project-nature picklist for the required Project Nature field. */
+  projectNatures: ProjectNatureOption[]
   /** ENTITY segment of the project code (tenant_settings.entityCode). */
   entityCode: string
   /** Current local calendar year — the YYYY segment of the live code preview. */
@@ -463,7 +463,7 @@ export type ProjectCreateMeta = {
 }
 
 /**
- * Bundle of tenant data the create form needs to render the Product Type picker
+ * Bundle of tenant data the create form needs to render the Project Nature picker
  * and the live project-code preview ({YYYY}-{ENTITY}-{ACCOUNTCODE}-{TYPE}-###).
  */
 export async function listProjectCreateMeta(): Promise<ProjectCreateMeta> {
@@ -471,7 +471,7 @@ export async function listProjectCreateMeta(): Promise<ProjectCreateMeta> {
     const visible = await visibleMemberIds(tx, ctx)
     const [s] = await tx
       .select({
-        productTypes: tenantSettings.productTypes,
+        projectNatures: tenantSettings.projectNatures,
         entityCode: tenantSettings.entityCode,
       })
       .from(tenantSettings)
@@ -488,7 +488,7 @@ export async function listProjectCreateMeta(): Promise<ProjectCreateMeta> {
     for (const a of accts) if (a.code) accountCodes[a.id] = a.code
 
     return {
-      productTypes: s?.productTypes ?? [],
+      projectNatures: s?.projectNatures ?? [],
       entityCode: s?.entityCode ?? "",
       year: Number(toDateString().slice(0, 4)),
       accountCodes,
@@ -506,21 +506,21 @@ export type ProjectPrefill = {
   quoteNumber: string | null
   opportunityName: string
   /**
-   * Product-type code DERIVED for the project, snapshotted from the source
+   * Project-nature code DERIVED for the project, snapshotted from the source
    * quotation when present, else the funnel's default, else the tenant's first
-   * product type. Empty string when nothing resolves (form treats it as a
+   * project nature. Empty string when nothing resolves (form treats it as a
    * prefilled-but-editable suggestion; createProject defaults to "GEN").
    */
-  productTypeCode: string
+  projectNatureCode: string
 }
 
 /**
  * Prefill a new project from a funnel (opportunity). Value, quotationId and
  * quoteNumber are derived from the opportunity's net (ex-tax) deal value via
  * the shared value service — i.e. the source quotation. The account is read
- * from the opportunity so the form can preselect it. The product-type code is
+ * from the opportunity so the form can preselect it. The project-nature code is
  * derived from that source quotation (fallback: the funnel's product_type_code,
- * then the tenant's first product type) so the form prefills it editable.
+ * then the tenant's first project nature) so the form prefills it editable.
  */
 export async function prefillFromOpportunity(
   opportunityId: string
@@ -534,7 +534,7 @@ export async function prefillFromOpportunity(
         accountId: opportunities.accountId,
         accountName: accounts.name,
         currency: opportunities.currency,
-        productTypeCode: opportunities.productTypeCode,
+        projectNatureCode: opportunities.projectNatureCode,
         ownerMemberId: opportunities.ownerMemberId,
       })
       .from(opportunities)
@@ -554,25 +554,25 @@ export async function prefillFromOpportunity(
       opportunityId
     )
 
-    // Derive the product type: the accepted/source quotation snapshot wins, then
-    // the funnel's default, then the tenant's first configured product type.
-    let productTypeCode: string | null = null
+    // Derive the project nature: the accepted/source quotation snapshot wins, then
+    // the funnel's default, then the tenant's first configured project nature.
+    let projectNatureCode: string | null = null
     if (fromQuoteId) {
       const [q] = await tx
-        .select({ code: quotations.productTypeCode })
+        .select({ code: quotations.projectNatureCode })
         .from(quotations)
         .where(eq(quotations.id, fromQuoteId))
         .limit(1)
-      productTypeCode = q?.code ?? null
+      projectNatureCode = q?.code ?? null
     }
-    if (!productTypeCode) productTypeCode = opp.productTypeCode ?? null
-    if (!productTypeCode) {
+    if (!projectNatureCode) projectNatureCode = opp.projectNatureCode ?? null
+    if (!projectNatureCode) {
       const [s] = await tx
-        .select({ productTypes: tenantSettings.productTypes })
+        .select({ projectNatures: tenantSettings.projectNatures })
         .from(tenantSettings)
         .where(eq(tenantSettings.organizationId, ctx.tenantId))
         .limit(1)
-      productTypeCode = s?.productTypes?.[0]?.code ?? null
+      projectNatureCode = s?.projectNatures?.[0]?.code ?? null
     }
 
     return {
@@ -583,7 +583,7 @@ export async function prefillFromOpportunity(
       quotationId: fromQuoteId,
       quoteNumber,
       opportunityName: opp.name,
-      productTypeCode: productTypeCode ?? "",
+      projectNatureCode: projectNatureCode ?? "",
     }
   })
 }
@@ -599,7 +599,6 @@ export type MilestoneItem = {
   quotationId: string | null
   title: string
   amount: string
-  percentage: string | null
   dueDate: string | null
   status: MilestoneStatus
   sortOrder: number
@@ -609,14 +608,12 @@ export type MilestoneCreateInput = {
   projectId: string
   title: string
   amount?: string | null
-  percentage?: string | null
   dueDate?: string | null
 }
 
 export type MilestoneUpdateInput = {
   title?: string
   amount?: string | null
-  percentage?: string | null
   dueDate?: string | null
   status?: string
 }
@@ -673,7 +670,6 @@ export async function listMilestones(
         quotationId: paymentMilestones.quotationId,
         title: paymentMilestones.title,
         amount: paymentMilestones.amount,
-        percentage: paymentMilestones.percentage,
         dueDate: paymentMilestones.dueDate,
         status: paymentMilestones.status,
         sortOrder: paymentMilestones.sortOrder,
@@ -719,35 +715,8 @@ export async function createMilestone(
       if (!title) throw new Error("Title is required")
 
       const projectValue = project.value ? Number(project.value) : 0
-      const pct =
-        input.percentage != null && input.percentage !== ""
-          ? Number(input.percentage)
-          : null
-      // Range-check the percentage regardless of whether it drives the amount,
-      // so an out-of-range value can't be persisted via a direct action call.
-      if (pct != null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) {
-        throw new Error("Percentage must be between 0 and 100.")
-      }
-
-      // Keep amount and percentage consistent: an explicit amount wins and the
-      // stored percentage is re-derived from it (against the project value);
-      // otherwise the amount is derived from the percentage. This stops the two
-      // fields drifting (e.g. "10%" attached to a 50%-of-value amount).
-      let amount: string
-      let storedPct: number | null
-      if (input.amount != null && input.amount !== "") {
-        amount = input.amount
-        storedPct =
-          projectValue > 0
-            ? Math.round((Number(amount) / projectValue) * 100 * 100) / 100
-            : pct
-      } else if (pct != null) {
-        amount = (Math.round(projectValue * (pct / 100) * 100) / 100).toFixed(2)
-        storedPct = pct
-      } else {
-        amount = "0"
-        storedPct = null
-      }
+      // Milestones are split by exact amount.
+      const amount = input.amount != null && input.amount !== "" ? input.amount : "0"
 
       // Reconciliation: total milestone amounts may not exceed the project
       // value (the quotation-derived source of value). Skipped when no value.
@@ -781,10 +750,6 @@ export async function createMilestone(
           quotationId: project.quotationId,
           title,
           amount,
-          percentage:
-            storedPct != null && Number.isFinite(storedPct)
-              ? String(storedPct)
-              : null,
           dueDate: input.dueDate || null,
           sortOrder: Number(maxSort) + 1,
         })
@@ -845,44 +810,13 @@ export async function updateMilestone(
 
       const projectValue = project?.value ? Number(project.value) : 0
 
-      // Range-check any incoming percentage (0–100) before it's used.
-      const inputPct =
-        input.percentage !== undefined && input.percentage
-          ? Number(input.percentage)
-          : null
-      if (
-        input.percentage !== undefined &&
-        input.percentage &&
-        (!Number.isFinite(inputPct) ||
-          (inputPct as number) < 0 ||
-          (inputPct as number) > 100)
-      ) {
-        throw new Error("Percentage must be between 0 and 100.")
-      }
-
-      // Keep amount and percentage consistent (mirrors createMilestone): an
-      // explicit amount edit re-derives the stored percentage from it; a
-      // percentage edit re-derives the amount. Untouched fields are preserved.
-      let nextAmount: string
-      let nextPercentage: string | null
-      if (input.amount !== undefined) {
-        nextAmount = input.amount ? input.amount : "0"
-        nextPercentage =
-          projectValue > 0
-            ? String(
-                Math.round((Number(nextAmount) / projectValue) * 100 * 100) / 100
-              )
-            : existing.percentage
-      } else if (input.percentage !== undefined) {
-        nextPercentage = inputPct != null ? String(inputPct) : null
-        nextAmount =
-          inputPct != null
-            ? (Math.round(projectValue * (inputPct / 100) * 100) / 100).toFixed(2)
-            : existing.amount
-      } else {
-        nextAmount = existing.amount
-        nextPercentage = existing.percentage
-      }
+      // Milestones are split by exact amount; an untouched amount is preserved.
+      const nextAmount =
+        input.amount === undefined
+          ? existing.amount
+          : input.amount
+            ? input.amount
+            : "0"
 
       // Reconciliation: block edits that push the milestone total over the
       // project value. Edits that don't raise the total (title/date/status, or
@@ -923,7 +857,6 @@ export async function updateMilestone(
         .set({
           title: nextTitle,
           amount: nextAmount,
-          percentage: nextPercentage,
           dueDate:
             input.dueDate === undefined
               ? existing.dueDate

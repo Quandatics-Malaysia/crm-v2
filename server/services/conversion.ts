@@ -38,6 +38,19 @@ export async function convertLead(
     opportunityName?: string
     expectedCloseDate?: string | null
     existingAccountId?: string | null
+    /** Details for the account created on the new-account path (optional). */
+    newAccount?: {
+      accountType?: "client" | "reseller" | null
+      phone?: string | null
+      address?: {
+        line1?: string | null
+        line2?: string | null
+        city?: string | null
+        state?: string | null
+        postcode?: string | null
+        country?: string | null
+      } | null
+    } | null
   }
 ): Promise<ConversionResult> {
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -50,6 +63,12 @@ export async function convertLead(
       .for("update")
     if (!lead) throw new Error("Lead not found")
     if (lead.status === "converted") throw new Error("Lead already converted")
+
+    // A contact must carry an email. New leads always have one (enforced on
+    // create/update), but guard here too so legacy/imported leads can't convert
+    // into an email-less contact.
+    if (!lead.email?.trim())
+      throw new Error("This lead has no email. Add a valid email before converting.")
 
     // Account: attach to an existing one, or create from the company name. When
     // attaching to a caller-supplied account, validate it exists in this tenant
@@ -72,12 +91,26 @@ export async function convertLead(
       }
     }
     if (!accountId) {
+      // Keep only the populated address fields (drop empties) so we never store
+      // an object of all-nulls in the jsonb column.
+      const rawAddress = input.newAccount?.address ?? null
+      const addressEntries = rawAddress
+        ? Object.entries(rawAddress).filter(([, v]) => v != null && v !== "")
+        : []
+      const billingAddress = addressEntries.length
+        ? Object.fromEntries(addressEntries)
+        : null
+
       const [acc] = await tx
         .insert(accounts)
         .values({
           tenantId: ctx.tenantId,
           name: lead.companyName || lead.name,
           ownerMemberId: lead.ownerMemberId ?? ctx.memberId,
+          accountType:
+            input.newAccount?.accountType === "reseller" ? "reseller" : "client",
+          phone: input.newAccount?.phone?.trim() || null,
+          billingAddress,
         })
         .returning()
       accountId = acc.id

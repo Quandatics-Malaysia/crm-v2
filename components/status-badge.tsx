@@ -52,15 +52,8 @@ export function statusTone(status: string): StatusTone {
   return STATUS_TONE[status?.toLowerCase()] ?? "neutral"
 }
 
-/** Rounded-full pill shape so solid-tone badges read as pills, not filled
- *  cells. Shared by the component and the bare-class helper. */
+/** Rounded-full pill shape so solid-tone badges read as pills, not filled cells. */
 const PILL_CLASS = "rounded-full"
-
-/** Tailwind class set for a status string. Import where a bare className is
- *  needed (e.g. an existing custom Badge) instead of the component. */
-export function statusBadgeClasses(status: string): string {
-  return cn(TONE_CLASSES[statusTone(status)], PILL_CLASS)
-}
 
 function defaultLabel(status: string) {
   if (!status) return status

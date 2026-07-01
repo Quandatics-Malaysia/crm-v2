@@ -101,7 +101,7 @@ export function AttachmentList({ items }: { items: AttachmentRow[] }) {
           </span>
           <a
             href={`/api/files/${a.id}`}
-            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium link"
             download
           >
             <Download className="size-3.5" />

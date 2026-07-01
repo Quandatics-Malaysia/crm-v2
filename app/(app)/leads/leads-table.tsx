@@ -168,7 +168,7 @@ export function LeadsTable({
         cell: ({ row }) => (
           <Link
             href={`/leads/${row.original.id}`}
-            className="font-medium text-primary hover:underline"
+            className="font-medium link"
           >
             {row.original.name}
           </Link>
@@ -187,7 +187,7 @@ export function LeadsTable({
             return (
               <Link
                 href={`/accounts/${lead.convertedAccountId}`}
-                className="text-primary hover:underline"
+                className="link"
               >
                 {lead.companyName || "Account"}
               </Link>
@@ -202,7 +202,7 @@ export function LeadsTable({
         cell: ({ row }) =>
           row.original.email ? (
             <a
-              className="text-muted-foreground underline-offset-4 hover:underline"
+              className="link"
               href={`mailto:${row.original.email}`}
             >
               {row.original.email}
@@ -287,7 +287,7 @@ export function LeadsTable({
               {lead.convertedAccountId ? (
                 <Link
                   href={`/accounts/${lead.convertedAccountId}`}
-                  className="text-primary hover:underline"
+                  className="link"
                 >
                   Account
                 </Link>
@@ -295,7 +295,7 @@ export function LeadsTable({
               {lead.convertedPersonId ? (
                 <Link
                   href={`/persons/${lead.convertedPersonId}`}
-                  className="text-primary hover:underline"
+                  className="link"
                 >
                   Contact
                 </Link>
@@ -303,7 +303,7 @@ export function LeadsTable({
               {lead.convertedOpportunityId ? (
                 <Link
                   href={`/funnel/${lead.convertedOpportunityId}`}
-                  className="text-primary hover:underline"
+                  className="link"
                 >
                   Funnel
                 </Link>

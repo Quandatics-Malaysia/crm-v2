@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation"
 import {
   QuotationCreateForm,
   type OpportunityOption,
-  type ProductTypeOption,
+  type ProjectNatureOption,
 } from "../quotation-create-form"
 import type { TaxOption } from "../actions"
+import type { ProductOption } from "@/lib/lookups"
 
 /**
  * Page wrapper around the shared {@link QuotationCreateForm}: keeps the funnel
@@ -18,13 +19,15 @@ export function NewQuotationForm({
   defaultOpportunityId,
   taxOptions,
   taxInclusive,
-  productTypes,
+  projectNatures,
+  products,
 }: {
   opportunities: OpportunityOption[]
   defaultOpportunityId?: string
   taxOptions: TaxOption[]
   taxInclusive: boolean
-  productTypes: ProductTypeOption[]
+  projectNatures: ProjectNatureOption[]
+  products: ProductOption[]
 }) {
   const router = useRouter()
   return (
@@ -33,7 +36,8 @@ export function NewQuotationForm({
       defaultOpportunityId={defaultOpportunityId}
       taxOptions={taxOptions}
       taxInclusive={taxInclusive}
-      productTypes={productTypes}
+      projectNatures={projectNatures}
+      products={products}
       submitLabel="Create draft"
       onCancel={() => router.push("/quotations")}
       onCreated={(q) => router.push(`/quotations/${q.id}`)}

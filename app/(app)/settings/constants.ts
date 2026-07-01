@@ -41,7 +41,7 @@ export const STAGE_KIND_LABELS: Record<StageKind, string> = {
  * are terminal closes. Pick it to match the Code; it can't be changed later.
  */
 export const STAGE_KIND_DESCRIPTION =
-  "Kind sets the funnel's lifecycle class and is locked after creation. OPEN = active funnel, WON = closed-won, LOST = closed-lost, PARKED = on-hold (KIV). Only OPEN and WON stages feed the billing forecast."
+  ""
 
 /** Suggested Kind for a given Code (used to auto-fill on Code change). */
 export function suggestKindForCode(code: StageCode): StageKind {
@@ -56,35 +56,68 @@ export function defaultIncludeInForecast(kind: StageKind): boolean {
   return kind === "OPEN" || kind === "WON"
 }
 
-// ─── Product types ─────────────────────────────────────────────────────────
+// ─── Project natures ─────────────────────────────────────────────────────────
 
 /**
- * A tenant-managed product type: a short stable CODE used as the PRODUCTTYPE
- * segment of a project code ({YYYY}-{Entity}-{Account}-{ProductType}-{NNN}),
+ * A tenant-managed project nature: a short stable CODE used as the PROJECTNATURE
+ * segment of a project code ({YYYY}-{Entity}-{Account}-{ProjectNature}-{NNN}),
  * plus a human-readable display NAME.
  */
-export type ProductType = { code: string; name: string }
+export type ProjectNature = { code: string; name: string }
 
-/** Max length for a product-type code (keeps project codes short). */
-export const PRODUCT_TYPE_CODE_MAX = 8
+/** Max length for a project-nature code (keeps project codes short). */
+export const PROJECT_NATURE_CODE_MAX = 8
 
-/** Trim + uppercase a product-type code for storage/comparison. */
-export function normalizeProductTypeCode(raw: string): string {
+/** Trim + uppercase a project-nature code for storage/comparison. */
+export function normalizeProjectNatureCode(raw: string): string {
   return (raw ?? "").trim().toUpperCase()
 }
 
 /**
- * Validate a normalized product-type code. Returns an error message, or null
- * when valid. A valid code is non-empty, at most PRODUCT_TYPE_CODE_MAX chars,
+ * Validate a normalized project-nature code. Returns an error message, or null
+ * when valid. A valid code is non-empty, at most PROJECT_NATURE_CODE_MAX chars,
  * and made of uppercase letters and digits only (so it is safe in a code).
  */
-export function validateProductTypeCode(code: string): string | null {
+export function validateProjectNatureCode(code: string): string | null {
   if (code.length === 0) return "Code is required."
-  if (code.length > PRODUCT_TYPE_CODE_MAX) {
-    return `Code must be ${PRODUCT_TYPE_CODE_MAX} characters or fewer.`
+  if (code.length > PROJECT_NATURE_CODE_MAX) {
+    return `Code must be ${PROJECT_NATURE_CODE_MAX} characters or fewer.`
   }
   if (!/^[A-Z0-9]+$/.test(code)) {
     return "Code must be uppercase letters and digits only."
+  }
+  return null
+}
+
+// ─── Product codes ───────────────────────────────────────────────────────────
+
+/**
+ * A tenant-managed product code: a short stable CODE identifying a product line,
+ * plus a human-readable display NAME. Standardised products reference one of
+ * these; distinct from a project nature (which drives project codes).
+ */
+export type ProductCode = { code: string; name: string }
+
+/** Max length for a product code. */
+export const PRODUCT_CODE_MAX = 16
+
+/** Trim + uppercase a product code for storage/comparison. */
+export function normalizeProductCode(raw: string): string {
+  return (raw ?? "").trim().toUpperCase()
+}
+
+/**
+ * Validate a normalized product code. Returns an error message, or null when
+ * valid. A valid code is non-empty, at most PRODUCT_CODE_MAX chars, and made of
+ * uppercase letters, digits, hyphen or underscore.
+ */
+export function validateProductCode(code: string): string | null {
+  if (code.length === 0) return "Code is required."
+  if (code.length > PRODUCT_CODE_MAX) {
+    return `Code must be ${PRODUCT_CODE_MAX} characters or fewer.`
+  }
+  if (!/^[A-Z0-9_-]+$/.test(code)) {
+    return "Code must be uppercase letters, digits, hyphen or underscore."
   }
   return null
 }

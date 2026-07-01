@@ -127,6 +127,83 @@
       "when": 1782632429571,
       "tag": "0017_product_type_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782736328453,
+      "tag": "0018_quiet_skaar",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782737063511,
+      "tag": "0019_luxuriant_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782737406977,
+      "tag": "0020_icy_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782738020109,
+      "tag": "0021_wet_wolfpack",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1782744642922,
+      "tag": "0022_classy_mephisto",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1782746714648,
+      "tag": "0023_fine_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782747779939,
+      "tag": "0024_zippy_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782748453927,
+      "tag": "0025_dapper_bloodscream",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782789889517,
+      "tag": "0026_gifted_korvac",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1782808400364,
+      "tag": "0027_flaky_silvermane",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1782810294986,
+      "tag": "0028_rapid_vulture",
+      "breakpoints": true
     }
   ]
 }

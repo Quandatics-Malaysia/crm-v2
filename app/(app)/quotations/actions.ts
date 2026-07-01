@@ -19,7 +19,12 @@ import {
   projects,
   taxSettings,
   tenantSettings,
+  products,
+  accounts,
+  persons,
+  organization,
 } from "@/db/schema"
+import type { ProductOption } from "@/lib/lookups"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
 import { winOpportunity } from "@/server/services/stage"
@@ -36,10 +41,12 @@ export type QuotationListItem = QuotationRow & {
 }
 
 export type LineInput = {
+  productId?: string | null
+  uom?: string | null
   description: string
   quantity: string
   unitPrice: string
-  discountPercent: string
+  discountAmount: string
 }
 
 export type QuotationHeaderInput = {
@@ -47,8 +54,8 @@ export type QuotationHeaderInput = {
   validUntil: string | null
   notes: string | null
   headerDiscount?: string | null
-  /** Tenant product-type code (tenant_settings.product_types[].code), editable. */
-  productTypeCode?: string | null
+  /** Tenant project-nature code (tenant_settings.product_types[].code), editable. */
+  projectNatureCode?: string | null
   lines: LineInput[]
 }
 
@@ -56,6 +63,8 @@ export type QuotationDetail = {
   quotation: QuotationRow
   lines: QuotationLineRow[]
   opportunityName: string | null
+  accountId: string | null
+  accountName: string | null
 }
 
 /** All non-deleted quotations with their opportunity name, newest first. */
@@ -89,9 +98,12 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
         q: quotations,
         opportunityName: opportunities.name,
         oppOwner: opportunities.ownerMemberId,
+        accountId: opportunities.accountId,
+        accountName: accounts.name,
       })
       .from(quotations)
       .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .leftJoin(accounts, eq(opportunities.accountId, accounts.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!row) return null
@@ -101,7 +113,127 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
       .from(quotationLineItems)
       .where(eq(quotationLineItems.quotationId, id))
       .orderBy(asc(quotationLineItems.sortOrder))
-    return { quotation: row.q, lines, opportunityName: row.opportunityName }
+    return {
+      quotation: row.q,
+      lines,
+      opportunityName: row.opportunityName,
+      accountId: row.accountId ?? null,
+      accountName: row.accountName ?? null,
+    }
+  })
+}
+
+export type QuotationDocument = {
+  quotation: QuotationRow
+  lines: QuotationLineRow[]
+  entityName: string
+  account: {
+    name: string
+    code: string | null
+    phone: string | null
+    address: {
+      line1?: string | null
+      line2?: string | null
+      city?: string | null
+      state?: string | null
+      postcode?: string | null
+      country?: string | null
+    } | null
+  } | null
+  contact: { name: string; email: string | null; phone: string | null } | null
+}
+
+/**
+ * Everything needed to render the printable quotation document: the quote +
+ * lines, the billing account (name/address/phone) and its primary contact, and
+ * the tenant/entity name for the letterhead.
+ */
+export async function getQuotationDocument(
+  id: string
+): Promise<QuotationDocument | null> {
+  return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    const [row] = await tx
+      .select({
+        q: quotations,
+        oppOwner: opportunities.ownerMemberId,
+        accountId: opportunities.accountId,
+      })
+      .from(quotations)
+      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
+      .limit(1)
+    if (!row) return null
+    if (!ownsOrManages(visible, row.oppOwner)) return null
+
+    const lines = await tx
+      .select()
+      .from(quotationLineItems)
+      .where(eq(quotationLineItems.quotationId, id))
+      .orderBy(asc(quotationLineItems.sortOrder))
+
+    let account: QuotationDocument["account"] = null
+    let contact: QuotationDocument["contact"] = null
+    if (row.accountId) {
+      const [acc] = await tx
+        .select({
+          name: accounts.name,
+          code: accounts.code,
+          phone: accounts.phone,
+          billingAddress: accounts.billingAddress,
+        })
+        .from(accounts)
+        .where(eq(accounts.id, row.accountId))
+        .limit(1)
+      if (acc) {
+        account = {
+          name: acc.name,
+          code: acc.code,
+          phone: acc.phone,
+          address:
+            (acc.billingAddress as NonNullable<
+              QuotationDocument["account"]
+            >["address"]) ?? null,
+        }
+      }
+      const [primary] = await tx
+        .select({
+          firstName: persons.firstName,
+          lastName: persons.lastName,
+          email: persons.email,
+          phone: persons.phone,
+        })
+        .from(persons)
+        .where(
+          and(
+            eq(persons.accountId, row.accountId),
+            eq(persons.isPrimary, true),
+            isNull(persons.deletedAt)
+          )
+        )
+        .limit(1)
+      if (primary) {
+        contact = {
+          name: [primary.firstName, primary.lastName].filter(Boolean).join(" "),
+          email: primary.email,
+          phone: primary.phone,
+        }
+      }
+    }
+
+    const [org] = await tx
+      .select({ name: organization.name })
+      .from(organization)
+      .where(eq(organization.id, ctx.tenantId))
+      .limit(1)
+
+    return {
+      quotation: row.q,
+      lines,
+      entityName: org?.name ?? "Quotation",
+      account,
+      contact,
+    }
   })
 }
 
@@ -171,7 +303,8 @@ export type TaxOption = {
 export async function getQuotationFormMeta(): Promise<{
   taxOptions: TaxOption[]
   taxInclusive: boolean
-  productTypes: { code: string; name: string }[]
+  projectNatures: { code: string; name: string }[]
+  products: ProductOption[]
 }> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const taxOptions = await tx
@@ -186,11 +319,28 @@ export async function getQuotationFormMeta(): Promise<{
       .orderBy(asc(taxSettings.name))
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
     const [settings] = await tx
-      .select({ productTypes: tenantSettings.productTypes })
+      .select({ projectNatures: tenantSettings.projectNatures })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
-    return { taxOptions, taxInclusive, productTypes: settings?.productTypes ?? [] }
+    const productOptions = await tx
+      .select({
+        id: products.id,
+        name: products.name,
+        description: products.description,
+        standardPrice: products.standardPrice,
+        currency: products.currency,
+        uom: products.uom,
+      })
+      .from(products)
+      .where(and(eq(products.isActive, true), isNull(products.deletedAt)))
+      .orderBy(asc(products.name))
+    return {
+      taxOptions,
+      taxInclusive,
+      projectNatures: settings?.projectNatures ?? [],
+      products: productOptions,
+    }
   })
 }
 
@@ -225,8 +375,8 @@ export async function createQuotation(input: {
   validUntil: string | null
   notes: string | null
   headerDiscount?: string | null
-  /** Optional override; defaults to the funnel's product type when omitted. */
-  productTypeCode?: string | null
+  /** Optional override; defaults to the funnel's project nature when omitted. */
+  projectNatureCode?: string | null
   lines: LineInput[]
 }): Promise<ActionResult<QuotationRow>> {
   return runAction(async () => {
@@ -238,7 +388,7 @@ export async function createQuotation(input: {
         currency: opportunities.currency,
         primaryQuotationId: opportunities.primaryQuotationId,
         ownerMemberId: opportunities.ownerMemberId,
-        productTypeCode: opportunities.productTypeCode,
+        projectNatureCode: opportunities.projectNatureCode,
       })
       .from(opportunities)
       .where(and(eq(opportunities.id, input.opportunityId), isNull(opportunities.deletedAt)))
@@ -247,10 +397,10 @@ export async function createQuotation(input: {
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
       throw new Error("FORBIDDEN")
 
-    // Inherit the funnel's product type as the default when the user didn't
+    // Inherit the funnel's project nature as the default when the user didn't
     // pick one; the quotation keeps it editable from here on.
-    const productTypeCode =
-      (input.productTypeCode?.trim() || null) ?? opp.productTypeCode ?? null
+    const projectNatureCode =
+      (input.projectNatureCode?.trim() || null) ?? opp.projectNatureCode ?? null
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
@@ -264,7 +414,7 @@ export async function createQuotation(input: {
       lines: input.lines.map((l) => ({
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountPercent: l.discountPercent,
+        discountAmount: l.discountAmount,
       })),
       ratePercent: ratePercent ?? 0,
       headerDiscount: input.headerDiscount ?? 0,
@@ -281,7 +431,7 @@ export async function createQuotation(input: {
         quoteNumber,
         status: "draft",
         currency: opp.currency,
-        productTypeCode,
+        projectNatureCode,
         taxSettingId: input.taxSettingId,
         taxInclusive,
         subtotal: totals.subtotal.toFixed(2),
@@ -366,7 +516,7 @@ export async function updateQuotation(
       lines: input.lines.map((l) => ({
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountPercent: l.discountPercent,
+        discountAmount: l.discountAmount,
       })),
       ratePercent: ratePercent ?? 0,
       headerDiscount,
@@ -377,7 +527,7 @@ export async function updateQuotation(
       .update(quotations)
       .set({
         taxSettingId: input.taxSettingId,
-        productTypeCode: input.productTypeCode?.trim() || null,
+        projectNatureCode: input.projectNatureCode?.trim() || null,
         subtotal: totals.subtotal.toFixed(2),
         headerDiscount: headerDiscount.toFixed(2),
         discountTotal: totals.discountTotal.toFixed(2),
@@ -426,10 +576,12 @@ async function insertLines(
     lines.map((l, i) => ({
       tenantId,
       quotationId,
+      productId: l.productId?.trim() || null,
+      uom: l.uom?.trim() || null,
       description: l.description,
       quantity: l.quantity || "0",
       unitPrice: l.unitPrice || "0",
-      discountPercent: l.discountPercent || "0",
+      discountAmount: l.discountAmount || "0",
       taxSettingId,
       lineSubtotal: totals.lines[i].lineSubtotal.toFixed(2),
       lineTax: totals.lines[i].lineTax.toFixed(2),
@@ -487,7 +639,7 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
       lines: storedLines.map((l) => ({
         quantity: l.quantity,
         unitPrice: l.unitPrice,
-        discountPercent: l.discountPercent,
+        discountAmount: l.discountAmount,
       })),
       ratePercent: ratePercent ?? 0,
       headerDiscount: q.headerDiscount,

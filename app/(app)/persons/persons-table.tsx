@@ -189,7 +189,7 @@ export function PersonsTable({
           <div className="flex items-center gap-2">
             <Link
               href={`/persons/${row.original.id}`}
-              className="font-medium text-primary hover:underline"
+              className="font-medium link"
             >
               {fullName(row.original) || "Unnamed contact"}
             </Link>
@@ -208,7 +208,7 @@ export function PersonsTable({
           row.original.accountId ? (
             <Link
               href={`/accounts/${row.original.accountId}`}
-              className="text-primary hover:underline"
+              className="link"
             >
               {row.original.accountName ?? "—"}
             </Link>
@@ -228,7 +228,7 @@ export function PersonsTable({
           row.original.email ? (
             <a
               href={`mailto:${row.original.email}`}
-              className="text-primary hover:underline"
+              className="link"
             >
               {row.original.email}
             </a>

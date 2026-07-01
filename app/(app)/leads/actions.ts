@@ -72,6 +72,19 @@ function clean(v?: string | null): string | null {
   return t.length ? t : null
 }
 
+/**
+ * Leads must carry a valid email — it becomes the contact's email on conversion,
+ * so we enforce it at the source. Trims, then rejects empty or malformed input.
+ * Mirrors the client-side zod rule in lead-form.tsx.
+ */
+function requireEmail(v?: string | null): string {
+  const email = (v ?? "").trim()
+  if (!email) throw new Error("Email is required")
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    throw new Error("Enter a valid email")
+  return email
+}
+
 /** All non-deleted leads, newest first. */
 export async function listLeads(): Promise<Lead[]> {
   return withTenant(PERMISSIONS.LEAD_VIEW, async (tx, ctx) => {
@@ -155,6 +168,7 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
 export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> {
   return runAction(async () => {
     if (!input.name?.trim()) throw new Error("Name is required")
+    const email = requireEmail(input.email)
 
     const row = await withTenant(PERMISSIONS.LEAD_CREATE, async (tx, ctx) => {
       const { funnelId, currentStageId } = await resolveFunnelStage(
@@ -170,7 +184,7 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
           tenantId: ctx.tenantId,
           name: input.name.trim(),
           companyName: clean(input.companyName),
-          email: clean(input.email),
+          email,
           phone: clean(input.phone),
           source: clean(input.source),
           status: input.status ?? "new",
@@ -207,6 +221,7 @@ export async function updateLead(
 ): Promise<ActionResult<Lead>> {
   return runAction(async () => {
     if (!input.name?.trim()) throw new Error("Name is required")
+    const email = requireEmail(input.email)
 
     const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
       const [before] = await tx
@@ -232,7 +247,7 @@ export async function updateLead(
         .set({
           name: input.name.trim(),
           companyName: clean(input.companyName),
-          email: clean(input.email),
+          email,
           phone: clean(input.phone),
           source: clean(input.source),
           status: input.status ?? before.status,
@@ -470,12 +485,28 @@ export async function disqualifyLead(
   })
 }
 
+/** Details captured for the account created during conversion (new-account path). */
+export type ConvertNewAccountInput = {
+  accountType?: "client" | "reseller" | null
+  phone?: string | null
+  address?: {
+    line1?: string | null
+    line2?: string | null
+    city?: string | null
+    state?: string | null
+    postcode?: string | null
+    country?: string | null
+  } | null
+}
+
 export type ConvertLeadInput = {
   leadId: string
   createOpportunity?: boolean
   opportunityName?: string | null
   expectedCloseDate?: string | null
   existingAccountId?: string | null
+  /** Used only when no existingAccountId is given (creating a new account). */
+  newAccount?: ConvertNewAccountInput | null
 }
 
 export async function convertLeadAction(input: ConvertLeadInput) {
@@ -504,6 +535,7 @@ export async function convertLeadAction(input: ConvertLeadInput) {
       opportunityName: clean(input.opportunityName) ?? undefined,
       expectedCloseDate: clean(input.expectedCloseDate),
       existingAccountId: clean(input.existingAccountId),
+      newAccount: input.existingAccountId ? null : input.newAccount ?? null,
     })
 
     revalidatePath("/leads")

@@ -67,12 +67,12 @@ export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> 
 
 /**
  * Allocate the next project code in the format
- * `{YYYY}-{ENTITY}-{ACCOUNTCODE}-{PRODUCTTYPE}-{NNN}` (e.g.
+ * `{YYYY}-{ENTITY}-{ACCOUNTCODE}-{PROJECTNATURE}-{NNN}` (e.g.
  * `2026-DEMO-ACME-WEB-001`):
  *   - YYYY        — the current LOCAL calendar year.
  *   - ENTITY      — tenant_settings.entityCode (fallback "ENT").
  *   - ACCOUNTCODE — the account's short code (fallback "ACC").
- *   - PRODUCTTYPE — the project's chosen product-type code (fallback "GEN").
+ *   - PROJECTNATURE — the project's chosen project-nature code (fallback "GEN").
  *   - NNN         — a running number that RESETS PER YEAR per tenant, taken from
  *                   `project_counters` and zero-padded to projectPadWidth (3).
  *
@@ -83,7 +83,7 @@ export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> 
 export async function nextProjectCode(
   tx: Tx,
   ctx: ServerContext,
-  { accountCode, productTypeCode }: { accountCode: string; productTypeCode: string }
+  { accountCode, projectNatureCode }: { accountCode: string; projectNatureCode: string }
 ): Promise<string> {
   const year = Number(toDateString().slice(0, 4))
 
@@ -112,7 +112,7 @@ export async function nextProjectCode(
   const yyyy = String(year)
   const entity = (s?.entityCode || "ENT").toUpperCase()
   const acct = (accountCode || "ACC").toUpperCase()
-  const product = (productTypeCode || "GEN").toUpperCase()
+  const product = (projectNatureCode || "GEN").toUpperCase()
   const running = String(assigned).padStart(s?.pad ?? 3, "0")
   return `${yyyy}-${entity}-${acct}-${product}-${running}`
 }

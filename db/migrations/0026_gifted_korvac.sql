@@ -1,0 +1,1 @@
+ALTER TABLE "payment_milestones" DROP COLUMN "percentage";

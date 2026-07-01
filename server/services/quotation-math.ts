@@ -15,7 +15,7 @@
 export type LineInput = {
   quantity: number | string
   unitPrice: number | string
-  discountPercent?: number | string
+  discountAmount?: number | string
 }
 
 export type LineComputed = {
@@ -54,7 +54,8 @@ export function computeQuotation(opts: {
   // mode the entered price already contains tax, so divide it out.
   const netBases = opts.lines.map((l) => {
     const gross = num(l.quantity) * num(l.unitPrice)
-    const afterDisc = gross * (1 - num(l.discountPercent) / 100)
+    // Absolute per-line discount, clamped so a line never goes negative.
+    const afterDisc = Math.max(0, gross - num(l.discountAmount))
     return taxInclusive ? afterDisc / (1 + rate) : afterDisc
   })
 

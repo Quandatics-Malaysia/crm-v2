@@ -3,20 +3,10 @@ import { notFound } from "next/navigation"
 
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 
-import { formatDate, formatMoney } from "@/lib/format"
+import { formatDate } from "@/lib/format"
 import { listIndustries } from "@/lib/lookups"
-import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { DocumentsSection } from "@/components/documents-section"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
@@ -24,52 +14,10 @@ import {
   listParentOptions,
   listAccountProjects,
   listAccountQuotations,
-  type AccountFunnelItem,
-  type AccountProjectItem,
-  type AccountQuotationItem,
   type BillingAddress,
 } from "../actions"
 import { AccountEditButton } from "./account-edit-button"
-import { AccountContacts } from "./account-contacts"
-
-/** Tailwind class set per stage kind. Kind drives semantics, never the label. */
-function stageKindClasses(kind: string): string {
-  switch (kind) {
-    case "WON":
-      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-    case "LOST":
-      return "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
-    case "PARKED":
-      return "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-    default:
-      return "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
-  }
-}
-
-/** Badge variant per project status — mirrors the projects table. */
-const projectStatusVariant: Record<
-  AccountProjectItem["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
-
-/** Badge variant per quotation status — mirrors the quotations table. */
-const quotationStatusVariant: Record<
-  AccountQuotationItem["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  draft: "outline",
-  sent: "secondary",
-  accepted: "default",
-  rejected: "destructive",
-  expired: "outline",
-  void: "outline",
-}
+import { AccountDetailBody } from "./account-detail-body"
 
 function formatAddress(a: BillingAddress | null | undefined): string | null {
   if (!a) return null
@@ -130,7 +78,7 @@ export default async function AccountDetailPage({
             value: endUserAccount ? (
               <Link
                 href={`/accounts/${endUserAccount.id}`}
-                className="text-primary hover:underline"
+                className="link"
               >
                 {endUserAccount.name}
               </Link>
@@ -141,6 +89,7 @@ export default async function AccountDetailPage({
         ]
       : []),
     { label: "Industry", value: account.industry ?? "—" },
+    { label: "Office phone", value: account.phone ?? "—" },
     { label: "Account manager", value: ownerName ?? "—" },
     {
       label: "Registration number",
@@ -153,7 +102,7 @@ export default async function AccountDetailPage({
           href={account.website}
           target="_blank"
           rel="noreferrer"
-          className="text-primary hover:underline"
+          className="link"
         >
           {account.website}
         </a>
@@ -166,7 +115,7 @@ export default async function AccountDetailPage({
       value: parent ? (
         <Link
           href={`/accounts/${parent.id}`}
-          className="text-primary hover:underline"
+          className="link"
         >
           {parent.name}
         </Link>
@@ -202,7 +151,7 @@ export default async function AccountDetailPage({
                   End user:{" "}
                   <Link
                     href={`/accounts/${endUserAccount.id}`}
-                    className="text-primary hover:underline"
+                    className="link"
                   >
                     {endUserAccount.name}
                   </Link>
@@ -220,243 +169,17 @@ export default async function AccountDetailPage({
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="grid gap-4 lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {detail.map((d) => (
-                    <div key={d.label} className="grid gap-1">
-                      <dt className="text-xs text-muted-foreground">
-                        {d.label}
-                      </dt>
-                      <dd className="text-sm">{d.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Funnels
-                  <Badge variant="secondary">{funnels.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {funnels.length ? (
-                  <ul className="divide-y rounded-lg border">
-                    {funnels.map((f: AccountFunnelItem) => (
-                      <li
-                        key={f.opportunityId}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <Link
-                            href={`/funnel/${f.opportunityId}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            {f.name}
-                          </Link>
-                          {f.amount ? (
-                            <span className="text-xs text-muted-foreground">
-                              {formatMoney(f.amount, f.currency)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <Badge className={cn(stageKindClasses(f.stageKind))}>
-                          <span className="font-mono uppercase opacity-70">
-                            {f.stageCode}
-                          </span>
-                          <span>{f.stageName}</span>
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No funnels for this account yet.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Projects
-                  <Badge variant="secondary">{accountProjects.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {accountProjects.length ? (
-                  <ul className="divide-y rounded-lg border">
-                    {accountProjects.map((p) => (
-                      <li
-                        key={p.id}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <Link
-                            href={`/projects/${p.id}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            {p.name}
-                          </Link>
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {p.projectCode}
-                          </span>
-                        </div>
-                        <Badge
-                          variant={projectStatusVariant[p.status] ?? "secondary"}
-                        >
-                          {p.status.replace(/_/g, " ")}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No projects for this account yet.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Quotations
-                  <Badge variant="secondary">{accountQuotations.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {accountQuotations.length ? (
-                  <ul className="divide-y rounded-lg border">
-                    {accountQuotations.map((q) => (
-                      <li
-                        key={q.id}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <Link
-                            href={`/quotations/${q.id}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            {q.quoteNumber}
-                          </Link>
-                          <span className="text-xs text-muted-foreground">
-                            {formatMoney(q.total, q.currency)}
-                          </span>
-                        </div>
-                        <Badge
-                          variant={quotationStatusVariant[q.status] ?? "secondary"}
-                        >
-                          {q.status}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No quotations for this account yet.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Child accounts
-                  <Badge variant="secondary">{children.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {children.length ? (
-                  <ul className="divide-y rounded-lg border">
-                    {children.map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex items-center justify-between px-3 py-2 text-sm"
-                      >
-                        <Link
-                          href={`/accounts/${c.id}`}
-                          className="font-medium text-primary hover:underline"
-                        >
-                          {c.name}
-                        </Link>
-                        <span className="text-muted-foreground">
-                          {c.accountType === "reseller" ? "Reseller" : "Client"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No child accounts.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Contacts</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AccountContacts
-                  accountId={account.id}
-                  contacts={contacts}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Activity</CardTitle>
-                <CardDescription>
-                  Timeline across this account and its funnels.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ActivityTimeline
-                  entityType="account"
-                  entityId={account.id}
-                  items={activity}
-                  revalidate={`/accounts/${account.id}`}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  Documents
-                  <Badge variant="secondary">{documents.length}</Badge>
-                </CardTitle>
-                <CardDescription>
-                  Files attached directly to this account, plus those rolled up
-                  from its contacts, funnels, quotations, and projects.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DocumentsSection
-                  uploadType="account"
-                  uploadId={account.id}
-                  documents={documents}
-                  revalidate={`/accounts/${account.id}`}
-                />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        <AccountDetailBody
+          accountId={account.id}
+          fields={detail}
+          contacts={contacts}
+          funnels={funnels}
+          projects={accountProjects}
+          quotations={accountQuotations}
+          childAccounts={children}
+          activity={activity}
+          documents={documents}
+        />
       </PageBody>
     </>
   )

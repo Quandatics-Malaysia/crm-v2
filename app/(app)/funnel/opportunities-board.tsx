@@ -48,7 +48,9 @@ function CardBody({ c }: { c: OpportunityListRow }) {
       <p className="truncate text-xs text-muted-foreground">{c.accountName}</p>
       <div className="mt-2 flex items-center justify-between">
         <span className="text-sm font-semibold tabular-nums">
-          {c.amount ? formatMoney(c.amount, c.currency) : "—"}
+          {(c.estimatedAmount ?? c.amount)
+            ? formatMoney((c.estimatedAmount ?? c.amount)!, c.currency)
+            : "—"}
         </span>
         <span className="text-xs text-muted-foreground">
           {c.ownerName ?? ""}
@@ -110,7 +112,10 @@ function StageColumn({
     data: { stageId: stage.id },
     disabled: !draggable,
   })
-  const total = cards.reduce((sum, c) => sum + Number(c.amount ?? 0), 0)
+  const total = cards.reduce(
+    (sum, c) => sum + Number(c.estimatedAmount ?? c.amount ?? 0),
+    0
+  )
 
   return (
     <div

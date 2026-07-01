@@ -181,7 +181,7 @@ export function AccountsTable({
         cell: ({ row }) => (
           <Link
             href={`/accounts/${row.original.id}`}
-            className="font-medium text-primary hover:underline"
+            className="font-medium link"
           >
             {row.original.name}
           </Link>
@@ -226,7 +226,7 @@ export function AccountsTable({
           row.original.parentAccountId ? (
             <Link
               href={`/accounts/${row.original.parentAccountId}`}
-              className="text-primary hover:underline"
+              className="link"
             >
               {row.original.parentAccountName ?? "—"}
             </Link>

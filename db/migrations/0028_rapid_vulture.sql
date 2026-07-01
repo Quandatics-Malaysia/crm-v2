@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_settings" ADD COLUMN "custom_funnel_fields" jsonb DEFAULT '[]'::jsonb NOT NULL;

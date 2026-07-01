@@ -36,13 +36,13 @@ export default async function NewProjectPage({
 
   // When created from a funnel, pre-fill name + value + linked quotation from the
   // opportunity's source quote (net of tax) so the user mostly just picks the
-  // product type. The value stays EDITABLE.
+  // project nature. The value stays EDITABLE.
   let defaultName: string | undefined
   let defaultValue: string | undefined
   let defaultCurrency: string | undefined
-  // Product type DERIVED from the source quotation/funnel; from scratch it
-  // suggests the tenant's first product type. Editable in the form either way.
-  let defaultProductTypeCode: string | undefined = meta.productTypes[0]?.code
+  // Project nature DERIVED from the source quotation/funnel; from scratch it
+  // suggests the tenant's first project nature. Editable in the form either way.
+  let defaultProjectNatureCode: string | undefined = meta.projectNatures[0]?.code
   // A bare ?quotationId= (no funnel) still links the source quote on the project.
   let defaultQuotationId: string | undefined = sp.quotationId
   let prefillQuoteNumber: string | undefined
@@ -53,7 +53,7 @@ export default async function NewProjectPage({
       defaultName = prefill.opportunityName
       defaultValue = prefill.value
       defaultCurrency = prefill.currency
-      defaultProductTypeCode = prefill.productTypeCode || defaultProductTypeCode
+      defaultProjectNatureCode = prefill.projectNatureCode || defaultProjectNatureCode
       defaultQuotationId = prefill.quotationId ?? defaultQuotationId
       prefillQuoteNumber = prefill.quoteNumber ?? undefined
     } else {
@@ -82,20 +82,20 @@ export default async function NewProjectPage({
       <PageBody>
         <p className="text-sm text-muted-foreground">
           {fromQuote
-            ? "From the accepted quotation — account, value and product type are prefilled; review and create."
-            : "The product type is suggested from your settings and feeds the project code — adjust if needed."}
+            ? "From the accepted quotation — account, value and project nature are prefilled; review and create."
+            : "The project nature is suggested from your settings and feeds the project code — adjust if needed."}
         </p>
         <ProjectCreateForm
           accounts={accounts}
           opportunities={opportunities}
-          productTypes={meta.productTypes}
+          projectNatures={meta.projectNatures}
           entityCode={meta.entityCode}
           codeYear={meta.year}
           accountCodes={meta.accountCodes}
           defaultName={defaultName}
           defaultAccountId={defaultAccountId}
           defaultOpportunityId={defaultOpportunityId}
-          defaultProductTypeCode={defaultProductTypeCode}
+          defaultProjectNatureCode={defaultProjectNatureCode}
           defaultValue={defaultValue}
           defaultCurrency={defaultCurrency}
           defaultQuotationId={defaultQuotationId}

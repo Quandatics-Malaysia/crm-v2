@@ -3,21 +3,9 @@ import { notFound } from "next/navigation"
 
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
-import {
-  StageProgress,
-  buildFunnelSteps,
-  buildLeadSteps,
-} from "@/components/stage-progress"
+import { buildFunnelSteps, buildLeadSteps } from "@/components/stage-progress"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
 import { listAccountOptions, listFunnelsWithStages } from "@/lib/lookups"
@@ -25,6 +13,7 @@ import { formatDate } from "@/lib/format"
 import { getLead } from "../actions"
 import { LeadEditButton } from "./lead-edit-button"
 import { LeadDetailActions } from "./lead-detail-actions"
+import { LeadDetailBody } from "./lead-detail-body"
 
 const STATUS_LABEL: Record<string, string> = {
   new: "New",
@@ -61,7 +50,7 @@ export default async function LeadDetailPage({
       value: lead.email ? (
         <a
           href={`mailto:${lead.email}`}
-          className="text-primary hover:underline"
+          className="link"
         >
           {lead.email}
         </a>
@@ -77,7 +66,7 @@ export default async function LeadDetailPage({
         lead.convertedOpportunityId ? (
           <Link
             href={`/funnel/${lead.convertedOpportunityId}`}
-            className="text-primary hover:underline"
+            className="link"
           >
             {funnelName}
           </Link>
@@ -111,6 +100,7 @@ export default async function LeadDetailPage({
     leadFunnelStages && lead.currentStageId
       ? buildFunnelSteps(leadFunnelStages, lead.currentStageId)
       : null
+  const leadProgress = buildLeadSteps(lead.status)
 
   return (
     <>
@@ -153,121 +143,28 @@ export default async function LeadDetailPage({
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="grid gap-4 lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {detail.map((d) => (
-                    <div key={d.label} className="grid gap-1">
-                      <dt className="text-xs text-muted-foreground">
-                        {d.label}
-                      </dt>
-                      <dd className="text-sm">{d.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-6">
-                <StageProgress {...buildLeadSteps(lead.status)} />
-                {funnelProgress ? (
-                  <div className="border-t pt-6">
-                    <StageProgress {...funnelProgress} />
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            {isConverted ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Converted</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {lead.convertedAccountId ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                          <Link href={`/accounts/${lead.convertedAccountId}`} />
-                        }
-                      >
-                        Account{accountName ? `: ${accountName}` : ""}
-                      </Button>
-                    ) : null}
-                    {lead.convertedPersonId ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                          <Link href={`/persons/${lead.convertedPersonId}`} />
-                        }
-                      >
-                        Contact{personName ? `: ${personName}` : ""}
-                      </Button>
-                    ) : null}
-                    {lead.convertedOpportunityId ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                          <Link
-                            href={`/funnel/${lead.convertedOpportunityId}`}
-                          />
-                        }
-                      >
-                        Funnel{funnelName ? `: ${funnelName}` : ""}
-                      </Button>
-                    ) : null}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-          </div>
-
-          <div className="grid gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Activity</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ActivityTimeline
-                  entityType="lead"
-                  entityId={id}
-                  items={activity}
-                  revalidate={`/leads/${id}`}
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Documents</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AttachmentsPanel
-                  attachableType="lead"
-                  attachableId={id}
-                  items={files}
-                  revalidate={`/leads/${id}`}
-                />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        <LeadDetailBody
+          leadId={id}
+          fields={detail}
+          leadSteps={leadProgress.steps}
+          leadNote={leadProgress.note}
+          funnelSteps={funnelProgress?.steps ?? null}
+          funnelNote={funnelProgress?.note ?? null}
+          converted={
+            isConverted
+              ? {
+                  accountId: lead.convertedAccountId,
+                  accountName,
+                  personId: lead.convertedPersonId,
+                  personName,
+                  opportunityId: lead.convertedOpportunityId,
+                  funnelName,
+                }
+              : null
+          }
+          activity={activity}
+          files={files}
+        />
       </PageBody>
     </>
   )

@@ -9,6 +9,11 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
+import { cn } from "@/lib/utils"
+import { groupCustomFields, type CustomFunnelField } from "@/lib/stage-gate"
 import {
   Dialog,
   DialogContent,
@@ -72,14 +77,24 @@ const schema = z.object({
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
-  productTypeCode: z.string().optional(),
+  natureCodes: z.array(z.string()),
   expectedCloseDate: z.string().optional(),
+  estimatedAmount: z.string().optional(),
+  recognizedPercent: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || (Number(v) >= 0 && Number(v) <= 100),
+      "Recognized % must be between 0 and 100"
+    ),
+  projectYear: z.string().optional(),
+  description: z.string().optional(),
+  isIntercompany: z.boolean().optional(),
+  handlingPartnerAccountId: z.string().optional(),
+  customFields: z.record(z.string(), z.string()),
 })
 
 type FormValues = z.infer<typeof schema>
-
-/** Sentinel for the "no product type" Select option (empty string is invalid). */
-const NO_PRODUCT_TYPE = "__none__"
 
 export function OpportunityForm({
   mode,
@@ -87,7 +102,8 @@ export function OpportunityForm({
   persons,
   members,
   funnels,
-  productTypes = [],
+  projectNatures = [],
+  customFieldDefs = [],
   defaultOwnerMemberId,
   opportunity,
   trigger,
@@ -97,8 +113,10 @@ export function OpportunityForm({
   persons: (Option & { accountId: string })[]
   members: MemberOption[]
   funnels: FunnelWithStages[]
-  /** Tenant product-type picklist (code + name) from listProductTypes(). */
-  productTypes?: { code: string; name: string }[]
+  /** Tenant project-nature picklist (code + name) from listProjectNatures(). */
+  projectNatures?: { code: string; name: string }[]
+  /** Tenant custom funnel fields to capture on the funnel. */
+  customFieldDefs?: CustomFunnelField[]
   defaultOwnerMemberId: string | null
   opportunity?: OpportunityListRow
   trigger?: React.ReactElement
@@ -137,8 +155,22 @@ export function OpportunityForm({
           currentStageId: opportunity.stageId,
           ownerMemberId: opportunity.ownerMemberId,
           currency: opportunity.currency ?? "MYR",
-          productTypeCode: opportunity.productTypeCode ?? "",
+          natureCodes:
+            opportunity.projectNatures ??
+            (opportunity.projectNatureCode
+              ? [opportunity.projectNatureCode]
+              : []),
           expectedCloseDate: opportunity.expectedCloseDate ?? "",
+          estimatedAmount: opportunity.estimatedAmount ?? "",
+          recognizedPercent: opportunity.recognizedPercent ?? "",
+          projectYear:
+            opportunity.projectYear != null
+              ? String(opportunity.projectYear)
+              : "",
+          description: opportunity.description ?? "",
+          isIntercompany: opportunity.isIntercompany ?? false,
+          handlingPartnerAccountId: opportunity.handlingPartnerAccountId ?? "",
+          customFields: { ...(opportunity.customFields ?? {}) },
         }
       : {
           name: "",
@@ -148,8 +180,15 @@ export function OpportunityForm({
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
           currency: "MYR",
-          productTypeCode: "",
+          natureCodes: [],
           expectedCloseDate: "",
+          estimatedAmount: "",
+          recognizedPercent: "",
+          projectYear: "",
+          description: "",
+          isIntercompany: false,
+          handlingPartnerAccountId: "",
+          customFields: {},
         },
   })
 
@@ -190,8 +229,15 @@ export function OpportunityForm({
         currentStageId: values.currentStageId,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
-        productTypeCode: values.productTypeCode || null,
+        projectNatures: values.natureCodes,
         expectedCloseDate: values.expectedCloseDate || null,
+        estimatedAmount: values.estimatedAmount || null,
+        recognizedPercent: values.recognizedPercent || null,
+        projectYear: values.projectYear ? Number(values.projectYear) : null,
+        description: values.description || null,
+        isIntercompany: !!values.isIntercompany,
+        handlingPartnerAccountId: values.handlingPartnerAccountId || null,
+        customFields: values.customFields,
       })
       if (!res.ok) {
         toast.error(res.error)
@@ -207,8 +253,15 @@ export function OpportunityForm({
         primaryPersonId: values.primaryPersonId || null,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
-        productTypeCode: values.productTypeCode || null,
+        projectNatures: values.natureCodes,
         expectedCloseDate: values.expectedCloseDate || null,
+        estimatedAmount: values.estimatedAmount || null,
+        recognizedPercent: values.recognizedPercent || null,
+        projectYear: values.projectYear ? Number(values.projectYear) : null,
+        description: values.description || null,
+        isIntercompany: !!values.isIntercompany,
+        handlingPartnerAccountId: values.handlingPartnerAccountId || null,
+        customFields: values.customFields,
       })
       if (!res.ok) {
         toast.error(res.error)
@@ -454,45 +507,146 @@ export function OpportunityForm({
 
             <FormField
               control={form.control}
-              name="productTypeCode"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Product type</FormLabel>
-                  <Select
-                    value={field.value || NO_PRODUCT_TYPE}
-                    onValueChange={(v) =>
-                      field.onChange(v === NO_PRODUCT_TYPE ? "" : v)
-                    }
-                    items={[
-                      { value: NO_PRODUCT_TYPE, label: "None" },
-                      ...productTypes.map((p) => ({
-                        value: p.code,
-                        label: p.name,
-                      })),
-                    ]}
-                  >
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select product type…" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value={NO_PRODUCT_TYPE}>None</SelectItem>
-                      {productTypes.map((p) => (
-                        <SelectItem key={p.code} value={p.code}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Default product type for the deal. Inherited by quotations
-                    and editable there.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+              name="natureCodes"
+              render={({ field }) => {
+                const selected = field.value ?? []
+                const toggle = (code: string) =>
+                  field.onChange(
+                    selected.includes(code)
+                      ? selected.filter((c) => c !== code)
+                      : [...selected, code]
+                  )
+                return (
+                  <FormItem>
+                    <FormLabel>Project nature(s)</FormLabel>
+                    {projectNatures.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No project natures configured. Add them in Settings.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {projectNatures.map((p) => {
+                          const on = selected.includes(p.code)
+                          return (
+                            <button
+                              key={p.code}
+                              type="button"
+                              onClick={() => toggle(p.code)}
+                              className={cn(
+                                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                                on
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-input bg-background text-muted-foreground hover:bg-accent"
+                              )}
+                            >
+                              {p.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <FormDescription>
+                      A deal can span several (e.g. License + PS + AMS). The first
+                      selected is the primary nature used for the project code.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
+
+            {customFieldDefs.length > 0 ? (
+              <div className="grid gap-4 rounded-md border p-3">
+                <p className="text-sm font-medium">Custom fields</p>
+                {groupCustomFields(customFieldDefs).map((group) => (
+                  <div key={group.category ?? "__none__"} className="grid gap-3">
+                    {group.category ? (
+                      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                        {group.category}
+                      </p>
+                    ) : null}
+                    {group.fields.map((def) => (
+                  <FormField
+                    key={def.key}
+                    control={form.control}
+                    name={`customFields.${def.key}` as `customFields.${string}`}
+                    render={({ field }) =>
+                      def.type === "checkbox" ? (
+                        <FormItem className="flex flex-row items-start gap-2 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              className="mt-0.5"
+                              checked={field.value === "true"}
+                              onCheckedChange={(c) =>
+                                field.onChange(c ? "true" : "false")
+                              }
+                            />
+                          </FormControl>
+                          <div className="grid gap-0.5">
+                            <FormLabel className="text-sm font-normal">
+                              {def.label}
+                            </FormLabel>
+                            {def.description ? (
+                              <p className="text-xs text-muted-foreground">
+                                {def.description}
+                              </p>
+                            ) : null}
+                          </div>
+                        </FormItem>
+                      ) : (
+                        <FormItem>
+                          <FormLabel className="text-xs font-normal text-muted-foreground">
+                            {def.label}
+                          </FormLabel>
+                          <FormControl>
+                            {def.type === "select" ? (
+                              <Select
+                                value={field.value || ""}
+                                onValueChange={field.onChange}
+                                items={(def.options ?? []).map((o) => ({
+                                  value: o,
+                                  label: o,
+                                }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(def.options ?? []).map((o) => (
+                                    <SelectItem key={o} value={o}>
+                                      {o}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                type={
+                                  def.type === "number"
+                                    ? "number"
+                                    : def.type === "date"
+                                      ? "date"
+                                      : "text"
+                                }
+                                {...field}
+                                value={field.value ?? ""}
+                              />
+                            )}
+                          </FormControl>
+                          {def.description ? (
+                            <p className="text-xs text-muted-foreground">
+                              {def.description}
+                            </p>
+                          ) : null}
+                        </FormItem>
+                      )
+                    }
+                  />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <FormField
               control={form.control}
@@ -507,6 +661,119 @@ export function OpportunityForm({
                 </FormItem>
               )}
             />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="estimatedAmount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Estimated funnel amount</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
+                    </FormControl>
+                    <FormDescription>Drives the weighted forecast.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="projectYear"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Project / license year</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="2000" max="2100" placeholder="2024" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Funnel description</FormLabel>
+                  <FormControl>
+                    <Textarea rows={2} placeholder="Optional notes about this deal…" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="isIntercompany"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="grid gap-0.5">
+                    <FormLabel>Intercompany deal</FormLabel>
+                    <FormDescription>
+                      A partner entity handles delivery; we&apos;re the
+                      contracting middle-man and recognize only our cut.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={!!field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            {form.watch("isIntercompany") ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="handlingPartnerAccountId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Handling partner</FormLabel>
+                      <FormControl>
+                        <Combobox
+                          value={field.value ?? ""}
+                          onChange={(v) => field.onChange(v || "")}
+                          options={accountOptions.map((a) => ({
+                            value: a.id,
+                            label: a.name,
+                          }))}
+                          placeholder="Select the partner account"
+                          searchPlaceholder="Search accounts…"
+                          emptyMessage="No accounts found."
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        The entity that handles delivery (e.g. the affiliate).
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="recognizedPercent"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Recognized % (our cut)</FormLabel>
+                      <FormControl>
+                        <Input type="number" step="0.01" min="0" max="100" placeholder="10" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Recognized amount = estimated × this %.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            ) : null}
 
             <DialogFooter>
               <Button

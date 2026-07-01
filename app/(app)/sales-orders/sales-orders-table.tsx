@@ -60,7 +60,7 @@ export function SalesOrdersTable({
         cell: ({ row }) => (
           <Link
             href={`/projects/${row.original.projectId}`}
-            className="font-medium text-primary hover:underline"
+            className="font-medium link"
           >
             {row.original.projectName}
           </Link>
@@ -93,9 +93,19 @@ export function SalesOrdersTable({
         header: "SO number",
         cell: ({ row }) =>
           row.original.soNumber ? (
-            <span className="font-mono">{row.original.soNumber}</span>
+            <Link
+              href={`/sales-orders/${row.original.id}`}
+              className="font-mono link"
+            >
+              {row.original.soNumber}
+            </Link>
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <Link
+              href={`/sales-orders/${row.original.id}`}
+              className="link"
+            >
+              View
+            </Link>
           ),
       },
       {

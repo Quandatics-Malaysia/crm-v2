@@ -46,6 +46,8 @@ export const accounts = pgTable(
     ),
     industry: text("industry"),
     website: text("website"),
+    /** Main office / switchboard phone number. */
+    phone: text("phone"),
     /** Company registration number (e.g. SSM no.). */
     registrationNumber: text("registration_number"),
     /** Structured address: { line1, line2, city, state, postcode, country }. */

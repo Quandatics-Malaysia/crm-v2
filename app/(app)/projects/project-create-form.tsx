@@ -60,7 +60,7 @@ const projectSchema = z
     accountId: z.string().min(1, "Account is required"),
     // Optional: derived/prefilled from the source quotation or funnel and shown
     // as an editable override. When left blank the server defaults it to "GEN".
-    productTypeCode: z.string().trim().optional(),
+    projectNatureCode: z.string().trim().optional(),
     opportunityId: z.string().optional(),
     value: z.string().trim().optional(),
     startDate: z.string().trim().optional(),
@@ -87,19 +87,19 @@ type ProjectFormValues = z.infer<typeof projectSchema>
 
 type AccountOption = { id: string; name: string }
 type OpportunityOption = { id: string; name: string; accountId: string }
-type ProductTypeOption = { code: string; name: string }
+type ProjectNatureOption = { code: string; name: string }
 
 export function ProjectCreateForm({
   accounts,
   opportunities,
-  productTypes,
+  projectNatures,
   entityCode,
   codeYear,
   accountCodes,
   defaultName,
   defaultAccountId,
   defaultOpportunityId,
-  defaultProductTypeCode,
+  defaultProjectNatureCode,
   defaultValue,
   defaultCurrency,
   defaultQuotationId,
@@ -107,7 +107,7 @@ export function ProjectCreateForm({
 }: {
   accounts: AccountOption[]
   opportunities: OpportunityOption[]
-  productTypes: ProductTypeOption[]
+  projectNatures: ProjectNatureOption[]
   /** ENTITY segment of the generated code (tenant entity code). */
   entityCode: string
   /** YYYY segment of the generated code (current local year). */
@@ -117,8 +117,8 @@ export function ProjectCreateForm({
   defaultName?: string
   defaultAccountId?: string
   defaultOpportunityId?: string
-  /** Product-type code derived from the source quotation/funnel; editable. */
-  defaultProductTypeCode?: string
+  /** Project-nature code derived from the source quotation/funnel; editable. */
+  defaultProjectNatureCode?: string
   defaultValue?: string
   defaultCurrency?: string
   defaultQuotationId?: string
@@ -156,7 +156,7 @@ export function ProjectCreateForm({
     defaultValues: {
       name: defaultName ?? "",
       accountId: defaultAccountId ?? "",
-      productTypeCode: defaultProductTypeCode ?? "",
+      projectNatureCode: defaultProjectNatureCode ?? "",
       opportunityId: defaultOpportunityId ?? NONE,
       value: defaultValue ?? "",
       startDate: "",
@@ -168,19 +168,19 @@ export function ProjectCreateForm({
 
   const codeNature = form.watch("codeNature")
   const watchedAccountId = form.watch("accountId")
-  const watchedProductType = form.watch("productTypeCode")
+  const watchedProjectNature = form.watch("projectNatureCode")
 
   // Live preview of the code the server will mint, mirroring nextProjectCode's
-  // {YYYY}-{ENTITY}-{ACCOUNTCODE}-{PRODUCTTYPE}-{NNN} shape. NNN is unknown until
+  // {YYYY}-{ENTITY}-{ACCOUNTCODE}-{PROJECTNATURE}-{NNN} shape. NNN is unknown until
   // creation, so it's shown as "###". Segments fall back the same way the server
   // does when a value isn't picked yet.
   const previewCode = React.useMemo(() => {
     const yyyy = String(codeYear)
     const entity = (entityCode || "ENT").toUpperCase()
     const acct = (accountCodes[watchedAccountId] || "ACC").toUpperCase()
-    const product = (watchedProductType || "GEN").toUpperCase()
+    const product = (watchedProjectNature || "GEN").toUpperCase()
     return `${yyyy}-${entity}-${acct}-${product}-###`
-  }, [codeYear, entityCode, accountCodes, watchedAccountId, watchedProductType])
+  }, [codeYear, entityCode, accountCodes, watchedAccountId, watchedProjectNature])
 
   const selectedAccountHasCode = Boolean(accountCodes[watchedAccountId])
 
@@ -193,7 +193,7 @@ export function ProjectCreateForm({
     const res = await createProject({
       name: values.name,
       accountId: values.accountId,
-      productTypeCode: values.productTypeCode || undefined,
+      projectNatureCode: values.projectNatureCode || undefined,
       opportunityId,
       quotationId: opportunityId ? quotationId : undefined,
       value: values.value || undefined,
@@ -238,31 +238,31 @@ export function ProjectCreateForm({
 
             <FormField
               control={form.control}
-              name="productTypeCode"
+              name="projectNatureCode"
               render={({ field, fieldState }) => (
                 <FormItem>
-                  <FormLabel>Product type</FormLabel>
+                  <FormLabel>Project nature</FormLabel>
                   <FormControl>
                     <Combobox
                       value={field.value ?? ""}
                       onChange={field.onChange}
-                      options={productTypes.map((p) => ({
+                      options={projectNatures.map((p) => ({
                         value: p.code,
                         label: `${p.name} (${p.code})`,
                       }))}
-                      placeholder="Select a product type…"
-                      searchPlaceholder="Search product types…"
+                      placeholder="Select a project nature…"
+                      searchPlaceholder="Search project natures…"
                       emptyMessage={
-                        productTypes.length
-                          ? "No product types found."
-                          : "No product types yet — add them in Settings."
+                        projectNatures.length
+                          ? "No project natures found."
+                          : "No project natures yet — add them in Settings."
                       }
                       aria-invalid={!!fieldState.error}
                     />
                   </FormControl>
                   <p className="text-muted-foreground text-xs">
                     Derived from the source quotation — editable. Sets the
-                    product-type segment of the project code (defaults to GEN).
+                    project-nature segment of the project code (defaults to GEN).
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -407,10 +407,10 @@ export function ProjectCreateForm({
                           setQuotationId(p.quotationId ?? undefined)
                           setQuoteNote(p.quoteNumber ?? undefined)
                           setCurrency(p.currency)
-                          // Prefill the derived product type (still editable);
+                          // Prefill the derived project nature (still editable);
                           // skip when nothing resolved so a prior pick stays.
-                          if (p.productTypeCode) {
-                            form.setValue("productTypeCode", p.productTypeCode)
+                          if (p.projectNatureCode) {
+                            form.setValue("projectNatureCode", p.projectNatureCode)
                           }
                         })
                       }}

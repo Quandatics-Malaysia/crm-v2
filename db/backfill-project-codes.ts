@@ -23,7 +23,7 @@ import * as schema from "@/db/schema"
 
 const { accounts, tenantSettings } = schema
 
-const DEFAULT_PRODUCT_TYPES = [
+const DEFAULT_PROJECT_NATURES = [
   { code: "CONSULT", name: "Consulting" },
   { code: "IMPL", name: "Implementation" },
   { code: "MSP", name: "Managed Services" },
@@ -116,21 +116,21 @@ async function main() {
     codedCount++
   }
 
-  // ── (b) default product-type picklist for tenants that have none ───────────
+  // ── (b) default project-nature picklist for tenants that have none ───────────
   const settingsRows = await db
     .select({
       organizationId: tenantSettings.organizationId,
-      productTypes: tenantSettings.productTypes,
+      projectNatures: tenantSettings.projectNatures,
     })
     .from(tenantSettings)
 
   let seededTenants = 0
   for (const s of settingsRows) {
-    const current = s.productTypes ?? []
+    const current = s.projectNatures ?? []
     if (current.length > 0) continue
     await db
       .update(tenantSettings)
-      .set({ productTypes: DEFAULT_PRODUCT_TYPES })
+      .set({ projectNatures: DEFAULT_PROJECT_NATURES })
       .where(eq(tenantSettings.organizationId, s.organizationId))
     seededTenants++
   }
@@ -138,7 +138,7 @@ async function main() {
   await sql.end()
   console.log("✓ backfill complete")
   console.log(`  account codes assigned: ${codedCount}`)
-  console.log(`  tenants seeded with default product types: ${seededTenants}`)
+  console.log(`  tenants seeded with default project natures: ${seededTenants}`)
 }
 
 main().catch((err) => {

@@ -42,8 +42,26 @@ export function ConvertDialog({
     `${lead.companyName || lead.name} funnel`
   )
   const [expectedCloseDate, setExpectedCloseDate] = React.useState("")
-  const [accountId, setAccountId] = React.useState<string>(NEW_ACCOUNT)
+  // No silent default: the user must deliberately pick an account (existing or
+  // "Create new") before converting.
+  const [accountId, setAccountId] = React.useState<string>("")
+  // Details for the new account (only used on the "Create new account" path).
+  const [newType, setNewType] = React.useState<"client" | "reseller">("client")
+  const [newPhone, setNewPhone] = React.useState("")
+  const [addr, setAddr] = React.useState({
+    line1: "",
+    city: "",
+    state: "",
+    postcode: "",
+    country: "",
+  })
   const [submitting, setSubmitting] = React.useState(false)
+
+  const creatingNew = accountId === NEW_ACCOUNT
+
+  // A contact needs an email. The server enforces this too, but block early so
+  // the user fixes the lead before opening this dialog's flow.
+  const missingEmail = !lead.email?.trim()
 
   async function handleConvert() {
     setSubmitting(true)
@@ -53,7 +71,20 @@ export function ConvertDialog({
         createOpportunity,
         opportunityName: createOpportunity ? opportunityName : null,
         expectedCloseDate: createOpportunity ? expectedCloseDate || null : null,
-        existingAccountId: accountId === NEW_ACCOUNT ? null : accountId,
+        existingAccountId: creatingNew ? null : accountId,
+        newAccount: creatingNew
+          ? {
+              accountType: newType,
+              phone: newPhone || null,
+              address: {
+                line1: addr.line1 || null,
+                city: addr.city || null,
+                state: addr.state || null,
+                postcode: addr.postcode || null,
+                country: addr.country || null,
+              },
+            }
+          : null,
       })
       if (!res.ok) {
         toast.error(res.error)
@@ -92,12 +123,24 @@ export function ConvertDialog({
         </DialogHeader>
 
         <div className="grid gap-4">
+          {missingEmail ? (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              This lead has no email. A contact must have one — add a valid email
+              to the lead before converting.
+            </div>
+          ) : null}
+
           <div className="grid gap-2">
-            <Label htmlFor="convert-account">Account</Label>
+            <Label htmlFor="convert-account">
+              Account
+              <span aria-hidden="true" className="text-destructive">
+                *
+              </span>
+            </Label>
             <Combobox
               id="convert-account"
               value={accountId}
-              onChange={(v) => setAccountId(v || NEW_ACCOUNT)}
+              onChange={(v) => setAccountId(v || "")}
               options={[
                 { value: NEW_ACCOUNT, label: "Create new account" },
                 ...accountOptions.map((a) => ({ value: a.id, label: a.name })),
@@ -107,11 +150,86 @@ export function ConvertDialog({
               emptyMessage="No accounts found."
             />
             <p className="text-xs text-muted-foreground">
-              {accountId === NEW_ACCOUNT
+              {!accountId
+                ? "Select an account to attach the contact to, or create a new one."
+                : creatingNew
                 ? `A new account will be created from “${lead.companyName || lead.name}”.`
                 : "The contact will be added to the selected account."}
             </p>
           </div>
+
+          {creatingNew ? (
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                New account details
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="new-acct-type">Type</Label>
+                  <Combobox
+                    id="new-acct-type"
+                    value={newType}
+                    onChange={(v) =>
+                      setNewType(v === "reseller" ? "reseller" : "client")
+                    }
+                    options={[
+                      { value: "client", label: "Client (end user)" },
+                      { value: "reseller", label: "Reseller (channel)" },
+                    ]}
+                    placeholder="Client (end user)"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="new-acct-phone">Office phone</Label>
+                  <Input
+                    id="new-acct-phone"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    placeholder="03-2782 2100"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="new-acct-line1">Address</Label>
+                <Input
+                  id="new-acct-line1"
+                  value={addr.line1}
+                  onChange={(e) => setAddr((a) => ({ ...a, line1: e.target.value }))}
+                  placeholder="Street address"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  aria-label="City"
+                  value={addr.city}
+                  onChange={(e) => setAddr((a) => ({ ...a, city: e.target.value }))}
+                  placeholder="City"
+                />
+                <Input
+                  aria-label="State"
+                  value={addr.state}
+                  onChange={(e) => setAddr((a) => ({ ...a, state: e.target.value }))}
+                  placeholder="State"
+                />
+                <Input
+                  aria-label="Postcode"
+                  value={addr.postcode}
+                  onChange={(e) =>
+                    setAddr((a) => ({ ...a, postcode: e.target.value }))
+                  }
+                  placeholder="Postcode"
+                />
+                <Input
+                  aria-label="Country"
+                  value={addr.country}
+                  onChange={(e) =>
+                    setAddr((a) => ({ ...a, country: e.target.value }))
+                  }
+                  placeholder="Country"
+                />
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
@@ -169,7 +287,10 @@ export function ConvertDialog({
             type="button"
             onClick={handleConvert}
             disabled={
-              submitting || (createOpportunity && !opportunityName.trim())
+              submitting ||
+              missingEmail ||
+              !accountId ||
+              (createOpportunity && !opportunityName.trim())
             }
           >
             {submitting ? "Converting…" : "Convert"}

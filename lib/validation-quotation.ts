@@ -11,8 +11,12 @@ import { computeQuotation } from "@/server/services/quotation-math"
  */
 const isNumber = (v: string) => v.trim() !== "" && Number.isFinite(Number(v))
 
-/** qty ≥ 0, unitPrice ≥ 0, 0 ≤ discountPercent ≤ 100. */
+/** qty ≥ 0, unitPrice ≥ 0, discountAmount ≥ 0 (absolute money, ≤ line total). */
 export const quotationLineSchema = z.object({
+  /** Optional link to a catalog product the line was created from. */
+  productId: z.string().optional(),
+  /** Unit of measure (filled from the product, editable). */
+  uom: z.string().optional(),
   description: z.string().trim().min(1, "Required"),
   quantity: z
     .string()
@@ -24,12 +28,12 @@ export const quotationLineSchema = z.object({
     .trim()
     .min(1, "Required")
     .refine((v) => isNumber(v) && Number(v) >= 0, "Unit price must be 0 or more"),
-  discountPercent: z
+  discountAmount: z
     .string()
     .trim()
     .refine(
-      (v) => v.trim() === "" || (isNumber(v) && Number(v) >= 0 && Number(v) <= 100),
-      "Discount must be between 0 and 100%"
+      (v) => v.trim() === "" || (isNumber(v) && Number(v) >= 0),
+      "Discount must be 0 or more"
     ),
 })
 
@@ -47,7 +51,7 @@ export type QuotationNumbersInput = {
   lines: {
     quantity: number | string
     unitPrice: number | string
-    discountPercent?: number | string
+    discountAmount?: number | string
   }[]
   ratePercent?: number | string
   taxInclusive?: boolean
@@ -63,13 +67,15 @@ export function assertValidQuotationNumbers(input: QuotationNumbersInput): void 
     const l = input.lines[i]
     const qty = Number(l.quantity)
     const price = Number(l.unitPrice)
-    const disc = Number(l.discountPercent ?? 0)
+    const disc = Number(l.discountAmount ?? 0)
     if (!Number.isFinite(qty) || qty < 0)
       throw new Error(`Line ${i + 1}: quantity must be 0 or more`)
     if (!Number.isFinite(price) || price < 0)
       throw new Error(`Line ${i + 1}: unit price must be 0 or more`)
-    if (!Number.isFinite(disc) || disc < 0 || disc > 100)
-      throw new Error(`Line ${i + 1}: discount must be between 0 and 100%`)
+    if (!Number.isFinite(disc) || disc < 0)
+      throw new Error(`Line ${i + 1}: discount must be 0 or more`)
+    if (disc > qty * price + 0.0001)
+      throw new Error(`Line ${i + 1}: discount can't exceed the line total`)
   }
 
   const headerDiscount = Number(input.headerDiscount ?? 0)

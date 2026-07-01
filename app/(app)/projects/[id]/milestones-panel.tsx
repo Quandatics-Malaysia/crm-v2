@@ -167,10 +167,9 @@ export function MilestonesPanel({
   const router = useRouter()
   const [pending, startTransition] = React.useTransition()
 
-  // Add-row form state.
+  // Add-row form state. Milestones are split by EXACT amount (not percentage).
   const [title, setTitle] = React.useState("")
   const [amount, setAmount] = React.useState("")
-  const [percentage, setPercentage] = React.useState("")
   const [dueDate, setDueDate] = React.useState("")
 
   const value = projectValue ? Number(projectValue) : 0
@@ -180,31 +179,6 @@ export function MilestonesPanel({
     0
   )
   const remaining = value - allocated
-
-  // Live two-way derivation in the add-row so the % isn't decorative: typing an
-  // amount fills the % of project value, and typing a % fills the amount. Both
-  // stay editable; derivation only runs when the project has a value to divide
-  // by. Mirrors the server's amount↔percentage reconciliation in createMilestone.
-  function onAmountInput(next: string) {
-    setAmount(next)
-    if (value > 0) {
-      setPercentage(
-        next === ""
-          ? ""
-          : String(Math.round((Number(next) / value) * 100 * 100) / 100)
-      )
-    }
-  }
-  function onPercentageInput(next: string) {
-    setPercentage(next)
-    if (value > 0) {
-      setAmount(
-        next === ""
-          ? ""
-          : (Math.round(value * (Number(next) / 100) * 100) / 100).toFixed(2)
-      )
-    }
-  }
 
   function run(
     fn: () => Promise<ActionResult<unknown>>,
@@ -254,7 +228,6 @@ export function MilestonesPanel({
         projectId,
         title: title.trim(),
         amount: amount || null,
-        percentage: percentage || null,
         dueDate: dueDate || null,
       })
       if (!res.ok) {
@@ -263,7 +236,6 @@ export function MilestonesPanel({
       }
       setTitle("")
       setAmount("")
-      setPercentage("")
       setDueDate("")
       toast.success("Milestone added")
       router.refresh()
@@ -307,24 +279,6 @@ export function MilestonesPanel({
                     />
                   ) : (
                     <span>{m.dueDate ? formatDate(m.dueDate) : "No due date"}</span>
-                  )}
-                  <span aria-hidden>·</span>
-                  {canManage ? (
-                    <InlineValue
-                      value={m.percentage ? String(Number(m.percentage)) : ""}
-                      display={m.percentage ? `${Number(m.percentage)}%` : "—%"}
-                      formatDraft={(v) => (v ? `${Number(v)}%` : "—%")}
-                      type="number"
-                      title="Click to edit percent of value"
-                      onSave={(next) =>
-                        save(() =>
-                          updateMilestone(m.id, { percentage: next || null })
-                        )
-                      }
-                      inputClassName="w-16"
-                    />
-                  ) : (
-                    <span>{m.percentage ? `${Number(m.percentage)}%` : "—%"}</span>
                   )}
                 </div>
               </div>
@@ -448,7 +402,7 @@ export function MilestonesPanel({
       {canManage ? (
       <form
         onSubmit={onAdd}
-        className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-[1fr_auto_auto_auto_auto] sm:items-end"
+        className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end"
       >
         <div className="grid gap-1">
           <label className="text-xs text-muted-foreground">Title</label>
@@ -465,22 +419,9 @@ export function MilestonesPanel({
             step="0.01"
             min="0"
             value={amount}
-            onChange={(e) => onAmountInput(e.target.value)}
+            onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
-            className="sm:w-28"
-          />
-        </div>
-        <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">% of value</label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
-            value={percentage}
-            onChange={(e) => onPercentageInput(e.target.value)}
-            placeholder="—"
-            className="sm:w-20"
+            className="sm:w-32"
           />
         </div>
         <div className="grid gap-1">

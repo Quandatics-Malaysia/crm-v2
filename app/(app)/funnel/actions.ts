@@ -20,6 +20,8 @@ import {
   funnelStages,
   opportunityStageHistory,
   quotations,
+  quotationLineItems,
+  products,
   projects,
   member,
   user,
@@ -34,7 +36,15 @@ export type OpportunityListRow = {
   name: string
   accountId: string
   accountName: string
+  /** Quoted amount (synced from the primary quotation), display only. */
   amount: string | null
+  /** Estimated Funnel Amount — the deal's headline value; drives the forecast. */
+  estimatedAmount: string | null
+  recognizedPercent: string | null
+  description: string | null
+  projectYear: number | null
+  isIntercompany: boolean
+  handlingPartnerAccountId: string | null
   currency: string
   status: string
   expectedCloseDate: string | null
@@ -48,7 +58,9 @@ export type OpportunityListRow = {
   funnelId: string
   funnelIsDefault: boolean
   primaryQuotationId: string | null
-  productTypeCode: string | null
+  projectNatureCode: string | null
+  projectNatures: string[] | null
+  customFields: Record<string, string> | null
 }
 
 export type OpportunityInput = {
@@ -58,11 +70,22 @@ export type OpportunityInput = {
   funnelId: string
   currentStageId: string
   ownerMemberId: string
-  amount?: string | null
+  /** Estimated Funnel Amount (manual) — drives the forecast + recognized amount. */
+  estimatedAmount?: string | null
+  recognizedPercent?: string | null
+  description?: string | null
+  projectYear?: number | null
+  isIntercompany?: boolean
+  /** Partner account that handles delivery on an interco deal. */
+  handlingPartnerAccountId?: string | null
   currency: string
   expectedCloseDate?: string | null
-  /** Default product type for the deal (code from tenant product_types). */
-  productTypeCode?: string | null
+  /** Primary project nature (drives the project code). */
+  projectNatureCode?: string | null
+  /** Full set of project natures the deal covers (first = primary). */
+  projectNatures?: string[] | null
+  /** Tenant custom field values, keyed by the field key (cf_…). */
+  customFields?: Record<string, string> | null
 }
 
 /** All open + closed opportunities (non-deleted), with denormalized lookups. */
@@ -76,6 +99,12 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         accountId: opportunities.accountId,
         accountName: accounts.name,
         amount: opportunities.amount,
+        estimatedAmount: opportunities.estimatedAmount,
+        recognizedPercent: opportunities.recognizedPercent,
+        description: opportunities.description,
+        projectYear: opportunities.projectYear,
+        isIntercompany: opportunities.isIntercompany,
+        handlingPartnerAccountId: opportunities.handlingPartnerAccountId,
         currency: opportunities.currency,
         status: opportunities.status,
         expectedCloseDate: opportunities.expectedCloseDate,
@@ -89,8 +118,9 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         funnelId: opportunities.funnelId,
         funnelIsDefault: funnels.isDefault,
         primaryQuotationId: opportunities.primaryQuotationId,
-        productTypeCode: opportunities.productTypeCode,
-        createdAt: opportunities.createdAt,
+        projectNatureCode: opportunities.projectNatureCode,
+        projectNatures: opportunities.projectNatures,
+        customFields: opportunities.customFields,
       })
       .from(opportunities)
       .innerJoin(accounts, eq(opportunities.accountId, accounts.id))
@@ -106,11 +136,12 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
       )
       .orderBy(desc(opportunities.createdAt))
 
-    return rows.map(({ createdAt: _createdAt, ...r }) => r)
+    return rows
   })
 }
 
 export type OpportunityDetail = {
+  handlingPartnerName: string | null
   opportunity: typeof opportunities.$inferSelect
   accountName: string
   personName: string | null
@@ -162,6 +193,16 @@ export async function getOpportunity(
       .from(accounts)
       .where(eq(accounts.id, opp.accountId))
       .limit(1)
+
+    let handlingPartnerName: string | null = null
+    if (opp.handlingPartnerAccountId) {
+      const [hp] = await tx
+        .select({ name: accounts.name })
+        .from(accounts)
+        .where(eq(accounts.id, opp.handlingPartnerAccountId))
+        .limit(1)
+      handlingPartnerName = hp?.name ?? null
+    }
 
     let personName: string | null = null
     if (opp.primaryPersonId) {
@@ -285,6 +326,7 @@ export async function getOpportunity(
     return {
       opportunity: opp,
       accountName: acct?.name ?? "—",
+      handlingPartnerName,
       personName,
       ownerName: owner?.name ?? null,
       stage,
@@ -328,9 +370,24 @@ export async function createOpportunity(
           funnelId: input.funnelId,
           currentStageId: input.currentStageId,
           ownerMemberId,
-          amount: input.amount ? input.amount : null,
+          // amount stays null on create — it's synced from the primary quote.
+          estimatedAmount: input.estimatedAmount ? input.estimatedAmount : null,
+          recognizedPercent: input.recognizedPercent
+            ? input.recognizedPercent
+            : null,
+          description: input.description || null,
+          projectYear: input.projectYear ?? null,
+          isIntercompany: input.isIntercompany ?? false,
+          handlingPartnerAccountId: input.handlingPartnerAccountId || null,
           currency: input.currency || "MYR",
-          productTypeCode: input.productTypeCode || null,
+          // Primary nature = first of the set (falls back to the single field).
+          projectNatureCode:
+            input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
+          projectNatures:
+            input.projectNatures && input.projectNatures.length
+              ? input.projectNatures
+              : null,
+          customFields: input.customFields ?? {},
           expectedCloseDate: input.expectedCloseDate || null,
         })
         .returning({ id: opportunities.id })
@@ -343,7 +400,7 @@ export async function createOpportunity(
         toStageId: stage.id,
         changedByMemberId: ctx.memberId,
         probabilityAtChange: stage.probability,
-        valueAtChange: input.amount ? input.amount : null,
+        valueAtChange: input.estimatedAmount ? input.estimatedAmount : null,
         source: "manual",
       })
 
@@ -413,17 +470,48 @@ export async function updateOpportunity(
             ? existing.primaryPersonId
             : input.primaryPersonId || null,
         ownerMemberId: input.ownerMemberId ?? existing.ownerMemberId,
-        amount:
-          input.amount === undefined
-            ? existing.amount
-            : input.amount
-              ? input.amount
-              : null,
+        // amount is quote-derived (never user-edited here).
+        estimatedAmount:
+          input.estimatedAmount === undefined
+            ? existing.estimatedAmount
+            : input.estimatedAmount || null,
+        recognizedPercent:
+          input.recognizedPercent === undefined
+            ? existing.recognizedPercent
+            : input.recognizedPercent || null,
+        description:
+          input.description === undefined
+            ? existing.description
+            : input.description || null,
+        projectYear:
+          input.projectYear === undefined
+            ? existing.projectYear
+            : input.projectYear ?? null,
+        isIntercompany:
+          input.isIntercompany === undefined
+            ? existing.isIntercompany
+            : !!input.isIntercompany,
+        handlingPartnerAccountId:
+          input.handlingPartnerAccountId === undefined
+            ? existing.handlingPartnerAccountId
+            : input.handlingPartnerAccountId || null,
         currency: input.currency ?? existing.currency,
-        productTypeCode:
-          input.productTypeCode === undefined
-            ? existing.productTypeCode
-            : input.productTypeCode || null,
+        projectNatures:
+          input.projectNatures === undefined
+            ? existing.projectNatures
+            : input.projectNatures && input.projectNatures.length
+              ? input.projectNatures
+              : null,
+        customFields:
+          input.customFields === undefined
+            ? existing.customFields
+            : input.customFields ?? {},
+        projectNatureCode:
+          input.projectNatures !== undefined
+            ? input.projectNatures?.[0] ?? null
+            : input.projectNatureCode === undefined
+              ? existing.projectNatureCode
+              : input.projectNatureCode || null,
         expectedCloseDate:
           input.expectedCloseDate === undefined
             ? existing.expectedCloseDate
@@ -436,8 +524,11 @@ export async function updateOpportunity(
       action: "opportunity.updated",
       entityType: "opportunity",
       entityId: id,
-      before: { name: existing.name, amount: existing.amount },
-      after: { name: input.name, amount: input.amount },
+      before: {
+        name: existing.name,
+        estimatedAmount: existing.estimatedAmount,
+      },
+      after: { name: input.name, estimatedAmount: input.estimatedAmount },
     })
   })
   revalidatePath("/funnel")
@@ -535,6 +626,68 @@ export async function listOpportunityProjects(
         )
       )
       .orderBy(desc(projects.createdAt))
+  })
+}
+
+export type OpportunityProductRow = {
+  productId: string
+  name: string
+  productCode: string | null
+  uom: string | null
+  /** Number of (non-deleted) quotations of this funnel that include the product. */
+  quoteCount: number
+}
+
+/**
+ * Distinct standardised products offered across this funnel's non-deleted
+ * quotations (via their line items). Lets the funnel detail show "which product
+ * is being offered" without opening each quote.
+ */
+export async function listOpportunityProducts(
+  opportunityId: string
+): Promise<OpportunityProductRow[]> {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
+    const rows = await tx
+      .select({
+        productId: products.id,
+        name: products.name,
+        productCode: products.productCode,
+        uom: products.uom,
+        quotationId: quotations.id,
+      })
+      .from(quotationLineItems)
+      .innerJoin(
+        quotations,
+        eq(quotationLineItems.quotationId, quotations.id)
+      )
+      .innerJoin(products, eq(quotationLineItems.productId, products.id))
+      .where(
+        and(
+          eq(quotations.opportunityId, opportunityId),
+          isNull(quotations.deletedAt)
+        )
+      )
+
+    // Collapse to one row per product, counting the distinct quotes it appears on.
+    const byProduct = new Map<string, OpportunityProductRow & { quotes: Set<string> }>()
+    for (const r of rows) {
+      let entry = byProduct.get(r.productId)
+      if (!entry) {
+        entry = {
+          productId: r.productId,
+          name: r.name,
+          productCode: r.productCode,
+          uom: r.uom,
+          quoteCount: 0,
+          quotes: new Set<string>(),
+        }
+        byProduct.set(r.productId, entry)
+      }
+      entry.quotes.add(r.quotationId)
+    }
+    return [...byProduct.values()]
+      .map(({ quotes, ...p }) => ({ ...p, quoteCount: quotes.size }))
+      .sort((a, b) => a.name.localeCompare(b.name))
   })
 }
 

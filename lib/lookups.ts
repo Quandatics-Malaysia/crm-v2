@@ -5,11 +5,11 @@ import {
   member,
   user,
   accounts,
-  persons,
   funnels,
   funnelStages,
   taxSettings,
   tenantSettings,
+  products,
 } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
@@ -44,29 +44,6 @@ export async function listAccountOptions(): Promise<Option[]> {
   })
 }
 
-export async function listPersonOptions(accountId?: string): Promise<Option[]> {
-  const ctx = await requireContext()
-  return runInTenant(ctx.tenantId, async (tx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    return tx
-      .select({
-        id: persons.id,
-        name: persons.firstName,
-      })
-      .from(persons)
-      .innerJoin(accounts, eq(persons.accountId, accounts.id))
-      .where(
-        and(
-          isNull(persons.deletedAt),
-          isNull(accounts.deletedAt),
-          ownerScope(accounts.ownerMemberId, visible),
-          accountId ? eq(persons.accountId, accountId) : undefined
-        )
-      )
-      .orderBy(asc(persons.firstName))
-  })
-}
-
 export type FunnelWithStages = {
   id: string
   name: string
@@ -79,6 +56,7 @@ export type FunnelWithStages = {
     sortOrder: number
     probability: string
     requiresApprovalToEnter: boolean
+    requiredFields: string[]
   }[]
 }
 
@@ -109,6 +87,7 @@ export async function listFunnelsWithStages(): Promise<FunnelWithStages[]> {
           sortOrder: s.sortOrder,
           probability: s.probability,
           requiresApprovalToEnter: s.requiresApprovalToEnter,
+          requiredFields: s.requiredFields,
         })),
     }))
   })
@@ -128,19 +107,88 @@ export async function listIndustries(): Promise<string[]> {
 }
 
 /**
- * Tenant-managed product-type picklist (code + display name). Flows
+ * Tenant-managed project-nature picklist (code + display name). Flows
  * Funnel → Quotation → Project. Read from tenant_settings, tenant-scoped.
  */
-export async function listProductTypes(): Promise<{ code: string; name: string }[]> {
+export async function listProjectNatures(): Promise<{ code: string; name: string }[]> {
   const ctx = await requireContext()
   const [s] = await runInTenant(ctx.tenantId, (tx) =>
     tx
-      .select({ productTypes: tenantSettings.productTypes })
+      .select({ projectNatures: tenantSettings.projectNatures })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
   )
-  return s?.productTypes ?? []
+  return s?.projectNatures ?? []
+}
+
+/** Tenant-defined custom funnel fields ({ key, label }) — for the funnel form
+ *  and the per-stage requirement gate. */
+export async function listCustomFunnelFields(): Promise<
+  { key: string; label: string }[]
+> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ customFunnelFields: tenantSettings.customFunnelFields })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.customFunnelFields ?? []
+}
+
+/**
+ * Tenant-managed product-code picklist (code + display name) for product lines.
+ * Standardised products reference one of these. Read from tenant_settings.
+ */
+export async function listProductCodes(): Promise<{ code: string; name: string }[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ productCodes: tenantSettings.productCodes })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.productCodes ?? []
+}
+
+export type ProductOption = {
+  id: string
+  name: string
+  description: string | null
+  standardPrice: string
+  currency: string
+  uom: string | null
+}
+
+/**
+ * Active, non-deleted products for the quotation line-item picker. Selecting one
+ * fills in the line's description + unit price (and UOM).
+ */
+export async function listProductOptions(): Promise<ProductOption[]> {
+  const ctx = await requireContext()
+  return runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({
+        id: products.id,
+        name: products.name,
+        description: products.description,
+        standardPrice: products.standardPrice,
+        currency: products.currency,
+        uom: products.uom,
+      })
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, ctx.tenantId),
+          eq(products.isActive, true),
+          isNull(products.deletedAt)
+        )
+      )
+      .orderBy(asc(products.name))
+  )
 }
 
 export async function listTaxOptions(): Promise<

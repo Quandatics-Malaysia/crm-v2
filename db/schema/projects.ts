@@ -27,7 +27,7 @@ export const projectStatus = pgEnum("project_status", [
 
 /**
  * A delivery project created from a won (or any) funnel/opportunity.
- * Project code format: {YYYY}-{EntityCode}-{AccountCode}-{ProductType}-{running}
+ * Project code format: {YYYY}-{EntityCode}-{AccountCode}-{ProjectNature}-{running}
  * (e.g. 2026-DEMO-ACME-WEB-001). The running number resets per year per tenant
  * (see `projectCounters`).
  */
@@ -43,11 +43,11 @@ export const projects = pgTable(
     codeNature: text("code_nature").notNull().default("auto"),
     name: text("name").notNull(),
     /**
-     * Snapshot of the product-type code chosen at creation (from the tenant's
-     * product_types picklist). Used as the PRODUCTTYPE segment of the project
+     * Snapshot of the project-nature code chosen at creation (from the tenant's
+     * product_types picklist). Used as the PROJECTNATURE segment of the project
      * code so the code stays stable even if the picklist later changes.
      */
-    productTypeCode: text("product_type_code"),
+    projectNatureCode: text("product_type_code"),
     // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
     accountId: uuid("account_id").notNull(),
     // the funnel this project was created from

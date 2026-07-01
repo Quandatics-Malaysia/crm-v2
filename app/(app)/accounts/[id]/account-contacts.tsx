@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { MoreHorizontal, Plus, Star } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -160,7 +161,12 @@ export function AccountContacts({
         header: ({ column }) => <SortableHeader column={column} title="Name" />,
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
-            <span className="font-medium">{fullName(row.original)}</span>
+            <Link
+              href={`/persons/${row.original.id}`}
+              className="font-medium link"
+            >
+              {fullName(row.original)}
+            </Link>
             {row.original.isPrimary ? (
               <Star className="size-3.5 fill-amber-400 text-amber-400" />
             ) : null}
@@ -179,7 +185,7 @@ export function AccountContacts({
           row.original.email ? (
             <a
               href={`mailto:${row.original.email}`}
-              className="text-primary hover:underline"
+              className="link"
             >
               {row.original.email}
             </a>

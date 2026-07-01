@@ -4,7 +4,15 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { HelpCircleIcon } from "lucide-react"
+import { HelpCircleIcon, CheckCircle2Icon, CircleIcon } from "lucide-react"
+
+import {
+  missingFromKeys,
+  requirementsFromKeys,
+  requiresCloseRemarks,
+  closeRemarksLabel,
+  type StageGate,
+} from "@/lib/stage-gate"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -47,6 +55,8 @@ type Stage = {
   probability: string
   sortOrder: number
   requiresApprovalToEnter: boolean
+  /** Configurable entry requirements (field keys) for this stage. */
+  requiredFields: string[]
 }
 
 export function StageAdvanceDialog({
@@ -57,6 +67,7 @@ export function StageAdvanceDialog({
   open: openProp,
   onOpenChange,
   initialTargetStageId,
+  gate,
 }: {
   opportunityId: string
   currentStageId: string
@@ -68,6 +79,8 @@ export function StageAdvanceDialog({
   onOpenChange?: (open: boolean) => void
   /** Pre-select a target stage when the dialog opens (controlled usage). */
   initialTargetStageId?: string
+  /** Resolved per-stage entry gate (preset + custom field completeness). */
+  gate?: StageGate
 }) {
   const router = useRouter()
   const [openState, setOpenState] = React.useState(false)
@@ -102,6 +115,15 @@ export function StageAdvanceDialog({
   const target = ordered.find((s) => s.id === targetStageId)
   const needsApproval = target?.requiresApprovalToEnter ?? false
 
+  // Per-stage entry requirements (configured on the stage; mirrors the server).
+  const reqs = target && gate ? requirementsFromKeys(target.requiredFields, gate) : []
+  const missing =
+    target && gate ? missingFromKeys(target.requiredFields, gate) : []
+  const isTerminal = target ? requiresCloseRemarks(target.kind) : false
+  // A written reason is required for approval-gated AND terminal (Lost/KIV) moves.
+  const needsReason = needsApproval || isTerminal
+  const blocked = missing.length > 0 || (needsReason && !reason.trim())
+
   const stageLabel = React.useCallback(
     (s: Stage) => `${s.code} — ${s.name} · ${formatPercent(s.probability)}`,
     []
@@ -125,8 +147,14 @@ export function StageAdvanceDialog({
       toast.error("Pick a target stage")
       return
     }
-    if (needsApproval && !reason.trim()) {
-      toast.error("A reason is required for this stage")
+    if (missing.length > 0) {
+      toast.error(`Add ${missing.map((m) => m.label).join(", ")} first`)
+      return
+    }
+    if (needsReason && !reason.trim()) {
+      toast.error(
+        isTerminal ? "Close remarks are required" : "A reason is required for this stage"
+      )
       return
     }
     setSubmitting(true)
@@ -280,21 +308,59 @@ export function StageAdvanceDialog({
               ) : null}
             </div>
 
-            {needsApproval ? (
+            {target && reqs.length > 0 ? (
+              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Required before {target.name}
+                </p>
+                <ul className="grid gap-1.5">
+                  {reqs.map((r) => {
+                    const ok = !missing.some((m) => m.key === r.key)
+                    return (
+                      <li key={r.key} className="flex items-center gap-2 text-sm">
+                        {ok ? (
+                          <CheckCircle2Icon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                        ) : (
+                          <CircleIcon className="size-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className={ok ? "text-muted-foreground line-through" : ""}>
+                          {r.label}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {missing.length > 0 ? (
+                  <p className="text-xs text-destructive">
+                    Fill these in (Edit the funnel) before advancing.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {needsReason ? (
               <div className="grid gap-2">
                 <Label htmlFor="advance-reason">
-                  Reason <span className="text-destructive">*</span>
+                  {isTerminal && target
+                    ? closeRemarksLabel(target.kind)
+                    : "Reason"}{" "}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Textarea
                   id="advance-reason"
-                  placeholder="Why should this advance be approved?"
+                  placeholder={
+                    isTerminal
+                      ? "Why is this funnel being closed? (recorded on the stage history)"
+                      : "Why should this advance be approved?"
+                  }
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
                 />
                 <p className="text-xs text-muted-foreground">
-                  This stage requires approval. Your request is routed to an
-                  approver — track its status under Approvals.
+                  {isTerminal
+                    ? "Close remarks are kept on the funnel's stage history."
+                    : "This stage requires approval. Your request is routed to an approver — track its status under Approvals."}
                 </p>
               </div>
             ) : null}
@@ -326,7 +392,11 @@ export function StageAdvanceDialog({
               >
                 Cancel
               </Button>
-              <Button type="button" onClick={onSubmit} disabled={submitting}>
+              <Button
+                type="button"
+                onClick={onSubmit}
+                disabled={submitting || blocked}
+              >
                 {needsApproval ? "Request advance" : "Advance"}
               </Button>
             </DialogFooter>

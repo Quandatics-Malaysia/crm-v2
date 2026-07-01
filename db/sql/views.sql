@@ -21,21 +21,16 @@ SELECT
   o.currency,
   o.expected_close_date,
   (date_trunc('month', o.expected_close_date))::date AS forecast_month,
-  -- net of tax: prefer the primary quote's taxable base, else the manual amount
-  COALESCE(q.subtotal - q.discount_total, o.amount, 0)::numeric(14, 2)
+  -- Forecast is driven by the Estimated Funnel Amount (the rep's estimate), NOT
+  -- the quoted amount. The quoted value stays on the funnel for display only.
+  COALESCE(o.estimated_amount, 0)::numeric(14, 2)
                                              AS opportunity_value,
   ROUND(
-    COALESCE(q.subtotal - q.discount_total, o.amount, 0) * fs.probability / 100.0,
+    COALESCE(o.estimated_amount, 0) * fs.probability / 100.0,
     2
   )                                          AS weighted_value
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
-LEFT JOIN quotations q
-  ON q.id = o.primary_quotation_id
-  AND q.deleted_at IS NULL
-  -- a rejected / expired / voided proposal is not a live commitment, so it must
-  -- not feed the weighted forecast (mirrors NON_VALUE_QUOTE_STATUS in value.ts)
-  AND q.status NOT IN ('rejected', 'expired', 'void')
 WHERE o.deleted_at IS NULL
   -- defense-in-depth: explicit tenant predicate on top of security_invoker + RLS,
   -- so a superuser/BYPASSRLS connection still cannot leak across tenants.
@@ -63,8 +58,9 @@ SELECT
   fs.kind        AS stage_kind,
   fs.sort_order,
   COUNT(*)                       AS opportunity_count,
-  COALESCE(SUM(o.amount), 0)     AS total_amount,
-  COALESCE(SUM(o.amount * fs.probability / 100.0), 0)::numeric(14, 2)
+  -- Pipeline value = the Estimated Funnel Amount (consistent with the forecast).
+  COALESCE(SUM(o.estimated_amount), 0)     AS total_amount,
+  COALESCE(SUM(o.estimated_amount * fs.probability / 100.0), 0)::numeric(14, 2)
                                  AS weighted_amount,
   o.currency,
   o.owner_member_id

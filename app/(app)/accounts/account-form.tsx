@@ -68,6 +68,7 @@ const schema = z
     website: z
       .union([z.string().url("Invalid URL"), z.literal("")])
       .optional(),
+    phone: z.string().optional(),
     line1: z.string().optional(),
     line2: z.string().optional(),
     city: z.string().optional(),
@@ -102,6 +103,7 @@ function defaults(account?: AccountRow): FormValues {
     endUserAccountId: account?.endUserAccountId ?? "",
     industry: account?.industry ?? "",
     website: account?.website ?? "",
+    phone: account?.phone ?? "",
     line1: a.line1 ?? "",
     line2: a.line2 ?? "",
     city: a.city ?? "",
@@ -216,6 +218,7 @@ export function AccountForm({
             : null,
         industry: values.industry || null,
         website: values.website || null,
+        phone: values.phone || null,
         billingAddress,
       }
       const res = editing
@@ -313,6 +316,19 @@ export function AccountForm({
                     <FormLabel>Website</FormLabel>
                     <FormControl>
                       <Input placeholder="https://acme.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Office phone</FormLabel>
+                    <FormControl>
+                      <Input placeholder="03-2782 2100" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

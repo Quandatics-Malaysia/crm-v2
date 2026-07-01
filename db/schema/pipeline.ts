@@ -89,6 +89,13 @@ export const funnelStages = pgTable(
       .default(false),
     /** Whether this stage's opportunities count toward the billing forecast. */
     includeInForecast: boolean("include_in_forecast").notNull().default(true),
+    /** Configurable entry requirements — field keys (see lib/stage-gate.ts
+     *  RequirableFieldKey) that must be filled before a funnel enters this
+     *  stage. Defaults seeded from the Salesforce-style map. */
+    requiredFields: jsonb("required_fields")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     ...timestamps,
   },
   (t) => [
@@ -122,21 +129,56 @@ export const opportunities = pgTable(
     .references(() => member.id, { onDelete: "restrict" }),
   // references quotations (defined in quotations.ts) — FK-less to avoid an import cycle
   primaryQuotationId: uuid("primary_quotation_id"),
+  /** QUOTED amount — synced from the primary quotation's net (display/actuals). */
   amount: numeric("amount", { precision: 14, scale: 2 }),
+  /**
+   * Estimated Funnel Amount — the rep's manual estimate. This is the value that
+   * drives the weighted forecast (NOT the quoted amount).
+   */
+  estimatedAmount: numeric("estimated_amount", { precision: 14, scale: 2 }),
+  /**
+   * Recognized revenue percentage (0–100) the tenant keeps on this deal. For an
+   * intercompany middle-man deal the tenant recognizes only its cut (e.g. 10);
+   * Recognized Amount is derived as estimatedAmount × recognizedPercent / 100.
+   */
+  recognizedPercent: numeric("recognized_percent", { precision: 5, scale: 2 }),
+  /** Free-text funnel description. */
+  description: text("description"),
+  /** Project / license year (e.g. 2024). */
+  projectYear: integer("project_year"),
+  /**
+   * Intercompany deal: a partner entity handles delivery and the tenant is the
+   * contracting/billing middle-man (so it recognizes only recognizedPercent).
+   */
+  isIntercompany: boolean("is_intercompany").notNull().default(false),
+  /** The partner account that handles delivery (e.g. Citrus Cloud) on an interco deal. */
+  handlingPartnerAccountId: uuid("handling_partner_account_id").references(
+    () => accounts.id,
+    { onDelete: "set null" }
+  ),
   currency: char("currency", { length: 3 }).notNull().default("MYR"),
   /**
-   * Default product type for this funnel (code from
+   * Default project nature for this funnel (code from
    * tenant_settings.product_types). Acts as the deal's default and is inherited
    * by quotations on create. Nullable until the tenant assigns one.
    */
-  productTypeCode: text("product_type_code"),
+  projectNatureCode: text("product_type_code"),
+  /**
+   * Full set of project natures this funnel covers (a deal can span several,
+   * e.g. License + Professional Services + AMS + Training). `projectNatureCode`
+   * above is the PRIMARY one (first of this set) used for the project code.
+   */
+  projectNatures: jsonb("project_natures").$type<string[]>(),
   expectedCloseDate: date("expected_close_date"),
   actualCloseDate: date("actual_close_date"),
   status: opportunityStatus("status").notNull().default("open"),
   kivReviewDate: date("kiv_review_date"),
   lostReason: text("lost_reason"),
   closedAt: timestamp("closed_at", { withTimezone: true }),
-  customFields: jsonb("custom_fields").notNull().default({}),
+  customFields: jsonb("custom_fields")
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
   ...timestamps,
   ...softDelete,
   },

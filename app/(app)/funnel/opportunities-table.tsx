@@ -26,7 +26,7 @@ const columns: ColumnDef<OpportunityListRow>[] = [
     cell: ({ row }) => (
       <Link
         href={`/funnel/${row.original.id}`}
-        className="font-medium hover:underline"
+        className="font-medium link"
       >
         {row.original.name}
       </Link>
@@ -52,17 +52,20 @@ const columns: ColumnDef<OpportunityListRow>[] = [
     ),
   },
   {
-    accessorKey: "amount",
-    header: ({ column }) => <SortableHeader column={column} title="Amount" />,
-    cell: ({ row }) => (
-      <span className="tabular-nums">
-        {row.original.amount
-          ? formatMoney(row.original.amount, row.original.currency)
-          : "—"}
-      </span>
-    ),
+    id: "amount",
+    accessorFn: (row) => Number(row.estimatedAmount ?? row.amount ?? 0),
+    header: ({ column }) => <SortableHeader column={column} title="Est. amount" />,
+    cell: ({ row }) => {
+      const value = row.original.estimatedAmount ?? row.original.amount
+      return (
+        <span className="tabular-nums">
+          {value ? formatMoney(value, row.original.currency) : "—"}
+        </span>
+      )
+    },
     sortingFn: (a, b) =>
-      Number(a.original.amount ?? 0) - Number(b.original.amount ?? 0),
+      Number(a.original.estimatedAmount ?? a.original.amount ?? 0) -
+      Number(b.original.estimatedAmount ?? b.original.amount ?? 0),
   },
   {
     id: "ownerName",

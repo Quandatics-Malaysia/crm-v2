@@ -26,7 +26,7 @@ const columns: ColumnDef<ProjectListItem>[] = [
     cell: ({ row }) => (
       <Link
         href={`/projects/${row.original.id}`}
-        className="font-mono text-sm font-medium hover:underline"
+        className="font-mono text-sm font-medium link"
       >
         {row.original.projectCode}
       </Link>
@@ -38,7 +38,7 @@ const columns: ColumnDef<ProjectListItem>[] = [
     cell: ({ row }) => (
       <Link
         href={`/projects/${row.original.id}`}
-        className="font-medium hover:underline"
+        className="font-medium link"
       >
         {row.original.name}
       </Link>
@@ -51,7 +51,7 @@ const columns: ColumnDef<ProjectListItem>[] = [
       row.original.accountName ? (
         <Link
           href={`/accounts/${row.original.accountId}`}
-          className="text-muted-foreground hover:underline"
+          className="link"
         >
           {row.original.accountName}
         </Link>
@@ -91,7 +91,7 @@ const columns: ColumnDef<ProjectListItem>[] = [
       row.original.opportunityId ? (
         <Link
           href={`/funnel/${row.original.opportunityId}`}
-          className="text-muted-foreground hover:underline"
+          className="link"
         >
           {row.original.opportunityName ?? "View funnel"}
         </Link>

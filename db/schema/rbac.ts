@@ -31,12 +31,40 @@ export const tenantSettings = pgTable("tenant_settings", {
   /** Configurable industry picklist for accounts. */
   industries: jsonb("industries").$type<string[]>(),
   /**
-   * Tenant-managed product-type picklist. Each entry is a short stable code +
+   * Tenant-managed project-nature picklist. Each entry is a short stable code +
    * a display name; the chosen code is snapshotted onto a project and used as
-   * the PRODUCTTYPE segment of its project code.
+   * the PROJECTNATURE segment of its project code.
    */
-  productTypes: jsonb("product_types")
+  projectNatures: jsonb("product_types")
     .$type<{ code: string; name: string }[]>()
+    .notNull()
+    .default([]),
+  /**
+   * Tenant-managed product-code picklist (product lines). Each entry is a short
+   * stable code + a display name; standardised products reference one of these.
+   * Distinct from projectNatures (which drive project codes).
+   */
+  productCodes: jsonb("product_codes")
+    .$type<{ code: string; name: string }[]>()
+    .notNull()
+    .default([]),
+  /**
+   * Tenant-defined custom funnel fields. Each is a stable `key` + display
+   * `label`; salespeople fill them on the funnel (stored in
+   * opportunities.custom_fields), and admins can require them per stage
+   * (funnel_stages.required_fields references the key). See lib/stage-gate.ts.
+   */
+  customFunnelFields: jsonb("custom_funnel_fields")
+    .$type<
+      {
+        key: string
+        label: string
+        type?: "text" | "number" | "date" | "checkbox" | "select"
+        options?: string[]
+        description?: string
+        category?: string
+      }[]
+    >()
     .notNull()
     .default([]),
   /** Quotation numbering config. */
@@ -46,7 +74,7 @@ export const tenantSettings = pgTable("tenant_settings", {
   /** SO numbering config (per entity): {EntityCode}SO-0001. */
   soNextNumber: integer("so_next_number").notNull().default(1),
   soPadWidth: integer("so_pad_width").notNull().default(4),
-  /** Short code for this entity, used in project codes ({YYYY}-{Entity}-{Account}-{ProductType}-{n}). */
+  /** Short code for this entity, used in project codes ({YYYY}-{Entity}-{Account}-{ProjectNature}-{n}). */
   entityCode: text("entity_code"),
   /**
    * DEPRECATED for projects: the per-year running number now lives in

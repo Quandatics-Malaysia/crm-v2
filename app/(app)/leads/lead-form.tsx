@@ -39,7 +39,7 @@ const NONE = "__none__"
 const leadSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   companyName: z.string().trim().optional(),
-  email: z.union([z.string().trim().email("Enter a valid email"), z.literal("")]),
+  email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
   phone: z.string().trim().optional(),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
@@ -153,7 +153,7 @@ export function LeadForm({
             name="email"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Email</FormLabel>
+                <FormLabel required>Email</FormLabel>
                 <FormControl>
                   <Input type="email" placeholder="jane@acme.com" {...field} />
                 </FormControl>

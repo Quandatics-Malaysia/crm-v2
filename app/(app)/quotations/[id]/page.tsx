@@ -5,7 +5,7 @@ import { withTenant } from "@/lib/actions"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { tenantSettings } from "@/db/schema"
-import { listTaxOptions, listProductTypes } from "@/lib/lookups"
+import { listTaxOptions, listProjectNatures, listProductOptions } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -42,7 +42,8 @@ export default async function QuotationDetailPage({
     detail,
     taxOptions,
     taxInclusive,
-    productTypes,
+    projectNatures,
+    products,
     attachments,
     project,
     ctx,
@@ -50,7 +51,8 @@ export default async function QuotationDetailPage({
     getQuotation(id),
     listTaxOptions(),
     getTaxInclusive(),
-    listProductTypes(),
+    listProjectNatures(),
+    listProductOptions(),
     listEntityAttachments("quotation", id),
     getProjectForQuotation(id),
     requireContext(),
@@ -83,7 +85,7 @@ export default async function QuotationDetailPage({
             {detail.opportunityName ? (
               <Link
                 href={`/funnel/${detail.quotation.opportunityId}`}
-                className="text-sm text-primary hover:underline"
+                className="text-sm link"
               >
                 {detail.opportunityName}
               </Link>
@@ -96,6 +98,24 @@ export default async function QuotationDetailPage({
               status={detail.quotation.status}
               className="capitalize"
             />
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/quotations/${detail.quotation.id}/preview`} />}
+            >
+              Preview / Print
+            </Button>
+            {detail.accountId ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href={`/accounts/${detail.accountId}`} />}
+              >
+                View account
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
@@ -122,7 +142,8 @@ export default async function QuotationDetailPage({
           detail={detail}
           taxOptions={taxOptions}
           taxInclusive={taxInclusive}
-          productTypes={productTypes}
+          projectNatures={projectNatures}
+          products={products}
           hasProject={!!project}
           perms={perms}
         />

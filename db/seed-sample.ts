@@ -290,8 +290,10 @@ async function main() {
         // we recognize only 10% as the contracting middle-man.
         isIntercompany: o.k === "umbrella-crm",
         recognizedPercent: o.k === "umbrella-crm" ? "10.00" : null,
-        handlingPartnerAccountId:
-          o.k === "umbrella-crm" ? accId("stark") : null,
+        // Intercompany partner must be another ENTITY (org); the sample seed has
+        // only one, so leave it unset. The badge + recognized % still demo it.
+        handlingPartnerEntityId: null,
+        handlingPartnerName: null,
         projectYear: o.expected ? Number(o.expected.slice(0, 4)) : null,
         currency: "MYR",
         projectNatureCode: o.projectNature,

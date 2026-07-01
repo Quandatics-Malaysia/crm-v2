@@ -4,11 +4,10 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { HelpCircleIcon, CheckCircle2Icon, CircleIcon } from "lucide-react"
+import { HelpCircleIcon } from "lucide-react"
 
 import {
   missingFromKeys,
-  requirementsFromKeys,
   requiresCloseRemarks,
   closeRemarksLabel,
   stagesEnteredBy,
@@ -162,16 +161,16 @@ export function StageAdvanceDialog({
     () => new Map(customFieldDefs.map((f) => [f.key, f])),
     [customFieldDefs]
   )
-  // Required keys that map to a known custom field are rendered as fillable
-  // inputs; any leftover (legacy preset) keys stay a read-only checklist.
+  // Requirements are tenant custom fields only. Any legacy preset key (estimate,
+  // close date, contact, …) left on a stage is ignored — never shown, never
+  // enforced — so the dialog collects exactly the custom fields it can fill.
   const collectFields = requiredKeys
     .map((k) => defByKey.get(k))
     .filter((f): f is CustomFunnelField => !!f)
-  const presetReqs = requirementsFromKeys(
-    requiredKeys.filter((k) => !defByKey.has(k)),
+  const missing = missingFromKeys(
+    collectFields.map((f) => f.key),
     liveGate
   )
-  const missing = missingFromKeys(requiredKeys, liveGate)
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
   // A written reason is required for approval-gated AND terminal (Lost/KIV) moves.
   const needsReason = needsApproval || isTerminal
@@ -363,7 +362,7 @@ export function StageAdvanceDialog({
               ) : null}
             </div>
 
-            {target && (collectFields.length > 0 || presetReqs.length > 0) ? (
+            {target && collectFields.length > 0 ? (
               <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
                 <p className="text-xs font-medium text-muted-foreground">
                   {enteredStages.length > 1
@@ -392,35 +391,6 @@ export function StageAdvanceDialog({
                     ))}
                   </div>
                 ))}
-                {presetReqs.length > 0 ? (
-                  <ul className="grid gap-1.5">
-                    {presetReqs.map((r) => (
-                      <li
-                        key={r.key}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        {r.ok ? (
-                          <CheckCircle2Icon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
-                        ) : (
-                          <CircleIcon className="size-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span
-                          className={
-                            r.ok ? "text-muted-foreground line-through" : ""
-                          }
-                        >
-                          {r.label}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {presetReqs.some((r) => !r.ok) ? (
-                  <p className="text-xs text-destructive">
-                    Some requirements are set elsewhere — edit the funnel to
-                    complete them.
-                  </p>
-                ) : null}
               </div>
             ) : null}
 

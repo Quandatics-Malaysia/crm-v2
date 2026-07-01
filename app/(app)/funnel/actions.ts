@@ -30,6 +30,28 @@ import {
 import { writeAudit } from "@/server/audit"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
 import { runAction, type ActionResult } from "@/lib/action-result"
+import { listEntities } from "@/lib/lookups"
+
+/**
+ * Validate + snapshot an intercompany handling partner. The partner MUST be
+ * another entity (organization) the caller belongs to — never an external
+ * customer account. Returns the entity id + its name snapshot, or nulls when
+ * the deal isn't intercompany / no partner is chosen.
+ */
+async function resolveHandlingPartner(
+  isIntercompany: boolean | undefined,
+  entityId: string | null | undefined
+): Promise<{ id: string | null; name: string | null }> {
+  const id = (entityId ?? "").trim()
+  if (!isIntercompany || !id) return { id: null, name: null }
+  const entities = await listEntities()
+  const match = entities.find((e) => e.id === id)
+  if (!match)
+    throw new Error(
+      "The handling partner must be one of your own entities, not an external account."
+    )
+  return { id: match.id, name: match.name }
+}
 
 export type OpportunityListRow = {
   id: string
@@ -44,7 +66,8 @@ export type OpportunityListRow = {
   description: string | null
   projectYear: number | null
   isIntercompany: boolean
-  handlingPartnerAccountId: string | null
+  handlingPartnerEntityId: string | null
+  handlingPartnerName: string | null
   currency: string
   status: string
   expectedCloseDate: string | null
@@ -76,8 +99,8 @@ export type OpportunityInput = {
   description?: string | null
   projectYear?: number | null
   isIntercompany?: boolean
-  /** Partner account that handles delivery on an interco deal. */
-  handlingPartnerAccountId?: string | null
+  /** Partner ENTITY (organization) that handles delivery on an interco deal. */
+  handlingPartnerEntityId?: string | null
   currency: string
   expectedCloseDate?: string | null
   /** Primary project nature (drives the project code). */
@@ -104,7 +127,8 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         description: opportunities.description,
         projectYear: opportunities.projectYear,
         isIntercompany: opportunities.isIntercompany,
-        handlingPartnerAccountId: opportunities.handlingPartnerAccountId,
+        handlingPartnerEntityId: opportunities.handlingPartnerEntityId,
+        handlingPartnerName: opportunities.handlingPartnerName,
         currency: opportunities.currency,
         status: opportunities.status,
         expectedCloseDate: opportunities.expectedCloseDate,
@@ -194,15 +218,9 @@ export async function getOpportunity(
       .where(eq(accounts.id, opp.accountId))
       .limit(1)
 
-    let handlingPartnerName: string | null = null
-    if (opp.handlingPartnerAccountId) {
-      const [hp] = await tx
-        .select({ name: accounts.name })
-        .from(accounts)
-        .where(eq(accounts.id, opp.handlingPartnerAccountId))
-        .limit(1)
-      handlingPartnerName = hp?.name ?? null
-    }
+    // The handling partner is another entity (org). Its name is snapshotted on
+    // the opportunity at write time, so no cross-org read is needed here.
+    const handlingPartnerName = opp.handlingPartnerName ?? null
 
     let personName: string | null = null
     if (opp.primaryPersonId) {
@@ -360,6 +378,11 @@ export async function createOpportunity(
       const ownerMemberId = input.ownerMemberId || ctx.memberId
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
+      const hp = await resolveHandlingPartner(
+        input.isIntercompany,
+        input.handlingPartnerEntityId
+      )
+
       const [row] = await tx
         .insert(opportunities)
         .values({
@@ -378,7 +401,8 @@ export async function createOpportunity(
           description: input.description || null,
           projectYear: input.projectYear ?? null,
           isIntercompany: input.isIntercompany ?? false,
-          handlingPartnerAccountId: input.handlingPartnerAccountId || null,
+          handlingPartnerEntityId: hp.id,
+          handlingPartnerName: hp.name,
           currency: input.currency || "MYR",
           // Primary nature = first of the set (falls back to the single field).
           projectNatureCode:
@@ -460,6 +484,20 @@ export async function updateOpportunity(
         )
     }
 
+    // Resolve the handling partner against the effective intercompany flag: a
+    // non-intercompany deal clears it; otherwise the (new or existing) entity id
+    // is re-validated as one of the caller's entities and its name re-snapshotted.
+    const effectiveInterco =
+      input.isIntercompany === undefined
+        ? existing.isIntercompany
+        : !!input.isIntercompany
+    const hp = await resolveHandlingPartner(
+      effectiveInterco,
+      input.handlingPartnerEntityId === undefined
+        ? existing.handlingPartnerEntityId
+        : input.handlingPartnerEntityId
+    )
+
     await tx
       .update(opportunities)
       .set({
@@ -487,14 +525,9 @@ export async function updateOpportunity(
           input.projectYear === undefined
             ? existing.projectYear
             : input.projectYear ?? null,
-        isIntercompany:
-          input.isIntercompany === undefined
-            ? existing.isIntercompany
-            : !!input.isIntercompany,
-        handlingPartnerAccountId:
-          input.handlingPartnerAccountId === undefined
-            ? existing.handlingPartnerAccountId
-            : input.handlingPartnerAccountId || null,
+        isIntercompany: effectiveInterco,
+        handlingPartnerEntityId: hp.id,
+        handlingPartnerName: hp.name,
         currency: input.currency ?? existing.currency,
         projectNatures:
           input.projectNatures === undefined

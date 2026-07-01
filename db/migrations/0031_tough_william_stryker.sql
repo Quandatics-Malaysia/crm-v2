@@ -1,0 +1,3 @@
+ALTER TABLE "opportunities" ADD COLUMN "handling_partner_entity_id" text;--> statement-breakpoint
+ALTER TABLE "opportunities" ADD COLUMN "handling_partner_name" text;--> statement-breakpoint
+ALTER TABLE "opportunities" ADD CONSTRAINT "opportunities_handling_partner_entity_id_organization_id_fk" FOREIGN KEY ("handling_partner_entity_id") REFERENCES "public"."organization"("id") ON DELETE set null ON UPDATE no action;

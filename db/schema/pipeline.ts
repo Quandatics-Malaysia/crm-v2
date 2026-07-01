@@ -151,11 +151,17 @@ export const opportunities = pgTable(
    * contracting/billing middle-man (so it recognizes only recognizedPercent).
    */
   isIntercompany: boolean("is_intercompany").notNull().default(false),
-  /** The partner account that handles delivery (e.g. Citrus Cloud) on an interco deal. */
-  handlingPartnerAccountId: uuid("handling_partner_account_id").references(
-    () => accounts.id,
+  /**
+   * The partner ENTITY (another organization the user belongs to) that handles
+   * delivery on an interco deal. Intercompany transfers only ever go to a
+   * sibling group entity — never an external customer account.
+   */
+  handlingPartnerEntityId: text("handling_partner_entity_id").references(
+    () => organization.id,
     { onDelete: "set null" }
   ),
+  /** Snapshot of the handling entity's name at write time (avoids cross-org reads for display). */
+  handlingPartnerName: text("handling_partner_name"),
   currency: char("currency", { length: 3 }).notNull().default("MYR"),
   /**
    * Default project nature for this funnel (code from

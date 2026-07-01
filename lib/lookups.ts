@@ -1,9 +1,10 @@
 import "server-only"
-import { and, eq, isNull, asc } from "drizzle-orm"
+import { and, eq, isNull, asc, ne } from "drizzle-orm"
 import { db, runInTenant } from "@/db"
 import {
   member,
   user,
+  organization,
   accounts,
   funnels,
   funnelStages,
@@ -104,6 +105,23 @@ export async function listIndustries(): Promise<string[]> {
       .limit(1)
   )
   return s?.industries ?? []
+}
+
+/**
+ * The OTHER entities (organizations) the current user belongs to — the valid
+ * targets for an intercompany handling partner. Excludes the active entity;
+ * intercompany transfers only ever go to a sibling group entity, never an
+ * external customer account. Read on the base connection (cross-tenant by
+ * design — a user's own memberships).
+ */
+export async function listEntities(): Promise<Option[]> {
+  const ctx = await requireContext()
+  const rows = await db
+    .select({ id: organization.id, name: organization.name })
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(and(eq(member.userId, ctx.userId), ne(organization.id, ctx.tenantId)))
+  return rows.map((r) => ({ id: r.id, name: r.name }))
 }
 
 export type CountryOption = { name: string; states: string[] }

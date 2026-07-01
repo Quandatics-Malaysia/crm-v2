@@ -6,6 +6,7 @@ import {
   listFunnelsWithStages,
   listProjectNatures,
   listCustomFunnelFields,
+  listEntities,
 } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
@@ -25,6 +26,7 @@ export default async function OpportunitiesPage() {
     funnels,
     projectNatures,
     customFunnelFields,
+    entities,
   ] = await Promise.all([
     listOpportunities(),
     listAccountOptions(),
@@ -33,6 +35,7 @@ export default async function OpportunitiesPage() {
     listFunnelsWithStages(),
     listProjectNatures(),
     listCustomFunnelFields(),
+    listEntities(),
   ])
 
   const canCreate = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
@@ -47,6 +50,7 @@ export default async function OpportunitiesPage() {
       funnels={funnels}
       projectNatures={projectNatures}
       customFieldDefs={customFunnelFields}
+      entityOptions={entities}
       defaultOwnerMemberId={ctx.memberId}
     />
   ) : undefined

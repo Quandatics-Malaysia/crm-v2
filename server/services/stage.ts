@@ -334,9 +334,14 @@ export async function requestStageAdvance(
       mergedCustom,
       settings?.customFunnelFields ?? []
     )
+    // Requirements are tenant custom fields only; any legacy preset key left on
+    // a stage is ignored (never enforced) so it can't silently block a move.
+    const customKeys = new Set(
+      (settings?.customFunnelFields ?? []).map((f) => f.key)
+    )
     const requiredKeys = requiredKeysForStages(
       stagesEnteredBy(allStages, from.id, target.id)
-    )
+    ).filter((k) => customKeys.has(k))
     const missing = missingFromKeys(requiredKeys, stageGate)
     if (missing.length > 0) {
       throw new Error(

@@ -87,7 +87,6 @@ export type FunnelDetailData = {
   description: string | null
   projectYear: number | null
   isIntercompany: boolean
-  handlingPartnerAccountId: string | null
   handlingPartnerName: string | null
   expectedCloseDate: string | null
   createdAt: Date
@@ -137,7 +136,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     description,
     projectYear,
     isIntercompany,
-    handlingPartnerAccountId,
     handlingPartnerName,
     expectedCloseDate,
     createdAt,
@@ -403,16 +401,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               <Field label="Handling partner">
                 <span className="inline-flex items-center gap-1.5">
                   <Badge variant="outline">Intercompany</Badge>
-                  {handlingPartnerAccountId && handlingPartnerName ? (
-                    <Link
-                      href={`/accounts/${handlingPartnerAccountId}`}
-                      className="link"
-                    >
-                      {handlingPartnerName}
-                    </Link>
-                  ) : (
-                    handlingPartnerName ?? "—"
-                  )}
+                  {handlingPartnerName ?? "—"}
                 </span>
               </Field>
             ) : null}

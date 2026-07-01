@@ -90,7 +90,7 @@ const schema = z.object({
   projectYear: z.string().optional(),
   description: z.string().optional(),
   isIntercompany: z.boolean().optional(),
-  handlingPartnerAccountId: z.string().optional(),
+  handlingPartnerEntityId: z.string().optional(),
   customFields: z.record(z.string(), z.string()),
 })
 
@@ -104,6 +104,7 @@ export function OpportunityForm({
   funnels,
   projectNatures = [],
   customFieldDefs = [],
+  entityOptions = [],
   defaultOwnerMemberId,
   opportunity,
   trigger,
@@ -117,6 +118,8 @@ export function OpportunityForm({
   projectNatures?: { code: string; name: string }[]
   /** Tenant custom funnel fields to capture on the funnel. */
   customFieldDefs?: CustomFunnelField[]
+  /** Other entities the user belongs to — the only valid intercompany partners. */
+  entityOptions?: Option[]
   defaultOwnerMemberId: string | null
   opportunity?: OpportunityListRow
   trigger?: React.ReactElement
@@ -169,7 +172,7 @@ export function OpportunityForm({
               : "",
           description: opportunity.description ?? "",
           isIntercompany: opportunity.isIntercompany ?? false,
-          handlingPartnerAccountId: opportunity.handlingPartnerAccountId ?? "",
+          handlingPartnerEntityId: opportunity.handlingPartnerEntityId ?? "",
           customFields: { ...(opportunity.customFields ?? {}) },
         }
       : {
@@ -187,7 +190,7 @@ export function OpportunityForm({
           projectYear: "",
           description: "",
           isIntercompany: false,
-          handlingPartnerAccountId: "",
+          handlingPartnerEntityId: "",
           customFields: {},
         },
   })
@@ -236,7 +239,7 @@ export function OpportunityForm({
         projectYear: values.projectYear ? Number(values.projectYear) : null,
         description: values.description || null,
         isIntercompany: !!values.isIntercompany,
-        handlingPartnerAccountId: values.handlingPartnerAccountId || null,
+        handlingPartnerEntityId: values.handlingPartnerEntityId || null,
         customFields: values.customFields,
       })
       if (!res.ok) {
@@ -260,7 +263,7 @@ export function OpportunityForm({
         projectYear: values.projectYear ? Number(values.projectYear) : null,
         description: values.description || null,
         isIntercompany: !!values.isIntercompany,
-        handlingPartnerAccountId: values.handlingPartnerAccountId || null,
+        handlingPartnerEntityId: values.handlingPartnerEntityId || null,
         customFields: values.customFields,
       })
       if (!res.ok) {
@@ -733,7 +736,7 @@ export function OpportunityForm({
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
-                  name="handlingPartnerAccountId"
+                  name="handlingPartnerEntityId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Handling partner</FormLabel>
@@ -741,17 +744,22 @@ export function OpportunityForm({
                         <Combobox
                           value={field.value ?? ""}
                           onChange={(v) => field.onChange(v || "")}
-                          options={accountOptions.map((a) => ({
-                            value: a.id,
-                            label: a.name,
+                          options={entityOptions.map((e) => ({
+                            value: e.id,
+                            label: e.name,
                           }))}
-                          placeholder="Select the partner account"
-                          searchPlaceholder="Search accounts…"
-                          emptyMessage="No accounts found."
+                          placeholder={
+                            entityOptions.length
+                              ? "Select the partner entity"
+                              : "No other entities available"
+                          }
+                          searchPlaceholder="Search entities…"
+                          emptyMessage="No other entities. Intercompany transfers only go to your own entities."
                         />
                       </FormControl>
                       <FormDescription>
-                        The entity that handles delivery (e.g. the affiliate).
+                        Another of your entities that handles delivery — not an
+                        external customer.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

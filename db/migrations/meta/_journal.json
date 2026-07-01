@@ -218,6 +218,20 @@
       "when": 1782890494232,
       "tag": "0030_needy_guardsmen",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782893572156,
+      "tag": "0031_tough_william_stryker",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782893587938,
+      "tag": "0032_strange_firelord",
+      "breakpoints": true
     }
   ]
 }

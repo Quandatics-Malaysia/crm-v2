@@ -204,6 +204,13 @@
       "when": 1782810294986,
       "tag": "0028_rapid_vulture",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782878738418,
+      "tag": "0029_great_zodiak",
+      "breakpoints": true
     }
   ]
 }

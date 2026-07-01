@@ -4,10 +4,67 @@ import { organization } from "better-auth/plugins"
 import { genericOAuth, microsoftEntraId } from "better-auth/plugins/generic-oauth"
 import { nextCookies } from "better-auth/next-js"
 import { APIError, createAuthMiddleware } from "better-auth/api"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
+import { randomUUID } from "node:crypto"
 import { db, runInTenant } from "@/db"
 import * as schema from "@/db/schema"
+import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
+
+/**
+ * Domain auto-join. After a new user is created, if their email domain matches a
+ * workspace's `autoJoinDomains`, add them to that workspace with its configured
+ * default role (falls back to "Rep"). No-op when nothing matches (invite-only).
+ * Returns the joined org id so the session can be pointed at it.
+ */
+async function autoJoinByDomain(user: {
+  id: string
+  email?: string | null
+}): Promise<string | null> {
+  const domain = (user.email ?? "").split("@")[1]?.toLowerCase() ?? ""
+  if (!domain) return null
+  const [org] = await db
+    .select({
+      orgId: schema.tenantSettings.organizationId,
+      roleName: schema.tenantSettings.autoJoinRole,
+    })
+    .from(schema.tenantSettings)
+    .where(
+      sql`${schema.tenantSettings.autoJoinDomains} @> ${JSON.stringify([domain])}::jsonb`
+    )
+    .limit(1)
+  if (!org) return null
+  const roleName = org.roleName ?? "Rep"
+  const tier = ROLE_TEMPLATES.find((r) => r.name === roleName)?.tier ?? 0
+  const memberId = randomUUID()
+  await runInTenant(org.orgId, async (tx) => {
+    const [roleRow] = await tx
+      .select({ id: schema.roles.id })
+      .from(schema.roles)
+      .where(
+        and(
+          eq(schema.roles.tenantId, org.orgId),
+          eq(schema.roles.name, roleName)
+        )
+      )
+      .limit(1)
+    await tx.insert(schema.member).values({
+      id: memberId,
+      organizationId: org.orgId,
+      userId: user.id,
+      role: "member",
+      createdAt: new Date(),
+    })
+    await tx.insert(schema.membershipProfiles).values({
+      memberId,
+      tenantId: org.orgId,
+      roleId: roleRow?.id ?? null,
+      tierLevel: tier,
+      status: "active",
+    })
+  })
+  return org.orgId
+}
 
 /**
  * Per-tenant gate for email/password sign-in. A tenant can switch itself to
@@ -120,6 +177,30 @@ export const auth = betterAuth({
               message: "Your email domain is not permitted to sign in.",
             })
           }
+        },
+        // First login: auto-join a workspace by email domain (if configured).
+        after: async (user) => {
+          try {
+            await autoJoinByDomain(user)
+          } catch (e) {
+            console.error("[auth] domain auto-join failed", e)
+          }
+        },
+      },
+    },
+    session: {
+      create: {
+        // Land the user in their workspace: default the active org to their
+        // (first) membership when the session doesn't already carry one.
+        before: async (session) => {
+          if (session.activeOrganizationId) return
+          const [m] = await db
+            .select({ orgId: schema.member.organizationId })
+            .from(schema.member)
+            .where(eq(schema.member.userId, session.userId))
+            .limit(1)
+          if (!m) return
+          return { data: { ...session, activeOrganizationId: m.orgId } }
         },
       },
     },

@@ -13,7 +13,7 @@ import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
-import { PERMISSIONS } from "@/lib/permissions"
+import { PERMISSIONS, ROLE_TEMPLATES } from "@/lib/permissions"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -49,6 +49,8 @@ export type TenantSettingsView = {
   projectNatures: ProjectNature[]
   productCodes: ProductCode[]
   customFunnelFields: CustomFunnelField[]
+  autoJoinDomains: string[]
+  autoJoinRole: string | null
 }
 
 export type TenantMemberView = {
@@ -133,6 +135,8 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
     projectNatures: row.projectNatures ?? [],
     productCodes: row.productCodes ?? [],
     customFunnelFields: row.customFunnelFields ?? [],
+    autoJoinDomains: row.autoJoinDomains ?? [],
+    autoJoinRole: row.autoJoinRole ?? null,
   }
 }
 
@@ -502,6 +506,65 @@ export async function updateCustomFunnelFields(
 
   revalidatePath("/settings")
   return saved
+  })
+}
+
+/** Assignable auto-join roles (never Owner — that's for the workspace creator). */
+export const AUTO_JOIN_ROLES = ROLE_TEMPLATES.filter(
+  (r) => r.name !== "Owner"
+).map((r) => r.name)
+
+/**
+ * Configure domain auto-join: which email domains join this workspace on first
+ * SSO login, and the role they land with. Empty domains = invite-only.
+ */
+export async function updateAutoJoin(input: {
+  domains: string[]
+  role: string | null
+}): Promise<ActionResult<{ domains: string[]; role: string | null }>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+    const domains = Array.from(
+      new Set(
+        (input.domains ?? [])
+          .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+          .filter((d) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d))
+      )
+    )
+    const role =
+      input.role && AUTO_JOIN_ROLES.includes(input.role) ? input.role : null
+    const saved = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          status: "active",
+          autoJoinDomains: domains,
+          autoJoinRole: role,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: {
+            autoJoinDomains: domains,
+            autoJoinRole: role,
+            updatedAt: new Date(),
+          },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.auto_join_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { autoJoinDomains: domains, autoJoinRole: role },
+      })
+      return {
+        domains: updated.autoJoinDomains ?? [],
+        role: updated.autoJoinRole ?? null,
+      }
+    })
+    revalidatePath("/settings")
+    return saved
   })
 }
 

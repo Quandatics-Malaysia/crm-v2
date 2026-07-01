@@ -67,6 +67,16 @@ export const tenantSettings = pgTable("tenant_settings", {
     >()
     .notNull()
     .default([]),
+  /**
+   * Email domains whose users auto-join this workspace on first SSO login
+   * (Entra). Empty = no auto-join (invite-only).
+   */
+  autoJoinDomains: jsonb("auto_join_domains")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
+  /** Role name granted to auto-joined users (falls back to "Rep"). */
+  autoJoinRole: text("auto_join_role"),
   /** Quotation numbering config. */
   quotePrefix: text("quote_prefix").notNull().default("Q-"),
   quoteNextNumber: integer("quote_next_number").notNull().default(1),

@@ -115,6 +115,7 @@ import type { StageCode, StageKind, ProjectNature, ProductCode } from "./constan
 // ─── General ─────────────────────────────────────────────────────────────────
 
 const generalSchema = z.object({
+  entityName: z.string().trim().min(1, "Entity name is required").max(120),
   defaultCurrency: z
     .string()
     .trim()
@@ -170,6 +171,7 @@ function GeneralForm({
   const form = useForm<GeneralValues>({
     resolver: zodResolver(generalSchema),
     defaultValues: {
+      entityName: settings.entityName,
       defaultCurrency: settings.defaultCurrency,
       fiscalYearStartMonth: settings.fiscalYearStartMonth,
       approvalBypassTier: settings.approvalBypassTier,
@@ -194,6 +196,7 @@ function GeneralForm({
   function performSave(parsed: GeneralParsed) {
     startTransition(async () => {
       const res = await updateSettings({
+        entityName: parsed.entityName,
         defaultCurrency: parsed.defaultCurrency,
         fiscalYearStartMonth: parsed.fiscalYearStartMonth,
         approvalBypassTier: parsed.approvalBypassTier,
@@ -208,6 +211,7 @@ function GeneralForm({
       }
       const updated = res.data
       form.reset({
+        entityName: updated.entityName,
         defaultCurrency: updated.defaultCurrency,
         fiscalYearStartMonth: updated.fiscalYearStartMonth,
         approvalBypassTier: updated.approvalBypassTier,
@@ -239,6 +243,22 @@ function GeneralForm({
             <CardTitle>Organization</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <FormField
+              control={form.control}
+              name="entityName"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel required>Entity name</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Quandatics Sdn Bhd" />
+                  </FormControl>
+                  <FormDescription>
+                    The workspace name shown in the sidebar and on documents.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="defaultCurrency"

@@ -29,10 +29,13 @@ import {
   funnels,
   funnelStages,
   opportunities,
+  organization,
 } from "@/db/schema"
 
 export type TenantSettingsView = {
   organizationId: string
+  /** Display name of the entity (organization) — editable here. */
+  entityName: string
   defaultCurrency: string
   status: string
   fiscalYearStartMonth: number
@@ -65,6 +68,7 @@ export type TenantMemberView = {
 }
 
 export type UpdateSettingsInput = {
+  entityName: string
   defaultCurrency: string
   fiscalYearStartMonth: number
   approvalBypassTier: number
@@ -100,6 +104,13 @@ export async function getSettings(): Promise<TenantSettingsView> {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
   return runInTenant(ctx.tenantId, async (tx) => {
+    const [org] = await tx
+      .select({ name: organization.name })
+      .from(organization)
+      .where(eq(organization.id, ctx.tenantId))
+      .limit(1)
+    const entityName = org?.name ?? ""
+
     const [row] = await tx
       .select()
       .from(tenantSettings)
@@ -111,15 +122,19 @@ export async function getSettings(): Promise<TenantSettingsView> {
         .insert(tenantSettings)
         .values({ organizationId: ctx.tenantId, ...DEFAULTS })
         .returning()
-      return toView(created)
+      return toView(created, entityName)
     }
-    return toView(row)
+    return toView(row, entityName)
   })
 }
 
-function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
+function toView(
+  row: typeof tenantSettings.$inferSelect,
+  entityName = ""
+): TenantSettingsView {
   return {
     organizationId: row.organizationId,
+    entityName,
     defaultCurrency: row.defaultCurrency,
     status: row.status,
     fiscalYearStartMonth: row.fiscalYearStartMonth,
@@ -168,6 +183,10 @@ export async function updateSettings(
 
   const entityCode = (input.entityCode ?? "").trim().toUpperCase()
 
+  const entityName = (input.entityName ?? "").trim()
+  if (entityName.length === 0) throw new Error("Entity name is required.")
+  if (entityName.length > 120) throw new Error("Entity name is too long.")
+
   const values = {
     defaultCurrency: currency,
     fiscalYearStartMonth: input.fiscalYearStartMonth,
@@ -180,6 +199,13 @@ export async function updateSettings(
   }
 
   const view = await runInTenant(ctx.tenantId, async (tx) => {
+    // Rename the entity (organization). The name lives on the better-auth
+    // `organization` row, not tenant_settings.
+    await tx
+      .update(organization)
+      .set({ name: entityName })
+      .where(eq(organization.id, ctx.tenantId))
+
     const [updated] = await tx
       .insert(tenantSettings)
       .values({ organizationId: ctx.tenantId, status: "active", ...values })
@@ -192,12 +218,14 @@ export async function updateSettings(
       action: "settings.updated",
       entityType: "tenant_settings",
       entityId: ctx.tenantId,
-      after: values,
+      after: { ...values, entityName },
     })
-    return toView(updated)
+    return toView(updated, entityName)
   })
 
   revalidatePath("/settings")
+  // The entity name is shown in the sidebar/header (rendered by the app layout).
+  revalidatePath("/", "layout")
   return view
   })
 }

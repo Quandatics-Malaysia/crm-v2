@@ -1,5 +1,14 @@
 /** Canonical stage codes/kinds. Kept out of the "use server" actions file
  *  (which may only export async functions). */
+import { ROLE_TEMPLATES } from "@/lib/permissions"
+
+/** Assignable auto-join roles (never Owner — that's for the workspace creator).
+ *  Lives here (not in the "use server" actions file, which may only export
+ *  async functions) so both the server action and the client card can import it. */
+export const AUTO_JOIN_ROLES = ROLE_TEMPLATES.filter(
+  (r) => r.name !== "Owner"
+).map((r) => r.name)
+
 export const STAGE_CODES = [
   "0e",
   "1d",

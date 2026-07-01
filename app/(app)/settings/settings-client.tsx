@@ -87,7 +87,6 @@ import {
   deleteStage,
   reorderStages,
   updateAutoJoin,
-  AUTO_JOIN_ROLES,
 } from "./actions"
 import type {
   TenantSettingsView,
@@ -108,6 +107,7 @@ import {
   PRODUCT_CODE_MAX,
   normalizeProductCode,
   validateProductCode,
+  AUTO_JOIN_ROLES,
 } from "./constants"
 import type { StageCode, StageKind, ProjectNature, ProductCode } from "./constants"
 

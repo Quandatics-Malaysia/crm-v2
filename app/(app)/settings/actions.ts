@@ -8,12 +8,13 @@ import {
   validateProjectNatureCode,
   normalizeProductCode,
   validateProductCode,
+  AUTO_JOIN_ROLES,
 } from "./constants"
 import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
-import { PERMISSIONS, ROLE_TEMPLATES } from "@/lib/permissions"
+import { PERMISSIONS } from "@/lib/permissions"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -508,11 +509,6 @@ export async function updateCustomFunnelFields(
   return saved
   })
 }
-
-/** Assignable auto-join roles (never Owner — that's for the workspace creator). */
-export const AUTO_JOIN_ROLES = ROLE_TEMPLATES.filter(
-  (r) => r.name !== "Owner"
-).map((r) => r.name)
 
 /**
  * Configure domain auto-join: which email domains join this workspace on first

@@ -1,110 +1,21 @@
 "use client"
 
-import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { toast } from "sonner"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
+import { Plus } from "lucide-react"
 import { formatMoney, formatDate } from "@/lib/format"
-import { createQuotation, type QuotationListItem } from "./actions"
-
-function NewQuotationDialog({
-  opportunities,
-}: {
-  opportunities: { id: string; name: string }[]
-}) {
-  const router = useRouter()
-  const [open, setOpen] = React.useState(false)
-  const [opportunityId, setOpportunityId] = React.useState("")
-  const [creating, setCreating] = React.useState(false)
-
-  async function onCreate() {
-    if (!opportunityId) {
-      toast.error("Select a funnel")
-      return
-    }
-    setCreating(true)
-    const res = await createQuotation({
-      opportunityId,
-      taxSettingId: null,
-      validUntil: null,
-      notes: null,
-      lines: [],
-    })
-    if (!res.ok) {
-      toast.error(res.error)
-      setCreating(false)
-      return
-    }
-    toast.success("Quotation created")
-    setOpen(false)
-    router.push(`/quotations/${res.data.id}`)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm">New quotation</Button>} />
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New quotation</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-2">
-          <Label>Funnel</Label>
-          <Select
-            value={opportunityId}
-            onValueChange={(v) => setOpportunityId(v ?? "")}
-            items={opportunities.map((o) => ({ value: o.id, label: o.name }))}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a funnel…" />
-            </SelectTrigger>
-            <SelectContent>
-              {opportunities.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <DialogFooter>
-          <Button onClick={onCreate} disabled={creating}>
-            {creating ? "Creating…" : "Create draft"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
+import type { QuotationListItem } from "./actions"
 
 export function QuotationsTable({
   data,
-  opportunities,
   canCreate,
 }: {
   data: QuotationListItem[]
-  opportunities: { id: string; name: string }[]
   canCreate: boolean
 }) {
   const columns: ColumnDef<QuotationListItem>[] = [
@@ -167,7 +78,16 @@ export function QuotationsTable({
       searchPlaceholder="Search by number…"
       emptyMessage="No quotations yet."
       toolbar={
-        canCreate ? <NewQuotationDialog opportunities={opportunities} /> : undefined
+        canCreate ? (
+          <Button
+            size="sm"
+            nativeButton={false}
+            render={<Link href="/quotations/new" />}
+          >
+            <Plus className="size-4" />
+            New quotation
+          </Button>
+        ) : undefined
       }
     />
   )

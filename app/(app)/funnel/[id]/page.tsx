@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { FolderPlusIcon, ClockIcon } from "lucide-react"
+import { FolderPlusIcon, ClockIcon, FileTextIcon } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -29,7 +29,6 @@ import { StageAdvanceDialog } from "../stage-advance-dialog"
 import { StageReopenDialog } from "../stage-reopen-dialog"
 import { OpportunityForm } from "../opportunity-form"
 import { isTerminalKind, selectableTargets } from "../stage-transitions"
-import { QuotationCreateDialog } from "@/app/(app)/quotations/quotation-create-dialog"
 import { listDealCosts } from "../cost-actions"
 import { listContractYears } from "../contract-actions"
 import { FunnelDetailBody } from "./funnel-detail-body"
@@ -176,7 +175,16 @@ export default async function OpportunityDetailPage({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canCreateQuote ? (
-              <QuotationCreateDialog opportunityId={opp.id} />
+              <Button
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <Link href={`/quotations/new?opportunityId=${opp.id}`} />
+                }
+              >
+                <FileTextIcon />
+                New quotation
+              </Button>
             ) : null}
             {canCreateProject ? (
               <Button

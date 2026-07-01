@@ -59,9 +59,10 @@ export type OpportunityOption = { id: string; name: string }
 export type ProjectNatureOption = { code: string; name: string }
 
 /**
- * Shared quotation CREATE form. Used by both the `/quotations/new` page and the
- * embeddable `QuotationCreateDialog`, so the create logic lives in exactly one
- * place. When `opportunityId` is fixed the funnel picker is hidden and bound.
+ * Shared quotation CREATE form with the full line-item table. Rendered on the
+ * `/quotations/new` page (reached from the Quotations list and the funnel's
+ * "New quotation", the latter passing `?opportunityId=` to pre-bind the funnel).
+ * When `opportunityId` is fixed the funnel picker is hidden and bound.
  */
 export function QuotationCreateForm({
   taxOptions,

@@ -38,9 +38,9 @@ const NONE = "__none__"
 
 const leadSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
-  companyName: z.string().trim().optional(),
+  companyName: z.string().trim().min(1, "Company is required"),
   email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
-  phone: z.string().trim().optional(),
+  phone: z.string().trim().min(1, "Phone is required"),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
   funnelId: z.string(),
@@ -138,7 +138,7 @@ export function LeadForm({
           name="companyName"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Company</FormLabel>
+              <FormLabel required>Company</FormLabel>
               <FormControl>
                 <Input placeholder="Acme Inc." {...field} />
               </FormControl>
@@ -167,7 +167,7 @@ export function LeadForm({
             name="phone"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Phone</FormLabel>
+                <FormLabel required>Phone</FormLabel>
                 <FormControl>
                   <Input placeholder="+60 12-345 6789" {...field} />
                 </FormControl>

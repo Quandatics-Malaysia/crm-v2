@@ -696,6 +696,7 @@ export async function advanceStageAction(input: {
   opportunityId: string
   targetStageId: string
   reason?: string
+  customFields?: Record<string, string>
 }): Promise<ActionResult<{ moved: boolean; approvalRequestId?: string }>> {
   return runAction(async () => {
   const ctx = await requireContext()

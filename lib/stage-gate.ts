@@ -170,6 +170,45 @@ export function missingFromKeys(
     .map(({ key, label }) => ({ key, label }))
 }
 
+/**
+ * The ordered stages a move from `currentStageId` to `targetStageId` enters. A
+ * forward OPEN→OPEN/WON move passes through every ladder stage after the current
+ * one up to and including the target — so skipping 0e→4a still collects the
+ * requirements of 1d/2c/3b. An off-ladder terminal target (LOST/PARKED) enters
+ * only itself.
+ */
+export function stagesEnteredBy<
+  T extends { id: string; kind: string; sortOrder: number }
+>(stages: T[], currentStageId: string, targetStageId: string): T[] {
+  const from = stages.find((s) => s.id === currentStageId)
+  const to = stages.find((s) => s.id === targetStageId)
+  if (!from || !to) return []
+  if (to.kind === "LOST" || to.kind === "PARKED") return [to]
+  return [...stages]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .filter(
+      (s) =>
+        (s.kind === "OPEN" || s.kind === "WON") &&
+        s.sortOrder > from.sortOrder &&
+        s.sortOrder <= to.sortOrder
+    )
+}
+
+/** Union (order-preserving, de-duplicated) of requiredFields across stages. */
+export function requiredKeysForStages<
+  T extends { requiredFields?: string[] | null }
+>(stages: T[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const s of stages)
+    for (const k of s.requiredFields ?? [])
+      if (!seen.has(k)) {
+        seen.add(k)
+        out.push(k)
+      }
+  return out
+}
+
 /** Terminal stages (Lost / KIV) need a written close reason ("close remarks"). */
 export function requiresCloseRemarks(kind: string): boolean {
   return kind === "LOST" || kind === "PARKED"

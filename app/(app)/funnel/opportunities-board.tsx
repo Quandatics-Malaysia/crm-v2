@@ -21,6 +21,7 @@ import { formatMoney, formatPercent } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { FunnelWithStages } from "@/lib/lookups"
 import { advanceStageAction, type OpportunityListRow } from "./actions"
+import type { CustomFunnelField } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
 import { canTransition } from "./stage-transitions"
 
@@ -160,12 +161,15 @@ export function OpportunitiesBoard({
   data,
   funnels,
   canAdvance,
+  customFieldDefs = [],
 }: {
   data: OpportunityListRow[]
   funnels: FunnelWithStages[]
   /** When false the board is read-only: cards aren't draggable and drops are
    * ignored, so a user without stage-advance can't move funnels. */
   canAdvance: boolean
+  /** Tenant custom-field definitions, so a gated drop can collect required fields. */
+  customFieldDefs?: CustomFunnelField[]
 }) {
   const router = useRouter()
   const sensors = useSensors(
@@ -328,6 +332,10 @@ export function OpportunitiesBoard({
           currentStageId={gated.currentStageId}
           stages={stages}
           initialTargetStageId={gated.targetStageId}
+          customFieldDefs={customFieldDefs}
+          customValues={
+            data.find((c) => c.id === gated.opportunityId)?.customFields ?? {}
+          }
           open
           onOpenChange={(o) => {
             if (!o) setGated(null)

@@ -7,7 +7,7 @@ import {
   type PathStep,
   type PathNote,
 } from "@/components/stage-path-view"
-import type { StageGate } from "@/lib/stage-gate"
+import type { StageGate, CustomFunnelField } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
 import { selectableTargets } from "./stage-transitions"
 
@@ -35,6 +35,8 @@ export function StagePath({
   stages,
   interactive,
   gate,
+  customFieldDefs = [],
+  customValues = {},
 }: {
   opportunityId: string
   currentStageId: string
@@ -43,6 +45,10 @@ export function StagePath({
   interactive: boolean
   /** Resolved per-stage entry gate (preset + custom field completeness). */
   gate?: StageGate
+  /** Tenant custom-field definitions, so advancing can collect required fields. */
+  customFieldDefs?: CustomFunnelField[]
+  /** The funnel's current custom-field values. */
+  customValues?: Record<string, string>
 }) {
   const [target, setTarget] = React.useState<string | null>(null)
 
@@ -103,6 +109,8 @@ export function StagePath({
           }}
           initialTargetStageId={target ?? undefined}
           gate={gate}
+          customFieldDefs={customFieldDefs}
+          customValues={customValues}
         />
       ) : null}
     </>

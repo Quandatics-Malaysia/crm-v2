@@ -228,6 +228,8 @@ export default async function OpportunityDetailPage({
                 currentStageId={opp.currentStageId}
                 stages={detail.funnelStagesList}
                 gate={gate}
+                customFieldDefs={customFunnelFields}
+                customValues={(opp.customFields ?? {}) as Record<string, string>}
               />
             )}
           </div>

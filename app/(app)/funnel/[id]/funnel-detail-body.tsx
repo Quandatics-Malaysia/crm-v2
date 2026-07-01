@@ -371,9 +371,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               <span className="font-semibold tabular-nums">
                 {estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
               </span>
-              <span className="ml-1 text-xs text-muted-foreground">
-                drives forecast
-              </span>
             </Field>
             <Field label="Quoted amount">
               {quotedAmount ? (
@@ -511,6 +508,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               stages={stages}
               interactive={interactive}
               gate={gate}
+              customFieldDefs={customFieldDefs}
+              customValues={customValues}
             />
           </CardContent>
         </Card>

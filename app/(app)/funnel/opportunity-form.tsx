@@ -555,9 +555,11 @@ export function OpportunityForm({
               }}
             />
 
-            {customFieldDefs.length > 0 ? (
+            {/* Custom fields are captured progressively when advancing stages
+                (each stage asks only for what it needs), so the create form
+                stays lean — only edit exposes them for later corrections. */}
+            {mode === "edit" && customFieldDefs.length > 0 ? (
               <div className="grid gap-4 rounded-md border p-3">
-                <p className="text-sm font-medium">Custom fields</p>
                 {groupCustomFields(customFieldDefs).map((group) => (
                   <div key={group.category ?? "__none__"} className="grid gap-3">
                     {group.category ? (
@@ -672,7 +674,6 @@ export function OpportunityForm({
                     <FormControl>
                       <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} />
                     </FormControl>
-                    <FormDescription>Drives the weighted forecast.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

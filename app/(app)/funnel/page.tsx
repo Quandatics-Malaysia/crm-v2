@@ -73,6 +73,7 @@ export default async function OpportunitiesPage() {
               data={rows}
               funnels={funnels}
               canAdvance={canAdvance}
+              customFieldDefs={customFunnelFields}
             />
           </TabsContent>
 

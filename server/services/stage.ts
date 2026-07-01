@@ -18,6 +18,8 @@ import {
   missingFromKeys,
   requiresCloseRemarks,
   closeRemarksLabel,
+  stagesEnteredBy,
+  requiredKeysForStages,
   type StageGateState,
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
@@ -265,7 +267,14 @@ export type AdvanceOutcome = { moved: boolean; approvalRequestId?: string }
  */
 export async function requestStageAdvance(
   ctx: ServerContext,
-  input: { opportunityId: string; targetStageId: string; reason?: string }
+  input: {
+    opportunityId: string
+    targetStageId: string
+    reason?: string
+    /** Custom-field values captured in the advance dialog, merged onto the
+     *  funnel before the entry gate is evaluated. */
+    customFields?: Record<string, string>
+  }
 ): Promise<AdvanceOutcome> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const [opp] = await tx
@@ -275,18 +284,17 @@ export async function requestStageAdvance(
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
 
-    const [from] = await tx
+    // Every stage of this funnel — needed to resolve the requirements of any
+    // intermediate stages a multi-stage jump skips over.
+    const allStages = await tx
       .select()
       .from(funnelStages)
-      .where(eq(funnelStages.id, opp.currentStageId))
-      .limit(1)
+      .where(eq(funnelStages.funnelId, opp.funnelId))
+
+    const from = allStages.find((s) => s.id === opp.currentStageId)
     if (!from) throw new Error("Current stage not found")
 
-    const [target] = await tx
-      .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, input.targetStageId))
-      .limit(1)
+    const target = allStages.find((s) => s.id === input.targetStageId)
     if (!target) throw new Error("Stage not found")
     if (target.funnelId !== opp.funnelId)
       throw new Error("Stage does not belong to this funnel")
@@ -300,10 +308,18 @@ export async function requestStageAdvance(
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
 
+    // Merge the dialog's custom-field values onto the funnel before evaluating
+    // the gate, so the info the user just filled in counts.
+    const mergedCustom: Record<string, unknown> = {
+      ...((opp.customFields ?? {}) as Record<string, unknown>),
+      ...(input.customFields ?? {}),
+    }
+
     // Entry requirements: the information that must be on the funnel before it
     // may enter this stage (mirrors Salesforce's "fill the info to mark this
     // stage" gate). Authoritative — the dialog pre-checks the same rules.
-    // Presets read real columns; custom fields read opp.customFields.
+    // Presets read real columns; custom fields read the merged values. A
+    // multi-stage jump (e.g. 0e→4a) must satisfy every stage it passes through.
     const presets: StageGateState = {
       hasEstimate:
         opp.estimatedAmount != null && Number(opp.estimatedAmount) > 0,
@@ -315,10 +331,13 @@ export async function requestStageAdvance(
     }
     const stageGate = buildStageGate(
       presets,
-      (opp.customFields ?? {}) as Record<string, unknown>,
+      mergedCustom,
       settings?.customFunnelFields ?? []
     )
-    const missing = missingFromKeys(target.requiredFields, stageGate)
+    const requiredKeys = requiredKeysForStages(
+      stagesEnteredBy(allStages, from.id, target.id)
+    )
+    const missing = missingFromKeys(requiredKeys, stageGate)
     if (missing.length > 0) {
       throw new Error(
         `Add ${missing.map((m) => m.label).join(", ")} before moving to ${target.name}.`
@@ -328,6 +347,15 @@ export async function requestStageAdvance(
       throw new Error(
         `${closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
       )
+    }
+
+    // Persist the captured custom-field values (even when the move only queues
+    // an approval — the info is now on record for the approver).
+    if (input.customFields && Object.keys(input.customFields).length > 0) {
+      await tx
+        .update(opportunities)
+        .set({ customFields: mergedCustom as Record<string, string> })
+        .where(eq(opportunities.id, opp.id))
     }
 
     const gated =

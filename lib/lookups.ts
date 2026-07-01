@@ -106,6 +106,21 @@ export async function listIndustries(): Promise<string[]> {
   return s?.industries ?? []
 }
 
+export type CountryOption = { name: string; states: string[] }
+
+/** Tenant-configured country → states picklist for account addresses. */
+export async function listCountries(): Promise<CountryOption[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ countries: tenantSettings.countries })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.countries ?? []
+}
+
 /**
  * Tenant-managed project-nature picklist (code + display name). Flows
  * Funnel → Quotation → Project. Read from tenant_settings, tenant-scoped.

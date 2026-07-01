@@ -31,6 +31,15 @@ export const tenantSettings = pgTable("tenant_settings", {
   /** Configurable industry picklist for accounts. */
   industries: jsonb("industries").$type<string[]>(),
   /**
+   * Configurable country → states picklist for account addresses. Country is
+   * required on an account; each country carries its own optional list of
+   * states/provinces (the account form cascades state off the chosen country).
+   */
+  countries: jsonb("countries")
+    .$type<{ name: string; states: string[] }[]>()
+    .notNull()
+    .default([]),
+  /**
    * Tenant-managed project-nature picklist. Each entry is a short stable code +
    * a display name; the chosen code is snapshotted onto a project and used as
    * the PROJECTNATURE segment of its project code.

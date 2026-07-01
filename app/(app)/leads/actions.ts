@@ -549,6 +549,8 @@ export async function disqualifyLead(
 /** Details captured for the account created during conversion (new-account path). */
 export type ConvertNewAccountInput = {
   accountType?: "client" | "reseller" | null
+  /** Compulsory company code for the new account (used in project codes). */
+  code?: string | null
   phone?: string | null
   address?: {
     line1?: string | null

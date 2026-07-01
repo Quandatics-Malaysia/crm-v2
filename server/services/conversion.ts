@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import {
   leads,
@@ -41,6 +41,8 @@ export async function convertLead(
     /** Details for the account created on the new-account path (optional). */
     newAccount?: {
       accountType?: "client" | "reseller" | null
+      /** Compulsory company code for the created account. */
+      code?: string | null
       phone?: string | null
       address?: {
         line1?: string | null
@@ -91,6 +93,27 @@ export async function convertLead(
       }
     }
     if (!accountId) {
+      // Company code is compulsory on the new-account path (used in project
+      // codes). Validate its format and tenant-uniqueness here too — the dialog
+      // pre-checks, but the server is authoritative.
+      const code = (input.newAccount?.code ?? "").trim().toUpperCase()
+      if (!/^[A-Z0-9]{2,6}$/.test(code))
+        throw new Error(
+          "A company code (2–6 letters/digits) is required for the new account"
+        )
+      const [dup] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.tenantId, ctx.tenantId),
+            eq(sql`upper(${accounts.code})`, code),
+            isNull(accounts.deletedAt)
+          )
+        )
+        .limit(1)
+      if (dup) throw new Error("Company code already used by another account")
+
       // Keep only the populated address fields (drop empties) so we never store
       // an object of all-nulls in the jsonb column.
       const rawAddress = input.newAccount?.address ?? null
@@ -106,6 +129,7 @@ export async function convertLead(
         .values({
           tenantId: ctx.tenantId,
           name: lead.companyName || lead.name,
+          code,
           ownerMemberId: lead.ownerMemberId ?? ctx.memberId,
           accountType:
             input.newAccount?.accountType === "reseller" ? "reseller" : "client",

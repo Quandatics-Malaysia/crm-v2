@@ -79,6 +79,7 @@ import {
   updateSettings,
   updateNumbering,
   updateIndustries,
+  updateCountries,
   updateProjectNatures,
   updateProductCodes,
   updateCustomFunnelFields,
@@ -718,6 +719,184 @@ function IndustriesCard({ industries }: { industries: string[] }) {
         <div className="flex justify-end">
           <Button type="button" onClick={save} disabled={isPending || !dirty}>
             {isPending ? "Saving…" : "Save industries"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Countries & states ────────────────────────────────────────────────────────
+
+function CountriesCard({
+  countries,
+}: {
+  countries: { name: string; states: string[] }[]
+}) {
+  const [items, setItems] = React.useState(countries)
+  const [countryDraft, setCountryDraft] = React.useState("")
+  const [stateDrafts, setStateDrafts] = React.useState<Record<string, string>>(
+    {}
+  )
+  const [isPending, startTransition] = React.useTransition()
+
+  const dirty = React.useMemo(
+    () => JSON.stringify(items) !== JSON.stringify(countries),
+    [items, countries]
+  )
+
+  function addCountry() {
+    const name = countryDraft.trim()
+    if (!name) return
+    if (items.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      toast.error("That country is already in the list.")
+      return
+    }
+    setItems((prev) => [...prev, { name, states: [] }])
+    setCountryDraft("")
+  }
+
+  function removeCountry(name: string) {
+    setItems((prev) => prev.filter((c) => c.name !== name))
+  }
+
+  function addState(country: string) {
+    const st = (stateDrafts[country] ?? "").trim()
+    if (!st) return
+    setItems((prev) =>
+      prev.map((c) => {
+        if (c.name !== country) return c
+        if (c.states.some((s) => s.toLowerCase() === st.toLowerCase())) return c
+        return { ...c, states: [...c.states, st] }
+      })
+    )
+    setStateDrafts((d) => ({ ...d, [country]: "" }))
+  }
+
+  function removeState(country: string, st: string) {
+    setItems((prev) =>
+      prev.map((c) =>
+        c.name === country
+          ? { ...c, states: c.states.filter((s) => s !== st) }
+          : c
+      )
+    )
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateCountries(items)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setItems(res.data)
+      toast.success("Countries saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Countries & states</CardTitle>
+        <CardDescription>
+          The country picklist for account addresses. Each country carries its
+          own states/provinces, offered once that country is selected on an
+          account.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex gap-2">
+          <Input
+            value={countryDraft}
+            onChange={(e) => setCountryDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                addCountry()
+              }
+            }}
+            placeholder="e.g. Malaysia"
+          />
+          <Button type="button" variant="outline" onClick={addCountry}>
+            <Plus className="size-4" />
+            Add country
+          </Button>
+        </div>
+
+        {items.length > 0 ? (
+          <div className="grid gap-3">
+            {items.map((c) => (
+              <div key={c.name} className="grid gap-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{c.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeCountry(c.name)}
+                    className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted-foreground/20"
+                    aria-label={`Remove ${c.name}`}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+                {c.states.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {c.states.map((s) => (
+                      <Badge key={s} variant="secondary" className="gap-1 pr-1">
+                        {s}
+                        <button
+                          type="button"
+                          onClick={() => removeState(c.name, s)}
+                          className="rounded-sm p-0.5 hover:bg-muted-foreground/20"
+                          aria-label={`Remove ${s}`}
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No states yet (optional).
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    value={stateDrafts[c.name] ?? ""}
+                    onChange={(e) =>
+                      setStateDrafts((d) => ({
+                        ...d,
+                        [c.name]: e.target.value,
+                      }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        addState(c.name)
+                      }
+                    }}
+                    placeholder="Add a state / province"
+                    className="h-8"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addState(c.name)}
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No countries yet.</p>
+        )}
+
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save countries"}
           </Button>
         </div>
       </CardContent>
@@ -2111,8 +2290,9 @@ export function SettingsClient({
         <NumberingForm settings={settings} />
       </TabsContent>
 
-      <TabsContent value="industries" className="mt-4">
+      <TabsContent value="industries" className="mt-4 grid gap-4">
         <IndustriesCard industries={settings.industries} />
+        <CountriesCard countries={settings.countries} />
       </TabsContent>
 
       <TabsContent value="project-natures" className="mt-4">

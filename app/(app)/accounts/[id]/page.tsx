@@ -6,7 +6,7 @@ import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 
 import { formatDate } from "@/lib/format"
-import { listIndustries } from "@/lib/lookups"
+import { listIndustries, listCountries } from "@/lib/lookups"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
@@ -33,10 +33,11 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, parentOptions, industries] = await Promise.all([
+  const [data, parentOptions, industries, countries] = await Promise.all([
     getAccount(id),
     listParentOptions(id),
     listIndustries(),
+    listCountries(),
   ])
 
   if (!data) notFound()
@@ -165,6 +166,7 @@ export default async function AccountDetailPage({
               parentOptions={parentOptions}
               endUserOptions={parentOptions}
               industries={industries}
+              countries={countries}
             />
           </div>
         </div>

@@ -6,7 +6,7 @@ import { Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { Option } from "@/lib/lookups"
+import type { Option, CountryOption } from "@/lib/lookups"
 import { AccountForm } from "../account-form"
 import type { AccountRow } from "../actions"
 
@@ -15,11 +15,13 @@ export function AccountEditButton({
   parentOptions,
   endUserOptions,
   industries,
+  countries,
 }: {
   account: AccountRow
   parentOptions: Option[]
   endUserOptions: Option[]
   industries: string[]
+  countries: CountryOption[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -30,6 +32,7 @@ export function AccountEditButton({
       parentOptions={parentOptions}
       endUserOptions={endUserOptions}
       industries={industries}
+      countries={countries}
       trigger={
         <Button variant="outline" size="sm">
           <Pencil className="size-4" />

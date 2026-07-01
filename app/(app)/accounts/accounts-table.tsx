@@ -31,7 +31,7 @@ import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { Option } from "@/lib/lookups"
+import type { Option, CountryOption } from "@/lib/lookups"
 import { AccountForm } from "./account-form"
 import { deleteAccount, restoreAccount, type AccountListItem } from "./actions"
 
@@ -39,10 +39,12 @@ function RowActions({
   account,
   parentOptions,
   industries,
+  countries,
 }: {
   account: AccountListItem
   parentOptions: Option[]
   industries: string[]
+  countries: CountryOption[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -90,6 +92,7 @@ function RowActions({
           parentOptions={editOptions}
           endUserOptions={editOptions}
           industries={industries}
+          countries={countries}
           open={editOpen}
           onOpenChange={setEditOpen}
           onSaved={() => {
@@ -161,10 +164,12 @@ export function AccountsTable({
   data,
   parentOptions,
   industries,
+  countries,
 }: {
   data: AccountListItem[]
   parentOptions: Option[]
   industries: string[]
+  countries: CountryOption[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -249,12 +254,13 @@ export function AccountsTable({
             account={row.original}
             parentOptions={parentOptions}
             industries={industries}
+            countries={countries}
           />
         ),
         enableHiding: false,
       },
     ],
-    [parentOptions, industries]
+    [parentOptions, industries, countries]
   )
 
   return (
@@ -279,6 +285,7 @@ export function AccountsTable({
             parentOptions={parentOptions}
             endUserOptions={parentOptions}
             industries={industries}
+            countries={countries}
             trigger={
               <Button size="sm">
                 <Plus className="size-4" />
@@ -295,6 +302,7 @@ export function AccountsTable({
             parentOptions={parentOptions}
             endUserOptions={parentOptions}
             industries={industries}
+            countries={countries}
             open={newOpen}
             onOpenChange={setNewOpen}
             trigger={

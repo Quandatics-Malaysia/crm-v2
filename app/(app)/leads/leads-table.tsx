@@ -41,7 +41,12 @@ import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { Option, FunnelWithStages, MemberOption } from "@/lib/lookups"
+import type {
+  Option,
+  FunnelWithStages,
+  MemberOption,
+  CountryOption,
+} from "@/lib/lookups"
 
 import { LeadForm } from "./lead-form"
 import { ConvertDialog } from "./convert-dialog"
@@ -102,11 +107,13 @@ export function LeadsTable({
   accountOptions,
   funnels,
   members,
+  countries = [],
 }: {
   data: Lead[]
   accountOptions: Option[]
   funnels: FunnelWithStages[]
   members: MemberOption[]
+  countries?: CountryOption[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -459,6 +466,7 @@ export function LeadsTable({
           open={!!convertLead}
           onOpenChange={(o) => !o && setConvertLead(null)}
           accountOptions={accountOptions}
+          countries={countries}
         />
       ) : null}
 

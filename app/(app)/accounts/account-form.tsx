@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { Option } from "@/lib/lookups"
+import type { Option, CountryOption } from "@/lib/lookups"
 import {
   createAccount,
   updateAccount,
@@ -55,10 +55,9 @@ const schema = z
     name: z.string().min(1, "Name is required"),
     code: z
       .string()
-      .optional()
       .refine(
-        (v) => !v || /^[A-Za-z0-9]{2,6}$/.test(v.trim()),
-        "2–6 characters (letters/digits)"
+        (v) => /^[A-Za-z0-9]{2,6}$/.test((v ?? "").trim()),
+        "Company code is required (2–6 letters/digits)"
       ),
     registrationNumber: z.string().optional(),
     parentAccountId: z.string().optional(),
@@ -74,7 +73,7 @@ const schema = z
     city: z.string().optional(),
     state: z.string().optional(),
     postcode: z.string().optional(),
-    country: z.string().optional(),
+    country: z.string().min(1, "Country is required"),
   })
   .superRefine((v, ctx) => {
     if (v.accountType === "reseller" && !v.endUserAccountId) {
@@ -118,6 +117,7 @@ export function AccountForm({
   parentOptions,
   endUserOptions,
   industries,
+  countries = [],
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -131,6 +131,8 @@ export function AccountForm({
   endUserOptions: Option[]
   /** Configurable industry picklist from listIndustries(). */
   industries: string[]
+  /** Configurable country → states picklist from listCountries(). */
+  countries?: CountryOption[]
   /** Render-prop trigger. Omit when controlling open externally. */
   trigger?: React.ReactNode
   open?: boolean
@@ -192,6 +194,13 @@ export function AccountForm({
 
   const accountType = form.watch("accountType")
   const isReseller = accountType === "reseller"
+
+  // Cascading address picklists: state options come from the chosen country.
+  const countryVal = form.watch("country")
+  const stateOptions = React.useMemo(
+    () => countries.find((c) => c.name === countryVal)?.states ?? [],
+    [countries, countryVal]
+  )
 
   async function onSubmit(values: FormValues) {
     try {
@@ -272,7 +281,7 @@ export function AccountForm({
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Account code</FormLabel>
+                    <FormLabel required>Company code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="TTDC"
@@ -285,8 +294,7 @@ export function AccountForm({
                       />
                     </FormControl>
                     <FormDescription>
-                      Used in project codes — auto-generated from the name if
-                      left blank (e.g. TTDC)
+
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -510,9 +518,36 @@ export function AccountForm({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>State</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Selangor" {...field} />
-                      </FormControl>
+                      {stateOptions.length > 0 ? (
+                        <Select
+                          value={field.value || NONE}
+                          onValueChange={(v) =>
+                            field.onChange(v === NONE ? "" : v)
+                          }
+                          items={[
+                            { value: NONE, label: "None" },
+                            ...stateOptions.map((s) => ({ value: s, label: s })),
+                          ]}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select state…" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value={NONE}>None</SelectItem>
+                            {stateOptions.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Selangor" {...field} />
+                        </FormControl>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -537,10 +572,38 @@ export function AccountForm({
                   name="country"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Country</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Malaysia" {...field} />
-                      </FormControl>
+                      <FormLabel required>Country</FormLabel>
+                      {countries.length > 0 ? (
+                        <Select
+                          value={field.value || ""}
+                          onValueChange={(v) => {
+                            field.onChange(v ?? "")
+                            // States are country-scoped — clear the old one.
+                            form.setValue("state", "")
+                          }}
+                          items={countries.map((c) => ({
+                            value: c.name,
+                            label: c.name,
+                          }))}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select country…" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {countries.map((c) => (
+                              <SelectItem key={c.name} value={c.name}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <FormControl>
+                          <Input placeholder="Malaysia" {...field} />
+                        </FormControl>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

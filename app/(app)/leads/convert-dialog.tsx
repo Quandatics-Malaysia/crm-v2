@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Combobox } from "@/components/ui/combobox"
-import type { Option } from "@/lib/lookups"
+import type { Option, CountryOption } from "@/lib/lookups"
 import { convertLeadAction } from "./actions"
 import type { Lead } from "./actions"
 
@@ -28,11 +28,13 @@ export function ConvertDialog({
   open,
   onOpenChange,
   accountOptions,
+  countries = [],
 }: {
   lead: Lead
   open: boolean
   onOpenChange: (open: boolean) => void
   accountOptions: Option[]
+  countries?: CountryOption[]
 }) {
   const router = useRouter()
   // The parent mounts this component fresh per lead, so initialising state from
@@ -47,6 +49,7 @@ export function ConvertDialog({
   const [accountId, setAccountId] = React.useState<string>("")
   // Details for the new account (only used on the "Create new account" path).
   const [newType, setNewType] = React.useState<"client" | "reseller">("client")
+  const [newCode, setNewCode] = React.useState("")
   const [newPhone, setNewPhone] = React.useState("")
   const [addr, setAddr] = React.useState({
     line1: "",
@@ -58,6 +61,11 @@ export function ConvertDialog({
   const [submitting, setSubmitting] = React.useState(false)
 
   const creatingNew = accountId === NEW_ACCOUNT
+
+  // Cascading address picklists for the new-account path.
+  const stateOptions =
+    countries.find((c) => c.name === addr.country)?.states ?? []
+  const codeValid = /^[A-Za-z0-9]{2,6}$/.test(newCode.trim())
 
   // A contact needs an email. The server enforces this too, but block early so
   // the user fixes the lead before opening this dialog's flow.
@@ -75,6 +83,7 @@ export function ConvertDialog({
         newAccount: creatingNew
           ? {
               accountType: newType,
+              code: newCode.trim().toUpperCase(),
               phone: newPhone || null,
               address: {
                 line1: addr.line1 || null,
@@ -180,6 +189,27 @@ export function ConvertDialog({
                   />
                 </div>
                 <div className="grid gap-2">
+                  <Label htmlFor="new-acct-code">
+                    Company code
+                    <span aria-hidden="true" className="text-destructive">
+                      *
+                    </span>
+                  </Label>
+                  <Input
+                    id="new-acct-code"
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                    placeholder="TTDC"
+                    maxLength={6}
+                    className="uppercase"
+                  />
+                  {newCode && !codeValid ? (
+                    <p className="text-xs text-destructive">
+                      2–6 letters/digits.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="new-acct-phone">Office phone</Label>
                   <Input
                     id="new-acct-phone"
@@ -206,12 +236,6 @@ export function ConvertDialog({
                   placeholder="City"
                 />
                 <Input
-                  aria-label="State"
-                  value={addr.state}
-                  onChange={(e) => setAddr((a) => ({ ...a, state: e.target.value }))}
-                  placeholder="State"
-                />
-                <Input
                   aria-label="Postcode"
                   value={addr.postcode}
                   onChange={(e) =>
@@ -219,14 +243,52 @@ export function ConvertDialog({
                   }
                   placeholder="Postcode"
                 />
-                <Input
-                  aria-label="Country"
-                  value={addr.country}
-                  onChange={(e) =>
-                    setAddr((a) => ({ ...a, country: e.target.value }))
-                  }
-                  placeholder="Country"
-                />
+                {countries.length > 0 ? (
+                  <Combobox
+                    id="new-acct-country"
+                    value={addr.country}
+                    onChange={(v) =>
+                      // Country is country-scoped for states — reset state on change.
+                      setAddr((a) => ({ ...a, country: v || "", state: "" }))
+                    }
+                    options={countries.map((c) => ({
+                      value: c.name,
+                      label: c.name,
+                    }))}
+                    placeholder="Country *"
+                    searchPlaceholder="Search countries…"
+                    emptyMessage="Add countries in Settings."
+                  />
+                ) : (
+                  <Input
+                    aria-label="Country"
+                    value={addr.country}
+                    onChange={(e) =>
+                      setAddr((a) => ({ ...a, country: e.target.value }))
+                    }
+                    placeholder="Country *"
+                  />
+                )}
+                {stateOptions.length > 0 ? (
+                  <Combobox
+                    id="new-acct-state"
+                    value={addr.state}
+                    onChange={(v) => setAddr((a) => ({ ...a, state: v || "" }))}
+                    options={stateOptions.map((s) => ({ value: s, label: s }))}
+                    placeholder="State (optional)"
+                    searchPlaceholder="Search states…"
+                    emptyMessage="No states."
+                  />
+                ) : (
+                  <Input
+                    aria-label="State"
+                    value={addr.state}
+                    onChange={(e) =>
+                      setAddr((a) => ({ ...a, state: e.target.value }))
+                    }
+                    placeholder="State"
+                  />
+                )}
               </div>
             </div>
           ) : null}
@@ -290,6 +352,7 @@ export function ConvertDialog({
               submitting ||
               missingEmail ||
               !accountId ||
+              (creatingNew && (!codeValid || !addr.country.trim())) ||
               (createOpportunity && !opportunityName.trim())
             }
           >

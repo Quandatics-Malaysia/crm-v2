@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { Option } from "@/lib/lookups"
+import type { Option, CountryOption } from "@/lib/lookups"
 import { ConvertDialog } from "../convert-dialog"
 import { disqualifyLead, type Lead } from "../actions"
 
@@ -28,9 +28,11 @@ import { disqualifyLead, type Lead } from "../actions"
 export function LeadDetailActions({
   lead,
   accountOptions,
+  countries = [],
 }: {
   lead: Lead
   accountOptions: Option[]
+  countries?: CountryOption[]
 }) {
   const perms = usePermissions()
   const canConvert = perms.has(PERMISSIONS.LEAD_CONVERT)
@@ -69,6 +71,7 @@ export function LeadDetailActions({
           open={convertOpen}
           onOpenChange={setConvertOpen}
           accountOptions={accountOptions}
+          countries={countries}
         />
       ) : null}
 

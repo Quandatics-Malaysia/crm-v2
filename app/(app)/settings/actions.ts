@@ -47,6 +47,7 @@ export type TenantSettingsView = {
   projectNextNumber: number
   projectPadWidth: number
   industries: string[]
+  countries: { name: string; states: string[] }[]
   projectNatures: ProjectNature[]
   productCodes: ProductCode[]
   customFunnelFields: CustomFunnelField[]
@@ -133,6 +134,7 @@ function toView(row: typeof tenantSettings.$inferSelect): TenantSettingsView {
     projectNextNumber: row.projectNextNumber,
     projectPadWidth: row.projectPadWidth,
     industries: row.industries ?? [],
+    countries: row.countries ?? [],
     projectNatures: row.projectNatures ?? [],
     productCodes: row.productCodes ?? [],
     customFunnelFields: row.customFunnelFields ?? [],
@@ -312,6 +314,64 @@ export async function updateIndustries(
 
   revalidatePath("/settings")
   return saved
+  })
+}
+
+/**
+ * Replace the tenant's country → states picklist (account addresses). Country
+ * names are de-duplicated (case-insensitive); each country's states are trimmed
+ * and de-duplicated within that country.
+ */
+export async function updateCountries(
+  countries: { name: string; states: string[] }[]
+): Promise<ActionResult<{ name: string; states: string[] }[]>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+    const cleaned: { name: string; states: string[] }[] = []
+    const seenCountry = new Set<string>()
+    for (const raw of countries) {
+      const name = (raw?.name ?? "").trim()
+      if (!name) continue
+      const key = name.toLowerCase()
+      if (seenCountry.has(key)) continue
+      seenCountry.add(key)
+      const states: string[] = []
+      const seenState = new Set<string>()
+      for (const s of raw.states ?? []) {
+        const st = (s ?? "").trim()
+        if (!st) continue
+        const sk = st.toLowerCase()
+        if (seenState.has(sk)) continue
+        seenState.add(sk)
+        states.push(st)
+      }
+      states.sort((a, b) => a.localeCompare(b))
+      cleaned.push({ name, states })
+    }
+    cleaned.sort((a, b) => a.name.localeCompare(b.name))
+
+    const saved = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({ organizationId: ctx.tenantId, status: "active", countries: cleaned })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { countries: cleaned, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.countries_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { countries: cleaned },
+      })
+      return updated.countries ?? []
+    })
+
+    revalidatePath("/settings")
+    return saved
   })
 }
 

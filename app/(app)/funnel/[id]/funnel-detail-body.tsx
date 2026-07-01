@@ -40,6 +40,12 @@ import type { ContractYearRow } from "../contract-actions"
  */
 const SHOW_COST_MARGIN = false
 
+/**
+ * The multi-year Contract tracker is also hidden for now (same reasoning — not
+ * mature yet). Panel/actions/schema are kept; flip to re-enable.
+ */
+const SHOW_CONTRACT = false
+
 const quoteStatusVariant: Record<
   string,
   "default" | "secondary" | "destructive" | "outline"
@@ -487,7 +493,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 ...(SHOW_COST_MARGIN
                   ? [{ kind: "account" as const, label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") }]
                   : []),
-                { kind: "funnel", label: "Contract", count: contractYears.length, onSelect: () => setTab("contract") },
+                ...(SHOW_CONTRACT
+                  ? [{ kind: "funnel" as const, label: "Contract", count: contractYears.length, onSelect: () => setTab("contract") }]
+                  : []),
               ]}
             />
           </CardContent>
@@ -545,12 +553,14 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     </Badge>
                   </TabsTrigger>
                 ) : null}
-                <TabsTrigger value="contract">
-                  Contract
-                  <Badge variant="secondary" className="ml-1.5">
-                    {contractYears.length}
-                  </Badge>
-                </TabsTrigger>
+                {SHOW_CONTRACT ? (
+                  <TabsTrigger value="contract">
+                    Contract
+                    <Badge variant="secondary" className="ml-1.5">
+                      {contractYears.length}
+                    </Badge>
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="history">Stage history</TabsTrigger>
                 <TabsTrigger value="documents">
                   Documents
@@ -617,14 +627,16 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 </TabsContent>
               ) : null}
 
-              <TabsContent value="contract" className="mt-4">
-                <ContractPanel
-                  opportunityId={opportunityId}
-                  years={contractYears}
-                  currency={currency}
-                  canManage={canManageCosts}
-                />
-              </TabsContent>
+              {SHOW_CONTRACT ? (
+                <TabsContent value="contract" className="mt-4">
+                  <ContractPanel
+                    opportunityId={opportunityId}
+                    years={contractYears}
+                    currency={currency}
+                    canManage={canManageCosts}
+                  />
+                </TabsContent>
+              ) : null}
 
               <TabsContent value="history" className="mt-4">
                 <DataTable

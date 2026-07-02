@@ -16,11 +16,13 @@ import {
   paymentMilestoneStatus,
   salesOrders,
   tenantSettings,
+  intercompanyDeals,
 } from "@/db/schema"
 import { toDateString } from "@/lib/dates"
 import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { opportunityNetValue } from "@/server/services/value"
+import { splitMilestones } from "@/lib/milestone-split"
 import { writeAudit } from "@/server/audit"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import {
@@ -77,6 +79,12 @@ export type ProjectCreateInput = {
    * project so its code stays stable if the picklist later changes.
    */
   projectNatureCode?: string
+  /**
+   * Set when this project delivers an INBOUND intercompany deal (the current
+   * tenant is the handling partner). Validated to be a deal actually assigned
+   * to this tenant.
+   */
+  intercompanyDealId?: string | null
 }
 
 export type ProjectUpdateInput = {
@@ -174,6 +182,26 @@ export async function createProject(
         .limit(1)
       if (!acct) throw new Error("Account not found")
 
+      // An intercompany-delivery project must reference a deal actually
+      // assigned to THIS tenant as handling partner (the two-sided RLS lets
+      // us read it; the partner predicate pins the direction).
+      if (input.intercompanyDealId) {
+        const [deal] = await tx
+          .select({ id: intercompanyDeals.id })
+          .from(intercompanyDeals)
+          .where(
+            and(
+              eq(intercompanyDeals.id, input.intercompanyDealId),
+              eq(intercompanyDeals.partnerTenantId, ctx.tenantId)
+            )
+          )
+          .limit(1)
+        if (!deal)
+          throw new Error(
+            "The intercompany deal was not found or is not assigned to this entity."
+          )
+      }
+
       // Default to "auto" so the funnel "create project" path (and any caller
       // that omits codeNature) keeps auto-generating as before.
       const codeNature: ProjectCodeNature =
@@ -229,6 +257,7 @@ export async function createProject(
             accountId: input.accountId,
             opportunityId: input.opportunityId || null,
             quotationId: input.quotationId || null,
+            intercompanyDealId: input.intercompanyDealId || null,
             ownerMemberId: ctx.memberId,
             status: isStatus(input.status) ? input.status : "planning",
             value: input.value ? input.value : null,
@@ -269,6 +298,29 @@ export async function createProject(
           currency: input.currency ?? "MYR",
         },
       })
+
+      // Automation: seed payment milestones from the tenant template when the
+      // project starts with a value (Settings → Numbering). Split math lives
+      // in lib/milestone-split.ts (pure + unit-tested).
+      const projectValue = Number(input.value ?? 0)
+      if (projectValue > 0) {
+        const [s] = await tx
+          .select({ template: tenantSettings.milestoneTemplate })
+          .from(tenantSettings)
+          .where(eq(tenantSettings.organizationId, ctx.tenantId))
+          .limit(1)
+        const seeded = splitMilestones(projectValue, s?.template ?? [])
+        if (seeded.length > 0) {
+          await tx.insert(paymentMilestones).values(
+            seeded.map((m) => ({
+              tenantId: ctx.tenantId,
+              projectId: row.id,
+              quotationId: input.quotationId || null,
+              ...m,
+            }))
+          )
+        }
+      }
       return row
     }
   )

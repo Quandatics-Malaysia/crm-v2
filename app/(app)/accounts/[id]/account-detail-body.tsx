@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
@@ -35,28 +36,7 @@ function stageKindClasses(kind: string): string {
   }
 }
 
-const projectStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
-
-const quotationStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  draft: "outline",
-  sent: "secondary",
-  accepted: "default",
-  rejected: "destructive",
-  expired: "outline",
-  void: "outline",
-}
+// Status pills render via the app-wide <StatusBadge> tone map.
 
 export type AccountChild = {
   id: string
@@ -159,11 +139,7 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge variant={projectStatusVariant[row.original.status] ?? "secondary"}>
-            {row.original.status.replace(/_/g, " ")}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
     ],
     []
@@ -186,14 +162,7 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge
-            variant={quotationStatusVariant[row.original.status] ?? "secondary"}
-            className="capitalize"
-          >
-            {row.original.status}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         accessorKey: "total",

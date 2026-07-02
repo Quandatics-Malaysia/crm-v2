@@ -232,6 +232,55 @@
       "when": 1782893587938,
       "tag": "0032_strange_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782997838350,
+      "tag": "0033_slim_darkstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782999208642,
+      "tag": "0034_cool_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783001057108,
+      "tag": "0035_flowery_brood",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783002273692,
+      "tag": "0036_right_nekra",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783003613681,
+      "tag": "0037_kind_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783004062074,
+      "tag": "0038_harsh_rachel_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783005175244,
+      "tag": "0039_strange_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }

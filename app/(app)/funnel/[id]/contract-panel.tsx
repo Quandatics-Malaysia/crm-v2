@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { formatMoney } from "@/lib/format"
 import {
   createContractYear,
@@ -29,11 +29,7 @@ const STATUS = [
   { value: "cancelled", label: "Cancelled" },
 ] as const
 
-const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  planned: "secondary",
-  invoiced: "default",
-  cancelled: "destructive",
-}
+// Status pill: rendered by the app-wide <StatusBadge> tone map.
 
 /**
  * Multi-year contract schedule. A multi-year deal is billed year by year; each
@@ -183,9 +179,7 @@ export function ContractPanel({
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Badge variant={statusVariant[y.status] ?? "secondary"}>
-                        {y.status}
-                      </Badge>
+                      <StatusBadge status={y.status} />
                     )}
                   </td>
                   {canManage ? (

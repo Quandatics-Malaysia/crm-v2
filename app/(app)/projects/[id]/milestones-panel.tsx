@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { InlineRename } from "@/components/inline-rename"
 import { formatDate, formatMoney } from "@/lib/format"
+import { MILESTONE_STATUS_OPTIONS } from "@/lib/status-meta"
 import { cn } from "@/lib/utils"
 import type { ActionResult } from "@/lib/action-result"
 import {
@@ -143,11 +144,10 @@ function InlineValue({
   )
 }
 
-const STATUS_OPTIONS: { value: MilestoneStatus; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "invoiced", label: "Invoiced" },
-  { value: "paid", label: "Paid" },
-]
+const STATUS_OPTIONS = MILESTONE_STATUS_OPTIONS as {
+  value: MilestoneStatus
+  label: string
+}[]
 
 export function MilestonesPanel({
   projectId,

@@ -33,14 +33,7 @@ import {
 import { Combobox } from "@/components/ui/combobox"
 import { AccountQuickCreate } from "@/components/quick-create-account"
 import { createProject, prefillFromOpportunity } from "./actions"
-
-const STATUS_OPTIONS = [
-  { value: "planning", label: "Planning" },
-  { value: "active", label: "Active" },
-  { value: "on_hold", label: "On hold" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-]
+import { PROJECT_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
 
 const NONE = "__none__"
 

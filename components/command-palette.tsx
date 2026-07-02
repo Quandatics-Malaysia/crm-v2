@@ -15,6 +15,7 @@ import {
   LayoutDashboardIcon,
   ReceiptIcon,
   TrendingUpIcon,
+  ArrowLeftRightIcon,
   ShieldCheckIcon,
   Settings2Icon,
   LoaderIcon,
@@ -114,6 +115,7 @@ const NAV_ITEMS: {
   { label: "Sales orders", href: "/sales-orders", permission: PERMISSIONS.SALES_ORDER_VIEW, icon: ReceiptIcon },
   { label: "Projects", href: "/projects", permission: PERMISSIONS.PROJECT_VIEW, icon: FolderKanbanIcon },
   { label: "Forecast", href: "/forecast", permission: PERMISSIONS.FORECAST_VIEW, icon: TrendingUpIcon },
+  { label: "Intercompany", href: "/intercompany", permission: PERMISSIONS.INTERCOMPANY_VIEW, icon: ArrowLeftRightIcon },
   { label: "Team", href: "/team", permission: PERMISSIONS.TENANT_MANAGE_USERS, icon: ShieldCheckIcon },
   { label: "Settings", href: "/settings", permission: PERMISSIONS.TENANT_SETTINGS, icon: Settings2Icon },
 ]

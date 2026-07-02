@@ -1,10 +1,11 @@
 "use server"
 
-import { inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import { requireContext, assertCan } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { visibleMemberIds, canManageAllRecords } from "@/lib/access-scope"
+import { intercompanyDeals, organization, tenantSettings } from "@/db/schema"
 
 /** One row of the weighted billing forecast (per OPEN opportunity). */
 export type ForecastRow = {
@@ -21,6 +22,15 @@ export type ForecastRow = {
   forecastMonth: string | null
   opportunityValue: string
   weightedValue: string
+  /** The tenant's cut on an intercompany deal (NULL = 100%, fully owned). */
+  recognizedPercent: string | null
+  /** weightedValue × recognizedPercent — the entity's OWN expected revenue. */
+  recognizedWeightedValue: string
+  /** "own" = this entity's funnel; "inbound" = share of a sibling's deal this
+   *  entity handles as intercompany delivery partner. */
+  source: "own" | "inbound"
+  /** Origin entity name for inbound rows (null on own rows). */
+  originEntityName: string | null
 }
 
 /** One row of the pipeline summary (per stage per funnel per currency). */
@@ -59,7 +69,7 @@ export async function getForecast(): Promise<ForecastRow[]> {
         : sql`select * from v_billing_forecast order by forecast_month nulls last`
     )
     const rows = result as unknown as Record<string, unknown>[]
-    return rows.map((r) => ({
+    const own: ForecastRow[] = rows.map((r) => ({
       opportunityId: String(r.opportunity_id),
       opportunityName: String(r.opportunity_name ?? ""),
       accountId: r.account_id == null ? null : String(r.account_id),
@@ -74,7 +84,100 @@ export async function getForecast(): Promise<ForecastRow[]> {
       forecastMonth: r.forecast_month == null ? null : String(r.forecast_month),
       opportunityValue: String(r.opportunity_value ?? "0"),
       weightedValue: String(r.weighted_value ?? "0"),
+      recognizedPercent:
+        r.recognized_percent == null ? null : String(r.recognized_percent),
+      recognizedWeightedValue: String(
+        r.recognized_weighted_value ?? r.weighted_value ?? "0"
+      ),
+      source: "own" as const,
+      originEntityName: null,
     }))
+
+    // INBOUND intercompany share: deals sibling entities assigned to this
+    // entity for delivery. The share (basis × (100 − origin's recognized %))
+    // is this entity's own expected revenue and belongs in its forecast,
+    // weighted by the origin's stage probability (snapshotted on the mirror).
+    // Gated by the intercompany permission so record-scoped reps don't see
+    // whole-entity numbers through the back door.
+    if (!ctx.can(PERMISSIONS.INTERCOMPANY_VIEW)) return own
+
+    const inboundRows = await tx
+      .select({
+        id: intercompanyDeals.id,
+        name: intercompanyDeals.name,
+        originEntityName: organization.name,
+        currency: intercompanyDeals.currency,
+        estimatedAmount: intercompanyDeals.estimatedAmount,
+        quotedAmount: intercompanyDeals.quotedAmount,
+        recognizedPercent: intercompanyDeals.recognizedPercent,
+        stageName: intercompanyDeals.stageName,
+        stageProbability: intercompanyDeals.stageProbability,
+        expectedCloseDate: intercompanyDeals.expectedCloseDate,
+      })
+      .from(intercompanyDeals)
+      .leftJoin(organization, eq(intercompanyDeals.tenantId, organization.id))
+      .where(
+        and(
+          eq(intercompanyDeals.partnerTenantId, ctx.tenantId),
+          eq(intercompanyDeals.includeInForecast, true),
+          // Without the origin's recognized % there is no defined share.
+          isNotNull(intercompanyDeals.recognizedPercent)
+        )
+      )
+      .orderBy(desc(intercompanyDeals.updatedAt))
+
+    const inbound: ForecastRow[] = inboundRows.flatMap((d) => {
+      const sharePercent = Math.max(0, 100 - Number(d.recognizedPercent))
+      if (sharePercent <= 0) return []
+      const basis = Number(d.quotedAmount ?? d.estimatedAmount ?? 0)
+      const share = (basis * sharePercent) / 100
+      const probability = Number(d.stageProbability ?? 0)
+      const weighted = (share * probability) / 100
+      const month = d.expectedCloseDate
+        ? `${d.expectedCloseDate.slice(0, 7)}-01`
+        : null
+      return [
+        {
+          opportunityId: d.id,
+          opportunityName: d.name,
+          accountId: null,
+          ownerMemberId: null,
+          funnelId: null,
+          stageCode: null,
+          stageName: d.stageName,
+          probability: d.stageProbability,
+          currency: d.currency,
+          expectedCloseDate: d.expectedCloseDate,
+          forecastMonth: month,
+          opportunityValue: share.toFixed(2),
+          weightedValue: weighted.toFixed(2),
+          // The share IS this entity's recognized revenue on the deal.
+          recognizedPercent: null,
+          recognizedWeightedValue: weighted.toFixed(2),
+          source: "inbound" as const,
+          originEntityName: d.originEntityName,
+        },
+      ]
+    })
+
+    return [...own, ...inbound]
+  })
+}
+
+/** Presentation config for the forecast page (no separate permission — the
+ *  page is already gated by FORECAST_VIEW). */
+export async function getForecastConfig(): Promise<{
+  fiscalYearStartMonth: number
+}> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const [s] = await tx
+      .select({ month: tenantSettings.fiscalYearStartMonth })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    return { fiscalYearStartMonth: s?.month ?? 1 }
   })
 }
 

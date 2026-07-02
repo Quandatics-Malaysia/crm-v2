@@ -1,10 +1,17 @@
 "use server"
 
-import { and, eq, isNull, desc } from "drizzle-orm"
+import { and, eq, isNull, ne, desc, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx, type ServerContext } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
-import { leads, accounts, persons, funnels, funnelStages } from "@/db/schema"
+import {
+  leads,
+  accounts,
+  persons,
+  funnels,
+  funnelStages,
+  tenantSettings,
+} from "@/db/schema"
 import { writeAudit } from "@/server/audit"
 import { convertLead } from "@/server/services/conversion"
 import { logActivity } from "@/server/services/activity"
@@ -171,6 +178,29 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
     const email = requireEmail(input.email)
 
     const row = await withTenant(PERMISSIONS.LEAD_CREATE, async (tx, ctx) => {
+      // Duplicate guard: a live lead with the same email is almost always the
+      // same person being keyed in twice — point at the existing one instead
+      // of splitting the follow-up history.
+      if (email) {
+        const [dup] = await tx
+          .select({ name: leads.name })
+          .from(leads)
+          .where(
+            and(
+              sql`lower(${leads.email}) = lower(${email})`,
+              isNull(leads.deletedAt),
+              ne(leads.status, "converted"),
+              ne(leads.status, "disqualified")
+            )
+          )
+          .limit(1)
+        if (dup) {
+          throw new Error(
+            `A lead with this email already exists ("${dup.name}") — work that lead instead of creating a duplicate.`
+          )
+        }
+      }
+
       const { funnelId, currentStageId } = await resolveFunnelStage(
         tx,
         ctx,
@@ -200,6 +230,26 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
         type: "system",
         subject: "Created",
       })
+
+      // Automation: schedule the first-contact follow-up so a fresh lead can
+      // never silently rot (Settings → Behavior → Auto lead follow-up).
+      const [s] = await tx
+        .select({ leadFollowUpDays: tenantSettings.leadFollowUpDays })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      if (s?.leadFollowUpDays) {
+        const dueAt = new Date()
+        dueAt.setDate(dueAt.getDate() + s.leadFollowUpDays)
+        await logActivity(tx, ctx, {
+          entityType: "lead",
+          entityId: lead.id,
+          type: "note",
+          subject: `First contact: ${lead.name}`,
+          body: "Auto-created when the lead was captured.",
+          dueAt,
+        })
+      }
 
       await writeAudit(tx, ctx, {
         action: "lead.created",

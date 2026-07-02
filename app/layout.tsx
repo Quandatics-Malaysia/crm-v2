@@ -26,6 +26,11 @@ export const metadata: Metadata = {
 // set before paint — no client-side script warning, no flash.
 const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){}})();`;
 
+// Same pattern for the per-user text-size preference (accessibility): the UI
+// is rem-based, so a root font-size class scales everything before paint.
+// See components/text-size-toggle.tsx.
+const TEXT_SIZE_INIT = `(function(){try{var s=localStorage.getItem('text-size');if(s==='large')document.documentElement.classList.add('text-scale-lg');else if(s==='xlarge')document.documentElement.classList.add('text-scale-xl');}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,6 +44,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <script dangerouslySetInnerHTML={{ __html: TEXT_SIZE_INIT }} />
         {children}
         <Toaster richColors position="top-right" />
       </body>

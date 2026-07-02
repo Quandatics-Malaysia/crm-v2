@@ -8,8 +8,18 @@ import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { FileDropzone } from "@/components/file-dropzone"
-import { submitSalesOrderWithDocument } from "./actions"
+import {
+  submitSalesOrderWithDocument,
+  listSalesOrderSubmitOptions,
+} from "./actions"
 
 /**
  * Shared body for the "Submit sales order" dialogs: the file dropzone, the notes
@@ -43,7 +53,26 @@ export function SubmitSalesOrderForm({
   const router = useRouter()
   const [files, setFiles] = React.useState<File[]>([])
   const [notes, setNotes] = React.useState("")
+  const [documentKind, setDocumentKind] = React.useState("")
+  const [paymentTerm, setPaymentTerm] = React.useState("")
+  const [paymentTerms, setPaymentTerms] = React.useState<string[]>([])
+  const [documentKinds, setDocumentKinds] = React.useState<string[]>([])
   const [submitting, setSubmitting] = React.useState(false)
+
+  // Tenant picklists (Settings → General); loaded once on mount.
+  React.useEffect(() => {
+    let cancelled = false
+    listSalesOrderSubmitOptions()
+      .then((o) => {
+        if (cancelled) return
+        setPaymentTerms(o.paymentTerms)
+        setDocumentKinds(o.documentKinds)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function onSubmit() {
     const err = validate?.()
@@ -63,6 +92,8 @@ export function SubmitSalesOrderForm({
       fd.set("file", file)
       fd.set("projectId", projectId)
       if (notes.trim()) fd.set("notes", notes.trim())
+      if (documentKind) fd.set("documentKind", documentKind)
+      if (paymentTerm) fd.set("paymentTerm", paymentTerm)
       const res = await submitSalesOrderWithDocument(fd)
       if (!res.ok) {
         toast.error(res.error)
@@ -87,6 +118,46 @@ export function SubmitSalesOrderForm({
       <div className="grid gap-4">
         {children}
         <FileDropzone files={files} onFiles={setFiles} multiple />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label>Document type</Label>
+            <Select
+              value={documentKind}
+              onValueChange={(v) => setDocumentKind(v ?? "")}
+              items={documentKinds.map((k) => ({ value: k, label: k }))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="What is this document?" />
+              </SelectTrigger>
+              <SelectContent>
+                {documentKinds.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Payment term</Label>
+            <Select
+              value={paymentTerm}
+              onValueChange={(v) => setPaymentTerm(v ?? "")}
+              items={paymentTerms.map((t) => ({ value: t, label: t }))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Pick a term…" />
+              </SelectTrigger>
+              <SelectContent>
+                {paymentTerms.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <div className="grid gap-2">
           <Label htmlFor="so-notes">Notes</Label>
           <Textarea

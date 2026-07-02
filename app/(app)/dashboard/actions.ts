@@ -12,6 +12,7 @@ import {
   funnelStages,
   taxSettings,
   member,
+  tenantSettings,
 } from "@/db/schema"
 import { canViewAllRecords } from "@/lib/access-scope"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -30,6 +31,13 @@ export type FollowUpDue = {
   entityType: string
   entityId: string
   dueAt: Date
+}
+
+export type StaleDeal = {
+  id: string
+  name: string
+  /** Last touch = the later of the funnel's own update and its latest activity. */
+  lastTouchAt: Date
 }
 
 export type OpenPipeline = {
@@ -67,6 +75,10 @@ export type DashboardData = {
    *  so the UI titles the card "Pending Approvals" rather than "Assigned to me". */
   canApproveAll: boolean
   followUpsDue: FollowUpDue[]
+  /** My open funnels with no activity for `staleDealDays` (empty when off). */
+  staleDeals: StaleDeal[]
+  /** The configured nudge threshold (null = feature off). */
+  staleDealDays: number | null
   /** The current member's own open funnel rollup ("My"). */
   myOpenPipeline: OpenPipeline
   /** Tenant-wide open funnel rollup ("Team"), present only for view-all roles
@@ -135,6 +147,18 @@ export async function getDashboardData(): Promise<DashboardData> {
         }))
       : []
 
+    // Behavior windows — tenant-configurable (Settings → General → Behavior).
+    const [s] = await tx
+      .select({
+        followUpDueDays: tenantSettings.followUpDueDays,
+        staleDealDays: tenantSettings.staleDealDays,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    const dueDays = s?.followUpDueDays ?? 7
+    const staleDealDays = s?.staleDealDays ?? null
+
     const followUpsDue: FollowUpDue[] = memberId
       ? (
           await tx
@@ -150,7 +174,10 @@ export async function getDashboardData(): Promise<DashboardData> {
               and(
                 eq(activities.memberId, memberId),
                 sql`${activities.dueAt} is not null`,
-                lte(activities.dueAt, sql`now() + interval '7 days'`)
+                lte(
+                  activities.dueAt,
+                  sql`now() + make_interval(days => ${dueDays})`
+                )
               )
             )
             .orderBy(asc(activities.dueAt))
@@ -162,6 +189,49 @@ export async function getDashboardData(): Promise<DashboardData> {
           dueAt: r.dueAt as Date,
         }))
       : []
+
+    // Stale-funnel nudges: MY open deals whose last touch — the later of the
+    // record's own update and its newest activity — is older than the
+    // threshold. Oldest first, capped so a long-neglected book doesn't flood
+    // the dashboard.
+    const staleDeals: StaleDeal[] =
+      staleDealDays && memberId
+        ? (
+            await tx
+              .select({
+                id: opportunities.id,
+                name: opportunities.name,
+                lastTouchAt: sql<Date>`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt}))`,
+              })
+              .from(opportunities)
+              .leftJoin(
+                activities,
+                and(
+                  eq(activities.entityType, "opportunity"),
+                  eq(activities.entityId, opportunities.id)
+                )
+              )
+              .where(
+                and(
+                  eq(opportunities.status, "open"),
+                  isNull(opportunities.deletedAt),
+                  eq(opportunities.ownerMemberId, memberId)
+                )
+              )
+              .groupBy(opportunities.id)
+              .having(
+                sql`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt})) < now() - make_interval(days => ${staleDealDays})`
+              )
+              .orderBy(
+                sql`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt})) asc`
+              )
+              .limit(10)
+          ).map((r) => ({
+            id: r.id,
+            name: r.name,
+            lastTouchAt: new Date(r.lastTouchAt),
+          }))
+        : []
 
     // Grouped by currency so we never sum across currencies (no implicit FX).
     // `ownerFilter` undefined → tenant-wide rollup (RLS still scopes to tenant).
@@ -266,6 +336,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       pendingApprovals,
       canApproveAll,
       followUpsDue,
+      staleDeals,
+      staleDealDays,
       myOpenPipeline,
       orgOpenPipeline,
       canViewAll,

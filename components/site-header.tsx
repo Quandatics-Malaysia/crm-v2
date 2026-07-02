@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { TextSizeToggle } from "@/components/text-size-toggle"
 import { HeaderActions } from "@/components/command-palette"
 import {
   Breadcrumb,
@@ -66,6 +67,7 @@ export function SiteHeader({
         )}
         <div className="ml-auto flex items-center gap-2">
           <HeaderActions />
+          <TextSizeToggle />
           <ThemeToggle />
         </div>
       </div>

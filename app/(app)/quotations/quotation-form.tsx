@@ -167,6 +167,7 @@ export function QuotationForm({
         lines.length > 0
           ? lines.map((l) => ({
               productId: l.productId ?? "",
+              projectNatureCode: l.projectNatureCode ?? "",
               uom: l.uom ?? "",
               description: l.description,
               quantity: l.quantity,
@@ -176,6 +177,7 @@ export function QuotationForm({
           : [
               {
                 productId: "",
+                projectNatureCode: "",
                 uom: "",
                 description: "",
                 quantity: "1",
@@ -316,6 +318,7 @@ export function QuotationForm({
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
         productId: l.productId || null,
+        projectNatureCode: l.projectNatureCode || null,
         uom: l.uom || null,
         description: l.description,
         quantity: l.quantity,
@@ -605,6 +608,7 @@ export function QuotationForm({
                     onClick={() =>
                       append({
                         productId: "",
+                        projectNatureCode: "",
                         uom: "",
                         description: "",
                         quantity: "1",
@@ -632,6 +636,9 @@ export function QuotationForm({
                         <tr className="border-b text-left text-xs text-muted-foreground">
                           <th className="w-8 py-2 pr-2 font-medium">#</th>
                           <th className="py-2 pr-2 font-medium">Product</th>
+                          {projectNatureItems.length > 0 ? (
+                            <th className="py-2 pr-2 font-medium">Nature</th>
+                          ) : null}
                           <th className="py-2 pr-2 font-medium">Description</th>
                           <th className="w-20 py-2 pr-2 text-right font-medium">
                             Qty
@@ -678,6 +685,34 @@ export function QuotationForm({
                                   <span className="text-muted-foreground">—</span>
                                 )}
                               </td>
+                              {projectNatureItems.length > 0 ? (
+                                <td className="py-1.5 pr-2">
+                                  <Combobox
+                                    value={
+                                      line?.projectNatureCode ||
+                                      NO_PROJECT_NATURE
+                                    }
+                                    onChange={(v) =>
+                                      form.setValue(
+                                        `lines.${i}.projectNatureCode`,
+                                        !v || v === NO_PROJECT_NATURE ? "" : v
+                                      )
+                                    }
+                                    options={[
+                                      {
+                                        value: NO_PROJECT_NATURE,
+                                        label: "— (quote default)",
+                                      },
+                                      ...projectNatureItems,
+                                    ]}
+                                    disabled={!canEditDraft}
+                                    placeholder="Nature…"
+                                    searchPlaceholder="Search natures…"
+                                    emptyMessage="No natures found."
+                                    className="min-w-32"
+                                  />
+                                </td>
+                              ) : null}
                               <td className="py-1.5 pr-2">
                                 <Input
                                   className="min-w-44"

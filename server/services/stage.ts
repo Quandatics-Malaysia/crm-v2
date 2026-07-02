@@ -24,6 +24,7 @@ import {
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { syncIntercompanyMirror } from "@/server/services/intercompany"
 import type { ServerContext } from "@/lib/server-context"
 // Shared LOCAL YYYY-MM-DD formatter. Deriving `actualCloseDate` from this (a
 // local-calendar slice) instead of a raw UTC `toISOString().slice(0,10)` keeps
@@ -255,6 +256,9 @@ async function applyStageMove(
     type: "stage_change",
     subject: `Stage → ${toStage.name}`,
   })
+  // Stage + status feed the partner-facing intercompany mirror (no-op unless
+  // this deal is intercompany).
+  await syncIntercompanyMirror(tx, opp.id)
 }
 
 export type AdvanceOutcome = { moved: boolean; approvalRequestId?: string }

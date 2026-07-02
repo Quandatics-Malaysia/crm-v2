@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -39,8 +40,10 @@ import type { Option, CountryOption } from "@/lib/lookups"
 import {
   createAccount,
   updateAccount,
+  findSimilarAccounts,
   type AccountRow,
   type BillingAddress,
+  type SimilarAccount,
 } from "./actions"
 
 const NONE = "__none__"
@@ -91,7 +94,10 @@ function addr(account?: AccountRow): BillingAddress {
   return (account?.billingAddress as BillingAddress | null) ?? {}
 }
 
-function defaults(account?: AccountRow): FormValues {
+/** Tenant presets (Settings → General) prefilled on CREATE only. */
+export type AccountFormPresets = { defaultCountry?: string; phonePrefix?: string }
+
+function defaults(account?: AccountRow, presets?: AccountFormPresets): FormValues {
   const a = addr(account)
   return {
     name: account?.name ?? "",
@@ -102,13 +108,14 @@ function defaults(account?: AccountRow): FormValues {
     endUserAccountId: account?.endUserAccountId ?? "",
     industry: account?.industry ?? "",
     website: account?.website ?? "",
-    phone: account?.phone ?? "",
+    // Presets apply only to a NEW account — an existing blank stays blank.
+    phone: account ? account.phone ?? "" : presets?.phonePrefix ?? "",
     line1: a.line1 ?? "",
     line2: a.line2 ?? "",
     city: a.city ?? "",
     state: a.state ?? "",
     postcode: a.postcode ?? "",
-    country: a.country ?? "",
+    country: account ? a.country ?? "" : presets?.defaultCountry ?? "",
   }
 }
 
@@ -118,6 +125,7 @@ export function AccountForm({
   endUserOptions,
   industries,
   countries = [],
+  presets,
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -133,6 +141,8 @@ export function AccountForm({
   industries: string[]
   /** Configurable country → states picklist from listCountries(). */
   countries?: CountryOption[]
+  /** Tenant presets (getFormPresets) prefilled on create. */
+  presets?: AccountFormPresets
   /** Render-prop trigger. Omit when controlling open externally. */
   trigger?: React.ReactNode
   open?: boolean
@@ -153,11 +163,23 @@ export function AccountForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: defaults(account),
+    defaultValues: defaults(account, presets),
   })
 
+  // Near-miss duplicate warning (create only): checked when the user leaves
+  // the Name field. Warn-only — submitting is still allowed; the exact-match
+  // duplicate is blocked server-side by createAccount.
+  const [similar, setSimilar] = React.useState<SimilarAccount[]>([])
+  const checkSimilar = React.useCallback(
+    async (name: string) => {
+      if (editing) return
+      setSimilar(name.trim().length >= 3 ? await findSimilarAccounts(name) : [])
+    },
+    [editing]
+  )
+
   React.useEffect(() => {
-    if (open) form.reset(defaults(account))
+    if (open) form.reset(defaults(account, presets))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -270,8 +292,34 @@ export function AccountForm({
                   <FormItem>
                     <FormLabel required>Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Acme Corp" {...field} />
+                      <Input
+                        placeholder="Acme Corp"
+                        {...field}
+                        onBlur={() => {
+                          field.onBlur()
+                          void checkSimilar(field.value)
+                        }}
+                      />
                     </FormControl>
+                    {similar.length > 0 ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        Similar account{similar.length > 1 ? "s" : ""} already
+                        exist{similar.length > 1 ? "" : "s"}:{" "}
+                        {similar.map((s, i) => (
+                          <React.Fragment key={s.id}>
+                            {i > 0 ? ", " : ""}
+                            <Link
+                              href={`/accounts/${s.id}`}
+                              className="underline underline-offset-2"
+                              target="_blank"
+                            >
+                              {s.name}
+                            </Link>
+                          </React.Fragment>
+                        ))}{" "}
+                        — double-check before creating a duplicate.
+                      </p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}

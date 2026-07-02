@@ -4,7 +4,7 @@ import { notFound } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
@@ -14,17 +14,6 @@ import { getProject, listMilestones } from "../actions"
 import { listProjectSalesOrders } from "@/app/(app)/sales-orders/actions"
 import { ProjectEditButton } from "./project-edit-button"
 import { ProjectDetailBody } from "./project-detail-body"
-
-const statusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
 
 export default async function ProjectDetailPage({
   params,
@@ -53,14 +42,7 @@ export default async function ProjectDetailPage({
   const fields: { label: string; value: React.ReactNode }[] = [
     {
       label: "Status",
-      value: (
-        <Badge
-          variant={statusVariant[project.status] ?? "secondary"}
-          className="capitalize"
-        >
-          {project.status.replace(/_/g, " ")}
-        </Badge>
-      ),
+      value: <StatusBadge status={project.status} />,
     },
     {
       label: "Value",

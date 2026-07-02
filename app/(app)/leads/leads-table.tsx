@@ -48,6 +48,8 @@ import type {
   CountryOption,
 } from "@/lib/lookups"
 
+import { Combobox } from "@/components/ui/combobox"
+import { StatusBadge } from "@/components/status-badge"
 import { LeadForm } from "./lead-form"
 import { ConvertDialog } from "./convert-dialog"
 import {
@@ -60,47 +62,8 @@ import {
   type LeadInput,
 } from "./actions"
 
-const STATUS_META: Record<
-  Lead["status"],
-  { label: string; variant: React.ComponentProps<typeof Badge>["variant"]; className?: string }
-> = {
-  new: {
-    label: "New",
-    variant: "secondary",
-    className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  },
-  contacted: {
-    label: "Contacted",
-    variant: "secondary",
-    className:
-      "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  },
-  qualified: {
-    label: "Qualified",
-    variant: "secondary",
-    className:
-      "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-  },
-  disqualified: {
-    label: "Disqualified",
-    variant: "destructive",
-  },
-  converted: {
-    label: "Converted",
-    variant: "secondary",
-    className:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  },
-}
-
-function StatusBadge({ status }: { status: Lead["status"] }) {
-  const meta = STATUS_META[status]
-  return (
-    <Badge variant={meta.variant} className={meta.className}>
-      {meta.label}
-    </Badge>
-  )
-}
+// Status pill: rendered by the app-wide <StatusBadge> tone map so the same
+// meaning reads in the same color on every surface (see components/status-badge).
 
 export function LeadsTable({
   data,
@@ -108,12 +71,20 @@ export function LeadsTable({
   funnels,
   members,
   countries = [],
+  leadSources = [],
+  lossReasons = [],
+  phonePrefix = "",
 }: {
   data: Lead[]
   accountOptions: Option[]
   funnels: FunnelWithStages[]
   members: MemberOption[]
   countries?: CountryOption[]
+  /** Tenant picklists (Settings); empty = free-text fallbacks. */
+  leadSources?: string[]
+  lossReasons?: string[]
+  /** Tenant dialing prefix prefilled on create. */
+  phonePrefix?: string
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -429,6 +400,8 @@ export function LeadsTable({
                 </DialogHeader>
                 <LeadForm
                   funnels={funnels}
+                  sources={leadSources}
+                  phonePrefix={phonePrefix}
                   onSubmit={handleCreate}
                   submitLabel="Create lead"
                 />
@@ -452,6 +425,7 @@ export function LeadsTable({
               key={editLead.id}
               lead={editLead}
               funnels={funnels}
+              sources={leadSources}
               onSubmit={handleUpdate}
               submitLabel="Save changes"
             />
@@ -474,6 +448,7 @@ export function LeadsTable({
       {disqualifyTarget ? (
         <DisqualifyDialog
           lead={disqualifyTarget}
+          reasons={lossReasons}
           onOpenChange={(o) => !o && setDisqualifyTarget(null)}
           onDone={() => {
             setDisqualifyTarget(null)
@@ -537,9 +512,12 @@ export function LeadsTable({
 function DisqualifyDialog({
   lead,
   onOpenChange,
+  reasons = [],
   onDone,
 }: {
   lead: Lead
+  /** Tenant loss/disqualify reason picklist; empty = free text. */
+  reasons?: string[]
   onOpenChange: (open: boolean) => void
   onDone: () => void
 }) {
@@ -573,12 +551,23 @@ function DisqualifyDialog({
         </DialogHeader>
         <div className="grid gap-2">
           <Label htmlFor="disqualify-reason">Reason</Label>
-          <Input
-            id="disqualify-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="No budget, wrong fit…"
-          />
+          {reasons.length > 0 ? (
+            <Combobox
+              value={reason}
+              onChange={(v) => setReason(v ?? "")}
+              options={reasons.map((r) => ({ value: r, label: r }))}
+              placeholder="Pick a reason…"
+              searchPlaceholder="Search reasons…"
+              emptyMessage="No reasons found."
+            />
+          ) : (
+            <Input
+              id="disqualify-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="No budget, wrong fit…"
+            />
+          )}
         </div>
         <DialogFooter>
           <Button

@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
@@ -25,20 +25,30 @@ import {
   projects,
   member,
   user,
+  organization,
   stageApprovalRequests,
+  tenantSettings,
+  intercompanyDeals,
+  intercompanyDealResponses,
 } from "@/db/schema"
+import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
+import { syncIntercompanyMirror } from "@/server/services/intercompany"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 
 /**
  * Validate + snapshot an intercompany handling partner. The partner MUST be
  * another entity (organization) the caller belongs to — never an external
- * customer account. Returns the entity id + its name snapshot, or nulls when
- * the deal isn't intercompany / no partner is chosen.
+ * customer account — AND, when the tenant has configured an explicit partner
+ * allow-list (Settings), one of the listed entities. Returns the entity id +
+ * its name snapshot, or nulls when the deal isn't intercompany / no partner
+ * is chosen.
  */
 async function resolveHandlingPartner(
+  tx: Tx,
+  ctx: { tenantId: string },
   isIntercompany: boolean | undefined,
   entityId: string | null | undefined
 ): Promise<{ id: string | null; name: string | null }> {
@@ -50,7 +60,31 @@ async function resolveHandlingPartner(
     throw new Error(
       "The handling partner must be one of your own entities, not an external account."
     )
+  // Tenant allow-list: once configured, only listed entities are valid
+  // partners — a user's unrelated membership no longer counts as a "sibling".
+  // Empty/unset = legacy membership-based behavior.
+  const [s] = await tx
+    .select({ allowed: tenantSettings.intercompanyPartnerIds })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, ctx.tenantId))
+    .limit(1)
+  const allowed = s?.allowed ?? null
+  if (allowed && allowed.length > 0 && !allowed.includes(match.id)) {
+    throw new Error(
+      "This entity is not on your intercompany partner allow-list (Settings → General)."
+    )
+  }
   return { id: match.id, name: match.name }
+}
+
+/** Server-side range guard for the recognized-% (the client Zod schema alone
+ *  is bypassable). Accepts undefined/null/"" (= unset). */
+function assertRecognizedPercent(v: string | null | undefined): void {
+  if (v === undefined || v === null || v === "") return
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
+    throw new Error("Recognized % must be between 0 and 100.")
+  }
 }
 
 export type OpportunityListRow = {
@@ -115,6 +149,11 @@ export type OpportunityInput = {
 export async function listOpportunities(): Promise<OpportunityListRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
+    // Live handling-partner name: `organization` is deliberately RLS-excluded,
+    // so this sibling-entity join is allowed. The stored name is only a
+    // fallback snapshot — resolving live means an entity rename in Settings
+    // propagates to every deal that references it.
+    const handlingOrg = alias(organization, "handling_org")
     const rows = await tx
       .select({
         id: opportunities.id,
@@ -128,7 +167,7 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         projectYear: opportunities.projectYear,
         isIntercompany: opportunities.isIntercompany,
         handlingPartnerEntityId: opportunities.handlingPartnerEntityId,
-        handlingPartnerName: opportunities.handlingPartnerName,
+        handlingPartnerName: sql<string | null>`coalesce(${handlingOrg.name}, ${opportunities.handlingPartnerName})`,
         currency: opportunities.currency,
         status: opportunities.status,
         expectedCloseDate: opportunities.expectedCloseDate,
@@ -152,6 +191,10 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
       .innerJoin(funnels, eq(opportunities.funnelId, funnels.id))
       .leftJoin(member, eq(opportunities.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
+      .leftJoin(
+        handlingOrg,
+        eq(opportunities.handlingPartnerEntityId, handlingOrg.id)
+      )
       .where(
         and(
           isNull(opportunities.deletedAt),
@@ -166,6 +209,12 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
 
 export type OpportunityDetail = {
   handlingPartnerName: string | null
+  /** The handling partner's handshake on an interco assignment, if any. */
+  partnerResponse: {
+    response: "accepted" | "declined"
+    reason: string | null
+    respondedAt: Date
+  } | null
   opportunity: typeof opportunities.$inferSelect
   accountName: string
   personName: string | null
@@ -218,9 +267,39 @@ export async function getOpportunity(
       .where(eq(accounts.id, opp.accountId))
       .limit(1)
 
-    // The handling partner is another entity (org). Its name is snapshotted on
-    // the opportunity at write time, so no cross-org read is needed here.
-    const handlingPartnerName = opp.handlingPartnerName ?? null
+    // The handling partner is another entity (org). Prefer its LIVE name —
+    // `organization` is deliberately RLS-excluded, so this sibling-entity read
+    // is allowed — so a rename in Settings propagates. The snapshot written at
+    // deal time remains the fallback if the entity no longer resolves.
+    let handlingPartnerName = opp.handlingPartnerName ?? null
+    if (opp.handlingPartnerEntityId) {
+      const [hpOrg] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, opp.handlingPartnerEntityId))
+        .limit(1)
+      if (hpOrg?.name) handlingPartnerName = hpOrg.name
+    }
+
+    // The partner's accept/decline on the assignment (written by the partner
+    // tenant; readable here via the origin-side RLS policy on responses).
+    let partnerResponse: OpportunityDetail["partnerResponse"] = null
+    if (opp.isIntercompany) {
+      const [resp] = await tx
+        .select({
+          response: intercompanyDealResponses.response,
+          reason: intercompanyDealResponses.reason,
+          respondedAt: intercompanyDealResponses.respondedAt,
+        })
+        .from(intercompanyDeals)
+        .innerJoin(
+          intercompanyDealResponses,
+          eq(intercompanyDealResponses.dealId, intercompanyDeals.id)
+        )
+        .where(eq(intercompanyDeals.opportunityId, id))
+        .limit(1)
+      if (resp) partnerResponse = resp
+    }
 
     let personName: string | null = null
     if (opp.primaryPersonId) {
@@ -345,6 +424,7 @@ export async function getOpportunity(
       opportunity: opp,
       accountName: acct?.name ?? "—",
       handlingPartnerName,
+      partnerResponse,
       personName,
       ownerName: owner?.name ?? null,
       stage,
@@ -378,7 +458,10 @@ export async function createOpportunity(
       const ownerMemberId = input.ownerMemberId || ctx.memberId
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
+      assertRecognizedPercent(input.recognizedPercent)
       const hp = await resolveHandlingPartner(
+        tx,
+        ctx,
         input.isIntercompany,
         input.handlingPartnerEntityId
       )
@@ -434,6 +517,8 @@ export async function createOpportunity(
         entityId: row.id,
         after: { name: input.name },
       })
+      // Publish the partner-facing mirror row (no-op unless intercompany).
+      await syncIntercompanyMirror(tx, row.id)
       return row
     }
   )
@@ -491,7 +576,10 @@ export async function updateOpportunity(
       input.isIntercompany === undefined
         ? existing.isIntercompany
         : !!input.isIntercompany
+    assertRecognizedPercent(input.recognizedPercent)
     const hp = await resolveHandlingPartner(
+      tx,
+      ctx,
       effectiveInterco,
       input.handlingPartnerEntityId === undefined
         ? existing.handlingPartnerEntityId
@@ -563,6 +651,8 @@ export async function updateOpportunity(
       },
       after: { name: input.name, estimatedAmount: input.estimatedAmount },
     })
+    // Re-publish (or retract, if interco was switched off) the partner mirror.
+    await syncIntercompanyMirror(tx, id)
   })
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${id}`)
@@ -595,6 +685,8 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       entityType: "opportunity",
       entityId: id,
     })
+    // A deleted deal must disappear from the partner's inbound list too.
+    await syncIntercompanyMirror(tx, id)
   })
   revalidatePath("/funnel")
   })

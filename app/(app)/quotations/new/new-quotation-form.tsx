@@ -21,6 +21,7 @@ export function NewQuotationForm({
   taxInclusive,
   projectNatures,
   products,
+  defaultValidUntil,
 }: {
   opportunities: OpportunityOption[]
   defaultOpportunityId?: string
@@ -28,6 +29,8 @@ export function NewQuotationForm({
   taxInclusive: boolean
   projectNatures: ProjectNatureOption[]
   products: ProductOption[]
+  /** Tenant default "Valid until" prefill (Settings → Numbering). */
+  defaultValidUntil?: string | null
 }) {
   const router = useRouter()
   return (
@@ -38,6 +41,7 @@ export function NewQuotationForm({
       taxInclusive={taxInclusive}
       projectNatures={projectNatures}
       products={products}
+      defaultValidUntil={defaultValidUntil}
       submitLabel="Create draft"
       onCancel={() => router.push("/quotations")}
       onCreated={(q) => router.push(`/quotations/${q.id}`)}

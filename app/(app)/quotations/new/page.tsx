@@ -40,6 +40,7 @@ export default async function NewQuotationPage({
               taxInclusive={meta.taxInclusive}
               projectNatures={meta.projectNatures}
               products={meta.products}
+              defaultValidUntil={meta.defaultValidUntil}
             />
           </CardContent>
         </Card>

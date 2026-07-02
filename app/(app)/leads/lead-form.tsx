@@ -23,16 +23,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DialogClose } from "@/components/ui/dialog"
+import { Combobox } from "@/components/ui/combobox"
 import type { FunnelWithStages } from "@/lib/lookups"
 import type { Lead, LeadInput } from "./actions"
 
-const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
-  { value: "new", label: "New" },
-  { value: "contacted", label: "Contacted" },
-  { value: "qualified", label: "Qualified" },
-  { value: "disqualified", label: "Disqualified" },
-  { value: "converted", label: "Converted" },
-]
+/** Sentinel: no source picked. */
+const NO_SOURCE = "__none__"
+
+import { LEAD_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
 
 const NONE = "__none__"
 
@@ -52,15 +50,30 @@ export type LeadFormValues = z.infer<typeof leadSchema>
 export function LeadForm({
   lead,
   funnels,
+  sources = [],
+  phonePrefix = "",
   onSubmit,
   submitLabel = "Save",
 }: {
   lead?: Lead
   funnels: FunnelWithStages[]
+  /** Tenant lead-source picklist (Settings); empty falls back to free text. */
+  sources?: string[]
+  /** Tenant dialing prefix prefilled into the phone field on create. */
+  phonePrefix?: string
   onSubmit: (values: LeadInput) => Promise<void>
   submitLabel?: string
 }) {
   const [submitting, setSubmitting] = React.useState(false)
+
+  // Keep a stored source selectable even if it was removed from the picklist.
+  const sourceItems = React.useMemo(() => {
+    const items = sources.map((s) => ({ value: s, label: s }))
+    const cur = lead?.source
+    if (cur && !items.some((i) => i.value === cur))
+      items.push({ value: cur, label: cur })
+    return items
+  }, [sources, lead?.source])
 
   const form = useForm<LeadFormValues>({
     resolver: zodResolver(leadSchema),
@@ -68,7 +81,7 @@ export function LeadForm({
       name: lead?.name ?? "",
       companyName: lead?.companyName ?? "",
       email: lead?.email ?? "",
-      phone: lead?.phone ?? "",
+      phone: lead ? lead.phone ?? "" : phonePrefix,
       source: lead?.source ?? "",
       status: lead?.status ?? "new",
       funnelId: lead?.funnelId ?? NONE,
@@ -185,7 +198,23 @@ export function LeadForm({
               <FormItem>
                 <FormLabel>Source</FormLabel>
                 <FormControl>
-                  <Input placeholder="Website, referral…" {...field} />
+                  {sourceItems.length > 0 ? (
+                    <Combobox
+                      value={field.value || NO_SOURCE}
+                      onChange={(v) =>
+                        field.onChange(!v || v === NO_SOURCE ? "" : v)
+                      }
+                      options={[
+                        { value: NO_SOURCE, label: "—" },
+                        ...sourceItems,
+                      ]}
+                      placeholder="Pick a source…"
+                      searchPlaceholder="Search sources…"
+                      emptyMessage="No sources found."
+                    />
+                  ) : (
+                    <Input placeholder="Website, referral…" {...field} />
+                  )}
                 </FormControl>
                 <FormMessage />
               </FormItem>

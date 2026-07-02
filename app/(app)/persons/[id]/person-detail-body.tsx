@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
@@ -15,16 +16,7 @@ import { cn } from "@/lib/utils"
 import { formatMoney, formatPercent } from "@/lib/format"
 import type { PersonOpportunity, PersonProject } from "../actions"
 
-const projectStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
+// Status pills render via the app-wide <StatusBadge> tone map.
 
 function stageKindClasses(kind: string | null): string {
   switch (kind) {
@@ -128,11 +120,7 @@ export function PersonDetailBody({
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge variant={projectStatusVariant[row.original.status] ?? "secondary"}>
-            {row.original.status.replace(/_/g, " ")}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
     ],
     []

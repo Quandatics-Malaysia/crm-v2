@@ -1,13 +1,13 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { getForecast, getPipelineSummary } from "./actions"
-import { ForecastClient } from "./forecast-client"
-import { ForecastCharts } from "./forecast-charts"
+import { getForecast, getPipelineSummary, getForecastConfig } from "./actions"
+import { ForecastView } from "./forecast-client"
 
 export default async function ForecastPage() {
-  const [rows, pipeline] = await Promise.all([
+  const [rows, pipeline, config] = await Promise.all([
     getForecast(),
     getPipelineSummary(),
+    getForecastConfig(),
   ])
 
   return (
@@ -30,8 +30,11 @@ export default async function ForecastPage() {
           here is editable. Stages included in the forecast are configured in
           Settings → Funnel Stages.
         </p>
-        <ForecastCharts rows={rows} pipeline={pipeline} />
-        <ForecastClient rows={rows} />
+        <ForecastView
+          rows={rows}
+          pipeline={pipeline}
+          fiscalYearStartMonth={config.fiscalYearStartMonth}
+        />
       </PageBody>
     </>
   )

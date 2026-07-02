@@ -77,8 +77,10 @@ import {
   deleteRole,
   getRolePermissions,
   setRolePermissions,
+  revokePendingInvite,
   type TeamMemberView,
   type TeamRoleView,
+  type PendingInviteView,
 } from "./actions"
 
 // ─── Permission metadata (UI-only help + danger flags) ───────────────────────
@@ -205,7 +207,11 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
       toast.error(res.error)
       return
     }
-    toast.success("Member added")
+    toast.success(
+      res.data.invited
+        ? "Invitation recorded — they join automatically on first sign-in"
+        : "Member added"
+    )
     setOpen(false)
     router.refresh()
   }
@@ -224,8 +230,8 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
         <DialogHeader>
           <DialogTitle>Add member</DialogTitle>
           <DialogDescription>
-            Invite an existing user by email. They must have signed in at least
-            once.
+            Add someone by email. If they haven&apos;t signed in yet, a pending
+            invite is recorded and they join automatically on first sign-in.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="grid gap-4">
@@ -1064,12 +1070,61 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
 
 // ─── Shell ───────────────────────────────────────────────────────────────────
 
+/** Invites waiting on the person's first sign-in, with revoke. */
+function PendingInvitesCard({ invites }: { invites: PendingInviteView[] }) {
+  const router = useRouter()
+  if (invites.length === 0) return null
+  return (
+    <div className="rounded-lg border p-4">
+      <h3 className="text-sm font-semibold">Pending invites</h3>
+      <p className="text-xs text-muted-foreground">
+        These people join automatically (with the role and tier below) the
+        first time they sign in.
+      </p>
+      <div className="mt-3 grid gap-2">
+        {invites.map((inv) => (
+          <div
+            key={inv.id}
+            className="flex flex-wrap items-center justify-between gap-2 text-sm"
+          >
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{inv.email}</span>
+              <Badge variant="outline">{inv.roleName ?? "Rep"}</Badge>
+              <span className="text-xs text-muted-foreground">
+                Tier {inv.tierLevel}
+                {inv.invitedByName ? ` · invited by ${inv.invitedByName}` : ""}
+              </span>
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                const res = await revokePendingInvite(inv.id)
+                if (!res.ok) {
+                  toast.error(res.error)
+                  return
+                }
+                toast.success("Invite revoked")
+                router.refresh()
+              }}
+            >
+              Revoke
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function TeamClient({
   members,
   roles,
+  invites = [],
 }: {
   members: TeamMemberView[]
   roles: TeamRoleView[]
+  invites?: PendingInviteView[]
 }) {
   return (
     <Tabs defaultValue="members" className="w-full">
@@ -1078,7 +1133,8 @@ export function TeamClient({
         <TabsTrigger value="roles">Roles</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="members" className="mt-4">
+      <TabsContent value="members" className="mt-4 grid gap-4">
+        <PendingInvitesCard invites={invites} />
         <MembersTab members={members} roles={roles} />
       </TabsContent>
 

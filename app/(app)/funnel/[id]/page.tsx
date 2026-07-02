@@ -11,6 +11,7 @@ import {
   listProjectNatures,
   listCustomFunnelFields,
   listEntities,
+  listCurrencies,
 } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
@@ -59,6 +60,7 @@ export default async function OpportunityDetailPage({
     dealCosts,
     contractYears,
     entities,
+    currencies,
   ] = await Promise.all([
     requireContext(),
     listAccountOptions(),
@@ -74,6 +76,7 @@ export default async function OpportunityDetailPage({
     listDealCosts(id),
     listContractYears(id),
     listEntities(),
+    listCurrencies(),
   ])
 
   // Resolve the project-nature display name for the overview (falls back to the
@@ -210,6 +213,7 @@ export default async function OpportunityDetailPage({
                 projectNatures={projectNatures}
                 customFieldDefs={customFunnelFields}
                 entityOptions={entities}
+                currencies={currencies}
                 defaultOwnerMemberId={ctx.memberId}
                 opportunity={editRow}
                 trigger={<Button variant="outline">Edit</Button>}
@@ -287,6 +291,7 @@ export default async function OpportunityDetailPage({
           projectYear={opp.projectYear}
           isIntercompany={opp.isIntercompany}
           handlingPartnerName={detail.handlingPartnerName}
+          partnerResponse={detail.partnerResponse}
           expectedCloseDate={opp.expectedCloseDate}
           createdAt={opp.createdAt}
           stageName={stage.name}

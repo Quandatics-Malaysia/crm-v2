@@ -10,6 +10,7 @@ import {
   roles,
   rolePermissions,
   permissions as permissionsTable,
+  tenantSettings,
 } from "@/db/schema"
 import type { PermissionKey } from "@/lib/permissions"
 
@@ -25,6 +26,8 @@ export type ServerContext = {
   roleName: string | null
   /** Membership lifecycle. A non-active member has zero effective permissions. */
   status: "active" | "invited" | "disabled"
+  /** Tenant lifecycle — a suspended tenant is locked for everyone in it. */
+  tenantSuspended: boolean
   permissions: Set<string>
   can: (key: PermissionKey | string) => boolean
 }
@@ -81,6 +84,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       tierLevel: 0,
       roleName: null,
       status: "active",
+      tenantSuspended: false,
       permissions: new Set(),
       can: () => isSuperadmin,
     }
@@ -110,6 +114,15 @@ export async function getServerContext(): Promise<ServerContext | null> {
       .where(eq(membershipProfiles.memberId, memberRow.id))
       .limit(1)
 
+    // Tenant lifecycle: `tenant_settings.status = 'suspended'` locks the
+    // whole entity (previously a dead flag — it was never consulted).
+    const [settings] = await tx
+      .select({ status: tenantSettings.status })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, tenantId))
+      .limit(1)
+    const tenantSuspended = settings?.status === "suspended"
+
     let roleName: string | null = null
     const permKeys: string[] = []
 
@@ -137,12 +150,14 @@ export async function getServerContext(): Promise<ServerContext | null> {
       roleName,
       permKeys,
       status: (profile?.status ?? "active") as ServerContext["status"],
+      tenantSuspended,
     }
   })
 
-  // A disabled (or not-yet-active/invited) member keeps no effective
-  // permissions — every assertCan fails, locking them out without a hard delete.
-  const isActive = resolved.status === "active"
+  // A disabled (or not-yet-active/invited) member — or anyone in a suspended
+  // tenant — keeps no effective permissions: every assertCan fails, locking
+  // them out without a hard delete.
+  const isActive = resolved.status === "active" && !resolved.tenantSuspended
   const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {
@@ -155,17 +170,24 @@ export async function getServerContext(): Promise<ServerContext | null> {
     tierLevel: resolved.tierLevel,
     roleName: resolved.roleName,
     status: resolved.status,
+    tenantSuspended: resolved.tenantSuspended,
     permissions: perms,
     can: (key) => isSuperadmin || perms.has(key as string),
   }
 }
 
-/** Throws if unauthenticated, has no active tenant, or the membership is not
- * active (e.g. disabled/invited). Use in server actions. */
+/** Throws if unauthenticated, has no active tenant, the tenant is suspended,
+ * or the membership is not active (e.g. disabled/invited). Use in server
+ * actions. */
 export async function requireContext(): Promise<ServerContext> {
   const ctx = await getServerContext()
   if (!ctx) throw new Error("UNAUTHENTICATED")
   if (!ctx.tenantId) throw new Error("NO_ACTIVE_TENANT")
+  if (ctx.tenantSuspended) {
+    throw new Error(
+      "This organization is suspended. Contact your administrator."
+    )
+  }
   if (ctx.status !== "active") {
     throw new Error("Your membership in this organization is not active.")
   }

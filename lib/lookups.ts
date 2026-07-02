@@ -14,6 +14,11 @@ import {
 } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
+import {
+  DEFAULT_CURRENCIES,
+  DEFAULT_LEAD_SOURCES,
+  DEFAULT_LOSS_REASONS,
+} from "@/lib/tenant-defaults"
 
 export type MemberOption = { memberId: string; name: string; email: string }
 export type Option = { id: string; name: string }
@@ -122,6 +127,75 @@ export async function listEntities(): Promise<Option[]> {
     .innerJoin(organization, eq(member.organizationId, organization.id))
     .where(and(eq(member.userId, ctx.userId), ne(organization.id, ctx.tenantId)))
   return rows.map((r) => ({ id: r.id, name: r.name }))
+}
+
+/**
+ * Tenant currency picklist (Settings → General); falls back to the built-in
+ * defaults when unconfigured. First entry = default currency for new deals.
+ */
+export async function listCurrencies(): Promise<string[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ currencies: tenantSettings.currencies })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.currencies?.length ? s.currencies : DEFAULT_CURRENCIES
+}
+
+export type FormPresets = {
+  /** Preset country for new account addresses ("" = none). */
+  defaultCountry: string
+  /** Preset dialing prefix for empty phone fields ("" = none). */
+  phonePrefix: string
+}
+
+/** Tenant form presets (Settings → General) — prefill values that reduce
+ *  repetitive typing and typos on create forms. */
+export async function getFormPresets(): Promise<FormPresets> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({
+        defaultCountry: tenantSettings.defaultCountry,
+        phonePrefix: tenantSettings.phonePrefix,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return {
+    defaultCountry: s?.defaultCountry ?? "",
+    phonePrefix: s?.phonePrefix ?? "",
+  }
+}
+
+/** Lead-source picklist (Settings → Industries tab); built-in defaults when unset. */
+export async function listLeadSources(): Promise<string[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ leadSources: tenantSettings.leadSources })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.leadSources?.length ? s.leadSources : DEFAULT_LEAD_SOURCES
+}
+
+/** Loss/disqualify reason picklist; built-in defaults when unset. */
+export async function listLossReasons(): Promise<string[]> {
+  const ctx = await requireContext()
+  const [s] = await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .select({ lossReasons: tenantSettings.lossReasons })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+  )
+  return s?.lossReasons?.length ? s.lossReasons : DEFAULT_LOSS_REASONS
 }
 
 export type CountryOption = { name: string; states: string[] }

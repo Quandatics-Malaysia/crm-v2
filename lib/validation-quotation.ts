@@ -15,6 +15,8 @@ const isNumber = (v: string) => v.trim() !== "" && Number.isFinite(Number(v))
 export const quotationLineSchema = z.object({
   /** Optional link to a catalog product the line was created from. */
   productId: z.string().optional(),
+  /** Optional project-nature code this line bills under (per-nature split). */
+  projectNatureCode: z.string().optional(),
   /** Unit of measure (filled from the product, editable). */
   uom: z.string().optional(),
   description: z.string().trim().min(1, "Required"),

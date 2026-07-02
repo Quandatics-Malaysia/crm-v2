@@ -168,9 +168,12 @@ function RowActions({
 export function PersonsTable({
   data,
   accounts,
+  phonePrefix = "",
 }: {
   data: PersonListItem[]
   accounts: Option[]
+  /** Tenant dialing prefix prefilled on create. */
+  phonePrefix?: string
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -275,6 +278,7 @@ export function PersonsTable({
         canCreate ? (
           <PersonForm
             accounts={accounts}
+            phonePrefix={phonePrefix}
             trigger={
               <Button size="sm">
                 <Plus className="size-4" />
@@ -295,6 +299,7 @@ export function PersonsTable({
         canCreate ? (
           <PersonForm
             accounts={accounts}
+            phonePrefix={phonePrefix}
             open={newOpen}
             onOpenChange={setNewOpen}
             trigger={

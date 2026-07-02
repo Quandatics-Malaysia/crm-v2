@@ -52,6 +52,10 @@ const weightedConfig = {
     label: "Weighted",
     color: "var(--primary)",
   },
+  recognizedValue: {
+    label: "Recognized",
+    color: "var(--chart-2)",
+  },
 } satisfies ChartConfig
 
 const stageConfig = {
@@ -61,7 +65,13 @@ const stageConfig = {
   },
 } satisfies ChartConfig
 
-type MonthDatum = { sortKey: string; month: string; weightedValue: number }
+type MonthDatum = {
+  sortKey: string
+  month: string
+  weightedValue: number
+  /** Weighted value × the entity's recognized % (its own cut on interco deals). */
+  recognizedValue: number
+}
 type StageDatum = {
   sortOrder: number
   stage: string
@@ -89,8 +99,10 @@ export function ForecastCharts({
         sortKey,
         month: monthLabel(r.forecastMonth),
         weightedValue: 0,
+        recognizedValue: 0,
       }
       existing.weightedValue += Number(r.weightedValue ?? 0)
+      existing.recognizedValue += Number(r.recognizedWeightedValue ?? 0)
       map.set(sortKey, existing)
       byCur.set(currency, map)
     }
@@ -224,6 +236,11 @@ export function ForecastCharts({
                       <Bar
                         dataKey="weightedValue"
                         fill="var(--color-weightedValue)"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="recognizedValue"
+                        fill="var(--color-recognizedValue)"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>

@@ -35,7 +35,7 @@ export default async function QuotationPreviewPage({
   const doc = await getQuotationDocument(id)
   if (!doc) notFound()
 
-  const { quotation: q, lines, account, contact, entityName } = doc
+  const { quotation: q, lines, account, contact, entityName, company } = doc
   const currency = q.currency
   const subtotal = Number(q.subtotal)
   const discountTotal = Number(q.discountTotal)
@@ -70,8 +70,37 @@ export default async function QuotationPreviewPage({
         <div className="p-10 print:p-8">
           <header className="flex items-start justify-between gap-6 border-b border-zinc-200 pb-6">
             <div>
+              {company.hasLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/api/tenant-logo"
+                  alt={entityName}
+                  className="mb-2 h-12 max-w-52 object-contain object-left"
+                />
+              ) : null}
               <h1 className="text-2xl font-bold tracking-tight">{entityName}</h1>
-              <p className="mt-1 text-xs font-medium uppercase tracking-[0.2em] text-zinc-400">
+              {company.registrationNo ? (
+                <p className="text-xs text-zinc-500">
+                  Reg. no. {company.registrationNo}
+                </p>
+              ) : null}
+              {company.address ? (
+                <p className="mt-1 text-xs whitespace-pre-line text-zinc-600">
+                  {company.address}
+                </p>
+              ) : null}
+              {(company.phone || company.email || company.website) && (
+                <p className="mt-1 text-xs text-zinc-600">
+                  {[
+                    company.phone ? `Tel: ${company.phone}` : null,
+                    company.email,
+                    company.website,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              <p className="mt-2 text-xs font-medium uppercase tracking-[0.2em] text-zinc-400">
                 Quotation
               </p>
             </div>
@@ -213,6 +242,28 @@ export default async function QuotationPreviewPage({
               Notes
             </h2>
             <p className="mt-1.5 whitespace-pre-wrap text-zinc-600">{q.notes}</p>
+          </section>
+        ) : null}
+
+        {company.bankDetails ? (
+          <section className="avoid-break mt-8 border-t border-zinc-200 pt-4">
+            <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+              Payment details
+            </h2>
+            <p className="mt-1.5 whitespace-pre-wrap text-zinc-600">
+              {company.bankDetails}
+            </p>
+          </section>
+        ) : null}
+
+        {company.quoteFooter ? (
+          <section className="avoid-break mt-8 border-t border-zinc-200 pt-4">
+            <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+              Terms
+            </h2>
+            <p className="mt-1.5 whitespace-pre-wrap text-[11px] text-zinc-500">
+              {company.quoteFooter}
+            </p>
           </section>
         ) : null}
 

@@ -4,20 +4,9 @@ import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { formatMoney } from "@/lib/format"
 import type { ProjectListItem } from "./actions"
-
-const statusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
 
 const columns: ColumnDef<ProjectListItem>[] = [
   {
@@ -62,14 +51,7 @@ const columns: ColumnDef<ProjectListItem>[] = [
   {
     accessorKey: "status",
     header: "Status",
-    cell: ({ row }) => (
-      <Badge
-        variant={statusVariant[row.original.status] ?? "secondary"}
-        className="capitalize"
-      >
-        {row.original.status.replace(/_/g, " ")}
-      </Badge>
-    ),
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
   },
   {
     accessorKey: "value",

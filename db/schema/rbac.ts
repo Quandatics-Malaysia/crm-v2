@@ -8,8 +8,10 @@ import {
   char,
   jsonb,
   unique,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 import { organization, member } from "./auth"
 import { timestamps } from "./_helpers"
 
@@ -86,6 +88,81 @@ export const tenantSettings = pgTable("tenant_settings", {
     .default([]),
   /** Role name granted to auto-joined users (falls back to "Rep"). */
   autoJoinRole: text("auto_join_role"),
+  /**
+   * Explicit allow-list of sibling entity (organization) ids this tenant may
+   * pick as an intercompany handling partner. NULL/empty = legacy behavior
+   * (any entity the acting user belongs to). Once configured, only listed
+   * entities are valid partners — closes the hole where a user's unrelated
+   * membership (consultant, test tenant) counts as a "sibling".
+   */
+  intercompanyPartnerIds: jsonb("intercompany_partner_ids").$type<string[]>(),
+  /**
+   * Tenant-managed ISO-4217 currency picklist for deal/quote forms.
+   * NULL/empty = the built-in default set (lib/tenant-defaults.ts).
+   */
+  currencies: jsonb("currencies").$type<string[]>(),
+  /**
+   * Tenant-managed payment-term picklist for sales-order submissions.
+   * NULL/empty = the built-in defaults (COD, 30/45/60/90 days).
+   */
+  paymentTerms: jsonb("payment_terms").$type<string[]>(),
+  /**
+   * Default quotation validity in days: prefills "Valid until" on a new quote
+   * as today + N days. NULL = no prefill.
+   */
+  quoteValidDays: integer("quote_valid_days"),
+  /** Dashboard "follow-ups due soon" window in days. NULL = 7. */
+  followUpDueDays: integer("follow_up_due_days"),
+  /**
+   * Automation: when a quotation is accepted, auto-create the delivery
+   * project from it (best-effort — skipped with a warning when the account
+   * has no code or the actor lacks project.create).
+   */
+  autoCreateProjectOnAccept: boolean("auto_create_project_on_accept")
+    .notNull()
+    .default(false),
+  /**
+   * Payment-split template auto-seeded onto a new project that has a value:
+   * each entry is a milestone title + percent of the project value. The last
+   * milestone absorbs rounding so the sum always reconciles exactly.
+   */
+  milestoneTemplate: jsonb("milestone_template").$type<
+    { title: string; percent: number }[]
+  >(),
+  /**
+   * Nudge threshold: an OPEN funnel with no activity for this many days shows
+   * on its owner's dashboard as stale. NULL = nudges off.
+   */
+  staleDealDays: integer("stale_deal_days"),
+  /**
+   * Automation: creating a lead also creates a "First contact" follow-up due
+   * this many days later for the lead's owner. NULL = off.
+   */
+  leadFollowUpDays: integer("lead_follow_up_days"),
+  /** Preset country for new account addresses (from the countries picklist). */
+  defaultCountry: text("default_country"),
+  /** Preset dialing prefix (e.g. "+60 ") prefilled into empty phone fields. */
+  phonePrefix: text("phone_prefix"),
+  /** Where a lead came from (picklist; NULL/empty = built-in defaults). */
+  leadSources: jsonb("lead_sources").$type<string[]>(),
+  /** Deal-lost / lead-disqualify reasons (shared picklist; NULL = defaults). */
+  lossReasons: jsonb("loss_reasons").$type<string[]>(),
+  /** Sales-order document kinds (picklist; NULL/empty = built-in defaults). */
+  soDocumentKinds: jsonb("so_document_kinds").$type<string[]>(),
+  // ── Company profile — rendered onto customer-facing documents (quotes) ──
+  /** Postal address block (multiline). */
+  companyAddress: text("company_address"),
+  companyRegistrationNo: text("company_registration_no"),
+  companyPhone: text("company_phone"),
+  companyEmail: text("company_email"),
+  companyWebsite: text("company_website"),
+  /** Bank / payment instructions block (multiline), printed on quotes. */
+  bankDetails: text("bank_details"),
+  /** Footer / terms & conditions text printed at the bottom of quotes. */
+  quoteFooter: text("quote_footer"),
+  /** Storage key + content type of the uploaded company logo. */
+  logoStorageKey: text("logo_storage_key"),
+  logoContentType: text("logo_content_type"),
   /** Quotation numbering config. */
   quotePrefix: text("quote_prefix").notNull().default("Q-"),
   quoteNextNumber: integer("quote_next_number").notNull().default(1),
@@ -145,6 +222,36 @@ export const rolePermissions = pgTable(
       .references(() => permissions.id, { onDelete: "cascade" }),
   },
   (t) => [primaryKey({ columns: [t.roleId, t.permissionId] })]
+)
+
+/**
+ * An invitation for someone who has NOT signed in yet. `addMember` handles
+ * users who already exist; this covers the rest: an admin invites by email,
+ * and the auth user-creation hook consumes the invite on first sign-in,
+ * creating the member + profile with the invited role/tier. Exact-email
+ * invites take precedence over domain auto-join.
+ */
+export const pendingInvites = pgTable(
+  "pending_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    roleId: uuid("role_id").references(() => roles.id, { onDelete: "set null" }),
+    tierLevel: integer("tier_level").notNull().default(0),
+    invitedByMemberId: text("invited_by_member_id").references(() => member.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("pending_invites_email_uq").on(
+      t.tenantId,
+      sql`lower(${t.email})`
+    ),
+  ]
 )
 
 /**

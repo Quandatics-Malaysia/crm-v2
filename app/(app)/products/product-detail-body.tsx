@@ -8,21 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable, SortableHeader } from "@/components/data-table"
+import { StatusBadge } from "@/components/status-badge"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { formatMoney } from "@/lib/format"
 import type { ProductRow, ProductUsageRow } from "./actions"
 
-const quoteStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  draft: "outline",
-  sent: "secondary",
-  accepted: "default",
-  rejected: "destructive",
-  expired: "outline",
-  void: "outline",
-}
+// Status pill: rendered by the app-wide <StatusBadge> tone map.
 
 /**
  * Salesperson-friendly product detail: a left column with the price and key
@@ -76,14 +67,7 @@ export function ProductDetailBody({
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge
-            variant={quoteStatusVariant[row.original.status] ?? "secondary"}
-            className="capitalize"
-          >
-            {row.original.status}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         accessorKey: "total",

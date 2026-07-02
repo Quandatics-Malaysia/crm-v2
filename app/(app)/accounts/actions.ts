@@ -473,11 +473,65 @@ async function assertEndUserValid(
   }
 }
 
+export type SimilarAccount = { id: string; name: string }
+
+/**
+ * Near-miss duplicate check for the create form (pg_trgm similarity): catches
+ * "ACME Sdn. Bhd." vs "Acme Sdn Bhd" that the exact-match guard can't. Warn-
+ * only — the caller renders a notice, never a block. Degrades to [] when the
+ * extension isn't installed yet (pre-migration environments).
+ */
+export async function findSimilarAccounts(
+  name: string
+): Promise<SimilarAccount[]> {
+  const q = name.trim()
+  if (q.length < 3) return []
+  try {
+    return await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx) => {
+      const rows = await tx
+        .select({ id: accounts.id, name: accounts.name })
+        .from(accounts)
+        .where(
+          and(
+            isNull(accounts.deletedAt),
+            sql`similarity(${accounts.name}, ${q}) > 0.4`,
+            // The exact match is handled (blocked) by createAccount itself.
+            sql`lower(${accounts.name}) <> lower(${q})`
+          )
+        )
+        .orderBy(sql`similarity(${accounts.name}, ${q}) desc`)
+        .limit(5)
+      return rows
+    })
+  } catch {
+    return []
+  }
+}
+
 export async function createAccount(
   input: AccountInput
 ): Promise<ActionResult<AccountRow>> {
   return runAction(async () => {
     const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
+      // Duplicate guard: an exact (case-insensitive) name match almost always
+      // means the account already exists — block with a pointer instead of
+      // silently forking the customer's history across two records.
+      const [dup] = await tx
+        .select({ name: accounts.name })
+        .from(accounts)
+        .where(
+          and(
+            sql`lower(${accounts.name}) = lower(${input.name.trim()})`,
+            isNull(accounts.deletedAt)
+          )
+        )
+        .limit(1)
+      if (dup) {
+        throw new Error(
+          `An account named "${dup.name}" already exists — open it instead, or use a distinct name (e.g. add the branch or region).`
+        )
+      }
+
       // User-entered code is validated + uniqueness-checked; a blank code is
       // auto-generated from the name so accounts.code is always populated (it
       // feeds the project code).

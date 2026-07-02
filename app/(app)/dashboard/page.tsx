@@ -6,6 +6,7 @@ import {
   Inbox,
   UserPlus,
   Building2,
+  HourglassIcon,
 } from "lucide-react"
 import { isBefore } from "date-fns"
 
@@ -265,6 +266,49 @@ export default async function DashboardPage() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Stale funnels — only rendered when the nudge is configured */}
+              {data.staleDealDays != null ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <HourglassIcon className="size-4" />
+                      Stale Funnels
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {data.staleDeals.length === 0 ? (
+                      <EmptyState
+                        icon={HourglassIcon}
+                        title="Nothing going cold"
+                        description={`Your open funnels with no activity for ${data.staleDealDays} days will show here.`}
+                      />
+                    ) : (
+                      <div className="flex flex-col divide-y">
+                        {data.staleDeals.map((d) => (
+                          <RowLink key={d.id} href={`/funnel/${d.id}`}>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">
+                                {d.name}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                Last touched {formatDate(d.lastTouchAt)}
+                              </p>
+                            </div>
+                            <Badge variant="secondary" className="shrink-0">
+                              {Math.floor(
+                                (now.getTime() - d.lastTouchAt.getTime()) /
+                                  86_400_000
+                              )}
+                              d idle
+                            </Badge>
+                          </RowLink>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
           </>
         )}

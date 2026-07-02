@@ -28,7 +28,19 @@ SELECT
   ROUND(
     COALESCE(o.estimated_amount, 0) * fs.probability / 100.0,
     2
-  )                                          AS weighted_value
+  )                                          AS weighted_value,
+  -- Appended last: CREATE OR REPLACE VIEW requires existing column order.
+  o.recognized_percent,
+  -- The tenant's OWN expected cut: on an intercompany middle-man deal only
+  -- recognized_percent of the value is this entity's revenue (NULL = 100%,
+  -- a fully-owned deal). Same estimated basis as weighted_value so the two
+  -- columns stay comparable.
+  ROUND(
+    COALESCE(o.estimated_amount, 0)
+      * fs.probability / 100.0
+      * COALESCE(o.recognized_percent, 100) / 100.0,
+    2
+  )                                          AS recognized_weighted_value
 FROM opportunities o
 JOIN funnel_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL

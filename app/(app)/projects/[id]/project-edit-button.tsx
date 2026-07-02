@@ -33,14 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { updateProject, type ProjectRow } from "../actions"
-
-const STATUS_OPTIONS = [
-  { value: "planning", label: "Planning" },
-  { value: "active", label: "Active" },
-  { value: "on_hold", label: "On hold" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-]
+import { PROJECT_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
 
 const schema = z.object({
   name: z.string().trim().min(1, "Name is required"),

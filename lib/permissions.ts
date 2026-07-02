@@ -55,6 +55,8 @@ export const PERMISSIONS = {
   SALES_ORDER_APPROVE: "sales_order.approve",
   // reporting
   FORECAST_VIEW: "forecast.view",
+  /** Inbound intercompany deals — deals sibling entities assigned to this entity. */
+  INTERCOMPANY_VIEW: "intercompany.view",
   // tenant administration
   TENANT_MANAGE_USERS: "tenant.manage_users",
   TENANT_MANAGE_ROLES: "tenant.manage_roles",
@@ -119,6 +121,7 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.TAX_CONFIGURE,
   PERMISSIONS.FUNNEL_MANAGE,
   PERMISSIONS.AUDIT_VIEW,
+  PERMISSIONS.INTERCOMPANY_VIEW,
 ]
 
 /** Grouped, human-labeled catalog for the role permission-matrix UI. */
@@ -209,6 +212,10 @@ export const PERMISSION_GROUPS: {
     group: "Reporting",
     items: [
       { key: PERMISSIONS.FORECAST_VIEW, label: "View forecast" },
+      {
+        key: PERMISSIONS.INTERCOMPANY_VIEW,
+        label: "View inbound intercompany deals",
+      },
       { key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" },
     ],
   },

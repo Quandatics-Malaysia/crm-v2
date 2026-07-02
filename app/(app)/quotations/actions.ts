@@ -32,6 +32,10 @@ import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
 import { toDateString } from "@/lib/dates"
+import {
+  createProject,
+  prefillFromOpportunity,
+} from "@/app/(app)/projects/actions"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -42,6 +46,8 @@ export type QuotationListItem = QuotationRow & {
 
 export type LineInput = {
   productId?: string | null
+  /** Project-nature code this line bills under (per-nature revenue split). */
+  projectNatureCode?: string | null
   uom?: string | null
   description: string
   quantity: string
@@ -127,6 +133,17 @@ export type QuotationDocument = {
   quotation: QuotationRow
   lines: QuotationLineRow[]
   entityName: string
+  /** Company profile from Settings — the sender block, bank details, footer. */
+  company: {
+    address: string | null
+    registrationNo: string | null
+    phone: string | null
+    email: string | null
+    website: string | null
+    bankDetails: string | null
+    quoteFooter: string | null
+    hasLogo: boolean
+  }
   account: {
     name: string
     code: string | null
@@ -227,10 +244,35 @@ export async function getQuotationDocument(
       .where(eq(organization.id, ctx.tenantId))
       .limit(1)
 
+    const [profile] = await tx
+      .select({
+        address: tenantSettings.companyAddress,
+        registrationNo: tenantSettings.companyRegistrationNo,
+        phone: tenantSettings.companyPhone,
+        email: tenantSettings.companyEmail,
+        website: tenantSettings.companyWebsite,
+        bankDetails: tenantSettings.bankDetails,
+        quoteFooter: tenantSettings.quoteFooter,
+        logoStorageKey: tenantSettings.logoStorageKey,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+
     return {
       quotation: row.q,
       lines,
       entityName: org?.name ?? "Quotation",
+      company: {
+        address: profile?.address ?? null,
+        registrationNo: profile?.registrationNo ?? null,
+        phone: profile?.phone ?? null,
+        email: profile?.email ?? null,
+        website: profile?.website ?? null,
+        bankDetails: profile?.bankDetails ?? null,
+        quoteFooter: profile?.quoteFooter ?? null,
+        hasLogo: !!profile?.logoStorageKey,
+      },
       account,
       contact,
     }
@@ -305,6 +347,8 @@ export async function getQuotationFormMeta(): Promise<{
   taxInclusive: boolean
   projectNatures: { code: string; name: string }[]
   products: ProductOption[]
+  /** Prefill for "Valid until" (today + tenant quote_valid_days), or null. */
+  defaultValidUntil: string | null
 }> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const taxOptions = await tx
@@ -319,10 +363,19 @@ export async function getQuotationFormMeta(): Promise<{
       .orderBy(asc(taxSettings.name))
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
     const [settings] = await tx
-      .select({ projectNatures: tenantSettings.projectNatures })
+      .select({
+        projectNatures: tenantSettings.projectNatures,
+        quoteValidDays: tenantSettings.quoteValidDays,
+      })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
+    let defaultValidUntil: string | null = null
+    if (settings?.quoteValidDays) {
+      const d = new Date()
+      d.setDate(d.getDate() + settings.quoteValidDays)
+      defaultValidUntil = toDateString(d)
+    }
     const productOptions = await tx
       .select({
         id: products.id,
@@ -340,6 +393,7 @@ export async function getQuotationFormMeta(): Promise<{
       taxInclusive,
       projectNatures: settings?.projectNatures ?? [],
       products: productOptions,
+      defaultValidUntil,
     }
   })
 }
@@ -577,6 +631,7 @@ async function insertLines(
       tenantId,
       quotationId,
       productId: l.productId?.trim() || null,
+      projectNatureCode: l.projectNatureCode?.trim() || null,
       uom: l.uom?.trim() || null,
       description: l.description,
       quantity: l.quantity || "0",
@@ -707,6 +762,8 @@ export type AcceptQuotationResult = {
    * win is pending approval rather than presenting the deal as won.
    */
   pendingApproval?: boolean
+  /** Set when auto-create-project is on and the delivery project was created. */
+  projectCreated?: { id: string; projectCode: string }
 }
 
 export async function acceptQuotation(
@@ -789,7 +846,10 @@ export async function acceptQuotation(
     await syncOpportunityAmount(tx, ctx, q.opportunityId)
 
     const [settings] = await tx
-      .select({ autoWin: tenantSettings.autoWinOnQuoteAccept })
+      .select({
+        autoWin: tenantSettings.autoWinOnQuoteAccept,
+        autoProject: tenantSettings.autoCreateProjectOnAccept,
+      })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
@@ -812,6 +872,8 @@ export async function acceptQuotation(
       opportunityId: q.opportunityId,
       accountId: opp.accountId,
       autoWin: settings?.autoWin ?? false,
+      autoProject: settings?.autoProject ?? false,
+      quotationId: id,
     }
   })
 
@@ -844,6 +906,56 @@ export async function acceptQuotation(
     }
   }
 
+  // Automation: auto-create the delivery project (Settings → Behavior). Runs
+  // AFTER acceptance committed and is strictly best-effort — a failure (no
+  // account code yet, missing permission, duplicate code race) surfaces as a
+  // warning, never as a failed acceptance.
+  let projectCreated: AcceptQuotationResult["projectCreated"]
+  if (result.autoProject) {
+    try {
+      const ctx = await requireContext()
+      if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) {
+        throw new Error("you don't have the Create projects permission")
+      }
+      // Skip when a project already exists for this quotation.
+      const existing = await withTenant(
+        PERMISSIONS.PROJECT_CREATE,
+        async (tx) => {
+          const [p] = await tx
+            .select({ id: projects.id })
+            .from(projects)
+            .where(
+              and(
+                eq(projects.quotationId, result.quotationId),
+                isNull(projects.deletedAt)
+              )
+            )
+            .limit(1)
+          return p ?? null
+        }
+      )
+      if (!existing) {
+        const prefill = await prefillFromOpportunity(result.opportunityId)
+        if (!prefill) throw new Error("the funnel could not be loaded")
+        const created = await createProject({
+          name: prefill.opportunityName,
+          accountId: prefill.accountId,
+          opportunityId: result.opportunityId,
+          quotationId: prefill.quotationId ?? result.quotationId,
+          value: prefill.value,
+          currency: prefill.currency,
+          projectNatureCode: prefill.projectNatureCode || undefined,
+        })
+        if (!created.ok) throw new Error(created.error)
+        projectCreated = created.data
+      }
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "unknown error"
+      const note = `Quotation accepted, but the project was not auto-created (${detail}). Create it from the funnel when ready.`
+      warning = warning ? `${warning} ${note}` : note
+    }
+  }
+
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
   return {
@@ -851,6 +963,7 @@ export async function acceptQuotation(
     accountId: result.accountId,
     warning,
     pendingApproval,
+    projectCreated,
   }
   })
 }

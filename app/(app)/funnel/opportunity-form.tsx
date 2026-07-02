@@ -50,24 +50,7 @@ import {
   type OpportunityListRow,
 } from "./actions"
 
-/** Common ISO-4217 currencies offered in the picker (default is the first). */
-const CURRENCIES = [
-  "MYR",
-  "USD",
-  "SGD",
-  "EUR",
-  "GBP",
-  "AUD",
-  "JPY",
-  "CNY",
-  "HKD",
-  "IDR",
-  "THB",
-  "PHP",
-  "VND",
-  "INR",
-  "AED",
-] as const
+import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -105,6 +88,7 @@ export function OpportunityForm({
   projectNatures = [],
   customFieldDefs = [],
   entityOptions = [],
+  currencies = DEFAULT_CURRENCIES,
   defaultOwnerMemberId,
   opportunity,
   trigger,
@@ -120,6 +104,8 @@ export function OpportunityForm({
   customFieldDefs?: CustomFunnelField[]
   /** Other entities the user belongs to — the only valid intercompany partners. */
   entityOptions?: Option[]
+  /** Tenant currency picklist (Settings → General); first = default. */
+  currencies?: string[]
   defaultOwnerMemberId: string | null
   opportunity?: OpportunityListRow
   trigger?: React.ReactElement
@@ -182,7 +168,7 @@ export function OpportunityForm({
           funnelId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
-          currency: "MYR",
+          currency: currencies[0] ?? "MYR",
           natureCodes: [],
           expectedCloseDate: "",
           estimatedAmount: "",
@@ -483,7 +469,7 @@ export function OpportunityForm({
                     value={field.value}
                     onValueChange={field.onChange}
                     disabled={currencyLocked}
-                    items={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                    items={currencies.map((c) => ({ value: c, label: c }))}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -491,7 +477,7 @@ export function OpportunityForm({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {CURRENCIES.map((c) => (
+                      {currencies.map((c) => (
                         <SelectItem key={c} value={c}>
                           {c}
                         </SelectItem>

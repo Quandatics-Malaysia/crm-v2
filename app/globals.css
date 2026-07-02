@@ -223,3 +223,12 @@
     break-inside: avoid;
   }
 }
+/* Per-user text-size preference (components/text-size-toggle.tsx). The UI is
+   rem-based, so scaling the root font-size scales the whole interface —
+   an accessibility control for users who find the default too small. */
+html.text-scale-lg {
+  font-size: 17.5px;
+}
+html.text-scale-xl {
+  font-size: 19px;
+}

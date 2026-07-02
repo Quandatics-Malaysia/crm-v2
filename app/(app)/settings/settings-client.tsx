@@ -36,6 +36,7 @@ import {
   type CustomFunnelField,
   type CustomFieldType,
 } from "@/lib/stage-gate"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -88,7 +89,26 @@ import {
   deleteStage,
   reorderStages,
   updateAutoJoin,
+  updateIntercompanyPartners,
+  updateCurrencies,
+  updatePaymentTerms,
+  updateLeadSources,
+  updateLossReasons,
+  updateSoDocumentKinds,
+  updateMilestoneTemplate,
+  updateCompanyProfile,
+  uploadCompanyLogo,
+  removeCompanyLogo,
+  type CompanyProfile,
 } from "./actions"
+import {
+  DEFAULT_CURRENCIES,
+  DEFAULT_PAYMENT_TERMS,
+  DEFAULT_LEAD_SOURCES,
+  DEFAULT_LOSS_REASONS,
+  DEFAULT_SO_DOCUMENT_KINDS,
+} from "@/lib/tenant-defaults"
+import { Textarea } from "@/components/ui/textarea"
 import type {
   TenantSettingsView,
   TenantMemberView,
@@ -123,6 +143,30 @@ const generalSchema = z.object({
     .transform((v) => v.toUpperCase()),
   fiscalYearStartMonth: z.coerce.number().int().min(1, "1–12").max(12, "1–12"),
   approvalBypassTier: z.coerce.number().int().min(0, "Must be ≥ 0"),
+  followUpDueDays: z.coerce.number().int().min(1, "1–90").max(90, "1–90"),
+  autoCreateProjectOnAccept: z.boolean(),
+  /** Empty = feature off. */
+  staleDealDays: z
+    .string()
+    .trim()
+    .refine(
+      (v) =>
+        v === "" ||
+        (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365),
+      "1–365 days"
+    ),
+  /** Empty = feature off. */
+  leadFollowUpDays: z
+    .string()
+    .trim()
+    .refine(
+      (v) =>
+        v === "" ||
+        (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365),
+      "1–365 days"
+    ),
+  defaultCountry: z.string().trim().optional().default(""),
+  phonePrefix: z.string().trim().max(8, "Keep it short").optional().default(""),
   entityCode: z.string().trim().max(16, "Keep it short").optional().default(""),
   taxInclusive: z.boolean(),
   autoWinOnQuoteAccept: z.boolean(),
@@ -133,7 +177,11 @@ type GeneralValues = z.input<typeof generalSchema>
 type GeneralParsed = z.output<typeof generalSchema>
 
 const SWITCHES: {
-  name: "taxInclusive" | "autoWinOnQuoteAccept" | "allowPasswordLogin"
+  name:
+    | "taxInclusive"
+    | "autoWinOnQuoteAccept"
+    | "autoCreateProjectOnAccept"
+    | "allowPasswordLogin"
   label: string
   description: string
 }[] = [
@@ -147,6 +195,12 @@ const SWITCHES: {
     label: "Auto-win on quote accept",
     description:
       "Move a funnel to Won automatically when its primary quote is accepted. Note: this bypasses the Won stage's \"requires approval to enter\" gate — accepting the quote wins the funnel directly, no sign-off requested.",
+  },
+  {
+    name: "autoCreateProjectOnAccept",
+    label: "Auto-create project on quote accept",
+    description:
+      "Create the delivery project automatically from an accepted quotation (value, currency and nature carried over; milestone template applied). Skipped with a warning when the account has no code yet.",
   },
   {
     name: "allowPasswordLogin",
@@ -175,6 +229,16 @@ function GeneralForm({
       defaultCurrency: settings.defaultCurrency,
       fiscalYearStartMonth: settings.fiscalYearStartMonth,
       approvalBypassTier: settings.approvalBypassTier,
+      followUpDueDays: settings.followUpDueDays,
+      autoCreateProjectOnAccept: settings.autoCreateProjectOnAccept,
+      staleDealDays:
+        settings.staleDealDays == null ? "" : String(settings.staleDealDays),
+      leadFollowUpDays:
+        settings.leadFollowUpDays == null
+          ? ""
+          : String(settings.leadFollowUpDays),
+      defaultCountry: settings.defaultCountry,
+      phonePrefix: settings.phonePrefix,
       entityCode: settings.entityCode,
       taxInclusive: settings.taxInclusive,
       autoWinOnQuoteAccept: settings.autoWinOnQuoteAccept,
@@ -200,6 +264,16 @@ function GeneralForm({
         defaultCurrency: parsed.defaultCurrency,
         fiscalYearStartMonth: parsed.fiscalYearStartMonth,
         approvalBypassTier: parsed.approvalBypassTier,
+        followUpDueDays: parsed.followUpDueDays,
+        autoCreateProjectOnAccept: parsed.autoCreateProjectOnAccept,
+        staleDealDays:
+          parsed.staleDealDays === "" ? null : Number(parsed.staleDealDays),
+        leadFollowUpDays:
+          parsed.leadFollowUpDays === ""
+            ? null
+            : Number(parsed.leadFollowUpDays),
+        defaultCountry: parsed.defaultCountry,
+        phonePrefix: parsed.phonePrefix,
         entityCode: parsed.entityCode,
         taxInclusive: parsed.taxInclusive,
         autoWinOnQuoteAccept: parsed.autoWinOnQuoteAccept,
@@ -215,6 +289,16 @@ function GeneralForm({
         defaultCurrency: updated.defaultCurrency,
         fiscalYearStartMonth: updated.fiscalYearStartMonth,
         approvalBypassTier: updated.approvalBypassTier,
+        followUpDueDays: updated.followUpDueDays,
+        autoCreateProjectOnAccept: updated.autoCreateProjectOnAccept,
+        staleDealDays:
+          updated.staleDealDays == null ? "" : String(updated.staleDealDays),
+        leadFollowUpDays:
+          updated.leadFollowUpDays == null
+            ? ""
+            : String(updated.leadFollowUpDays),
+        defaultCountry: updated.defaultCountry,
+        phonePrefix: updated.phonePrefix,
         entityCode: updated.entityCode,
         taxInclusive: updated.taxInclusive,
         autoWinOnQuoteAccept: updated.autoWinOnQuoteAccept,
@@ -322,6 +406,48 @@ function GeneralForm({
             />
             <FormField
               control={form.control}
+              name="defaultCountry"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Default country</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Malaysia"
+                      list="default-country-options"
+                    />
+                  </FormControl>
+                  <datalist id="default-country-options">
+                    {settings.countries.map((c) => (
+                      <option key={c.name} value={c.name} />
+                    ))}
+                  </datalist>
+                  <FormDescription>
+                    Prefilled on new account addresses.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="phonePrefix"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone prefix</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="+60 " maxLength={8} />
+                  </FormControl>
+                  <FormDescription>
+                    Prefilled into empty phone fields (leads, contacts,
+                    accounts).
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
               name="approvalBypassTier"
               render={({ field }) => (
                 <FormItem>
@@ -389,6 +515,90 @@ function GeneralForm({
                 />
               </React.Fragment>
             ))}
+            <Separator className="my-1" />
+            <FormField
+              control={form.control}
+              name="staleDealDays"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
+                  <div className="grid gap-1">
+                    <FormLabel>Stale funnel nudge (days)</FormLabel>
+                    <FormDescription>
+                      Show an open funnel on its owner&apos;s dashboard when it
+                      has had no activity for this long. Empty = off.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      placeholder="off"
+                      className="w-24"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Separator className="my-1" />
+            <FormField
+              control={form.control}
+              name="leadFollowUpDays"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
+                  <div className="grid gap-1">
+                    <FormLabel>Auto lead follow-up (days)</FormLabel>
+                    <FormDescription>
+                      Creating a lead also creates a &ldquo;First contact&rdquo;
+                      follow-up due this many days later. Empty = off.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      placeholder="off"
+                      className="w-24"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Separator className="my-1" />
+            <FormField
+              control={form.control}
+              name="followUpDueDays"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
+                  <div className="grid gap-1">
+                    <FormLabel>Follow-up window (days)</FormLabel>
+                    <FormDescription>
+                      How far ahead the dashboard looks for follow-ups
+                      &ldquo;due soon&rdquo;.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      className="w-24"
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      value={String(field.value ?? "")}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
 
@@ -444,6 +654,16 @@ const numberingSchema = z.object({
   quoteNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   quotePadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
   projectPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
+  /** Empty = no default validity prefill. */
+  quoteValidDays: z
+    .string()
+    .trim()
+    .refine(
+      (v) =>
+        v === "" ||
+        (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365),
+      "1–365 days"
+    ),
 })
 
 type NumberingValues = z.input<typeof numberingSchema>
@@ -462,6 +682,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
       quoteNextNumber: settings.quoteNextNumber,
       quotePadWidth: settings.quotePadWidth,
       projectPadWidth: settings.projectPadWidth,
+      quoteValidDays:
+        settings.quoteValidDays == null ? "" : String(settings.quoteValidDays),
     },
   })
 
@@ -486,7 +708,11 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   function onSubmit(raw: NumberingValues) {
     const parsed = numberingSchema.parse(raw)
     startTransition(async () => {
-      const res = await updateNumbering(parsed)
+      const res = await updateNumbering({
+        ...parsed,
+        quoteValidDays:
+          parsed.quoteValidDays === "" ? null : Number(parsed.quoteValidDays),
+      })
       if (!res.ok) {
         toast.error(res.error)
         return
@@ -497,6 +723,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
         quoteNextNumber: updated.quoteNextNumber,
         quotePadWidth: updated.quotePadWidth,
         projectPadWidth: updated.projectPadWidth,
+        quoteValidDays:
+          updated.quoteValidDays == null ? "" : String(updated.quoteValidDays),
       })
       toast.success("Numbering saved")
     })
@@ -576,6 +804,28 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="quoteValidDays"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Default validity (days)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      placeholder="e.g. 30"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Prefills “Valid until” on new quotes. Empty = no prefill.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
 
@@ -650,99 +900,18 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   )
 }
 
-// ─── Industries ──────────────────────────────────────────────────────────────
+// ─── Industries — a plain PicklistCard instance (standard chip-list CRUD) ────
 
 function IndustriesCard({ industries }: { industries: string[] }) {
-  const [items, setItems] = React.useState<string[]>(industries)
-  const [draft, setDraft] = React.useState("")
-  const [isPending, startTransition] = React.useTransition()
-
-  const dirty = React.useMemo(() => {
-    if (items.length !== industries.length) return true
-    return items.some((v, i) => v !== industries[i])
-  }, [items, industries])
-
-  function add() {
-    const name = draft.trim()
-    if (!name) return
-    if (items.some((v) => v.toLowerCase() === name.toLowerCase())) {
-      toast.error("That industry is already in the list.")
-      return
-    }
-    setItems((prev) => [...prev, name])
-    setDraft("")
-  }
-
-  function remove(name: string) {
-    setItems((prev) => prev.filter((v) => v !== name))
-  }
-
-  function save() {
-    startTransition(async () => {
-      const res = await updateIndustries(items)
-      if (!res.ok) {
-        toast.error(res.error)
-        return
-      }
-      setItems(res.data)
-      toast.success("Industries saved")
-    })
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Industries</CardTitle>
-        <CardDescription>
-          The picklist offered when classifying accounts.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="flex gap-2">
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                add()
-              }
-            }}
-            placeholder="e.g. Manufacturing"
-          />
-          <Button type="button" variant="outline" onClick={add}>
-            <Plus className="size-4" />
-            Add
-          </Button>
-        </div>
-
-        {items.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {items.map((name) => (
-              <Badge key={name} variant="secondary" className="gap-1 pr-1">
-                {name}
-                <button
-                  type="button"
-                  onClick={() => remove(name)}
-                  className="rounded-sm p-0.5 hover:bg-muted-foreground/20"
-                  aria-label={`Remove ${name}`}
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No industries yet.</p>
-        )}
-
-        <div className="flex justify-end">
-          <Button type="button" onClick={save} disabled={isPending || !dirty}>
-            {isPending ? "Saving…" : "Save industries"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <PicklistCard
+      title="Industries"
+      description="Industry picklist offered on accounts."
+      items={industries}
+      defaults={[]}
+      placeholder="e.g. Banking"
+      save={updateIndustries}
+    />
   )
 }
 
@@ -2264,14 +2433,553 @@ function AutoJoinCard({
   )
 }
 
+/**
+ * Payment-milestone template: title + percent rows auto-seeded onto any new
+ * project that starts with a value. Percents must sum to ≤ 100; the last
+ * milestone absorbs cent rounding when the template allocates the full 100%.
+ */
+function MilestoneTemplateCard({
+  template,
+}: {
+  template: { title: string; percent: number }[]
+}) {
+  const [rows, setRows] = React.useState(
+    template.map((t) => ({ title: t.title, percent: String(t.percent) }))
+  )
+  const [baseline, setBaseline] = React.useState(JSON.stringify(template))
+  const [isPending, startTransition] = React.useTransition()
+
+  const parsed = rows.map((r) => ({
+    title: r.title.trim(),
+    percent: Number(r.percent),
+  }))
+  const sum = parsed.reduce(
+    (n, r) => n + (Number.isFinite(r.percent) ? r.percent : 0),
+    0
+  )
+  const dirty = JSON.stringify(parsed) !== baseline
+
+  function set(i: number, key: "title" | "percent", value: string) {
+    setRows((prev) =>
+      prev.map((r, j) => (j === i ? { ...r, [key]: value } : r))
+    )
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateMilestoneTemplate(parsed)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setBaseline(JSON.stringify(res.data.milestoneTemplate))
+      setRows(
+        res.data.milestoneTemplate.map((t) => ({
+          title: t.title,
+          percent: String(t.percent),
+        }))
+      )
+      toast.success("Milestone template saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Payment milestone template</CardTitle>
+        <CardDescription>
+          Auto-seeded onto every new project that has a value — e.g. 50%
+          advance / 40% delivery / 10% acceptance. Leave empty to keep
+          milestones fully manual.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Input
+              value={r.title}
+              onChange={(e) => set(i, "title", e.target.value)}
+              placeholder={`Milestone ${i + 1} (e.g. Advance payment)`}
+            />
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              className="w-24 text-right tabular-nums"
+              value={r.percent}
+              onChange={(e) => set(i, "percent", e.target.value)}
+              aria-label="Percent of project value"
+            />
+            <span className="text-sm text-muted-foreground">%</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setRows((p) => p.filter((_, j) => j !== i))}
+              aria-label="Remove milestone"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        ))}
+        <div className="flex items-center justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setRows((p) => [...p, { title: "", percent: "" }])
+            }
+          >
+            <Plus className="size-4" />
+            Add milestone
+          </Button>
+          <span
+            className={cn(
+              "text-sm tabular-nums",
+              sum > 100 ? "text-destructive" : "text-muted-foreground"
+            )}
+          >
+            Total {sum}%
+          </span>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            onClick={save}
+            disabled={isPending || !dirty || sum > 100}
+          >
+            {isPending ? "Saving…" : "Save template"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Company profile: identity + payment details printed on customer-facing
+ * documents (the quotation), plus the logo upload (served at
+ * /api/tenant-logo).
+ */
+function CompanyProfileCard({
+  profile,
+  hasLogo,
+}: {
+  profile: CompanyProfile
+  hasLogo: boolean
+}) {
+  const router = useRouter()
+  const [values, setValues] = React.useState<CompanyProfile>(profile)
+  const [isPending, startTransition] = React.useTransition()
+  const [logoBusy, setLogoBusy] = React.useState(false)
+  // Bust the browser cache after an upload so the preview refreshes.
+  const [logoVersion, setLogoVersion] = React.useState(0)
+  const fileRef = React.useRef<HTMLInputElement>(null)
+
+  const dirty = JSON.stringify(values) !== JSON.stringify(profile)
+  const set =
+    (key: keyof CompanyProfile) =>
+    (
+      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    ) =>
+      setValues((p) => ({ ...p, [key]: e.target.value }))
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateCompanyProfile(values)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setValues(res.data.companyProfile)
+      toast.success("Company profile saved")
+    })
+  }
+
+  async function onLogoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLogoBusy(true)
+    try {
+      const fd = new FormData()
+      fd.set("file", file)
+      const res = await uploadCompanyLogo(fd)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success("Logo updated")
+      setLogoVersion((v) => v + 1)
+      router.refresh()
+    } finally {
+      setLogoBusy(false)
+      if (fileRef.current) fileRef.current.value = ""
+    }
+  }
+
+  async function onLogoRemove() {
+    setLogoBusy(true)
+    try {
+      const res = await removeCompanyLogo()
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success("Logo removed")
+      router.refresh()
+    } finally {
+      setLogoBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Company profile</CardTitle>
+        <CardDescription>
+          Printed on customer-facing documents (the quotation): identity block
+          at the top, bank details and footer at the bottom.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5">
+        <div className="flex flex-wrap items-center gap-4">
+          {hasLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/tenant-logo?v=${logoVersion}`}
+              alt="Company logo"
+              className="h-12 max-w-40 rounded border bg-white object-contain p-1"
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground">No logo yet.</span>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            className="hidden"
+            onChange={onLogoPicked}
+          />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={logoBusy}
+              onClick={() => fileRef.current?.click()}
+            >
+              {logoBusy ? "Working…" : hasLogo ? "Replace logo" : "Upload logo"}
+            </Button>
+            {hasLogo ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={logoBusy}
+                onClick={onLogoRemove}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-1.5 sm:col-span-2">
+            <label className="text-xs text-muted-foreground">Address</label>
+            <Textarea
+              rows={3}
+              value={values.address}
+              onChange={set("address")}
+              placeholder={"Level 10, Menara …\n50450 Kuala Lumpur, Malaysia"}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">
+              Registration no.
+            </label>
+            <Input
+              value={values.registrationNo}
+              onChange={set("registrationNo")}
+              placeholder="202001012345 (1234567-X)"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">Phone</label>
+            <Input
+              value={values.phone}
+              onChange={set("phone")}
+              placeholder="+60 3-1234 5678"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">Email</label>
+            <Input
+              value={values.email}
+              onChange={set("email")}
+              placeholder="hello@company.com"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-xs text-muted-foreground">Website</label>
+            <Input
+              value={values.website}
+              onChange={set("website")}
+              placeholder="www.company.com"
+            />
+          </div>
+          <div className="grid gap-1.5 sm:col-span-2">
+            <label className="text-xs text-muted-foreground">
+              Bank / payment details
+            </label>
+            <Textarea
+              rows={3}
+              value={values.bankDetails}
+              onChange={set("bankDetails")}
+              placeholder={"Bank: …\nAccount name: …\nAccount no: …"}
+            />
+          </div>
+          <div className="grid gap-1.5 sm:col-span-2">
+            <label className="text-xs text-muted-foreground">
+              Quote footer / terms
+            </label>
+            <Textarea
+              rows={3}
+              value={values.quoteFooter}
+              onChange={set("quoteFooter")}
+              placeholder="Payment due within 30 days of invoice…"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save profile"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Generic chip-list editor for a simple tenant picklist (currencies, payment
+ * terms). Empty list = the built-in defaults, shown greyed as a hint.
+ */
+function PicklistCard({
+  title,
+  description,
+  items: saved,
+  defaults,
+  placeholder,
+  normalize = (s) => s,
+  validate,
+  save: saveAction,
+}: {
+  title: string
+  description: string
+  items: string[]
+  defaults: string[]
+  placeholder: string
+  normalize?: (s: string) => string
+  validate?: (s: string) => string | null
+  save: (items: string[]) => Promise<{ ok: boolean; error?: string }>
+}) {
+  const [items, setItems] = React.useState<string[]>(saved)
+  // Local baseline so the Save button re-disables after a successful save
+  // without waiting for a page refresh to update the `saved` prop.
+  const [baseline, setBaseline] = React.useState<string[]>(saved)
+  const [draft, setDraft] = React.useState("")
+  const [isPending, startTransition] = React.useTransition()
+  const dirty = items.join("|") !== baseline.join("|")
+  const usingDefaults = items.length === 0
+
+  function add() {
+    const v = normalize(draft.trim())
+    if (!v) return
+    const err = validate?.(v)
+    if (err) {
+      toast.error(err)
+      return
+    }
+    if (items.includes(v)) {
+      toast.error(`"${v}" is already listed.`)
+      return
+    }
+    setItems((p) => [...p, v])
+    setDraft("")
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await saveAction(items)
+      if (!res.ok) {
+        toast.error(res.error ?? "Save failed")
+        return
+      }
+      setBaseline(items)
+      toast.success(`${title} saved`)
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                add()
+              }
+            }}
+            placeholder={placeholder}
+          />
+          <Button type="button" variant="outline" onClick={add}>
+            <Plus className="size-4" />
+            Add
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(usingDefaults ? defaults : items).map((v) => (
+            <Badge
+              key={v}
+              variant={usingDefaults ? "outline" : "secondary"}
+              className="gap-1 pr-1"
+            >
+              {v}
+              {!usingDefaults ? (
+                <button
+                  type="button"
+                  onClick={() => setItems((p) => p.filter((x) => x !== v))}
+                  className="rounded-sm p-0.5 hover:bg-muted-foreground/20"
+                  aria-label={`Remove ${v}`}
+                >
+                  <X className="size-3" />
+                </button>
+              ) : null}
+            </Badge>
+          ))}
+        </div>
+        {usingDefaults ? (
+          <p className="text-xs text-muted-foreground">
+            {defaults.length > 0
+              ? "Using the built-in defaults — add an entry to take over the list."
+              : "Nothing configured yet — add the first entry above."}
+          </p>
+        ) : null}
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : `Save ${title.toLowerCase()}`}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Intercompany partner allow-list. Options are the OTHER entities the current
+ * user belongs to (the only candidates `resolveHandlingPartner` accepts);
+ * an empty list keeps the legacy "any own entity" behavior.
+ */
+function IntercompanyPartnersCard({
+  allowedIds,
+  entities,
+}: {
+  allowedIds: string[]
+  entities: { id: string; name: string }[]
+}) {
+  const [selected, setSelected] = React.useState<Set<string>>(
+    new Set(allowedIds)
+  )
+  const [isPending, startTransition] = React.useTransition()
+
+  const dirty =
+    [...selected].sort().join("|") !== [...allowedIds].sort().join("|")
+
+  function toggle(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function save() {
+    startTransition(async () => {
+      const res = await updateIntercompanyPartners([...selected])
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      setSelected(new Set(res.data.intercompanyPartnerIds))
+      toast.success("Intercompany partners saved")
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Intercompany partners</CardTitle>
+        <CardDescription>
+          Entities that may be picked as the handling partner on an
+          intercompany funnel. Leave all unchecked to allow any entity you
+          belong to (legacy behavior). Once any are checked, only those are
+          valid partners.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {entities.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            You don&apos;t belong to any other entity — there are no candidate
+            partners to allow-list.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {entities.map((e) => (
+              <label
+                key={e.id}
+                className="flex items-center gap-2 text-sm"
+              >
+                <Checkbox
+                  checked={selected.has(e.id)}
+                  onCheckedChange={(v) => toggle(e.id, v === true)}
+                />
+                {e.name}
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+            {isPending ? "Saving…" : "Save partners"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsClient({
   settings,
   members,
   funnel,
+  entities,
 }: {
   settings: TenantSettingsView
   members: TenantMemberView[]
   funnel: DefaultFunnelView
+  entities: { id: string; name: string }[]
 }) {
   return (
     <Tabs defaultValue="general" className="w-full">
@@ -2288,6 +2996,47 @@ export function SettingsClient({
       <TabsContent value="general" className="mt-4">
         <div className="grid gap-6">
           <GeneralForm settings={settings} members={members} />
+
+          <CompanyProfileCard
+            profile={settings.companyProfile}
+            hasLogo={settings.hasLogo}
+          />
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <PicklistCard
+              title="Currencies"
+              description="ISO-4217 codes offered in the funnel/quote currency pickers. The first entry is the default."
+              items={settings.currencies}
+              defaults={DEFAULT_CURRENCIES}
+              placeholder="e.g. MYR"
+              normalize={(s) => s.toUpperCase()}
+              validate={(s) =>
+                /^[A-Z]{3}$/.test(s) ? null : "Enter a 3-letter ISO code."
+              }
+              save={updateCurrencies}
+            />
+            <PicklistCard
+              title="Payment terms"
+              description="Terms offered when submitting a sales order."
+              items={settings.paymentTerms}
+              defaults={DEFAULT_PAYMENT_TERMS}
+              placeholder="e.g. 30 days"
+              save={updatePaymentTerms}
+            />
+            <PicklistCard
+              title="Sales-order document kinds"
+              description="What a submitted supporting document can be identified as."
+              items={settings.soDocumentKinds}
+              defaults={DEFAULT_SO_DOCUMENT_KINDS}
+              placeholder="e.g. PO"
+              save={updateSoDocumentKinds}
+            />
+          </div>
+
+          <IntercompanyPartnersCard
+            allowedIds={settings.intercompanyPartnerIds}
+            entities={entities}
+          />
 
           <Card>
             <CardHeader>
@@ -2306,13 +3055,32 @@ export function SettingsClient({
         </div>
       </TabsContent>
 
-      <TabsContent value="numbering" className="mt-4">
+      <TabsContent value="numbering" className="mt-4 grid gap-6">
         <NumberingForm settings={settings} />
+        <MilestoneTemplateCard template={settings.milestoneTemplate} />
       </TabsContent>
 
       <TabsContent value="industries" className="mt-4 grid gap-4">
         <IndustriesCard industries={settings.industries} />
         <CountriesCard countries={settings.countries} />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <PicklistCard
+            title="Lead sources"
+            description="Where a lead came from — offered in the lead form so sources stay consistent for reporting."
+            items={settings.leadSources}
+            defaults={DEFAULT_LEAD_SOURCES}
+            placeholder="e.g. Webinar"
+            save={updateLeadSources}
+          />
+          <PicklistCard
+            title="Loss / disqualify reasons"
+            description="Offered when disqualifying a lead (and available for lost-deal analysis)."
+            items={settings.lossReasons}
+            defaults={DEFAULT_LOSS_REASONS}
+            placeholder="e.g. No budget"
+            save={updateLossReasons}
+          />
+        </div>
       </TabsContent>
 
       <TabsContent value="project-natures" className="mt-4">

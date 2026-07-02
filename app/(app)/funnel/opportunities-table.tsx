@@ -4,20 +4,10 @@ import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
 import { formatDate, formatMoney } from "@/lib/format"
 import { StageBadge } from "./stage-badge"
 import type { OpportunityListRow } from "./actions"
-
-const statusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  open: "secondary",
-  won: "default",
-  lost: "destructive",
-  on_hold: "outline",
-}
 
 const columns: ColumnDef<OpportunityListRow>[] = [
   {
@@ -88,14 +78,7 @@ const columns: ColumnDef<OpportunityListRow>[] = [
     accessorKey: "status",
     id: "status",
     header: "Status",
-    cell: ({ row }) => (
-      <Badge
-        variant={statusVariant[row.original.status] ?? "secondary"}
-        className="capitalize"
-      >
-        {row.original.status.replace(/_/g, " ")}
-      </Badge>
-    ),
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
   },
 ]
 

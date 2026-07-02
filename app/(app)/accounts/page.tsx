@@ -1,14 +1,15 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { listIndustries, listCountries } from "@/lib/lookups"
+import { listIndustries, listCountries, getFormPresets } from "@/lib/lookups"
 import { listAccounts } from "./actions"
 import { AccountsTable } from "./accounts-table"
 
 export default async function AccountsPage() {
-  const [accounts, industries, countries] = await Promise.all([
+  const [accounts, industries, countries, presets] = await Promise.all([
     listAccounts(),
     listIndustries(),
     listCountries(),
+    getFormPresets(),
   ])
   const parentOptions = accounts.map((a) => ({ id: a.id, name: a.name }))
 
@@ -21,6 +22,7 @@ export default async function AccountsPage() {
           parentOptions={parentOptions}
           industries={industries}
           countries={countries}
+          presets={presets}
         />
       </PageBody>
     </>

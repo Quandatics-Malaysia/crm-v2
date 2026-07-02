@@ -16,7 +16,12 @@ import {
   attachments,
   opportunities,
   quotations,
+  tenantSettings,
 } from "@/db/schema"
+import {
+  DEFAULT_PAYMENT_TERMS,
+  DEFAULT_SO_DOCUMENT_KINDS,
+} from "@/lib/tenant-defaults"
 import { storage } from "@/lib/storage"
 import { nextSoNumber, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
@@ -247,6 +252,8 @@ export async function submitSalesOrderWithDocument(
   const file = formData.get("file")
   const projectId = formData.get("projectId")
   const notesRaw = formData.get("notes")
+  const documentKindRaw = formData.get("documentKind")
+  const paymentTermRaw = formData.get("paymentTerm")
   if (!(file instanceof File) || typeof projectId !== "string" || !projectId) {
     throw new Error("A supporting document and project are required")
   }
@@ -254,6 +261,15 @@ export async function submitSalesOrderWithDocument(
   if (file.size > 25 * 1024 * 1024) throw new Error("File exceeds 25 MB")
   const notes =
     typeof notesRaw === "string" && notesRaw.trim() ? notesRaw.trim() : null
+  // Free-form (tenant-configurable picklist in Settings); length-capped only.
+  const documentKind =
+    typeof documentKindRaw === "string" && documentKindRaw.trim()
+      ? documentKindRaw.trim().slice(0, 60)
+      : null
+  const paymentTerm =
+    typeof paymentTermRaw === "string" && paymentTermRaw.trim()
+      ? paymentTermRaw.trim().slice(0, 60)
+      : null
 
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.SALES_ORDER_SUBMIT)
@@ -284,6 +300,8 @@ export async function submitSalesOrderWithDocument(
         projectId,
         status: "submitted",
         notes,
+        documentKind,
+        paymentTerm,
         submittedByMemberId: ctx.memberId,
         submittedAt: new Date(),
       })
@@ -576,6 +594,31 @@ export async function listSubmittableProjects(): Promise<
       )
       .orderBy(asc(projects.name))
       .limit(500)
+  })
+}
+
+/** Options for the submit dialog: tenant payment-term + document-kind picklists. */
+export async function listSalesOrderSubmitOptions(): Promise<{
+  paymentTerms: string[]
+  documentKinds: string[]
+}> {
+  return withTenant(PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
+    const [s] = await tx
+      .select({
+        paymentTerms: tenantSettings.paymentTerms,
+        documentKinds: tenantSettings.soDocumentKinds,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    return {
+      paymentTerms: s?.paymentTerms?.length
+        ? s.paymentTerms
+        : DEFAULT_PAYMENT_TERMS,
+      documentKinds: s?.documentKinds?.length
+        ? s.documentKinds
+        : DEFAULT_SO_DOCUMENT_KINDS,
+    }
   })
 }
 

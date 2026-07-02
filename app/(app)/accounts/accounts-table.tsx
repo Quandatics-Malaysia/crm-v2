@@ -165,11 +165,14 @@ export function AccountsTable({
   parentOptions,
   industries,
   countries,
+  presets,
 }: {
   data: AccountListItem[]
   parentOptions: Option[]
   industries: string[]
   countries: CountryOption[]
+  /** Tenant form presets (default country / phone prefix) for the create form. */
+  presets?: { defaultCountry: string; phonePrefix: string }
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -286,6 +289,7 @@ export function AccountsTable({
             endUserOptions={parentOptions}
             industries={industries}
             countries={countries}
+            presets={presets}
             trigger={
               <Button size="sm">
                 <Plus className="size-4" />
@@ -303,6 +307,7 @@ export function AccountsTable({
             endUserOptions={parentOptions}
             industries={industries}
             countries={countries}
+            presets={presets}
             open={newOpen}
             onOpenChange={setNewOpen}
             trigger={

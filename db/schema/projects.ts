@@ -15,6 +15,7 @@ import { organization, member } from "./auth"
 import { accounts } from "./crm"
 import { opportunities } from "./pipeline"
 import { quotations } from "./quotations"
+import { intercompanyDeals } from "./intercompany"
 import { timestamps, softDelete } from "./_helpers"
 
 export const projectStatus = pgEnum("project_status", [
@@ -58,6 +59,15 @@ export const projects = pgTable(
     quotationId: uuid("quotation_id").references(() => quotations.id, {
       onDelete: "set null",
     }),
+    /**
+     * Set when this is a HANDLING-PARTNER delivery project created from an
+     * inbound intercompany deal. The mirror row is readable by this tenant via
+     * the two-sided RLS policy; the origin's opportunity itself is not.
+     */
+    intercompanyDealId: uuid("intercompany_deal_id").references(
+      () => intercompanyDeals.id,
+      { onDelete: "set null" }
+    ),
     ownerMemberId: text("owner_member_id").references(() => member.id, {
       onDelete: "set null",
     }),

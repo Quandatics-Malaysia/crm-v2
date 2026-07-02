@@ -14,6 +14,7 @@ import {
   rolePermissions,
   permissions,
   user,
+  pendingInvites,
 } from "@/db/schema"
 
 /**
@@ -483,13 +484,16 @@ export async function addMember(input: {
   email: string
   roleId: string
   tier: number
-}): Promise<ActionResult<void>> {
+}): Promise<ActionResult<{ invited: boolean }>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
   const email = (input.email ?? "").trim()
   if (email.length === 0) throw new Error("Email is required.")
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Enter a valid email address.")
+  }
   if (!input.roleId) throw new Error("Pick a role.")
   if (!Number.isInteger(input.tier) || input.tier < 0) {
     throw new Error("Tier must be a non-negative integer.")
@@ -505,21 +509,18 @@ export async function addMember(input: {
     .from(user)
     .where(sql`lower(${user.email}) = lower(${email})`)
     .limit(1)
-  if (!u) {
-    throw new Error(
-      "No user with that email has signed in yet — ask them to sign in once, then add them."
-    )
-  }
 
   // Already a member of this tenant? (member is not RLS.)
-  const [existingMember] = await db
-    .select({ id: member.id })
-    .from(member)
-    .where(
-      and(eq(member.userId, u.id), eq(member.organizationId, ctx.tenantId))
-    )
-    .limit(1)
-  if (existingMember) throw new Error("Already a member.")
+  if (u) {
+    const [existingMember] = await db
+      .select({ id: member.id })
+      .from(member)
+      .where(
+        and(eq(member.userId, u.id), eq(member.organizationId, ctx.tenantId))
+      )
+      .limit(1)
+    if (existingMember) throw new Error("Already a member.")
+  }
 
   // Validate the role (tenant ownership, tier ceiling, permission subset)
   // BEFORE creating the member row — a failed insert below would otherwise
@@ -539,6 +540,39 @@ export async function addMember(input: {
     await assertCanAssignRole(tx, ctx, input.roleId)
   })
 
+  // No user with that email yet: record a PENDING INVITE that the auth hooks
+  // consume on their first sign-in (creating the member + profile with this
+  // role/tier). Upsert so re-inviting updates the role/tier.
+  if (!u) {
+    await runInTenant(ctx.tenantId, async (tx) => {
+      // Delete-then-insert (the unique index is on an expression —
+      // lower(email) — which ON CONFLICT targeting can't name via the ORM).
+      await tx
+        .delete(pendingInvites)
+        .where(
+          and(
+            eq(pendingInvites.tenantId, ctx.tenantId),
+            sql`lower(${pendingInvites.email}) = lower(${email})`
+          )
+        )
+      await tx.insert(pendingInvites).values({
+        tenantId: ctx.tenantId,
+        email,
+        roleId: input.roleId,
+        tierLevel: input.tier,
+        invitedByMemberId: ctx.memberId,
+      })
+      await writeAudit(tx, ctx, {
+        action: "member.invited",
+        entityType: "pending_invite",
+        entityId: email,
+        after: { email, roleId: input.roleId, tierLevel: input.tier },
+      })
+    })
+    revalidatePath("/team")
+    return { invited: true }
+  }
+
   const memberId = crypto.randomUUID()
   await db.insert(member).values({
     id: memberId,
@@ -546,6 +580,17 @@ export async function addMember(input: {
     userId: u.id,
     role: "member",
   })
+  // A direct add supersedes any pending invite for the same email.
+  await runInTenant(ctx.tenantId, (tx) =>
+    tx
+      .delete(pendingInvites)
+      .where(
+        and(
+          eq(pendingInvites.tenantId, ctx.tenantId),
+          sql`lower(${pendingInvites.email}) = lower(${email})`
+        )
+      )
+  )
 
   // Insert the profile; if it fails, compensate by removing the orphan member
   // row so we never leave a profile-less active member behind.
@@ -576,6 +621,61 @@ export async function addMember(input: {
   }
 
   revalidatePath("/team")
+  return { invited: false }
+  })
+}
+
+export type PendingInviteView = {
+  id: string
+  email: string
+  roleName: string | null
+  tierLevel: number
+  invitedByName: string | null
+  createdAt: Date
+}
+
+/** Invites awaiting the person's first sign-in, newest first. */
+export async function listPendingInvites(): Promise<PendingInviteView[]> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const rows = await tx
+      .select({
+        id: pendingInvites.id,
+        email: pendingInvites.email,
+        roleName: roles.name,
+        tierLevel: pendingInvites.tierLevel,
+        invitedByName: user.name,
+        createdAt: pendingInvites.createdAt,
+      })
+      .from(pendingInvites)
+      .leftJoin(roles, eq(pendingInvites.roleId, roles.id))
+      .leftJoin(member, eq(pendingInvites.invitedByMemberId, member.id))
+      .leftJoin(user, eq(member.userId, user.id))
+      .orderBy(sql`${pendingInvites.createdAt} desc`)
+    return rows
+  })
+}
+
+export async function revokePendingInvite(
+  id: string
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [row] = await tx
+        .delete(pendingInvites)
+        .where(eq(pendingInvites.id, id))
+        .returning({ email: pendingInvites.email })
+      if (!row) throw new Error("Invite not found.")
+      await writeAudit(tx, ctx, {
+        action: "member.invite_revoked",
+        entityType: "pending_invite",
+        entityId: row.email,
+      })
+    })
+    revalidatePath("/team")
   })
 }
 
@@ -673,6 +773,29 @@ export async function updateMember(
         throw new Error(
           "Manager must be an active member of this organization."
         )
+      }
+
+      // No cycles: walking UP from the proposed manager must never reach the
+      // member being edited (A→B→A would make both see each other's records
+      // via the managed-subtree scope and break upline approval routing).
+      const uplines = await tx
+        .select({
+          memberId: membershipProfiles.memberId,
+          managerId: membershipProfiles.managerMemberId,
+        })
+        .from(membershipProfiles)
+      const managerOf = new Map(uplines.map((r) => [r.memberId, r.managerId]))
+      const seen = new Set<string>()
+      let cursor: string | null = input.managerMemberId
+      while (cursor) {
+        if (cursor === memberId) {
+          throw new Error(
+            "That manager assignment would create a reporting cycle."
+          )
+        }
+        if (seen.has(cursor)) break // pre-existing cycle upstream; don't loop
+        seen.add(cursor)
+        cursor = managerOf.get(cursor) ?? null
       }
     }
 

@@ -99,7 +99,18 @@ export const quotations = pgTable(
     ...timestamps,
     ...softDelete,
   },
-  (t) => [unique("quotations_number_uq").on(t.tenantId, t.quoteNumber)]
+  (t) => [
+    unique("quotations_number_uq").on(t.tenantId, t.quoteNumber),
+    // DB-level backstops for the app-side guards in acceptQuotation /
+    // setPrimaryQuotation: at most ONE live accepted and ONE live primary
+    // quotation per funnel, even under concurrent requests.
+    uniqueIndex("quotations_accepted_uq")
+      .on(t.opportunityId)
+      .where(sql`${t.status} = 'accepted' AND ${t.deletedAt} IS NULL`),
+    uniqueIndex("quotations_primary_uq")
+      .on(t.opportunityId)
+      .where(sql`${t.isPrimary} AND ${t.deletedAt} IS NULL`),
+  ]
 )
 
 /** A single billable service line. Pure description + price — no SKU/product link. */
@@ -117,6 +128,13 @@ export const quotationLineItems = pgTable(
   productId: uuid("product_id").references(() => products.id, {
     onDelete: "set null",
   }),
+  /**
+   * Project-nature code this line bills under (tenant picklist). A multi-nature
+   * deal (License + PS + AMS…) tags each line so revenue can be split per
+   * nature — the enabler for per-category invoicing. Nullable: an untagged
+   * line falls under the quote's overall nature.
+   */
+  projectNatureCode: text("project_nature_code"),
   description: text("description").notNull(),
   /** Unit of measure snapshot (from the product, or free-text). */
   uom: text("uom"),

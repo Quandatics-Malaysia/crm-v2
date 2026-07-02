@@ -6,6 +6,8 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/status-badge"
+import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
 import { Separator } from "@/components/ui/separator"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { cn } from "@/lib/utils"
@@ -46,35 +48,8 @@ const SHOW_COST_MARGIN = false
  */
 const SHOW_CONTRACT = false
 
-const quoteStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  draft: "outline",
-  sent: "secondary",
-  accepted: "default",
-  rejected: "destructive",
-  expired: "outline",
-  void: "outline",
-}
-
-const projectStatusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  planning: "outline",
-  active: "default",
-  on_hold: "secondary",
-  completed: "secondary",
-  cancelled: "destructive",
-}
-
-const sourceLabel: Record<string, string> = {
-  manual: "Manual",
-  approval: "Via approval",
-  quote_accept: "Quote accepted",
-  reopen: "Reopened",
-}
+// Status pills render via the app-wide <StatusBadge> tone map; the stage-change
+// source labels come from the shared status-meta module.
 
 type StageLite = OpportunityDetail["funnelStagesList"][number]
 
@@ -102,6 +77,8 @@ export type FunnelDetailData = {
   projectYear: number | null
   isIntercompany: boolean
   handlingPartnerName: string | null
+  /** Partner's accept/decline on the interco assignment (origin view). */
+  partnerResponse: OpportunityDetail["partnerResponse"]
   expectedCloseDate: string | null
   createdAt: Date
   stageName: string
@@ -151,6 +128,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     projectYear,
     isIntercompany,
     handlingPartnerName,
+    partnerResponse,
     expectedCloseDate,
     createdAt,
     stageName,
@@ -175,9 +153,14 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   const [tab, setTab] = React.useState("activity")
   const revalidate = `/funnel/${opportunityId}`
 
-  // Recognized Amount = Estimated Funnel Amount × Recognized % (the tenant's cut).
+  // Recognized Amount = deal value × Recognized % (the tenant's cut). Once a
+  // primary quotation exists its net IS the deal's real value, so the quoted
+  // amount becomes the basis; before any quote, the rep's estimate is all we
+  // have. The label states which basis applied.
+  const recognizedBasis = quotedAmount ?? estimatedAmount
+  const recognizedBasisLabel = quotedAmount ? "quoted" : "estimated"
   const recognizedAmount = (
-    (Number(estimatedAmount ?? 0) * Number(recognizedPercent ?? 0)) /
+    (Number(recognizedBasis ?? 0) * Number(recognizedPercent ?? 0)) /
     100
   ).toFixed(2)
 
@@ -203,14 +186,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge
-            variant={quoteStatusVariant[row.original.status] ?? "secondary"}
-            className="capitalize"
-          >
-            {row.original.status}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         accessorKey: "total",
@@ -247,14 +223,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <Badge
-            variant={projectStatusVariant[row.original.status] ?? "secondary"}
-            className="capitalize"
-          >
-            {row.original.status.replace(/_/g, " ")}
-          </Badge>
-        ),
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
     ],
     []
@@ -327,7 +296,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       {
         accessorKey: "source",
         header: "Source",
-        cell: ({ row }) => sourceLabel[row.original.source] ?? row.original.source,
+        cell: ({ row }) =>
+          STAGE_SOURCE_LABELS[row.original.source] ?? row.original.source,
       },
       {
         accessorKey: "changedByName",
@@ -371,9 +341,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               />
             </Field>
             <Field label="Status">
-              <Badge variant="secondary" className="capitalize">
-                {status.replace(/_/g, " ")}
-              </Badge>
+              <StatusBadge status={status} />
             </Field>
 
             <Separator />
@@ -403,7 +371,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 <span className="tabular-nums">
                   {formatMoney(recognizedAmount, currency)}
                   <span className="ml-1 text-xs text-muted-foreground">
-                    ({Number(recognizedPercent)}% of estimated)
+                    ({Number(recognizedPercent)}% of {recognizedBasisLabel})
                   </span>
                 </span>
               ) : (
@@ -413,9 +381,25 @@ export function FunnelDetailBody(props: FunnelDetailData) {
 
             {isIntercompany ? (
               <Field label="Handling partner">
-                <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline">Intercompany</Badge>
                   {handlingPartnerName ?? "—"}
+                  {partnerResponse ? (
+                    <Badge
+                      variant={
+                        partnerResponse.response === "accepted"
+                          ? "default"
+                          : "destructive"
+                      }
+                      title={partnerResponse.reason ?? undefined}
+                    >
+                      {partnerResponse.response === "accepted"
+                        ? "Accepted"
+                        : "Declined"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">Awaiting response</Badge>
+                  )}
                 </span>
               </Field>
             ) : null}

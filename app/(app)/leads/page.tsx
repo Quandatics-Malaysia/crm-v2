@@ -5,17 +5,32 @@ import {
   listFunnelsWithStages,
   listMembers,
   listCountries,
+  listLeadSources,
+  listLossReasons,
+  getFormPresets,
 } from "@/lib/lookups"
 import { listLeads } from "./actions"
 import { LeadsTable } from "./leads-table"
 
 export default async function LeadsPage() {
-  const [rows, accountOptions, funnels, members, countries] = await Promise.all([
+  const [
+    rows,
+    accountOptions,
+    funnels,
+    members,
+    countries,
+    leadSources,
+    lossReasons,
+    presets,
+  ] = await Promise.all([
     listLeads(),
     listAccountOptions(),
     listFunnelsWithStages(),
     listMembers(),
     listCountries(),
+    listLeadSources(),
+    listLossReasons(),
+    getFormPresets(),
   ])
 
   return (
@@ -28,6 +43,9 @@ export default async function LeadsPage() {
           funnels={funnels}
           members={members}
           countries={countries}
+          leadSources={leadSources}
+          lossReasons={lossReasons}
+          phonePrefix={presets.phonePrefix}
         />
       </PageBody>
     </>

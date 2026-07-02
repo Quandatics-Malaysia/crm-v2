@@ -37,7 +37,7 @@ DECLARE
     'tax_settings', 'quotations', 'quotation_line_items',
     'custom_field_defs', 'activities', 'projects', 'payment_milestones',
     'sales_orders', 'project_counters', 'products', 'deal_costs',
-    'contract_years'
+    'contract_years', 'pending_invites'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP
@@ -74,3 +74,50 @@ CREATE POLICY tenant_isolation ON audit_log
 
 -- audit_log is append-only for the app role
 REVOKE UPDATE, DELETE ON audit_log FROM crm_app;
+
+-- intercompany_deals: visible to BOTH sides of the deal ----------------------
+-- Deliberately NOT in the single-tenant loop above — its isolation is
+-- two-sided by design. The origin entity (tenant_id) writes the mirror row;
+-- the handling partner entity (partner_tenant_id) may only read it.
+ALTER TABLE intercompany_deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intercompany_deals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON intercompany_deals;
+DROP POLICY IF EXISTS interco_select ON intercompany_deals;
+DROP POLICY IF EXISTS interco_insert ON intercompany_deals;
+DROP POLICY IF EXISTS interco_update ON intercompany_deals;
+DROP POLICY IF EXISTS interco_delete ON intercompany_deals;
+CREATE POLICY interco_select ON intercompany_deals FOR SELECT
+  USING (
+    tenant_id = current_setting('app.current_tenant', true)
+    OR partner_tenant_id = current_setting('app.current_tenant', true)
+  );
+CREATE POLICY interco_insert ON intercompany_deals FOR INSERT
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+CREATE POLICY interco_update ON intercompany_deals FOR UPDATE
+  USING (tenant_id = current_setting('app.current_tenant', true))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+CREATE POLICY interco_delete ON intercompany_deals FOR DELETE
+  USING (tenant_id = current_setting('app.current_tenant', true));
+
+-- intercompany_deal_responses: mirror image of the deals table --------------
+-- Written by the PARTNER (tenant_id = the responding entity); the ORIGIN may
+-- only read (origin_tenant_id) so it can show the handshake status.
+ALTER TABLE intercompany_deal_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intercompany_deal_responses FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON intercompany_deal_responses;
+DROP POLICY IF EXISTS interco_resp_select ON intercompany_deal_responses;
+DROP POLICY IF EXISTS interco_resp_insert ON intercompany_deal_responses;
+DROP POLICY IF EXISTS interco_resp_update ON intercompany_deal_responses;
+DROP POLICY IF EXISTS interco_resp_delete ON intercompany_deal_responses;
+CREATE POLICY interco_resp_select ON intercompany_deal_responses FOR SELECT
+  USING (
+    tenant_id = current_setting('app.current_tenant', true)
+    OR origin_tenant_id = current_setting('app.current_tenant', true)
+  );
+CREATE POLICY interco_resp_insert ON intercompany_deal_responses FOR INSERT
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+CREATE POLICY interco_resp_update ON intercompany_deal_responses FOR UPDATE
+  USING (tenant_id = current_setting('app.current_tenant', true))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+CREATE POLICY interco_resp_delete ON intercompany_deal_responses FOR DELETE
+  USING (tenant_id = current_setting('app.current_tenant', true));

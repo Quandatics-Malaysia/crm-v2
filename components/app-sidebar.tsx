@@ -15,6 +15,7 @@ import {
   PackageIcon,
   ReceiptIcon,
   TrendingUpIcon,
+  ArrowLeftRightIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
   Settings2Icon,
@@ -91,6 +92,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Insights",
     items: [
       { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW },
+      { title: "Intercompany", url: "/intercompany", icon: ArrowLeftRightIcon, tile: "bg-fuchsia-600", permission: PERMISSIONS.INTERCOMPANY_VIEW },
       { title: "Audit", url: "/audit", icon: ScrollTextIcon, tile: "bg-slate-500", permission: PERMISSIONS.AUDIT_VIEW },
     ],
   },

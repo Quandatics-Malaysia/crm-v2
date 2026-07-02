@@ -15,6 +15,8 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
+import { listEntities } from "@/lib/lookups"
+import { storage } from "@/lib/storage"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -56,6 +58,48 @@ export type TenantSettingsView = {
   customFunnelFields: CustomFunnelField[]
   autoJoinDomains: string[]
   autoJoinRole: string | null
+  /** Allow-listed intercompany partner entity ids (empty = any own entity). */
+  intercompanyPartnerIds: string[]
+  /** Tenant currency picklist (empty = built-in defaults). */
+  currencies: string[]
+  /** Tenant payment-term picklist for sales orders (empty = built-in defaults). */
+  paymentTerms: string[]
+  /** Default quote validity in days (null = no prefill). */
+  quoteValidDays: number | null
+  /** Dashboard "due soon" follow-up window in days. */
+  followUpDueDays: number
+  /** Automation: auto-create the delivery project when a quote is accepted. */
+  autoCreateProjectOnAccept: boolean
+  /** Stale-funnel nudge threshold in days (null = off). */
+  staleDealDays: number | null
+  /** Auto "First contact" follow-up N days after lead creation (null = off). */
+  leadFollowUpDays: number | null
+  /** Payment-split template auto-seeded onto new projects with a value. */
+  milestoneTemplate: { title: string; percent: number }[]
+  /** Preset country for new account addresses ("" = none). */
+  defaultCountry: string
+  /** Preset dialing prefix for empty phone fields ("" = none). */
+  phonePrefix: string
+  /** Lead source picklist (empty = built-in defaults). */
+  leadSources: string[]
+  /** Deal-lost / lead-disqualify reason picklist (empty = built-in defaults). */
+  lossReasons: string[]
+  /** Sales-order document kinds (empty = built-in defaults). */
+  soDocumentKinds: string[]
+  /** Company profile — printed on customer-facing documents. */
+  companyProfile: CompanyProfile
+  /** True when a logo has been uploaded (served at /api/tenant-logo). */
+  hasLogo: boolean
+}
+
+export type CompanyProfile = {
+  address: string
+  registrationNo: string
+  phone: string
+  email: string
+  website: string
+  bankDetails: string
+  quoteFooter: string
 }
 
 export type TenantMemberView = {
@@ -72,10 +116,19 @@ export type UpdateSettingsInput = {
   defaultCurrency: string
   fiscalYearStartMonth: number
   approvalBypassTier: number
+  /** Dashboard "due soon" follow-up window, 1–90 days. */
+  followUpDueDays: number
   taxInclusive: boolean
   autoWinOnQuoteAccept: boolean
+  autoCreateProjectOnAccept: boolean
   allowPasswordLogin: boolean
   entityCode: string
+  defaultCountry: string
+  phonePrefix: string
+  /** Stale-funnel nudge threshold in days (null = off). */
+  staleDealDays: number | null
+  /** Auto "First contact" follow-up N days after lead creation (null = off). */
+  leadFollowUpDays: number | null
 }
 
 export type UpdateNumberingInput = {
@@ -85,6 +138,8 @@ export type UpdateNumberingInput = {
   // The project running number now resets per year and lives in
   // `project_counters`; only the zero-pad width is configured here.
   projectPadWidth: number
+  /** Default quote validity in days (null = don't prefill "Valid until"). */
+  quoteValidDays: number | null
 }
 
 const DEFAULTS = {
@@ -155,7 +210,377 @@ function toView(
     customFunnelFields: row.customFunnelFields ?? [],
     autoJoinDomains: row.autoJoinDomains ?? [],
     autoJoinRole: row.autoJoinRole ?? null,
+    intercompanyPartnerIds: row.intercompanyPartnerIds ?? [],
+    currencies: row.currencies ?? [],
+    paymentTerms: row.paymentTerms ?? [],
+    quoteValidDays: row.quoteValidDays ?? null,
+    followUpDueDays: row.followUpDueDays ?? 7,
+    autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
+    staleDealDays: row.staleDealDays ?? null,
+    leadFollowUpDays: row.leadFollowUpDays ?? null,
+    milestoneTemplate: row.milestoneTemplate ?? [],
+    defaultCountry: row.defaultCountry ?? "",
+    phonePrefix: row.phonePrefix ?? "",
+    leadSources: row.leadSources ?? [],
+    lossReasons: row.lossReasons ?? [],
+    soDocumentKinds: row.soDocumentKinds ?? [],
+    companyProfile: {
+      address: row.companyAddress ?? "",
+      registrationNo: row.companyRegistrationNo ?? "",
+      phone: row.companyPhone ?? "",
+      email: row.companyEmail ?? "",
+      website: row.companyWebsite ?? "",
+      bankDetails: row.bankDetails ?? "",
+      quoteFooter: row.quoteFooter ?? "",
+    },
+    hasLogo: !!row.logoStorageKey,
   }
+}
+
+/** Shared helper: replace one jsonb picklist column with an audited upsert. */
+async function updatePicklist(
+  field:
+    | "currencies"
+    | "paymentTerms"
+    | "leadSources"
+    | "lossReasons"
+    | "soDocumentKinds",
+  values: string[],
+  auditAction: string
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const unique = [...new Set(values.map((s) => s.trim()).filter(Boolean))]
+    if (field === "currencies") {
+      for (const c of unique) {
+        if (!/^[A-Z]{3}$/.test(c)) {
+          throw new Error(`"${c}" is not a 3-letter ISO currency code.`)
+        }
+      }
+    }
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          ...DEFAULTS,
+          [field]: unique,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { [field]: unique, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: auditAction,
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { [field]: unique },
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return toView(updated, org?.name ?? "")
+    })
+    revalidatePath("/settings")
+    return view
+  })
+}
+
+/** Replace the tenant currency picklist (ISO-4217 codes, upper-cased). */
+export async function updateCurrencies(
+  codes: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return updatePicklist(
+    "currencies",
+    codes.map((c) => c.trim().toUpperCase()),
+    "settings.currencies_updated"
+  )
+}
+
+/** Replace the tenant payment-term picklist for sales orders. */
+export async function updatePaymentTerms(
+  terms: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return updatePicklist(
+    "paymentTerms",
+    terms,
+    "settings.payment_terms_updated"
+  )
+}
+
+/** Replace the lead-source picklist. */
+export async function updateLeadSources(
+  sources: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return updatePicklist("leadSources", sources, "settings.lead_sources_updated")
+}
+
+/** Replace the shared deal-lost / lead-disqualify reason picklist. */
+export async function updateLossReasons(
+  reasons: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return updatePicklist("lossReasons", reasons, "settings.loss_reasons_updated")
+}
+
+/** Replace the sales-order document-kind picklist. */
+export async function updateSoDocumentKinds(
+  kinds: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return updatePicklist(
+    "soDocumentKinds",
+    kinds,
+    "settings.so_document_kinds_updated"
+  )
+}
+
+/**
+ * Save the company profile (printed on customer-facing documents). All fields
+ * optional free text; length-capped so a paste can't blow up the quote layout.
+ */
+export async function updateCompanyProfile(
+  input: CompanyProfile
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+    const clip = (s: string, max: number) => (s ?? "").trim().slice(0, max)
+    const values = {
+      companyAddress: clip(input.address, 500) || null,
+      companyRegistrationNo: clip(input.registrationNo, 120) || null,
+      companyPhone: clip(input.phone, 60) || null,
+      companyEmail: clip(input.email, 200) || null,
+      companyWebsite: clip(input.website, 200) || null,
+      bankDetails: clip(input.bankDetails, 1000) || null,
+      quoteFooter: clip(input.quoteFooter, 2000) || null,
+      updatedAt: new Date(),
+    }
+
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({ organizationId: ctx.tenantId, ...DEFAULTS, ...values })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: values,
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.company_profile_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: values,
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return toView(updated, org?.name ?? "")
+    })
+
+    revalidatePath("/settings")
+    return view
+  })
+}
+
+/**
+ * Replace the payment-milestone template. Titles required; percents must be
+ * positive and sum to at most 100 (a sum below 100 leaves the remainder
+ * unallocated, which is allowed — the team adds the tail manually).
+ */
+export async function updateMilestoneTemplate(
+  template: { title: string; percent: number }[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+    const cleaned = template.map((t) => ({
+      title: (t.title ?? "").trim().slice(0, 120),
+      percent: Number(t.percent),
+    }))
+    let sum = 0
+    for (const t of cleaned) {
+      if (!t.title) throw new Error("Every milestone needs a title.")
+      if (!Number.isFinite(t.percent) || t.percent <= 0 || t.percent > 100) {
+        throw new Error("Each percent must be between 0 and 100.")
+      }
+      sum += t.percent
+    }
+    if (sum > 100.0001) {
+      throw new Error("The milestone percents add up to more than 100%.")
+    }
+
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          ...DEFAULTS,
+          milestoneTemplate: cleaned,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { milestoneTemplate: cleaned, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.milestone_template_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { milestoneTemplate: cleaned },
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return toView(updated, org?.name ?? "")
+    })
+    revalidatePath("/settings")
+    return view
+  })
+}
+
+const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
+
+/** Upload (replace) the company logo; served at /api/tenant-logo. */
+export async function uploadCompanyLogo(
+  formData: FormData
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const file = formData.get("file")
+    if (!(file instanceof File) || file.size === 0) {
+      throw new Error("Pick an image file.")
+    }
+    if (!LOGO_TYPES.has(file.type)) {
+      throw new Error("Logo must be a PNG, JPEG, WebP or SVG image.")
+    }
+    if (file.size > 2 * 1024 * 1024) throw new Error("Logo exceeds 2 MB.")
+
+    const buf = Buffer.from(await file.arrayBuffer())
+    const stored = await storage.put(ctx.tenantId, file.name, buf)
+
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [prev] = await tx
+        .select({ key: tenantSettings.logoStorageKey })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          ...DEFAULTS,
+          logoStorageKey: stored.key,
+          logoContentType: file.type,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: {
+            logoStorageKey: stored.key,
+            logoContentType: file.type,
+            updatedAt: new Date(),
+          },
+        })
+      await writeAudit(tx, ctx, {
+        action: "settings.logo_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+      })
+      // Best-effort cleanup of the replaced blob (post-commit orphan is fine).
+      if (prev?.key) await storage.delete(prev.key).catch(() => {})
+    })
+    revalidatePath("/settings")
+  })
+}
+
+/** Remove the company logo. */
+export async function removeCompanyLogo(): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    await runInTenant(ctx.tenantId, async (tx) => {
+      const [prev] = await tx
+        .select({ key: tenantSettings.logoStorageKey })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      await tx
+        .update(tenantSettings)
+        .set({
+          logoStorageKey: null,
+          logoContentType: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      if (prev?.key) await storage.delete(prev.key).catch(() => {})
+    })
+    revalidatePath("/settings")
+  })
+}
+
+/**
+ * Replace the intercompany partner allow-list. Every id must be an entity the
+ * caller belongs to (there is no directory of foreign orgs to pick from).
+ * An empty list restores the legacy behavior (any own entity is a valid
+ * handling partner).
+ */
+export async function updateIntercompanyPartners(
+  ids: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+
+    const unique = [...new Set(ids.map((s) => s.trim()).filter(Boolean))]
+    const entities = await listEntities()
+    const valid = new Set(entities.map((e) => e.id))
+    for (const id of unique) {
+      if (!valid.has(id)) {
+        throw new Error(
+          "Each allow-listed partner must be an entity you belong to."
+        )
+      }
+    }
+
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          ...DEFAULTS,
+          intercompanyPartnerIds: unique,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { intercompanyPartnerIds: unique, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.intercompany_partners_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { intercompanyPartnerIds: unique },
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return toView(updated, org?.name ?? "")
+    })
+
+    revalidatePath("/settings")
+    return view
+  })
 }
 
 /** Update (upsert) the general tenant settings row. */
@@ -180,6 +605,21 @@ export async function updateSettings(
   if (!Number.isInteger(input.approvalBypassTier) || input.approvalBypassTier < 0) {
     throw new Error("Approval bypass tier must be a non-negative integer.")
   }
+  if (
+    !Number.isInteger(input.followUpDueDays) ||
+    input.followUpDueDays < 1 ||
+    input.followUpDueDays > 90
+  ) {
+    throw new Error("Follow-up window must be between 1 and 90 days.")
+  }
+  for (const [label, n] of [
+    ["Stale funnel threshold", input.staleDealDays],
+    ["Lead follow-up days", input.leadFollowUpDays],
+  ] as const) {
+    if (n !== null && (!Number.isInteger(n) || n < 1 || n > 365)) {
+      throw new Error(`${label} must be between 1 and 365 days (or empty).`)
+    }
+  }
 
   const entityCode = (input.entityCode ?? "").trim().toUpperCase()
 
@@ -191,10 +631,16 @@ export async function updateSettings(
     defaultCurrency: currency,
     fiscalYearStartMonth: input.fiscalYearStartMonth,
     approvalBypassTier: input.approvalBypassTier,
+    followUpDueDays: input.followUpDueDays,
     taxInclusive: input.taxInclusive,
     autoWinOnQuoteAccept: input.autoWinOnQuoteAccept,
+    autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
+    staleDealDays: input.staleDealDays,
+    leadFollowUpDays: input.leadFollowUpDays,
     allowPasswordLogin: input.allowPasswordLogin,
     entityCode: entityCode.length > 0 ? entityCode : null,
+    defaultCountry: (input.defaultCountry ?? "").trim() || null,
+    phonePrefix: (input.phonePrefix ?? "").trim().slice(0, 8) || null,
     updatedAt: new Date(),
   }
 
@@ -253,6 +699,14 @@ export async function updateNumbering(
       throw new Error(`${label} must be between 1 and 10.`)
     }
   }
+  if (
+    input.quoteValidDays !== null &&
+    (!Number.isInteger(input.quoteValidDays) ||
+      input.quoteValidDays < 1 ||
+      input.quoteValidDays > 365)
+  ) {
+    throw new Error("Default validity must be between 1 and 365 days.")
+  }
 
   const values = {
     quotePrefix,
@@ -261,6 +715,7 @@ export async function updateNumbering(
     // projectNextNumber is intentionally not written here — the project running
     // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
+    quoteValidDays: input.quoteValidDays,
     updatedAt: new Date(),
   }
 

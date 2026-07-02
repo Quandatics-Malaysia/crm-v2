@@ -3,6 +3,7 @@ import { and, eq, isNull, notInArray } from "drizzle-orm"
 import type { Tx } from "@/db"
 import { quotations, opportunities } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
+import { syncIntercompanyMirror } from "./intercompany"
 
 /**
  * Quote statuses that must never drive an opportunity's value/forecast: a
@@ -42,28 +43,32 @@ export async function syncOpportunityAmount(
     .from(opportunities)
     .where(eq(opportunities.id, opportunityId))
     .limit(1)
-  if (!opp?.primaryQuotationId) return
-
-  const [q] = await tx
-    .select({
-      subtotal: quotations.subtotal,
-      discountTotal: quotations.discountTotal,
-    })
-    .from(quotations)
-    .where(
-      and(
-        eq(quotations.id, opp.primaryQuotationId),
-        isNull(quotations.deletedAt),
-        notInArray(quotations.status, NON_VALUE_QUOTE_STATUS)
+  if (opp?.primaryQuotationId) {
+    const [q] = await tx
+      .select({
+        subtotal: quotations.subtotal,
+        discountTotal: quotations.discountTotal,
+      })
+      .from(quotations)
+      .where(
+        and(
+          eq(quotations.id, opp.primaryQuotationId),
+          isNull(quotations.deletedAt),
+          notInArray(quotations.status, NON_VALUE_QUOTE_STATUS)
+        )
       )
-    )
-    .limit(1)
-  if (!q) return
-
-  await tx
-    .update(opportunities)
-    .set({ amount: quoteNet(q) })
-    .where(eq(opportunities.id, opportunityId))
+      .limit(1)
+    if (q) {
+      await tx
+        .update(opportunities)
+        .set({ amount: quoteNet(q) })
+        .where(eq(opportunities.id, opportunityId))
+    }
+  }
+  // Every quote-driven value change funnels through here, so this is the one
+  // choke point that keeps the partner-facing intercompany mirror's quoted
+  // amount aligned. No-op for non-intercompany deals.
+  await syncIntercompanyMirror(tx, opportunityId)
 }
 
 /** The current net value to use for an opportunity (primary quote net, else manual amount). */

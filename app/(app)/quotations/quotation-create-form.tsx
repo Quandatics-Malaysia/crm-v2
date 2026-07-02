@@ -40,6 +40,8 @@ import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
 const NO_TAX = "__none__"
 /** Sentinel: leave project nature to the funnel's default (server inherits it). */
 const INHERIT_PROJECT_NATURE = "__inherit__"
+/** Sentinel: a line with no nature of its own (falls under the quote's). */
+const NO_LINE_NATURE = "__none__"
 /** Sentinel: a free-text line with no linked product. */
 const NO_PRODUCT = "__custom__"
 
@@ -73,6 +75,7 @@ export function QuotationCreateForm({
   opportunityId,
   defaultOpportunityId,
   currency = "MYR",
+  defaultValidUntil,
   submitLabel = "Create quotation",
   onCancel,
   onCreated,
@@ -90,6 +93,8 @@ export function QuotationCreateForm({
   /** Pre-selected funnel in the picker (picker stays visible/editable). */
   defaultOpportunityId?: string
   currency?: string
+  /** Prefill for "Valid until" (tenant default validity), YYYY-MM-DD. */
+  defaultValidUntil?: string | null
   submitLabel?: string
   onCancel?: () => void
   onCreated?: (quotation: QuotationRow) => void
@@ -107,12 +112,13 @@ export function QuotationCreateForm({
       opportunityId: opportunityId ?? defaultOpportunityId ?? "",
       taxSettingId: defaultTaxId,
       projectNatureCode: INHERIT_PROJECT_NATURE,
-      validUntil: "",
+      validUntil: defaultValidUntil ?? "",
       notes: "",
       headerDiscount: "0",
       lines: [
         {
           productId: "",
+          projectNatureCode: "",
           uom: "",
           description: "",
           quantity: "1",
@@ -199,6 +205,7 @@ export function QuotationCreateForm({
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
         productId: l.productId || null,
+        projectNatureCode: l.projectNatureCode || null,
         uom: l.uom || null,
         description: l.description,
         quantity: l.quantity,
@@ -384,6 +391,7 @@ export function QuotationCreateForm({
               onClick={() =>
                 append({
                   productId: "",
+                  projectNatureCode: "",
                   uom: "",
                   description: "",
                   quantity: "1",
@@ -419,6 +427,43 @@ export function QuotationCreateForm({
                             placeholder="Pick a product…"
                             searchPlaceholder="Search products…"
                             emptyMessage="No products found."
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+                {projectNatures.length > 0 ? (
+                  <FormField
+                    control={form.control}
+                    name={`lines.${i}.projectNatureCode`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">
+                          Project nature (this line)
+                        </FormLabel>
+                        <FormControl>
+                          <Combobox
+                            value={field.value || NO_LINE_NATURE}
+                            onChange={(v) =>
+                              field.onChange(
+                                !v || v === NO_LINE_NATURE ? "" : v
+                              )
+                            }
+                            options={[
+                              {
+                                value: NO_LINE_NATURE,
+                                label: "— (quote default)",
+                              },
+                              ...projectNatures.map((p) => ({
+                                value: p.code,
+                                label: p.name,
+                              })),
+                            ]}
+                            placeholder="Nature…"
+                            searchPlaceholder="Search natures…"
+                            emptyMessage="No natures found."
                           />
                         </FormControl>
                         <FormMessage />

@@ -20,9 +20,13 @@ export const paymentMilestoneStatus = pgEnum("payment_milestone_status", [
 ])
 
 /**
- * A payment milestone on a delivery project, billed against the project's
- * source quotation (the single source of value). Milestones reconcile to the
- * quotation total. Invoice/payment logic comes later — status is the seam.
+ * A payment milestone on a delivery project. Milestones reconcile to the
+ * PROJECT's value (see allocatedTotal in projects/actions.ts — the sum of
+ * milestone amounts may never exceed it, and the value may never drop below
+ * what's allocated). `quotationId` records which quotation a milestone bills
+ * against for traceability, but the project value — seeded from the accepted
+ * quote's net and thereafter owned by the project — is the reconciliation
+ * baseline. Invoice/payment logic comes later — status is the seam.
  */
 export const paymentMilestones = pgTable(
   "payment_milestones",

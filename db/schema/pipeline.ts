@@ -160,7 +160,11 @@ export const opportunities = pgTable(
     () => organization.id,
     { onDelete: "set null" }
   ),
-  /** Snapshot of the handling entity's name at write time (avoids cross-org reads for display). */
+  /**
+   * Snapshot of the handling entity's name at write time. Display resolves the
+   * LIVE organization name first (renames propagate); this is the fallback for
+   * entities that no longer resolve.
+   */
   handlingPartnerName: text("handling_partner_name"),
   currency: char("currency", { length: 3 }).notNull().default("MYR"),
   /**

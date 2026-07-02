@@ -25,6 +25,8 @@ const STATUS_TONE: Record<string, StatusTone> = {
   converted: "success",
   won: "success",
   active: "success",
+  completed: "success",
+  paid: "success",
   // danger — negative terminal / removed
   rejected: "danger",
   disqualified: "danger",
@@ -32,19 +34,27 @@ const STATUS_TONE: Record<string, StatusTone> = {
   void: "danger",
   expired: "danger",
   disabled: "danger",
+  cancelled: "danger",
+  declined: "danger",
   // warning — awaiting a decision / on hold
   pending: "warning",
   pending_review: "warning",
   parked: "warning",
   kiv: "warning",
   invited: "warning",
+  on_hold: "warning",
+  contacted: "warning",
   // info — in flight
   sent: "info",
   submitted: "info",
   open: "info",
+  qualified: "info",
+  invoiced: "info",
   // neutral — not yet started
   draft: "neutral",
   new: "neutral",
+  planning: "neutral",
+  planned: "neutral",
 }
 
 /** Tone for a status string; falls back to neutral for anything unmapped. */

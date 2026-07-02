@@ -12,6 +12,81 @@ import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
 
 /**
+ * Consume pending invites for a user. An admin invites by exact email
+ * (Team → Add member for someone who hasn't signed in yet); on the invitee's
+ * first sign-in this creates the member + profile with the invited role/tier
+ * and deletes the invite. Idempotent (member-exists check) and multi-tenant:
+ * a person invited by several entities joins all of them. Returns the first
+ * joined org id. Exact-email invites take precedence over domain auto-join.
+ */
+async function consumePendingInvites(user: {
+  id: string
+  email?: string | null
+}): Promise<string | null> {
+  const email = (user.email ?? "").trim()
+  if (!email) return null
+  // Cross-tenant by design (same class of read as autoJoinByDomain's
+  // tenant_settings scan): sign-in has no tenant context yet.
+  const invites = await db
+    .select({
+      id: schema.pendingInvites.id,
+      tenantId: schema.pendingInvites.tenantId,
+      roleId: schema.pendingInvites.roleId,
+      tierLevel: schema.pendingInvites.tierLevel,
+    })
+    .from(schema.pendingInvites)
+    .where(sql`lower(${schema.pendingInvites.email}) = lower(${email})`)
+  if (invites.length === 0) return null
+
+  let firstOrgId: string | null = null
+  for (const invite of invites) {
+    try {
+      const [existing] = await db
+        .select({ id: schema.member.id })
+        .from(schema.member)
+        .where(
+          and(
+            eq(schema.member.userId, user.id),
+            eq(schema.member.organizationId, invite.tenantId)
+          )
+        )
+        .limit(1)
+      const memberId = randomUUID()
+      if (!existing) {
+        await db.insert(schema.member).values({
+          id: memberId,
+          organizationId: invite.tenantId,
+          userId: user.id,
+          role: "member",
+          createdAt: new Date(),
+        })
+      }
+      await runInTenant(invite.tenantId, async (tx) => {
+        if (!existing) {
+          await tx
+            .insert(schema.membershipProfiles)
+            .values({
+              memberId,
+              tenantId: invite.tenantId,
+              roleId: invite.roleId,
+              tierLevel: invite.tierLevel,
+              status: "active",
+            })
+            .onConflictDoNothing()
+        }
+        await tx
+          .delete(schema.pendingInvites)
+          .where(eq(schema.pendingInvites.id, invite.id))
+      })
+      firstOrgId ??= invite.tenantId
+    } catch (e) {
+      console.error("[auth] pending-invite consumption failed", e)
+    }
+  }
+  return firstOrgId
+}
+
+/**
  * Domain auto-join. After a new user is created, if their email domain matches a
  * workspace's `autoJoinDomains`, add them to that workspace with its configured
  * default role (falls back to "Rep"). No-op when nothing matches (invite-only).
@@ -178,10 +253,11 @@ export const auth = betterAuth({
             })
           }
         },
-        // First login: auto-join a workspace by email domain (if configured).
+        // First login: exact-email invites first, then domain auto-join.
         after: async (user) => {
           try {
-            await autoJoinByDomain(user)
+            const invited = await consumePendingInvites(user)
+            if (!invited) await autoJoinByDomain(user)
           } catch (e) {
             console.error("[auth] domain auto-join failed", e)
           }
@@ -192,7 +268,20 @@ export const auth = betterAuth({
       create: {
         // Land the user in their workspace: default the active org to their
         // (first) membership when the session doesn't already carry one.
+        // Also consume invites here — a user who already EXISTED when the
+        // invite was created never re-fires user.create, so each sign-in is
+        // the catch-up point (no-op when none are pending).
         before: async (session) => {
+          try {
+            const [u] = await db
+              .select({ id: schema.user.id, email: schema.user.email })
+              .from(schema.user)
+              .where(eq(schema.user.id, session.userId))
+              .limit(1)
+            if (u) await consumePendingInvites(u)
+          } catch (e) {
+            console.error("[auth] pending-invite catch-up failed", e)
+          }
           if (session.activeOrganizationId) return
           const [m] = await db
             .select({ orgId: schema.member.organizationId })

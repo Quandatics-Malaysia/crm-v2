@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody, PageHeader } from "@/components/page-header"
-import { Card, CardContent } from "@/components/ui/card"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listOpportunityOptions, getQuotationFormMeta } from "../actions"
@@ -31,19 +30,17 @@ export default async function NewQuotationPage({
       <SiteHeader title="New quotation" />
       <PageBody>
         <PageHeader title="New quotation" />
-        <Card className="max-w-2xl">
-          <CardContent>
-            <NewQuotationForm
-              opportunities={opportunities}
-              defaultOpportunityId={defaultOpportunityId}
-              taxOptions={meta.taxOptions}
-              taxInclusive={meta.taxInclusive}
-              projectNatures={meta.projectNatures}
-              products={meta.products}
-              defaultValidUntil={meta.defaultValidUntil}
-            />
-          </CardContent>
-        </Card>
+        {/* Full-width: the form owns its two-column record layout — a narrow
+            card strangles the line-item table. */}
+        <NewQuotationForm
+          opportunities={opportunities}
+          defaultOpportunityId={defaultOpportunityId}
+          taxOptions={meta.taxOptions}
+          taxInclusive={meta.taxInclusive}
+          projectNatures={meta.projectNatures}
+          products={meta.products}
+          defaultValidUntil={meta.defaultValidUntil}
+        />
       </PageBody>
     </>
   )

@@ -16,6 +16,7 @@ import { Combobox } from "@/components/ui/combobox"
 import { Badge } from "@/components/ui/badge"
 import type { ProductOption } from "@/lib/lookups"
 import { StatusBadge } from "@/components/status-badge"
+import { RelatedQuickLinks } from "@/components/object-tile"
 import { Separator } from "@/components/ui/separator"
 import {
   Card,
@@ -115,7 +116,7 @@ export function QuotationForm({
   taxInclusive,
   projectNatures = [],
   products = [],
-  hasProject = false,
+  project = null,
   perms = ALL_QUOTATION_PERMS,
 }: {
   detail: QuotationDetail
@@ -125,8 +126,8 @@ export function QuotationForm({
   projectNatures?: ProjectNatureOption[]
   /** Active catalog products for the line-item picker. */
   products?: ProductOption[]
-  /** True when a non-deleted project already exists for this quotation. */
-  hasProject?: boolean
+  /** The delivery project created from this quotation, if any. */
+  project?: { id: string; projectCode: string } | null
   perms?: QuotationPerms
 }) {
   const router = useRouter()
@@ -145,7 +146,7 @@ export function QuotationForm({
   // Whether the Actions card has anything to show for this user/status.
   const showSend = isDraft && perms.canSend
   const showAcceptReject = isSent && perms.canAccept
-  const showCreateProject = isAccepted && !hasProject && perms.canCreateProject
+  const showCreateProject = isAccepted && !project && perms.canCreateProject
   const showSetPrimary =
     !quotation.isPrimary &&
     (quotation.status === "accepted" || quotation.status === "sent") &&
@@ -424,7 +425,9 @@ export function QuotationForm({
       </TabsList>
 
       <TabsContent value="build" className="grid gap-6 lg:grid-cols-4">
-      <div className="lg:col-span-3">
+      {/* Facts/Actions/Related sit on the LEFT (house record anatomy);
+          the build form takes the wide right column. */}
+      <div className="lg:order-2 lg:col-span-3">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
             {!isDraft ? (
@@ -636,9 +639,6 @@ export function QuotationForm({
                         <tr className="border-b text-left text-xs text-muted-foreground">
                           <th className="w-8 py-2 pr-2 font-medium">#</th>
                           <th className="py-2 pr-2 font-medium">Product</th>
-                          {projectNatureItems.length > 0 ? (
-                            <th className="py-2 pr-2 font-medium">Nature</th>
-                          ) : null}
                           <th className="py-2 pr-2 font-medium">Description</th>
                           <th className="w-20 py-2 pr-2 text-right font-medium">
                             Qty
@@ -685,34 +685,6 @@ export function QuotationForm({
                                   <span className="text-muted-foreground">—</span>
                                 )}
                               </td>
-                              {projectNatureItems.length > 0 ? (
-                                <td className="py-1.5 pr-2">
-                                  <Combobox
-                                    value={
-                                      line?.projectNatureCode ||
-                                      NO_PROJECT_NATURE
-                                    }
-                                    onChange={(v) =>
-                                      form.setValue(
-                                        `lines.${i}.projectNatureCode`,
-                                        !v || v === NO_PROJECT_NATURE ? "" : v
-                                      )
-                                    }
-                                    options={[
-                                      {
-                                        value: NO_PROJECT_NATURE,
-                                        label: "— (quote default)",
-                                      },
-                                      ...projectNatureItems,
-                                    ]}
-                                    disabled={!canEditDraft}
-                                    placeholder="Nature…"
-                                    searchPlaceholder="Search natures…"
-                                    emptyMessage="No natures found."
-                                    className="min-w-32"
-                                  />
-                                </td>
-                              ) : null}
                               <td className="py-1.5 pr-2">
                                 <Input
                                   className="min-w-44"
@@ -798,7 +770,7 @@ export function QuotationForm({
         </Form>
       </div>
 
-      <div className="grid h-fit gap-6">
+      <div className="grid h-fit gap-6 lg:order-1 lg:sticky lg:top-4 lg:self-start">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>{quotation.quoteNumber}</CardTitle>
@@ -1019,6 +991,46 @@ export function QuotationForm({
           </CardContent>
         </Card>
         ) : null}
+
+        {/* Related quick links — same anatomy as the project/account pages. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Related</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RelatedQuickLinks
+              items={[
+                {
+                  kind: "funnel",
+                  label: opportunityName ?? "Funnel",
+                  href: `/funnel/${quotation.opportunityId}`,
+                },
+                ...(detail.accountId
+                  ? [
+                      {
+                        kind: "account" as const,
+                        label: detail.accountName ?? "Account",
+                        href: `/accounts/${detail.accountId}`,
+                      },
+                    ]
+                  : []),
+                project
+                  ? {
+                      kind: "project" as const,
+                      label: project.projectCode,
+                      href: `/projects/${project.id}`,
+                    }
+                  : { kind: "project" as const, label: "Projects", count: 0, href: "/projects" },
+                {
+                  kind: "product" as const,
+                  label: "Products",
+                  count: lines.filter((l) => l.productId).length,
+                  href: "/products",
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
       </div>
       </TabsContent>
 

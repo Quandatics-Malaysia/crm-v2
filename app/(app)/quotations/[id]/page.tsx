@@ -144,7 +144,9 @@ export default async function QuotationDetailPage({
           taxInclusive={taxInclusive}
           projectNatures={projectNatures}
           products={products}
-          hasProject={!!project}
+          project={
+            project ? { id: project.id, projectCode: project.projectCode } : null
+          }
           perms={perms}
         />
 

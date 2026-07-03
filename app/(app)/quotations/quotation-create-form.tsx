@@ -8,6 +8,13 @@ import { Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
@@ -40,8 +47,6 @@ import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
 const NO_TAX = "__none__"
 /** Sentinel: leave project nature to the funnel's default (server inherits it). */
 const INHERIT_PROJECT_NATURE = "__inherit__"
-/** Sentinel: a line with no nature of its own (falls under the quote's). */
-const NO_LINE_NATURE = "__none__"
 /** Sentinel: a free-text line with no linked product. */
 const NO_PRODUCT = "__custom__"
 
@@ -224,8 +229,18 @@ export function QuotationCreateForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-6">
-        <div className="grid gap-4 sm:grid-cols-2">
+      {/* Record-page anatomy (same as the quotation detail): wide left column
+          for details + the line table, right rail for totals + actions. */}
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="grid items-start gap-6 lg:grid-cols-4"
+      >
+        <div className="grid min-w-0 gap-6 lg:col-span-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Details</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
           {!fixedOpportunity ? (
             <FormField
               control={form.control}
@@ -379,210 +394,194 @@ export function QuotationCreateForm({
               </FormItem>
             )}
           />
-        </div>
+            </CardContent>
+          </Card>
 
-        <div className="grid gap-3">
-          <div className="flex items-center justify-between">
-            <FormLabel>Line items</FormLabel>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                append({
-                  productId: "",
-                  projectNatureCode: "",
-                  uom: "",
-                  description: "",
-                  quantity: "1",
-                  unitPrice: "0",
-                  discountAmount: "0",
-                })
-              }
-            >
-              <Plus /> Add line
-            </Button>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Line items</CardTitle>
+              <CardAction>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    append({
+                      productId: "",
+                      projectNatureCode: "",
+                      uom: "",
+                      description: "",
+                      quantity: "1",
+                      unitPrice: "0",
+                      discountAmount: "0",
+                    })
+                  }
+                >
+                  <Plus /> Add line
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="grid gap-3">
           {form.formState.errors.lines?.root ? (
             <p className="text-sm text-destructive">
               {form.formState.errors.lines.root.message}
             </p>
           ) : null}
-          {fields.map((f, i) => {
-            const line = totals.lines[i]
-            return (
-              <div key={f.id} className="grid gap-3 rounded-lg border p-3">
-                {products.length > 0 ? (
-                  <FormField
-                    control={form.control}
-                    name={`lines.${i}.productId`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Product</FormLabel>
-                        <FormControl>
+          {/* Line-to-line billing table — same anatomy as the quotation edit
+              page, with unit price editable for custom lines. */}
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                  <th className="w-8 py-2 pr-2 pl-2 font-medium">#</th>
+                  {products.length > 0 ? (
+                    <th className="py-2 pr-2 font-medium">Product</th>
+                  ) : null}
+                  <th className="py-2 pr-2 font-medium">Description</th>
+                  <th className="w-20 py-2 pr-2 text-right font-medium">Qty</th>
+                  <th className="w-14 py-2 pr-2 font-medium">UOM</th>
+                  <th className="w-28 py-2 pr-2 text-right font-medium">
+                    Unit price
+                  </th>
+                  <th className="w-28 py-2 pr-2 text-right font-medium">
+                    Disc ({currency})
+                  </th>
+                  <th className="w-28 py-2 pr-2 text-right font-medium">
+                    Line total
+                  </th>
+                  <th className="w-8 py-2 pr-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {fields.map((f, i) => {
+                  const line = totals.lines[i]
+                  const watched = watchedLines?.[i]
+                  return (
+                    <tr key={f.id} className="border-b align-middle last:border-0">
+                      <td className="py-1.5 pr-2 pl-2 text-muted-foreground tabular-nums">
+                        {i + 1}
+                      </td>
+                      {products.length > 0 ? (
+                        <td className="py-1.5 pr-2">
                           <Combobox
-                            value={field.value || NO_PRODUCT}
+                            value={watched?.productId || NO_PRODUCT}
                             onChange={(v) => applyProduct(i, v || NO_PRODUCT)}
                             options={productItems}
                             placeholder="Pick a product…"
                             searchPlaceholder="Search products…"
                             emptyMessage="No products found."
+                            className="min-w-44"
                           />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ) : null}
-                {projectNatures.length > 0 ? (
-                  <FormField
-                    control={form.control}
-                    name={`lines.${i}.projectNatureCode`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">
-                          Project nature (this line)
-                        </FormLabel>
-                        <FormControl>
-                          <Combobox
-                            value={field.value || NO_LINE_NATURE}
-                            onChange={(v) =>
-                              field.onChange(
-                                !v || v === NO_LINE_NATURE ? "" : v
-                              )
-                            }
-                            options={[
-                              {
-                                value: NO_LINE_NATURE,
-                                label: "— (quote default)",
-                              },
-                              ...projectNatures.map((p) => ({
-                                value: p.code,
-                                label: p.name,
-                              })),
-                            ]}
-                            placeholder="Nature…"
-                            searchPlaceholder="Search natures…"
-                            emptyMessage="No natures found."
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ) : null}
-                <FormField
-                  control={form.control}
-                  name={`lines.${i}.description`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs" required>
-                        Description
-                      </FormLabel>
-                      <FormControl>
-                        <Input placeholder="Service description" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <FormField
-                    control={form.control}
-                    name={`lines.${i}.quantity`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs" required>
-                          Qty
-                        </FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.001" min="0" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name={`lines.${i}.unitPrice`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs" required>
-                          Unit price
-                        </FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" min="0" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name={`lines.${i}.discountAmount`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Discount ({currency})</FormLabel>
-                        <FormControl>
-                          <Input type="number" step="0.01" min="0" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="grid gap-2">
-                    <FormLabel className="text-xs">Line total</FormLabel>
-                    <div className="flex h-8 items-center text-sm tabular-nums">
-                      {formatMoney(line?.lineTotal ?? 0, currency)}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={fields.length === 1}
-                    onClick={() => remove(i)}
-                  >
-                    <Trash2 /> Remove
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="grid gap-2 rounded-lg border p-3 text-sm">
-          <Row label="Subtotal" value={formatMoney(totals.subtotal, currency)} />
-          <Row
-            label="Discount"
-            value={formatMoney(totals.discountTotal, currency)}
-          />
-          <Row
-            label={`Tax${taxInclusive ? " (incl.)" : ""} (${Number(
-              ratePercent
-            ).toFixed(2)}%)`}
-            value={formatMoney(totals.taxTotal, currency)}
-          />
-          <Separator className="my-1" />
-          <div className="flex items-center justify-between font-medium">
-            <span>Total</span>
-            <span className="tabular-nums">
-              {formatMoney(totals.total, currency)}
-            </span>
+                        </td>
+                      ) : null}
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          className="min-w-44"
+                          placeholder="Service description"
+                          {...form.register(`lines.${i}.description`)}
+                        />
+                        {form.formState.errors.lines?.[i]?.description ? (
+                          <p className="mt-0.5 text-xs text-destructive">
+                            Required
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          className="w-20 text-right tabular-nums"
+                          {...form.register(`lines.${i}.quantity`)}
+                        />
+                      </td>
+                      <td className="py-1.5 pr-2 text-muted-foreground">
+                        {watched?.uom || "—"}
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="w-26 text-right tabular-nums"
+                          {...form.register(`lines.${i}.unitPrice`)}
+                        />
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="w-24 text-right tabular-nums"
+                          {...form.register(`lines.${i}.discountAmount`)}
+                        />
+                      </td>
+                      <td className="py-1.5 pr-2 text-right font-medium tabular-nums">
+                        {formatMoney(line?.lineTotal ?? 0, currency)}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={fields.length === 1}
+                          onClick={() => remove(i)}
+                          aria-label="Remove line"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="flex justify-end gap-2">
-          {onCancel ? (
-            <Button type="button" variant="outline" onClick={onCancel}>
-              Cancel
+        {/* Right rail: live totals + actions, like the detail page sidebar. */}
+        <div className="grid h-fit min-w-0 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 text-sm">
+              <Row
+                label="Subtotal"
+                value={formatMoney(totals.subtotal, currency)}
+              />
+              <Row
+                label="Discount"
+                value={formatMoney(totals.discountTotal, currency)}
+              />
+              <Row
+                label={`Tax${taxInclusive ? " (incl.)" : ""} (${Number(
+                  ratePercent
+                ).toFixed(2)}%)`}
+                value={formatMoney(totals.taxTotal, currency)}
+              />
+              <Separator className="my-1" />
+              <div className="flex items-center justify-between font-medium">
+                <span>Total</span>
+                <span className="tabular-nums">
+                  {formatMoney(totals.total, currency)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Creating…" : submitLabel}
             </Button>
-          ) : null}
-          <Button type="submit" disabled={busy}>
-            {busy ? "Creating…" : submitLabel}
-          </Button>
+            {onCancel ? (
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
+            ) : null}
+          </div>
         </div>
       </form>
     </Form>

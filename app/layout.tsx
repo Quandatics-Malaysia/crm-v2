@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -22,14 +23,10 @@ export const metadata: Metadata = {
   description: "Lightweight multitenant CRM",
 };
 
-// No-FOUC theme init. Rendered by the (server) layout so the `dark` class is
-// set before paint — no client-side script warning, no flash.
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);}catch(e){}})();`;
-
-// Same pattern for the per-user text-size preference (accessibility): the UI
-// is rem-based, so a root font-size class scales everything before paint.
-// See components/text-size-toggle.tsx.
-const TEXT_SIZE_INIT = `(function(){try{var s=localStorage.getItem('text-size');if(s==='large')document.documentElement.classList.add('text-scale-lg');else if(s==='xlarge')document.documentElement.classList.add('text-scale-xl');}catch(e){}})();`;
+// No-FOUC preference init (theme + text size) lives in public/prefs-init.js:
+// src-based beforeInteractive scripts are hoisted into the initial HTML;
+// inline ones are not (they ride the RSC payload and React then errors with
+// "Encountered a script tag while rendering").
 
 export default function RootLayout({
   children,
@@ -43,8 +40,7 @@ export default function RootLayout({
       className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable)}
     >
       <body className="min-h-full flex flex-col">
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
-        <script dangerouslySetInnerHTML={{ __html: TEXT_SIZE_INIT }} />
+        <Script src="/prefs-init.js" strategy="beforeInteractive" />
         {children}
         <Toaster richColors position="top-right" />
       </body>

@@ -1,85 +1,55 @@
 "use client"
 
 import * as React from "react"
-import { ALargeSmallIcon, CheckIcon } from "lucide-react"
+import { ALargeSmall } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 /**
- * Per-user text-size preference. The whole UI is rem-based, so scaling the
- * root font-size scales everything proportionally — an accessibility control
- * for users who find the default too small. Persisted in localStorage and
- * applied before hydration by TEXT_SIZE_INIT in app/layout.tsx (same pattern
- * as the theme), so there is no flash of the wrong size.
+ * Per-user text-size preference: one button cycling default → large → x-large
+ * (mirrors ThemeToggle — no dropdown, no state to hydrate). The stored size is
+ * applied before paint by TEXT_SIZE_INIT in app/layout.tsx; the UI is
+ * rem-based, so the root font-size class scales everything.
  */
-const SIZES = [
-  { value: "default", label: "Default", className: "" },
-  { value: "large", label: "Large", className: "text-scale-lg" },
-  { value: "xlarge", label: "Extra large", className: "text-scale-xl" },
-] as const
-
-type TextSize = (typeof SIZES)[number]["value"]
-
-function apply(size: TextSize) {
-  const el = document.documentElement
-  for (const s of SIZES) if (s.className) el.classList.remove(s.className)
-  const chosen = SIZES.find((s) => s.value === size)
-  if (chosen?.className) el.classList.add(chosen.className)
+const SIZES = ["default", "large", "xlarge"] as const
+const CLASS: Record<string, string> = {
+  large: "text-scale-lg",
+  xlarge: "text-scale-xl",
 }
 
 export function TextSizeToggle() {
-  // Lazy init from localStorage (client only). The stored size is applied to
-  // <html> before hydration by TEXT_SIZE_INIT, and the check mark only renders
-  // inside the (closed-by-default) menu, so there is no hydration mismatch.
-  const [size, setSize] = React.useState<TextSize>(() => {
-    if (typeof window === "undefined") return "default"
+  function cycle() {
+    const el = document.documentElement
+    let current = "default"
     try {
-      const stored = localStorage.getItem("text-size") as TextSize | null
-      return stored && SIZES.some((s) => s.value === stored)
-        ? stored
-        : "default"
+      current = localStorage.getItem("text-size") ?? "default"
     } catch {
-      return "default"
+      // storage unavailable — infer from the applied class
+      current = el.classList.contains(CLASS.xlarge)
+        ? "xlarge"
+        : el.classList.contains(CLASS.large)
+          ? "large"
+          : "default"
     }
-  })
-
-  function choose(next: TextSize) {
-    setSize(next)
-    apply(next)
+    const next = SIZES[(SIZES.indexOf(current as (typeof SIZES)[number]) + 1) % SIZES.length]
+    el.classList.remove(CLASS.large, CLASS.xlarge)
+    if (CLASS[next]) el.classList.add(CLASS[next])
     try {
       localStorage.setItem("text-size", next)
     } catch {
-      // storage unavailable — the choice still applies for this page
+      // ignore storage failures
     }
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" aria-label="Text size">
-            <ALargeSmallIcon className="size-4" />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuLabel>Text size</DropdownMenuLabel>
-        {SIZES.map((s) => (
-          <DropdownMenuItem key={s.value} onClick={() => choose(s.value)}>
-            {s.label}
-            {size === s.value ? (
-              <CheckIcon className="ml-auto size-4" />
-            ) : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Cycle text size"
+      title="Text size"
+      onClick={cycle}
+    >
+      <ALargeSmall className="size-4" />
+    </Button>
   )
 }

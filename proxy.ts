@@ -21,5 +21,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Exclude framework internals AND static public files (anything with a file
+  // extension, e.g. /prefs-init.js) — redirecting those to /sign-in breaks
+  // beforeInteractive scripts and images for logged-out visitors.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 }

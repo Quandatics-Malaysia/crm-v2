@@ -16,6 +16,8 @@ import {
   ReceiptIcon,
   TrendingUpIcon,
   ArrowLeftRightIcon,
+  FileStackIcon,
+  ShoppingCartIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
   Settings2Icon,
@@ -60,6 +62,8 @@ type NavItem = {
   /** Salesforce-style object tile colour (Tailwind bg-* class). */
   tile: string
   permission?: string
+  /** Add-on module gate (tenant_settings backend flag), on top of permission. */
+  module?: "finance"
 }
 
 type NavSection = { label: string | null; items: NavItem[] }
@@ -89,6 +93,15 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    // O2C + P2P document chains — an add-on, shown only when the tenant's
+    // finance_module backend flag is on.
+    label: "Finance",
+    items: [
+      { title: "Billing", url: "/billing", icon: FileStackIcon, tile: "bg-lime-600", permission: PERMISSIONS.FINANCE_VIEW, module: "finance" },
+      { title: "Purchasing", url: "/purchasing", icon: ShoppingCartIcon, tile: "bg-yellow-600", permission: PERMISSIONS.FINANCE_VIEW, module: "finance" },
+    ],
+  },
+  {
     label: "Insights",
     items: [
       { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW },
@@ -103,6 +116,8 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Settings", url: "/settings", icon: Settings2Icon, tile: "bg-gray-500", permission: PERMISSIONS.TENANT_SETTINGS },
     ],
   },
+  // /documentation is deliberately NOT in the nav — internal docs, reached by
+  // URL only (docs.view holders; hidden from end users).
 ]
 
 export type SidebarUser = { name: string; email: string }
@@ -113,12 +128,15 @@ export function AppSidebar({
   activeTenant,
   tenants,
   permissions,
+  modules = {},
   ...props
 }: {
   user: SidebarUser
   activeTenant: SidebarTenant | null
   tenants: SidebarTenant[]
   permissions: string[]
+  /** Enabled add-on modules (tenant_settings backend flags). */
+  modules?: { finance?: boolean }
 } & React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const router = useRouter()
@@ -127,7 +145,11 @@ export function AppSidebar({
 
   const sections = NAV_SECTIONS.map((s) => ({
     ...s,
-    items: s.items.filter((i) => !i.permission || perms.has(i.permission)),
+    items: s.items.filter(
+      (i) =>
+        (!i.permission || perms.has(i.permission)) &&
+        (!i.module || modules[i.module])
+    ),
   })).filter((s) => s.items.length > 0)
 
   async function switchTenant(id: string) {

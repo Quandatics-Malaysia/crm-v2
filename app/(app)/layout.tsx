@@ -6,8 +6,9 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderActionsProvider } from "@/components/command-palette"
 import { getServerContext } from "@/lib/server-context"
 import { ensureBootstrap } from "@/lib/bootstrap"
-import { db } from "@/db"
-import { member, organization } from "@/db/schema"
+import { db, runInTenant } from "@/db"
+import { member, organization, tenantSettings } from "@/db/schema"
+import { FINANCE_MODULE } from "@/lib/modules"
 
 export default async function AppLayout({
   children,
@@ -46,6 +47,20 @@ export default async function AppLayout({
   const activeTenant =
     tenants.find((t) => t.id === ctx.tenantId) ?? tenants[0] ?? null
 
+  // Add-on module gates for the nav: the code-level master switch
+  // (lib/modules.ts) AND the tenant's backend flag must both be on.
+  const modules =
+    FINANCE_MODULE && activeTenant
+      ? await runInTenant(activeTenant.id, async (tx) => {
+          const [s] = await tx
+            .select({ finance: tenantSettings.financeModule })
+            .from(tenantSettings)
+            .where(eq(tenantSettings.organizationId, activeTenant.id))
+            .limit(1)
+          return { finance: s?.finance ?? false }
+        })
+      : { finance: false }
+
   return (
     <SidebarProvider
       style={
@@ -66,6 +81,7 @@ export default async function AppLayout({
         activeTenant={activeTenant}
         tenants={tenants}
         permissions={[...ctx.permissions]}
+        modules={modules}
       />
       <SidebarInset id="main-content">
         <HeaderActionsProvider permissions={[...ctx.permissions]}>

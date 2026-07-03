@@ -11,6 +11,7 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowDown,
+  Copy,
   Plus,
   ReceiptText,
   Trash2,
@@ -96,6 +97,7 @@ import {
   updateLossReasons,
   updateSoDocumentKinds,
   updateMilestoneTemplate,
+  updateInvoiceReminderDays,
   updateCompanyProfile,
   uploadCompanyLogo,
   removeCompanyLogo,
@@ -145,6 +147,9 @@ const generalSchema = z.object({
   approvalBypassTier: z.coerce.number().int().min(0, "Must be ≥ 0"),
   followUpDueDays: z.coerce.number().int().min(1, "1–90").max(90, "1–90"),
   autoCreateProjectOnAccept: z.boolean(),
+  autoCompleteProjectOnPaid: z.boolean(),
+  intercoAutoMirror: z.boolean(),
+  documentationModule: z.boolean(),
   /** Empty = feature off. */
   staleDealDays: z
     .string()
@@ -176,11 +181,16 @@ const generalSchema = z.object({
 type GeneralValues = z.input<typeof generalSchema>
 type GeneralParsed = z.output<typeof generalSchema>
 
+const FINANCE_SWITCHES = new Set(["autoCompleteProjectOnPaid", "intercoAutoMirror"])
+
 const SWITCHES: {
   name:
     | "taxInclusive"
     | "autoWinOnQuoteAccept"
     | "autoCreateProjectOnAccept"
+    | "autoCompleteProjectOnPaid"
+    | "intercoAutoMirror"
+    | "documentationModule"
     | "allowPasswordLogin"
   label: string
   description: string
@@ -201,6 +211,24 @@ const SWITCHES: {
     label: "Auto-create project on quote accept",
     description:
       "Create the delivery project automatically from an accepted quotation (value, currency and nature carried over; milestone template applied). Skipped with a warning when the account has no code yet.",
+  },
+  {
+    name: "autoCompleteProjectOnPaid",
+    label: "Auto-complete project when fully paid",
+    description:
+      "Move a project to Completed automatically once every payment milestone is paid (via billing receipts).",
+  },
+  {
+    name: "intercoAutoMirror",
+    label: "Auto-mirror intercompany invoices",
+    description:
+      "Issuing a customer invoice on an intercompany project drafts the pair automatically: the partner's sales invoice to you and your purchase invoice from them, for their share.",
+  },
+  {
+    name: "documentationModule",
+    label: "Documentation",
+    description:
+      "Allow the internal documentation site (/documentation — module guides, flow maps, schema reference). It is linked nowhere in the app and only members with the \"View the in-app documentation\" permission (Owner/Admin by default) can open it.",
   },
   {
     name: "allowPasswordLogin",
@@ -231,6 +259,9 @@ function GeneralForm({
       approvalBypassTier: settings.approvalBypassTier,
       followUpDueDays: settings.followUpDueDays,
       autoCreateProjectOnAccept: settings.autoCreateProjectOnAccept,
+      autoCompleteProjectOnPaid: settings.autoCompleteProjectOnPaid,
+      intercoAutoMirror: settings.intercoAutoMirror,
+      documentationModule: settings.documentationModule,
       staleDealDays:
         settings.staleDealDays == null ? "" : String(settings.staleDealDays),
       leadFollowUpDays:
@@ -266,6 +297,9 @@ function GeneralForm({
         approvalBypassTier: parsed.approvalBypassTier,
         followUpDueDays: parsed.followUpDueDays,
         autoCreateProjectOnAccept: parsed.autoCreateProjectOnAccept,
+        autoCompleteProjectOnPaid: parsed.autoCompleteProjectOnPaid,
+        intercoAutoMirror: parsed.intercoAutoMirror,
+        documentationModule: parsed.documentationModule,
         staleDealDays:
           parsed.staleDealDays === "" ? null : Number(parsed.staleDealDays),
         leadFollowUpDays:
@@ -291,6 +325,9 @@ function GeneralForm({
         approvalBypassTier: updated.approvalBypassTier,
         followUpDueDays: updated.followUpDueDays,
         autoCreateProjectOnAccept: updated.autoCreateProjectOnAccept,
+        autoCompleteProjectOnPaid: updated.autoCompleteProjectOnPaid,
+        intercoAutoMirror: updated.intercoAutoMirror,
+        documentationModule: updated.documentationModule,
         staleDealDays:
           updated.staleDealDays == null ? "" : String(updated.staleDealDays),
         leadFollowUpDays:
@@ -343,6 +380,32 @@ function GeneralForm({
                 </FormItem>
               )}
             />
+            <div className="grid content-start gap-2 sm:col-span-2">
+              <span className="text-sm font-medium">Entity ID (tenant id)</span>
+              <div className="flex items-center gap-2">
+                <code className="flex h-9 min-w-0 flex-1 items-center overflow-x-auto rounded-md border bg-muted/40 px-3 font-mono text-sm">
+                  {settings.organizationId}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(settings.organizationId)
+                    toast.success("Entity ID copied")
+                  }}
+                >
+                  <Copy className="size-3.5" />
+                  Copy
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Read-only — identifies this entity in backend operations, e.g.{" "}
+                <code className="font-mono">
+                  npm run module:finance -- {settings.organizationId} on
+                </code>
+              </p>
+            </div>
             <FormField
               control={form.control}
               name="defaultCurrency"
@@ -492,7 +555,9 @@ function GeneralForm({
             <CardTitle>Behavior</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-1">
-            {SWITCHES.map((s, i) => (
+            {SWITCHES.filter(
+              (s) => settings.financeEnabled || !FINANCE_SWITCHES.has(s.name)
+            ).map((s, i) => (
               <React.Fragment key={s.name}>
                 {i > 0 ? <Separator className="my-1" /> : null}
                 <FormField
@@ -664,6 +729,16 @@ const numberingSchema = z.object({
         (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365),
       "1–365 days"
     ),
+  /** Empty = built-in default (30 days). */
+  invoiceDueDays: z
+    .string()
+    .trim()
+    .refine(
+      (v) =>
+        v === "" ||
+        (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365),
+      "1–365 days"
+    ),
 })
 
 type NumberingValues = z.input<typeof numberingSchema>
@@ -684,6 +759,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
       projectPadWidth: settings.projectPadWidth,
       quoteValidDays:
         settings.quoteValidDays == null ? "" : String(settings.quoteValidDays),
+      invoiceDueDays:
+        settings.invoiceDueDays == null ? "" : String(settings.invoiceDueDays),
     },
   })
 
@@ -712,6 +789,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
         ...parsed,
         quoteValidDays:
           parsed.quoteValidDays === "" ? null : Number(parsed.quoteValidDays),
+        invoiceDueDays:
+          parsed.invoiceDueDays === "" ? null : Number(parsed.invoiceDueDays),
       })
       if (!res.ok) {
         toast.error(res.error)
@@ -725,6 +804,8 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
         projectPadWidth: updated.projectPadWidth,
         quoteValidDays:
           updated.quoteValidDays == null ? "" : String(updated.quoteValidDays),
+        invoiceDueDays:
+          updated.invoiceDueDays == null ? "" : String(updated.invoiceDueDays),
       })
       toast.success("Numbering saved")
     })
@@ -826,6 +907,30 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                 </FormItem>
               )}
             />
+            {settings.financeEnabled ? (
+              <FormField
+                control={form.control}
+                name="invoiceDueDays"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Invoice due window (days)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={365}
+                        placeholder="30"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Prefills the due date on new invoices. Empty = 30.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
           </CardContent>
         </Card>
 
@@ -3058,6 +3163,21 @@ export function SettingsClient({
       <TabsContent value="numbering" className="mt-4 grid gap-6">
         <NumberingForm settings={settings} />
         <MilestoneTemplateCard template={settings.milestoneTemplate} />
+        {settings.financeEnabled ? (
+          <PicklistCard
+            title="Invoice reminders"
+            description="Days AFTER the due date at which reminder 1, 2, 3… become due on the dashboard and billing pages. Empty = the built-in 7 / 14 / 30."
+            items={settings.invoiceReminderDays.map(String)}
+            defaults={["7", "14", "30"]}
+            placeholder="e.g. 7"
+            validate={(v) =>
+              Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 365
+                ? null
+                : "Enter days as a whole number (1–365)."
+            }
+            save={updateInvoiceReminderDays}
+          />
+        ) : null}
       </TabsContent>
 
       <TabsContent value="industries" className="mt-4 grid gap-4">

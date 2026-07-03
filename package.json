@@ -17,7 +17,9 @@
     "db:setup-seeded": "tsx db/migrate.ts && tsx db/seed.ts && tsx db/seed-sample.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "module:finance": "tsx db/toggle-module.ts",
+    "docs:schema": "tsx db/generate-schema-docs.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -34,6 +36,7 @@
     "date-fns": "^4.4.0",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.21.0",
+    "mermaid": "^11.16.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",
     "postgres": "3.4.9",

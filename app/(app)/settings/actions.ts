@@ -17,6 +17,7 @@ import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
+import { FINANCE_MODULE } from "@/lib/modules"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -74,6 +75,18 @@ export type TenantSettingsView = {
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
   leadFollowUpDays: number | null
+  /** Finance add-on live for this tenant (module flag AND master switch). */
+  financeEnabled: boolean
+  /** In-app documentation switch (/documentation). */
+  documentationModule: boolean
+  /** Invoice reminder schedule, days after due (empty = built-in default). */
+  invoiceReminderDays: number[]
+  /** Invoice due window in days (null = built-in default). */
+  invoiceDueDays: number | null
+  /** Auto-complete the project when all milestones are paid. */
+  autoCompleteProjectOnPaid: boolean
+  /** Auto-mirror intercompany invoices (partner share pair). */
+  intercoAutoMirror: boolean
   /** Payment-split template auto-seeded onto new projects with a value. */
   milestoneTemplate: { title: string; percent: number }[]
   /** Preset country for new account addresses ("" = none). */
@@ -129,6 +142,12 @@ export type UpdateSettingsInput = {
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
   leadFollowUpDays: number | null
+  /** Auto-complete the project when all milestones are paid. */
+  autoCompleteProjectOnPaid: boolean
+  /** Auto-mirror intercompany invoices (partner share pair). */
+  intercoAutoMirror: boolean
+  /** In-app documentation switch (/documentation). */
+  documentationModule: boolean
 }
 
 export type UpdateNumberingInput = {
@@ -140,6 +159,8 @@ export type UpdateNumberingInput = {
   projectPadWidth: number
   /** Default quote validity in days (null = don't prefill "Valid until"). */
   quoteValidDays: number | null
+  /** Invoice due window in days (null = built-in default). */
+  invoiceDueDays: number | null
 }
 
 const DEFAULTS = {
@@ -218,6 +239,12 @@ function toView(
     autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
+    financeEnabled: FINANCE_MODULE && row.financeModule,
+    documentationModule: row.documentationModule,
+    invoiceReminderDays: row.invoiceReminderDays ?? [],
+    invoiceDueDays: row.invoiceDueDays ?? null,
+    autoCompleteProjectOnPaid: row.autoCompleteProjectOnPaid,
+    intercoAutoMirror: row.intercoAutoMirror,
     milestoneTemplate: row.milestoneTemplate ?? [],
     defaultCountry: row.defaultCountry ?? "",
     phonePrefix: row.phonePrefix ?? "",
@@ -447,6 +474,50 @@ export async function updateMilestoneTemplate(
   })
 }
 
+/** Replace the invoice reminder schedule (days after due; sorted, unique). */
+export async function updateInvoiceReminderDays(
+  days: string[]
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const parsed = [...new Set(days.map((d) => Number(d.trim())))]
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 365)
+      .sort((a, b) => a - b)
+    if (parsed.length !== days.filter((d) => d.trim()).length) {
+      throw new Error("Each reminder must be a whole number of days (1–365).")
+    }
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          ...DEFAULTS,
+          invoiceReminderDays: parsed,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { invoiceReminderDays: parsed, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.invoice_reminders_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { invoiceReminderDays: parsed },
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return toView(updated, org?.name ?? "")
+    })
+    revalidatePath("/settings")
+    return view
+  })
+}
+
 const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"])
 
 /** Upload (replace) the company logo; served at /api/tenant-logo. */
@@ -637,6 +708,9 @@ export async function updateSettings(
     autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
+    autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
+    intercoAutoMirror: input.intercoAutoMirror,
+    documentationModule: input.documentationModule,
     allowPasswordLogin: input.allowPasswordLogin,
     entityCode: entityCode.length > 0 ? entityCode : null,
     defaultCountry: (input.defaultCountry ?? "").trim() || null,
@@ -707,6 +781,14 @@ export async function updateNumbering(
   ) {
     throw new Error("Default validity must be between 1 and 365 days.")
   }
+  if (
+    input.invoiceDueDays !== null &&
+    (!Number.isInteger(input.invoiceDueDays) ||
+      input.invoiceDueDays < 1 ||
+      input.invoiceDueDays > 365)
+  ) {
+    throw new Error("Invoice due window must be between 1 and 365 days.")
+  }
 
   const values = {
     quotePrefix,
@@ -716,6 +798,7 @@ export async function updateNumbering(
     // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
     quoteValidDays: input.quoteValidDays,
+    invoiceDueDays: input.invoiceDueDays,
     updatedAt: new Date(),
   }
 

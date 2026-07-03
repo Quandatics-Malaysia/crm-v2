@@ -304,6 +304,8 @@ export default async function OpportunityDetailPage({
           costs={dealCosts}
           costRevenue={Number(opp.amount ?? opp.estimatedAmount ?? 0)}
           canManageCosts={canUpdate}
+          canCreateQuote={canCreateQuote}
+          canCreateProject={canCreateProject}
           contractYears={contractYears}
           projectNatureNames={projectNatureNames}
           gate={gate}

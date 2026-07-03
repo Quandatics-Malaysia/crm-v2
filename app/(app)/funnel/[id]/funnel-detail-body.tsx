@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { Plus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
 import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
@@ -92,6 +94,9 @@ export type FunnelDetailData = {
   /** Quoted revenue (base currency) margin is computed against. */
   costRevenue: number
   canManageCosts: boolean
+  /** Gates the per-tab "New quotation" / "New project" related-list actions. */
+  canCreateQuote: boolean
+  canCreateProject: boolean
   contractYears: ContractYearRow[]
   projectNatureNames: string[]
   /** Resolved per-stage entry gate (preset + custom field completeness). */
@@ -141,6 +146,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     costs,
     costRevenue,
     canManageCosts,
+    canCreateQuote,
+    canCreateProject,
     contractYears,
     projectNatureNames,
     gate,
@@ -572,6 +579,20 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   searchPlaceholder="Search quotations…"
                   emptyMessage="No quotations yet."
                   pageSize={5}
+                  toolbar={
+                    canCreateQuote ? (
+                      <Button
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link href={`/quotations/new?opportunityId=${opportunityId}`} />
+                        }
+                      >
+                        <Plus className="size-4" />
+                        Add quotation
+                      </Button>
+                    ) : undefined
+                  }
                 />
               </TabsContent>
 
@@ -596,6 +617,22 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   searchPlaceholder="Search projects…"
                   emptyMessage="No projects from this funnel yet."
                   pageSize={5}
+                  toolbar={
+                    canCreateProject ? (
+                      <Button
+                        size="sm"
+                        nativeButton={false}
+                        render={
+                          <Link
+                            href={`/projects/new?opportunityId=${opportunityId}&accountId=${accountId}`}
+                          />
+                        }
+                      >
+                        <Plus className="size-4" />
+                        Add project
+                      </Button>
+                    ) : undefined
+                  }
                 />
               </TabsContent>
 

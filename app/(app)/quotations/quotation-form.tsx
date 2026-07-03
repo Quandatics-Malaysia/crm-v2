@@ -453,21 +453,6 @@ export function QuotationForm({
                 <CardTitle>Header</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <FormLabel>Funnel</FormLabel>
-                  <div className="flex h-9 items-center">
-                    {opportunityName ? (
-                      <Link
-                        href={`/funnel/${quotation.opportunityId}`}
-                        className="text-sm font-medium link"
-                      >
-                        {opportunityName}
-                      </Link>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    )}
-                  </div>
-                </div>
                 <FormField
                   control={form.control}
                   name="taxSettingId"

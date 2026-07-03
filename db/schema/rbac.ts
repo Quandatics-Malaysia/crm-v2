@@ -139,6 +139,28 @@ export const tenantSettings = pgTable("tenant_settings", {
    * this many days later for the lead's owner. NULL = off.
    */
   leadFollowUpDays: integer("lead_follow_up_days"),
+  /**
+   * ADD-ON module flag, flipped in the backend (no tenant-facing UI):
+   * `UPDATE tenant_settings SET finance_module = true WHERE organization_id=…`.
+   * Gates the O2C/P2P document chain (Billing + Purchasing pages, finance_docs).
+   */
+  financeModule: boolean("finance_module").notNull().default(false),
+  /** In-app documentation (/documentation) — tenant-facing switch in
+   *  Settings → Behavior; members also need the `docs.view` permission. */
+  documentationModule: boolean("documentation_module").notNull().default(true),
+  /** Invoice reminder schedule: days AFTER the due date for reminder 1, 2, 3…
+   *  NULL = built-in default (lib/tenant-defaults.ts). */
+  invoiceReminderDays: jsonb("invoice_reminder_days").$type<number[]>(),
+  /** Default invoice payment window: dueDate prefills docDate + N days. */
+  invoiceDueDays: integer("invoice_due_days"),
+  /** Automation: move a project to Completed when ALL its milestones are paid. */
+  autoCompleteProjectOnPaid: boolean("auto_complete_project_on_paid")
+    .notNull()
+    .default(false),
+  /** Automation: issuing a customer invoice on an intercompany project
+   *  auto-drafts the mirrored pair (partner sales invoice ↔ origin purchase
+   *  invoice) for the partner share. */
+  intercoAutoMirror: boolean("interco_auto_mirror").notNull().default(true),
   /** Preset country for new account addresses (from the countries picklist). */
   defaultCountry: text("default_country"),
   /** Preset dialing prefix (e.g. "+60 ") prefilled into empty phone fields. */

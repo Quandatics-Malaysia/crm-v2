@@ -27,6 +27,7 @@ export const attachableType = pgEnum("attachable_type", [
   "person",
   "project",
   "sales_order",
+  "finance_doc",
 ])
 
 /** A low-tier owner's request for upline sign-off to advance a gated stage. */

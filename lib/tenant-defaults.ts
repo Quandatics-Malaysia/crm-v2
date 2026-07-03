@@ -46,6 +46,12 @@ export const DEFAULT_LEAD_SOURCES = [
   "Other",
 ]
 
+/** Invoice reminder schedule: days after the due date (1st, 2nd, 3rd…). */
+export const DEFAULT_REMINDER_DAYS = [7, 14, 30]
+
+/** Default invoice payment window in days (dueDate = docDate + N). */
+export const DEFAULT_INVOICE_DUE_DAYS = 30
+
 /** Why a deal was lost / a lead disqualified (shared list). */
 export const DEFAULT_LOSS_REASONS = [
   "Price",

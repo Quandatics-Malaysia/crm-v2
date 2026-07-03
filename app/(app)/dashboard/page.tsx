@@ -7,6 +7,7 @@ import {
   UserPlus,
   Building2,
   HourglassIcon,
+  ReceiptTextIcon,
 } from "lucide-react"
 import { isBefore } from "date-fns"
 
@@ -266,6 +267,52 @@ export default async function DashboardPage() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Overdue invoices — finance add-on */}
+              {data.overdueInvoices.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ReceiptTextIcon className="size-4" />
+                      Overdue Invoices
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col divide-y">
+                      {data.overdueInvoices.map((inv) => {
+                        const stageDue = data.reminderSchedule.filter(
+                          (d) =>
+                            (now.getTime() - new Date(inv.dueDate).getTime()) /
+                              86_400_000 >=
+                            d
+                        ).length
+                        const reminderPending = stageDue > inv.reminderStage
+                        return (
+                          <RowLink key={inv.id} href={`/billing/${inv.id}`}>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">
+                                {inv.number}
+                                {inv.partyName ? ` · ${inv.partyName}` : ""}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                Due {formatDate(inv.dueDate)}
+                              </p>
+                            </div>
+                            <Badge
+                              variant={reminderPending ? "destructive" : "secondary"}
+                              className="shrink-0"
+                            >
+                              {reminderPending
+                                ? `Reminder ${inv.reminderStage + 1} due`
+                                : `${inv.reminderStage} reminder${inv.reminderStage === 1 ? "" : "s"} sent`}
+                            </Badge>
+                          </RowLink>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
 
               {/* Stale funnels — only rendered when the nudge is configured */}
               {data.staleDealDays != null ? (

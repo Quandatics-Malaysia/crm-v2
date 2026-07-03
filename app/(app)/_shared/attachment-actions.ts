@@ -19,7 +19,9 @@ import {
   persons,
   opportunities,
   projects,
+  financeDocs,
 } from "@/db/schema"
+import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
 import { storage } from "@/lib/storage"
 import { logActivity, type ActivityEntity } from "@/server/services/activity"
 
@@ -164,7 +166,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 async function docPairs(
   tx: Tx,
-  rootType: "account" | "project" | "person",
+  rootType: "account" | "project" | "person" | "finance_doc",
   rootId: string
 ): Promise<{ type: AttachableType; ids: string[] }[]> {
   if (rootType === "account") {
@@ -196,6 +198,9 @@ async function docPairs(
       { type: "project", ids: projIds },
     ]
   }
+  if (rootType === "finance_doc") {
+    return [{ type: "finance_doc", ids: [rootId] }]
+  }
   if (rootType === "project") {
     const [p] = await tx
       .select({ oppId: projects.opportunityId, quoteId: projects.quotationId })
@@ -222,9 +227,10 @@ async function docPairs(
   ]
 }
 
-/** Rolled-up documents for an account / project / contact and their children. */
+/** Rolled-up documents for an account / project / contact / finance doc and
+ *  their children (finance docs roll up nothing — direct attachments only). */
 export async function listEntityDocuments(
-  rootType: "account" | "project" | "person",
+  rootType: "account" | "project" | "person" | "finance_doc",
   rootId: string
 ): Promise<EntityDocument[]> {
   const ctx = await requireContext()
@@ -353,6 +359,35 @@ export async function deleteEntityAttachment(
       assertCan(ctx, attachWritePerm(type))
       if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
         throw new Error("FORBIDDEN: not permitted on this record")
+      }
+      // The proof gate outlives issuance: an issued/settled receipt or
+      // payment must keep at least one attachment (its payment proof).
+      if (type === "finance_doc") {
+        const [doc] = await tx
+          .select({ kind: financeDocs.kind, status: financeDocs.status })
+          .from(financeDocs)
+          .where(eq(financeDocs.id, row.attachableId))
+          .limit(1)
+        if (
+          doc &&
+          FINANCE_KINDS[doc.kind as FinanceDocKind].settlesParent &&
+          (doc.status === "issued" || doc.status === "settled")
+        ) {
+          const [c] = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(attachments)
+            .where(
+              and(
+                eq(attachments.attachableType, "finance_doc"),
+                eq(attachments.attachableId, row.attachableId)
+              )
+            )
+          if (Number(c?.n) <= 1) {
+            throw new Error(
+              "This is the payment proof of an issued document — it cannot be removed."
+            )
+          }
+        }
       }
       await tx.delete(attachments).where(eq(attachments.id, id))
       try {

@@ -21,6 +21,7 @@ import {
 import { toDateString } from "@/lib/dates"
 import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
+import { maybeCompleteProject } from "@/server/services/finance"
 import { opportunityNetValue } from "@/server/services/value"
 import { splitMilestones } from "@/lib/milestone-split"
 import { writeAudit } from "@/server/audit"
@@ -936,6 +937,12 @@ export async function updateMilestone(
         after: { milestoneId: id, amount: nextAmount, status: nextStatus },
       })
 
+      // Manually marking the last milestone paid completes the project too
+      // (same automation as the receipt path; toggle-gated inside).
+      if (nextStatus === "paid" && nextStatus !== existing.status) {
+        await maybeCompleteProject(tx, ctx, existing.projectId)
+      }
+
       return existing.projectId
     }
   )
@@ -990,6 +997,10 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
         entityId: deleted.projectId,
         before: { milestoneId: id, title: deleted.title },
       })
+
+      // Deleting the last unpaid milestone can leave everything paid.
+      await maybeCompleteProject(tx, ctx, deleted.projectId)
+
       return deleted.projectId
     }
   )

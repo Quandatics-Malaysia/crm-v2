@@ -50,6 +50,8 @@ const STATUS_TONE: Record<string, StatusTone> = {
   open: "info",
   qualified: "info",
   invoiced: "info",
+  issued: "info",
+  settled: "success",
   // neutral — not yet started
   draft: "neutral",
   new: "neutral",

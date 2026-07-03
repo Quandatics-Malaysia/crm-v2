@@ -1,0 +1,2 @@
+ALTER TABLE "finance_docs" ADD COLUMN "counterpart_number" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "finance_docs_live_milestone_uq" ON "finance_docs" USING btree ("milestone_id") WHERE status <> 'cancelled';

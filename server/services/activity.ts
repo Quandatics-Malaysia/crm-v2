@@ -9,6 +9,7 @@ export type ActivityEntity =
   | "lead"
   | "opportunity"
   | "project"
+  | "finance_doc"
 export type ActivityKind =
   | "note"
   | "call"

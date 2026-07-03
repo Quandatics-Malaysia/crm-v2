@@ -9,6 +9,8 @@ import { DocumentsSection } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { ProjectSalesOrders } from "@/app/(app)/sales-orders/project-sales-orders"
 import { MilestonesPanel } from "./milestones-panel"
+import { BillingPanel } from "./billing-panel"
+import type { ProjectBillingSummary } from "@/app/(app)/billing/actions"
 
 export type ProjectDetailData = {
   projectId: string
@@ -23,6 +25,9 @@ export type ProjectDetailData = {
   canApprove: boolean
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
+  /** Finance-module billing rollup; null when the module is off. */
+  billing?: ProjectBillingSummary | null
+  canManageFinance?: boolean
 }
 
 /** Project detail: a details panel on the left; tabbed Milestones / Sales
@@ -40,6 +45,8 @@ export function ProjectDetailBody({
   canApprove,
   activity,
   documents,
+  billing = null,
+  canManageFinance = false,
 }: ProjectDetailData) {
   const [tab, setTab] = React.useState("milestones")
   const revalidate = `/projects/${projectId}`
@@ -113,6 +120,14 @@ export function ProjectDetailBody({
                     {salesOrders.length}
                   </span>
                 </TabsTrigger>
+                {billing ? (
+                  <TabsTrigger value="billing">
+                    Billing
+                    <span className="ml-1.5 rounded bg-secondary px-1.5 text-xs text-secondary-foreground">
+                      {billing.docs.length}
+                    </span>
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="documents">
                   Documents
@@ -140,6 +155,16 @@ export function ProjectDetailBody({
                   canApprove={canApprove}
                 />
               </TabsContent>
+
+              {billing ? (
+                <TabsContent value="billing" className="mt-4">
+                  <BillingPanel
+                    summary={billing}
+                    milestones={milestones}
+                    canManage={canManageFinance}
+                  />
+                </TabsContent>
+              ) : null}
 
               <TabsContent value="activity" className="mt-4">
                 <ActivityTimeline

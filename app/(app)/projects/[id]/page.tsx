@@ -12,6 +12,7 @@ import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney } from "@/lib/format"
 import { getProject, listMilestones } from "../actions"
 import { listProjectSalesOrders } from "@/app/(app)/sales-orders/actions"
+import { getProjectBillingSummary } from "@/app/(app)/billing/actions"
 import { ProjectEditButton } from "./project-edit-button"
 import { ProjectDetailBody } from "./project-detail-body"
 
@@ -27,13 +28,16 @@ export default async function ProjectDetailPage({
   const { project, accountName, opportunityName, quotationNumber, ownerName } =
     detail
 
-  const [activity, documents, milestones, salesOrders, ctx] = await Promise.all([
-    listEntityTimeline("project", id),
-    listEntityDocuments("project", id),
-    listMilestones(id),
-    listProjectSalesOrders(id),
-    requireContext(),
-  ])
+  const [activity, documents, milestones, salesOrders, ctx, billing] =
+    await Promise.all([
+      listEntityTimeline("project", id),
+      listEntityDocuments("project", id),
+      listMilestones(id),
+      listProjectSalesOrders(id),
+      requireContext(),
+      // Null when the finance module is off (or user lacks finance.view).
+      getProjectBillingSummary(id).catch(() => null),
+    ])
 
   const canUpdate = ctx.can(PERMISSIONS.PROJECT_UPDATE)
   const canSubmitSO = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)
@@ -135,6 +139,8 @@ export default async function ProjectDetailPage({
           canApprove={canApproveSO}
           activity={activity}
           documents={documents}
+          billing={billing}
+          canManageFinance={ctx.can(PERMISSIONS.FINANCE_MANAGE)}
         />
 
         <div>

@@ -13,7 +13,10 @@ import {
   taxSettings,
   member,
   tenantSettings,
+  financeDocs,
 } from "@/db/schema"
+import { FINANCE_MODULE } from "@/lib/modules"
+import { DEFAULT_REMINDER_DAYS } from "@/lib/tenant-defaults"
 import { canViewAllRecords } from "@/lib/access-scope"
 import { PERMISSIONS } from "@/lib/permissions"
 
@@ -38,6 +41,16 @@ export type StaleDeal = {
   name: string
   /** Last touch = the later of the funnel's own update and its latest activity. */
   lastTouchAt: Date
+}
+
+export type OverdueInvoice = {
+  id: string
+  number: string
+  partyName: string | null
+  amount: string
+  currency: string
+  dueDate: string
+  reminderStage: number
 }
 
 export type OpenPipeline = {
@@ -79,6 +92,10 @@ export type DashboardData = {
   staleDeals: StaleDeal[]
   /** The configured nudge threshold (null = feature off). */
   staleDealDays: number | null
+  /** Issued customer invoices past their due date (finance module only). */
+  overdueInvoices: OverdueInvoice[]
+  /** Reminder schedule (days after due) for the reminder-stage chips. */
+  reminderSchedule: number[]
   /** The current member's own open funnel rollup ("My"). */
   myOpenPipeline: OpenPipeline
   /** Tenant-wide open funnel rollup ("Team"), present only for view-all roles
@@ -152,12 +169,45 @@ export async function getDashboardData(): Promise<DashboardData> {
       .select({
         followUpDueDays: tenantSettings.followUpDueDays,
         staleDealDays: tenantSettings.staleDealDays,
+        financeModule: tenantSettings.financeModule,
+        invoiceReminderDays: tenantSettings.invoiceReminderDays,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
     const dueDays = s?.followUpDueDays ?? 7
     const staleDealDays = s?.staleDealDays ?? null
+
+    // Overdue customer invoices — finance add-on, capability-gated.
+    const financeOn =
+      FINANCE_MODULE && (s?.financeModule ?? false) && ctx.can(PERMISSIONS.FINANCE_VIEW)
+    const reminderSchedule = financeOn
+      ? s?.invoiceReminderDays?.length
+        ? s.invoiceReminderDays
+        : DEFAULT_REMINDER_DAYS
+      : []
+    const overdueInvoices: OverdueInvoice[] = financeOn
+      ? await tx
+          .select({
+            id: financeDocs.id,
+            number: financeDocs.number,
+            partyName: financeDocs.partyName,
+            amount: financeDocs.amount,
+            currency: financeDocs.currency,
+            dueDate: sql<string>`${financeDocs.dueDate}`,
+            reminderStage: financeDocs.reminderStage,
+          })
+          .from(financeDocs)
+          .where(
+            and(
+              eq(financeDocs.kind, "invoice"),
+              eq(financeDocs.status, "issued"),
+              sql`${financeDocs.dueDate} < current_date`
+            )
+          )
+          .orderBy(asc(financeDocs.dueDate))
+          .limit(10)
+      : []
 
     const followUpsDue: FollowUpDue[] = memberId
       ? (
@@ -338,6 +388,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       followUpsDue,
       staleDeals,
       staleDealDays,
+      overdueInvoices,
+      reminderSchedule,
       myOpenPipeline,
       orgOpenPipeline,
       canViewAll,

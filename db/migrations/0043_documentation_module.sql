@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_settings" ADD COLUMN "documentation_module" boolean DEFAULT true NOT NULL;

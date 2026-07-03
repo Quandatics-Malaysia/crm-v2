@@ -5,6 +5,8 @@
  * `roles`, and `role_permissions` per tenant.
  */
 
+import { FINANCE_MODULE } from "@/lib/modules"
+
 export const PERMISSIONS = {
   // leads
   LEAD_VIEW: "lead.view",
@@ -53,6 +55,13 @@ export const PERMISSIONS = {
   SALES_ORDER_VIEW: "sales_order.view",
   SALES_ORDER_SUBMIT: "sales_order.submit",
   SALES_ORDER_APPROVE: "sales_order.approve",
+  // finance docs (O2C/P2P add-on, gated by tenant_settings.finance_module)
+  FINANCE_VIEW: "finance.view",
+  FINANCE_MANAGE: "finance.manage",
+  // Internal documentation (/documentation). Deliberately NOT in any template
+  // below Owner/Admin and NOT in the app nav — hidden from end users; grant
+  // per-role in the matrix when someone needs it.
+  DOCS_VIEW: "docs.view",
   // reporting
   FORECAST_VIEW: "forecast.view",
   /** Inbound intercompany deals — deals sibling entities assigned to this entity. */
@@ -82,6 +91,7 @@ const VIEW_ONLY: PermissionKey[] = [
   PERMISSIONS.PRODUCT_VIEW,
   PERMISSIONS.PROJECT_VIEW,
   PERMISSIONS.SALES_ORDER_VIEW,
+  PERMISSIONS.FINANCE_VIEW,
 ]
 
 const REP_BASE: PermissionKey[] = [
@@ -122,6 +132,7 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.FUNNEL_MANAGE,
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.INTERCOMPANY_VIEW,
+  PERMISSIONS.FINANCE_MANAGE,
 ]
 
 /** Grouped, human-labeled catalog for the role permission-matrix UI. */
@@ -208,6 +219,7 @@ export const PERMISSION_GROUPS: {
       { key: PERMISSIONS.SALES_ORDER_APPROVE, label: "Approve / reject sales orders" },
     ],
   },
+  // Finance add-on group appended below, gated by the module master switch.
   {
     group: "Reporting",
     items: [
@@ -217,6 +229,12 @@ export const PERMISSION_GROUPS: {
         label: "View inbound intercompany deals",
       },
       { key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" },
+    ],
+  },
+  {
+    group: "Documentation",
+    items: [
+      { key: PERMISSIONS.DOCS_VIEW, label: "View the in-app documentation" },
     ],
   },
   {
@@ -240,6 +258,21 @@ export const PERMISSION_GROUPS: {
       { key: PERMISSIONS.TENANT_SETTINGS, label: "Manage settings" },
     ],
   },
+  // Finance add-on: only offered in the role matrix while the module's
+  // master switch (lib/modules.ts) is on. The keys always stay in the
+  // catalog (ALL_PERMISSION_KEYS) so grants survive the module being
+  // toggled off and back on.
+  ...(FINANCE_MODULE
+    ? [
+        {
+          group: "Billing & Purchasing",
+          items: [
+            { key: PERMISSIONS.FINANCE_VIEW, label: "View billing & purchasing documents" },
+            { key: PERMISSIONS.FINANCE_MANAGE, label: "Create / issue / cancel documents" },
+          ],
+        },
+      ]
+    : []),
 ]
 
 export type RoleTemplate = {

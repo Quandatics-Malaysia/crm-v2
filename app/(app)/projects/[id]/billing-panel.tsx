@@ -8,6 +8,7 @@ import { ReceiptTextIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Card,
   CardContent,
@@ -68,7 +69,7 @@ export function BillingPanel({
     try {
       const res = await createInvoiceFromMilestone(m.id)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(`Invoice ${res.data.number} drafted`, {

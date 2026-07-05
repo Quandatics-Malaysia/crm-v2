@@ -8,6 +8,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Card,
   CardAction,
@@ -219,7 +220,7 @@ export function QuotationCreateForm({
       })),
     })
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setBusy(false)
       return
     }

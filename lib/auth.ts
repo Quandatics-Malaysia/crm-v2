@@ -8,6 +8,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
 import { db, runInTenant } from "@/db"
 import * as schema from "@/db/schema"
+import { writeAuthAudit } from "@/server/audit"
 import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
 
@@ -272,6 +273,17 @@ export const auth = betterAuth({
         // invite was created never re-fires user.create, so each sign-in is
         // the catch-up point (no-op when none are pending).
         before: async (session) => {
+          // Stamp last login on the user row (auth tables are RLS-exempt, so a
+          // plain update needs no tenant context). Best-effort — never block a
+          // valid sign-in on a bookkeeping write.
+          try {
+            await db
+              .update(schema.user)
+              .set({ lastLoginAt: new Date() })
+              .where(eq(schema.user.id, session.userId))
+          } catch (e) {
+            console.error("[auth] lastLoginAt stamp failed", e)
+          }
           try {
             const [u] = await db
               .select({ id: schema.user.id, email: schema.user.email })
@@ -282,14 +294,43 @@ export const auth = betterAuth({
           } catch (e) {
             console.error("[auth] pending-invite catch-up failed", e)
           }
+          // Resolve the active org (existing behavior), reusing it to audit the
+          // sign-in. audit_log is FORCE-RLS: the login event is written scoped to
+          // the user's org via runInTenant (null-tenant writes are blocked by
+          // design). A user with no membership yet simply isn't audited here.
+          let orgId: string | null =
+            (session.activeOrganizationId as string | null | undefined) ?? null
+          if (!orgId) {
+            const [m] = await db
+              .select({ orgId: schema.member.organizationId })
+              .from(schema.member)
+              .where(eq(schema.member.userId, session.userId))
+              .limit(1)
+            orgId = m?.orgId ?? null
+          }
+          if (orgId) {
+            const tenantId = orgId
+            const meta = session as {
+              ipAddress?: string | null
+              userAgent?: string | null
+            }
+            try {
+              await runInTenant(tenantId, (tx) =>
+                writeAuthAudit(tx, {
+                  tenantId,
+                  action: "auth.login",
+                  actorUserId: session.userId,
+                  ip: meta.ipAddress ?? null,
+                  userAgent: meta.userAgent ?? null,
+                })
+              )
+            } catch (e) {
+              console.error("[auth] login audit failed", e)
+            }
+          }
           if (session.activeOrganizationId) return
-          const [m] = await db
-            .select({ orgId: schema.member.organizationId })
-            .from(schema.member)
-            .where(eq(schema.member.userId, session.userId))
-            .limit(1)
-          if (!m) return
-          return { data: { ...session, activeOrganizationId: m.orgId } }
+          if (!orgId) return
+          return { data: { ...session, activeOrganizationId: orgId } }
         },
       },
     },

@@ -15,6 +15,8 @@ export const user = pgTable("user", {
   image: text("image"),
   // app extension
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
+  /** Stamped on every sign-in (auth session-create hook). Null until first login. */
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })

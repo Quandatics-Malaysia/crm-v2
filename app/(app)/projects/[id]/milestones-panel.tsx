@@ -7,6 +7,7 @@ import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Select,
   SelectContent,
@@ -187,7 +188,7 @@ export function MilestonesPanel({
     startTransition(async () => {
       const res = await fn()
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       if (success) toast.success(success)
@@ -231,7 +232,7 @@ export function MilestonesPanel({
         dueDate: dueDate || null,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setTitle("")

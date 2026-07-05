@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { showActionError } from "@/lib/show-action-error"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,7 +52,7 @@ function ContactActions({ person }: { person: PersonRow }) {
   async function onDelete() {
     const res = await deletePerson(person.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setConfirmOpen(false)
       return
     }
@@ -63,7 +64,7 @@ function ContactActions({ person }: { person: PersonRow }) {
   async function onMakePrimary() {
     const res = await setPrimaryPerson(person.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Marked as primary contact")

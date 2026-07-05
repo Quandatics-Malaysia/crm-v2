@@ -7,6 +7,7 @@ import { db, runInTenant } from "@/db"
 import { member, membershipProfiles } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { seedTenant } from "@/server/services/tenant-seed"
+import { writeAuthAudit } from "@/server/audit"
 
 /**
  * Cap on how many entities (organizations) a single user may belong to, to keep
@@ -74,8 +75,8 @@ export async function createEntity(input: {
     .where(and(eq(member.userId, ctx.userId), eq(member.organizationId, orgId)))
     .limit(1)
   if (m) {
-    await runInTenant(orgId, (tx) =>
-      tx
+    await runInTenant(orgId, async (tx) => {
+      await tx
         .insert(membershipProfiles)
         .values({
           memberId: m.id,
@@ -85,7 +86,18 @@ export async function createEntity(input: {
           status: "active",
         })
         .onConflictDoNothing()
-    )
+      // Audit the entity's creation, scoped to the new org (RLS-safe here since
+      // runInTenant sets app.current_tenant = orgId).
+      await writeAuthAudit(tx, {
+        tenantId: orgId,
+        action: "entity.created",
+        actorUserId: ctx.userId,
+        actorMemberId: m.id,
+        entityType: "organization",
+        entityId: orgId,
+        after: { name, slug },
+      })
+    })
   }
 
   try {

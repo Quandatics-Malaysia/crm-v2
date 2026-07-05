@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 
 import {
   Dialog,
@@ -133,7 +134,7 @@ export function ProductForm({
         ? await updateProduct(product!.id, payload)
         : await createProduct(payload)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(editing ? "Product updated" : "Product created")

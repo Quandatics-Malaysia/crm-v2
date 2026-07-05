@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   DndContext,
   DragOverlay,
@@ -279,7 +280,7 @@ export function OpportunitiesBoard({
       moveCard({ id: opportunityId, targetStageId })
       const res = await advanceStageAction({ opportunityId, targetStageId })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(res.data.moved ? "Moved" : "Sent for approval")

@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
@@ -29,52 +29,118 @@ import {
   stageApprovalRequests,
   tenantSettings,
   intercompanyDeals,
+  intercompanyDealParties,
   intercompanyDealResponses,
 } from "@/db/schema"
 import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
+import { logActivity } from "@/server/services/activity"
+import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
+import {
+  deriveOriginRecognizedPercent,
+  validatePartyShares,
+  type PartyShare,
+} from "@/lib/interco-share"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
 import { syncIntercompanyMirror } from "@/server/services/intercompany"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 
+export type PartyInput = {
+  partnerEntityId: string
+  shareType: "percent" | "amount"
+  shareValue: string
+  /** The party's own invoicing currency. Defaults to the deal currency. */
+  currency?: string | null
+  /** Deal currency -> party currency rate, manual. Null = same currency. */
+  manualFxRate?: string | null
+}
+
+export type PartyRow = PartyInput & { partnerName: string }
+
 /**
- * Validate + snapshot an intercompany handling partner. The partner MUST be
- * another entity (organization) the caller belongs to — never an external
+ * Validate + resolve a deal's full intercompany party list. Each partner MUST
+ * be another entity (organization) the caller belongs to — never an external
  * customer account — AND, when the tenant has configured an explicit partner
- * allow-list (Settings), one of the listed entities. Returns the entity id +
- * its name snapshot, or nulls when the deal isn't intercompany / no partner
- * is chosen.
+ * allow-list (Settings), one of the listed entities. Shares are validated
+ * together against the deal basis (see lib/interco-share.ts). Returns the
+ * resolved rows (with live name snapshots) or [] when the deal isn't
+ * intercompany / has no parties.
  */
-async function resolveHandlingPartner(
+async function resolvePartyList(
   tx: Tx,
   ctx: { tenantId: string },
   isIntercompany: boolean | undefined,
-  entityId: string | null | undefined
-): Promise<{ id: string | null; name: string | null }> {
-  const id = (entityId ?? "").trim()
-  if (!isIntercompany || !id) return { id: null, name: null }
+  parties: PartyInput[] | null | undefined,
+  dealBasis: number
+): Promise<PartyRow[]> {
+  if (!isIntercompany || !parties || parties.length === 0) return []
+
   const entities = await listEntities()
-  const match = entities.find((e) => e.id === id)
-  if (!match)
-    throw new Error(
-      "The handling partner must be one of your own entities, not an external account."
-    )
-  // Tenant allow-list: once configured, only listed entities are valid
-  // partners — a user's unrelated membership no longer counts as a "sibling".
-  // Empty/unset = legacy membership-based behavior.
   const [s] = await tx
     .select({ allowed: tenantSettings.intercompanyPartnerIds })
     .from(tenantSettings)
     .where(eq(tenantSettings.organizationId, ctx.tenantId))
     .limit(1)
   const allowed = s?.allowed ?? null
-  if (allowed && allowed.length > 0 && !allowed.includes(match.id)) {
-    throw new Error(
-      "This entity is not on your intercompany partner allow-list (Settings → General)."
-    )
-  }
-  return { id: match.id, name: match.name }
+
+  const resolved: PartyRow[] = parties.map((p) => {
+    const id = (p.partnerEntityId ?? "").trim()
+    const match = entities.find((e) => e.id === id)
+    if (!match)
+      throw new Error(
+        "Every handling partner must be one of your own entities, not an external account."
+      )
+    if (allowed && allowed.length > 0 && !allowed.includes(match.id)) {
+      throw new Error(
+        `${match.name} is not on your intercompany partner allow-list (Settings → General).`
+      )
+    }
+    return {
+      partnerEntityId: match.id,
+      partnerName: match.name,
+      shareType: p.shareType,
+      shareValue: p.shareValue,
+      currency: p.currency || null,
+      manualFxRate: p.manualFxRate || null,
+    }
+  })
+
+  const validation = validatePartyShares(
+    resolved.map((p) => ({
+      partnerEntityId: p.partnerEntityId,
+      shareType: p.shareType,
+      shareValue: Number(p.shareValue),
+    })),
+    dealBasis
+  )
+  if (!validation.ok) throw new Error(validation.error)
+
+  return resolved
+}
+
+/** Replace an opportunity's intercompany_deal_parties rows to match `parties`. */
+async function saveParties(
+  tx: Tx,
+  opportunityId: string,
+  parties: PartyRow[],
+  dealCurrency: string
+): Promise<void> {
+  await tx
+    .delete(intercompanyDealParties)
+    .where(eq(intercompanyDealParties.opportunityId, opportunityId))
+  if (parties.length === 0) return
+  await tx.insert(intercompanyDealParties).values(
+    parties.map((p, i) => ({
+      opportunityId,
+      partnerEntityId: p.partnerEntityId,
+      shareType: p.shareType,
+      shareValue: p.shareValue,
+      currency: p.currency || dealCurrency,
+      manualFxRate: p.manualFxRate || null,
+      sortOrder: i,
+    }))
+  )
 }
 
 /** Server-side range guard for the recognized-% (the client Zod schema alone
@@ -96,12 +162,13 @@ export type OpportunityListRow = {
   amount: string | null
   /** Estimated Funnel Amount — the deal's headline value; drives the forecast. */
   estimatedAmount: string | null
+  /** The origin's own recognized cut (%) — cache: 100 - sum(party shares). */
   recognizedPercent: string | null
   description: string | null
   projectYear: number | null
   isIntercompany: boolean
-  handlingPartnerEntityId: string | null
-  handlingPartnerName: string | null
+  /** Handling partners on this deal (0..MAX_INTERCOMPANY_PARTIES). */
+  parties: PartyRow[]
   currency: string
   status: string
   expectedCloseDate: string | null
@@ -129,12 +196,13 @@ export type OpportunityInput = {
   ownerMemberId: string
   /** Estimated Funnel Amount (manual) — drives the forecast + recognized amount. */
   estimatedAmount?: string | null
+  /** Manual recognized % override — ignored/recomputed when isIntercompany + parties are set. */
   recognizedPercent?: string | null
   description?: string | null
   projectYear?: number | null
   isIntercompany?: boolean
-  /** Partner ENTITY (organization) that handles delivery on an interco deal. */
-  handlingPartnerEntityId?: string | null
+  /** Handling partners on this deal (0..MAX_INTERCOMPANY_PARTIES). */
+  parties?: PartyInput[] | null
   currency: string
   expectedCloseDate?: string | null
   /** Primary project nature (drives the project code). */
@@ -145,15 +213,54 @@ export type OpportunityInput = {
   customFields?: Record<string, string> | null
 }
 
+/**
+ * Live-resolved party rows for a set of opportunities, grouped by
+ * opportunityId. Entity names resolve LIVE (`organization` is deliberately
+ * RLS-excluded, so this sibling-entity join is allowed) so a rename in
+ * Settings propagates to every deal that references it.
+ */
+async function loadPartiesByOpportunity(
+  tx: Tx,
+  opportunityIds: string[]
+): Promise<Map<string, PartyRow[]>> {
+  const byOpp = new Map<string, PartyRow[]>()
+  if (opportunityIds.length === 0) return byOpp
+  const rows = await tx
+    .select({
+      opportunityId: intercompanyDealParties.opportunityId,
+      partnerEntityId: intercompanyDealParties.partnerEntityId,
+      partnerName: organization.name,
+      shareType: intercompanyDealParties.shareType,
+      shareValue: intercompanyDealParties.shareValue,
+      currency: intercompanyDealParties.currency,
+      manualFxRate: intercompanyDealParties.manualFxRate,
+    })
+    .from(intercompanyDealParties)
+    .innerJoin(
+      organization,
+      eq(intercompanyDealParties.partnerEntityId, organization.id)
+    )
+    .where(inArray(intercompanyDealParties.opportunityId, opportunityIds))
+    .orderBy(asc(intercompanyDealParties.sortOrder))
+  for (const r of rows) {
+    const list = byOpp.get(r.opportunityId) ?? []
+    list.push({
+      partnerEntityId: r.partnerEntityId,
+      partnerName: r.partnerName,
+      shareType: r.shareType,
+      shareValue: r.shareValue,
+      currency: r.currency,
+      manualFxRate: r.manualFxRate,
+    })
+    byOpp.set(r.opportunityId, list)
+  }
+  return byOpp
+}
+
 /** All open + closed opportunities (non-deleted), with denormalized lookups. */
 export async function listOpportunities(): Promise<OpportunityListRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
-    // Live handling-partner name: `organization` is deliberately RLS-excluded,
-    // so this sibling-entity join is allowed. The stored name is only a
-    // fallback snapshot — resolving live means an entity rename in Settings
-    // propagates to every deal that references it.
-    const handlingOrg = alias(organization, "handling_org")
     const rows = await tx
       .select({
         id: opportunities.id,
@@ -166,8 +273,6 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
         description: opportunities.description,
         projectYear: opportunities.projectYear,
         isIntercompany: opportunities.isIntercompany,
-        handlingPartnerEntityId: opportunities.handlingPartnerEntityId,
-        handlingPartnerName: sql<string | null>`coalesce(${handlingOrg.name}, ${opportunities.handlingPartnerName})`,
         currency: opportunities.currency,
         status: opportunities.status,
         expectedCloseDate: opportunities.expectedCloseDate,
@@ -191,10 +296,6 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
       .innerJoin(funnels, eq(opportunities.funnelId, funnels.id))
       .leftJoin(member, eq(opportunities.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
-      .leftJoin(
-        handlingOrg,
-        eq(opportunities.handlingPartnerEntityId, handlingOrg.id)
-      )
       .where(
         and(
           isNull(opportunities.deletedAt),
@@ -203,18 +304,24 @@ export async function listOpportunities(): Promise<OpportunityListRow[]> {
       )
       .orderBy(desc(opportunities.createdAt))
 
-    return rows
+    const partiesByOpp = await loadPartiesByOpportunity(
+      tx,
+      rows.map((r) => r.id)
+    )
+    return rows.map((r) => ({ ...r, parties: partiesByOpp.get(r.id) ?? [] }))
   })
 }
 
 export type OpportunityDetail = {
-  handlingPartnerName: string | null
-  /** The handling partner's handshake on an interco assignment, if any. */
-  partnerResponse: {
+  /** Handling partners on this deal, with live-resolved names. */
+  parties: PartyRow[]
+  /** Each party's handshake on the assignment, keyed by partnerEntityId. */
+  partnerResponses: {
+    partnerEntityId: string
     response: "accepted" | "declined"
     reason: string | null
     respondedAt: Date
-  } | null
+  }[]
   opportunity: typeof opportunities.$inferSelect
   accountName: string
   personName: string | null
@@ -267,26 +374,17 @@ export async function getOpportunity(
       .where(eq(accounts.id, opp.accountId))
       .limit(1)
 
-    // The handling partner is another entity (org). Prefer its LIVE name —
-    // `organization` is deliberately RLS-excluded, so this sibling-entity read
-    // is allowed — so a rename in Settings propagates. The snapshot written at
-    // deal time remains the fallback if the entity no longer resolves.
-    let handlingPartnerName = opp.handlingPartnerName ?? null
-    if (opp.handlingPartnerEntityId) {
-      const [hpOrg] = await tx
-        .select({ name: organization.name })
-        .from(organization)
-        .where(eq(organization.id, opp.handlingPartnerEntityId))
-        .limit(1)
-      if (hpOrg?.name) handlingPartnerName = hpOrg.name
-    }
+    // The handling partners, live-resolved (see loadPartiesByOpportunity).
+    const parties = (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
 
-    // The partner's accept/decline on the assignment (written by the partner
-    // tenant; readable here via the origin-side RLS policy on responses).
-    let partnerResponse: OpportunityDetail["partnerResponse"] = null
+    // Each party's accept/decline on their slice of the assignment (written by
+    // the partner tenant; readable here via the origin-side RLS policy on
+    // responses). One intercompanyDeals mirror row per party.
+    let partnerResponses: OpportunityDetail["partnerResponses"] = []
     if (opp.isIntercompany) {
-      const [resp] = await tx
+      const rows = await tx
         .select({
+          partnerEntityId: intercompanyDeals.partnerTenantId,
           response: intercompanyDealResponses.response,
           reason: intercompanyDealResponses.reason,
           respondedAt: intercompanyDealResponses.respondedAt,
@@ -297,8 +395,7 @@ export async function getOpportunity(
           eq(intercompanyDealResponses.dealId, intercompanyDeals.id)
         )
         .where(eq(intercompanyDeals.opportunityId, id))
-        .limit(1)
-      if (resp) partnerResponse = resp
+      partnerResponses = rows
     }
 
     let personName: string | null = null
@@ -423,8 +520,8 @@ export async function getOpportunity(
     return {
       opportunity: opp,
       accountName: acct?.name ?? "—",
-      handlingPartnerName,
-      partnerResponse,
+      parties,
+      partnerResponses,
       personName,
       ownerName: owner?.name ?? null,
       stage,
@@ -459,12 +556,37 @@ export async function createOpportunity(
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
       assertRecognizedPercent(input.recognizedPercent)
-      const hp = await resolveHandlingPartner(
+      const dealBasis = Number(input.estimatedAmount ?? 0)
+      const parties = await resolvePartyList(
         tx,
         ctx,
         input.isIntercompany,
-        input.handlingPartnerEntityId
+        input.parties,
+        dealBasis
       )
+
+      // Multi-party interco split: when parties are authored, recognizedPercent
+      // is DERIVED as the remainder after every party's share (see
+      // lib/interco-share.ts) so the percent-based forecast/displays keep
+      // working. Billing later mirrors each party's exact leg. No parties →
+      // legacy manual recognizedPercent entry (non-interco deal).
+      const recognizedPercentValue = parties.length
+        ? (() => {
+            const p = deriveOriginRecognizedPercent(
+              dealBasis,
+              parties.map((pt) => ({
+                shareType: pt.shareType,
+                shareValue: Number(pt.shareValue),
+              }))
+            )
+            return p != null ? String(p) : null
+          })()
+        : input.recognizedPercent
+          ? input.recognizedPercent
+          : null
+
+      const currency =
+        input.currency || (await tenantDefaultCurrency(tx, ctx.tenantId))
 
       const [row] = await tx
         .insert(opportunities)
@@ -478,15 +600,11 @@ export async function createOpportunity(
           ownerMemberId,
           // amount stays null on create — it's synced from the primary quote.
           estimatedAmount: input.estimatedAmount ? input.estimatedAmount : null,
-          recognizedPercent: input.recognizedPercent
-            ? input.recognizedPercent
-            : null,
+          recognizedPercent: recognizedPercentValue,
           description: input.description || null,
           projectYear: input.projectYear ?? null,
           isIntercompany: input.isIntercompany ?? false,
-          handlingPartnerEntityId: hp.id,
-          handlingPartnerName: hp.name,
-          currency: input.currency || "MYR",
+          currency,
           // Primary nature = first of the set (falls back to the single field).
           projectNatureCode:
             input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
@@ -498,6 +616,8 @@ export async function createOpportunity(
           expectedCloseDate: input.expectedCloseDate || null,
         })
         .returning({ id: opportunities.id })
+
+      await saveParties(tx, row.id, parties, currency)
 
       // Seed the stage history with the opening stage.
       await tx.insert(opportunityStageHistory).values({
@@ -517,7 +637,13 @@ export async function createOpportunity(
         entityId: row.id,
         after: { name: input.name },
       })
-      // Publish the partner-facing mirror row (no-op unless intercompany).
+      await logActivity(tx, ctx, {
+        entityType: "opportunity",
+        entityId: row.id,
+        type: "system",
+        subject: "Funnel created",
+      })
+      // Publish the partner-facing mirror rows (no-op unless intercompany).
       await syncIntercompanyMirror(tx, row.id)
       return row
     }
@@ -569,22 +695,50 @@ export async function updateOpportunity(
         )
     }
 
-    // Resolve the handling partner against the effective intercompany flag: a
-    // non-intercompany deal clears it; otherwise the (new or existing) entity id
-    // is re-validated as one of the caller's entities and its name re-snapshotted.
+    // Resolve the party list against the effective intercompany flag: a
+    // non-intercompany deal clears it; an explicit `parties` array replaces it;
+    // otherwise the existing parties are kept (but re-validated against the
+    // possibly-changed basis/allow-list).
     const effectiveInterco =
       input.isIntercompany === undefined
         ? existing.isIntercompany
         : !!input.isIntercompany
     assertRecognizedPercent(input.recognizedPercent)
-    const hp = await resolveHandlingPartner(
+    const nextEstimated =
+      input.estimatedAmount === undefined
+        ? existing.estimatedAmount
+        : input.estimatedAmount || null
+    const dealBasis = Number(existing.amount ?? nextEstimated ?? 0)
+
+    let partyInputs: PartyInput[] | null = input.parties ?? null
+    if (effectiveInterco && input.parties === undefined) {
+      partyInputs = (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
+    }
+    const parties = await resolvePartyList(
       tx,
       ctx,
       effectiveInterco,
-      input.handlingPartnerEntityId === undefined
-        ? existing.handlingPartnerEntityId
-        : input.handlingPartnerEntityId
+      partyInputs,
+      dealBasis
     )
+
+    // Multi-party interco split (see createOpportunity): recognizedPercent is
+    // derived as the remainder after every party's share. Cleared/manual when
+    // no longer intercompany.
+    const recognizedPercentValue = parties.length
+      ? (() => {
+          const p = deriveOriginRecognizedPercent(
+            dealBasis,
+            parties.map((pt) => ({
+              shareType: pt.shareType,
+              shareValue: Number(pt.shareValue),
+            }))
+          )
+          return p != null ? String(p) : existing.recognizedPercent
+        })()
+      : input.recognizedPercent === undefined
+        ? existing.recognizedPercent
+        : input.recognizedPercent || null
 
     await tx
       .update(opportunities)
@@ -597,14 +751,8 @@ export async function updateOpportunity(
             : input.primaryPersonId || null,
         ownerMemberId: input.ownerMemberId ?? existing.ownerMemberId,
         // amount is quote-derived (never user-edited here).
-        estimatedAmount:
-          input.estimatedAmount === undefined
-            ? existing.estimatedAmount
-            : input.estimatedAmount || null,
-        recognizedPercent:
-          input.recognizedPercent === undefined
-            ? existing.recognizedPercent
-            : input.recognizedPercent || null,
+        estimatedAmount: nextEstimated,
+        recognizedPercent: recognizedPercentValue,
         description:
           input.description === undefined
             ? existing.description
@@ -614,8 +762,6 @@ export async function updateOpportunity(
             ? existing.projectYear
             : input.projectYear ?? null,
         isIntercompany: effectiveInterco,
-        handlingPartnerEntityId: hp.id,
-        handlingPartnerName: hp.name,
         currency: input.currency ?? existing.currency,
         projectNatures:
           input.projectNatures === undefined
@@ -641,6 +787,8 @@ export async function updateOpportunity(
       })
       .where(eq(opportunities.id, id))
 
+    await saveParties(tx, id, parties, input.currency ?? existing.currency)
+
     await writeAudit(tx, ctx, {
       action: "opportunity.updated",
       entityType: "opportunity",
@@ -650,6 +798,12 @@ export async function updateOpportunity(
         estimatedAmount: existing.estimatedAmount,
       },
       after: { name: input.name, estimatedAmount: input.estimatedAmount },
+    })
+    await logActivity(tx, ctx, {
+      entityType: "opportunity",
+      entityId: id,
+      type: "system",
+      subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.
     await syncIntercompanyMirror(tx, id)

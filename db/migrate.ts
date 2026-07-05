@@ -54,38 +54,43 @@ async function main() {
     ON CONFLICT DO NOTHING
   `
 
-  // Reconcile the partner-facing intercompany mirror. The app keeps it in
-  // sync per-mutation (server/services/intercompany.ts); this deploy-time
-  // pass backfills deals that predate the mirror table and heals any drift.
-  // Runs as superuser, so RLS does not constrain the cross-tenant rows.
+  // Reconcile the partner-facing intercompany mirror (one row per party in
+  // intercompany_deal_parties). The app keeps it in sync per-mutation
+  // (server/services/intercompany.ts); this deploy-time pass backfills deals
+  // that predate the mirror table and heals any drift. Runs as superuser, so
+  // RLS does not constrain the cross-tenant rows.
   console.log("→ reconciling intercompany mirror…")
   await sql`
     INSERT INTO intercompany_deals (
       tenant_id, opportunity_id, partner_tenant_id, name, account_name,
-      currency, estimated_amount, quoted_amount, recognized_percent,
+      currency, estimated_amount, quoted_amount, share_type, share_value,
+      partner_currency, manual_fx_rate,
       status, stage_name, stage_probability, include_in_forecast,
       expected_close_date, project_year
     )
     SELECT
-      o.tenant_id, o.id, o.handling_partner_entity_id, o.name, a.name,
-      o.currency, o.estimated_amount, o.amount, o.recognized_percent,
+      o.tenant_id, o.id, idp.partner_entity_id, o.name, a.name,
+      o.currency, o.estimated_amount, o.amount, idp.share_type, idp.share_value,
+      idp.currency, idp.manual_fx_rate,
       o.status, fs.name, fs.probability,
       coalesce(fs.include_in_forecast, true) AND fs.kind IN ('OPEN', 'WON'),
       o.expected_close_date, o.project_year
     FROM opportunities o
+    JOIN intercompany_deal_parties idp ON idp.opportunity_id = o.id
     LEFT JOIN accounts a ON a.id = o.account_id
     LEFT JOIN funnel_stages fs ON fs.id = o.current_stage_id
     WHERE o.is_intercompany
-      AND o.handling_partner_entity_id IS NOT NULL
       AND o.deleted_at IS NULL
-    ON CONFLICT (opportunity_id) DO UPDATE SET
-      partner_tenant_id = EXCLUDED.partner_tenant_id,
+    ON CONFLICT (opportunity_id, partner_tenant_id) DO UPDATE SET
       name = EXCLUDED.name,
       account_name = EXCLUDED.account_name,
       currency = EXCLUDED.currency,
       estimated_amount = EXCLUDED.estimated_amount,
       quoted_amount = EXCLUDED.quoted_amount,
-      recognized_percent = EXCLUDED.recognized_percent,
+      share_type = EXCLUDED.share_type,
+      share_value = EXCLUDED.share_value,
+      partner_currency = EXCLUDED.partner_currency,
+      manual_fx_rate = EXCLUDED.manual_fx_rate,
       status = EXCLUDED.status,
       stage_name = EXCLUDED.stage_name,
       stage_probability = EXCLUDED.stage_probability,
@@ -101,7 +106,11 @@ async function main() {
       AND (
         o.deleted_at IS NOT NULL
         OR NOT o.is_intercompany
-        OR o.handling_partner_entity_id IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM intercompany_deal_parties idp
+          WHERE idp.opportunity_id = icd.opportunity_id
+            AND idp.partner_entity_id = icd.partner_tenant_id
+        )
       )
   `
 

@@ -30,8 +30,12 @@ export type InboundIntercompanyDeal = {
   currency: string
   estimatedAmount: string | null
   quotedAmount: string | null
-  /** The ORIGIN's recognized cut (%); this entity's share is the remainder. */
-  recognizedPercent: string | null
+  /** This entity's own share of the deal (percent-of-invoice or a fixed leg). */
+  shareType: "percent" | "amount"
+  shareValue: string
+  /** This entity's own invoicing currency + rate off the deal currency. */
+  partnerCurrency: string
+  manualFxRate: string | null
   status: string
   stageName: string | null
   expectedCloseDate: string | null
@@ -65,7 +69,10 @@ export async function listInboundIntercompanyDeals(): Promise<
         currency: intercompanyDeals.currency,
         estimatedAmount: intercompanyDeals.estimatedAmount,
         quotedAmount: intercompanyDeals.quotedAmount,
-        recognizedPercent: intercompanyDeals.recognizedPercent,
+        shareType: intercompanyDeals.shareType,
+        shareValue: intercompanyDeals.shareValue,
+        partnerCurrency: intercompanyDeals.partnerCurrency,
+        manualFxRate: intercompanyDeals.manualFxRate,
         status: intercompanyDeals.status,
         stageName: intercompanyDeals.stageName,
         expectedCloseDate: intercompanyDeals.expectedCloseDate,

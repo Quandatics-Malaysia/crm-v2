@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -110,7 +111,7 @@ function TaxDialog({
       : await createTax(payload)
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(initial ? "Tax setting updated" : "Tax setting created")
@@ -214,7 +215,7 @@ function RowActions({ row }: { row: TaxSettingRow }) {
   async function onDelete() {
     const res = await deleteTax(row.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Tax setting deleted")
@@ -224,7 +225,7 @@ function RowActions({ row }: { row: TaxSettingRow }) {
   async function onSetDefault() {
     const res = await setDefaultTax(row.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Default tax updated")

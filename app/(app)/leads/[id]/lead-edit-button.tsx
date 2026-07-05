@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Pencil } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,7 @@ export function LeadEditButton({
   async function handleUpdate(values: LeadInput) {
     const res = await updateLead(lead.id, values)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Lead updated")

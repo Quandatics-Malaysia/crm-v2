@@ -10,7 +10,7 @@ import { PERMISSIONS } from "@/lib/permissions"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { formatDate, formatMoney } from "@/lib/format"
-import { getProject, listMilestones } from "../actions"
+import { getProject, listMilestones, listQuotationLinkOptions } from "../actions"
 import { listProjectSalesOrders } from "@/app/(app)/sales-orders/actions"
 import { getProjectBillingSummary } from "@/app/(app)/billing/actions"
 import { ProjectEditButton } from "./project-edit-button"
@@ -39,9 +39,16 @@ export default async function ProjectDetailPage({
       getProjectBillingSummary(id).catch(() => null),
     ])
 
-  const canUpdate = ctx.can(PERMISSIONS.PROJECT_UPDATE)
+  const canUpdate = detail.canEdit && ctx.can(PERMISSIONS.PROJECT_UPDATE)
   const canSubmitSO = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)
   const canApproveSO = ctx.can(PERMISSIONS.SALES_ORDER_APPROVE)
+
+  // Quotations linkable to this project = those under its funnel. Empty when the
+  // project has no funnel (nothing to link) or the user can't edit.
+  const quotationOptions =
+    canUpdate && project.opportunityId
+      ? await listQuotationLinkOptions(project.opportunityId)
+      : []
 
   const fields: { label: string; value: React.ReactNode }[] = [
     {
@@ -122,7 +129,12 @@ export default async function ProjectDetailPage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canUpdate ? <ProjectEditButton project={project} /> : null}
+            {canUpdate ? (
+              <ProjectEditButton
+                project={project}
+                quotationOptions={quotationOptions}
+              />
+            ) : null}
           </div>
         </div>
 

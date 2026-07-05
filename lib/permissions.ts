@@ -275,6 +275,28 @@ export const PERMISSION_GROUPS: {
     : []),
 ]
 
+/** Human label for a permission key, for friendly "withheld permission" errors. */
+export const PERMISSION_LABELS: Map<string, string> = new Map(
+  PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => [i.key as string, i.label]))
+)
+
+export function permLabel(key: string): string {
+  return PERMISSION_LABELS.get(key) ?? key
+}
+
+/**
+ * Turn a raw thrown denial message (`FORBIDDEN: missing <key>`,
+ * `FORBIDDEN: not permitted on this <noun>`) into a friendly one, without
+ * leaking internal permission keys. Non-FORBIDDEN messages pass through
+ * unchanged — they're already user-facing (business-rule validation, etc).
+ */
+export function humanizeDenial(message: string): string {
+  const missing = message.match(/^FORBIDDEN: missing (.+)$/)
+  if (missing) return `You don't have permission to do this (${permLabel(missing[1])}).`
+  if (message.startsWith("FORBIDDEN:")) return "You don't have permission to do this."
+  return message
+}
+
 export type RoleTemplate = {
   name: string
   description: string

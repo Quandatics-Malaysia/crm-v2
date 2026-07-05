@@ -11,6 +11,7 @@ import {
   opportunityStageHistory,
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
+import { tenantDefaultCurrency } from "./tenant-currency"
 import { writeAudit } from "@/server/audit"
 import {
   visibleMemberIds,
@@ -197,7 +198,7 @@ export async function convertLead(
               funnelId: funnel.id,
               currentStageId: stage.id,
               ownerMemberId: lead.ownerMemberId ?? ctx.memberId ?? "",
-              currency: "MYR",
+              currency: await tenantDefaultCurrency(tx, ctx.tenantId),
               expectedCloseDate: input.expectedCloseDate ?? null,
             })
             .returning()

@@ -23,6 +23,7 @@ import {
   opportunities,
   organization,
   intercompanyDeals,
+  intercompanyDealParties,
   intercompanyDealResponses,
 } from "@/db/schema"
 import { maybeCompleteProject } from "@/server/services/finance"
@@ -33,6 +34,7 @@ import {
   kindsForDirection,
   type FinanceDocKind,
 } from "@/lib/finance-kinds"
+import { partyShare } from "@/lib/interco-share"
 import { FINANCE_MODULE } from "@/lib/modules"
 import {
   DEFAULT_INVOICE_DUE_DAYS,
@@ -515,7 +517,7 @@ export async function setFinanceDocStatus(
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
     // Info collected inside the transaction for post-commit automation.
-    let mirror: IntercoMirror | null = null
+    let mirrors: IntercoMirror[] = []
 
     await withTenant(PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
       await assertFinanceEnabled(tx, ctx.tenantId)
@@ -631,7 +633,7 @@ export async function setFinanceDocStatus(
         // Intercompany: issuing a CUSTOMER invoice on an interco project
         // queues the auto-mirror (executed after this tx commits).
         if (doc.kind === "invoice" && !doc.intercompanyDealId) {
-          mirror = await prepareIntercoMirror(tx, ctx.tenantId, doc)
+          mirrors = await prepareIntercoMirror(tx, ctx.tenantId, doc)
         }
       }
 
@@ -747,11 +749,12 @@ export async function setFinanceDocStatus(
     })
 
     // Best-effort post-commit: the interco mirror must never fail the issue.
-    // It runs in ONE transaction, so a failure writes nothing (no half-pairs);
-    // the activity trail below makes the miss discoverable.
+    // Each party's pair runs in its OWN transaction, so one party's failure
+    // doesn't block the others' documents from being minted; the activity
+    // trail below makes any miss discoverable.
     // (cast: TS can't see the assignment inside the withTenant closure)
-    const m = mirror as IntercoMirror | null
-    if (m) {
+    const ms = mirrors as IntercoMirror[]
+    for (const m of ms) {
       try {
         await executeIntercoMirror(m)
       } catch (e) {
@@ -763,8 +766,7 @@ export async function setFinanceDocStatus(
               entityType: "finance_doc",
               entityId: m.originDocId,
               type: "system",
-              subject:
-                "Intercompany auto-mirror FAILED — create the partner-share documents manually.",
+              subject: `Intercompany auto-mirror to ${m.partnerTenantId} FAILED — create the partner-share documents manually.`,
             })
           )
         } catch {
@@ -780,61 +782,84 @@ export async function setFinanceDocStatus(
 
 /**
  * Inside the issue transaction: decide whether this customer invoice needs
- * the intercompany mirror, and collect everything the post-commit step needs.
- * Returns null when not applicable (not interco, mirroring off, zero share).
+ * intercompany mirrors, and collect everything the post-commit step needs —
+ * one entry per party whose share is positive and who hasn't declined.
+ * Returns [] when not applicable (not interco, mirroring off, no parties).
  */
 async function prepareIntercoMirror(
   tx: Tx,
   tenantId: string,
   doc: typeof financeDocs.$inferSelect
-) {
+): Promise<IntercoMirror[]> {
   const { intercoAutoMirror } = await financeSettings(tx, tenantId)
-  if (!intercoAutoMirror || !doc.projectId) return null
-  const [row] = await tx
+  if (!intercoAutoMirror || !doc.projectId) return []
+  const [opp] = await tx
     .select({
       isIntercompany: opportunities.isIntercompany,
-      partnerTenantId: opportunities.handlingPartnerEntityId,
-      recognizedPercent: opportunities.recognizedPercent,
-      dealId: intercompanyDeals.id,
+      quotedAmount: opportunities.amount,
+      estimatedAmount: opportunities.estimatedAmount,
     })
     .from(projects)
     .innerJoin(opportunities, eq(projects.opportunityId, opportunities.id))
-    .leftJoin(
-      intercompanyDeals,
-      eq(intercompanyDeals.opportunityId, opportunities.id)
-    )
     .where(eq(projects.id, doc.projectId))
     .limit(1)
-  if (
-    !row?.isIntercompany ||
-    !row.partnerTenantId ||
-    !row.dealId ||
-    row.recognizedPercent == null
-  ) {
-    return null
+  if (!opp?.isIntercompany) return []
+
+  const rows = await tx
+    .select({
+      partnerEntityId: intercompanyDealParties.partnerEntityId,
+      shareType: intercompanyDealParties.shareType,
+      shareValue: intercompanyDealParties.shareValue,
+      dealId: intercompanyDeals.id,
+      response: intercompanyDealResponses.response,
+    })
+    .from(intercompanyDealParties)
+    .innerJoin(
+      opportunities,
+      eq(opportunities.id, intercompanyDealParties.opportunityId)
+    )
+    .innerJoin(
+      projects,
+      eq(projects.opportunityId, opportunities.id)
+    )
+    .leftJoin(
+      intercompanyDeals,
+      and(
+        eq(intercompanyDeals.opportunityId, intercompanyDealParties.opportunityId),
+        eq(intercompanyDeals.partnerTenantId, intercompanyDealParties.partnerEntityId)
+      )
+    )
+    .leftJoin(
+      intercompanyDealResponses,
+      eq(intercompanyDealResponses.dealId, intercompanyDeals.id)
+    )
+    .where(eq(projects.id, doc.projectId))
+
+  const dealTotal = Number(opp.quotedAmount ?? opp.estimatedAmount ?? 0)
+  const mirrors: IntercoMirror[] = []
+  for (const row of rows) {
+    // Need a mirrored deal row and a share; a party who explicitly DECLINED
+    // never gets documents minted into their books.
+    if (!row.dealId || row.response === "declined") continue
+    const shareNum = partyShare(
+      { shareType: row.shareType, shareValue: Number(row.shareValue) },
+      dealTotal,
+      Number(doc.amount)
+    )
+    if (!(shareNum > 0)) continue
+    mirrors.push({
+      originDocId: doc.id,
+      dealId: row.dealId,
+      partnerTenantId: row.partnerEntityId,
+      originTenantId: tenantId,
+      share: shareNum.toFixed(2),
+      currency: doc.currency,
+      dueDate: doc.dueDate,
+      sourceNumber: doc.number,
+      projectId: doc.projectId,
+    })
   }
-  // Handshake: a deal the partner explicitly DECLINED never gets documents
-  // minted into their books.
-  const [resp] = await tx
-    .select({ response: intercompanyDealResponses.response })
-    .from(intercompanyDealResponses)
-    .where(eq(intercompanyDealResponses.dealId, row.dealId))
-    .limit(1)
-  if (resp?.response === "declined") return null
-  const sharePercent = Math.max(0, 100 - Number(row.recognizedPercent))
-  const share = (Number(doc.amount) * sharePercent) / 100
-  if (!(share > 0)) return null
-  return {
-    originDocId: doc.id,
-    dealId: row.dealId,
-    partnerTenantId: row.partnerTenantId,
-    originTenantId: tenantId,
-    share: share.toFixed(2),
-    currency: doc.currency,
-    dueDate: doc.dueDate,
-    sourceNumber: doc.number,
-    projectId: doc.projectId,
-  }
+  return mirrors
 }
 
 /**

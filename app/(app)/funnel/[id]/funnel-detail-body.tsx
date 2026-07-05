@@ -18,6 +18,7 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { formatDate, formatMoney } from "@/lib/format"
+import { partyShare } from "@/lib/interco-share"
 import {
   formatCustomFieldValue,
   groupCustomFields,
@@ -78,9 +79,10 @@ export type FunnelDetailData = {
   description: string | null
   projectYear: number | null
   isIntercompany: boolean
-  handlingPartnerName: string | null
-  /** Partner's accept/decline on the interco assignment (origin view). */
-  partnerResponse: OpportunityDetail["partnerResponse"]
+  /** Handling partners on this deal, with live-resolved names. */
+  parties: OpportunityDetail["parties"]
+  /** Each party's accept/decline on their slice (origin view). */
+  partnerResponses: OpportunityDetail["partnerResponses"]
   expectedCloseDate: string | null
   createdAt: Date
   stageName: string
@@ -132,8 +134,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     description,
     projectYear,
     isIntercompany,
-    handlingPartnerName,
-    partnerResponse,
+    parties,
+    partnerResponses,
     expectedCloseDate,
     createdAt,
     stageName,
@@ -387,27 +389,52 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             </Field>
 
             {isIntercompany ? (
-              <Field label="Handling partner">
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <Badge variant="outline">Intercompany</Badge>
-                  {handlingPartnerName ?? "—"}
-                  {partnerResponse ? (
-                    <Badge
-                      variant={
-                        partnerResponse.response === "accepted"
-                          ? "default"
-                          : "destructive"
-                      }
-                      title={partnerResponse.reason ?? undefined}
-                    >
-                      {partnerResponse.response === "accepted"
-                        ? "Accepted"
-                        : "Declined"}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">Awaiting response</Badge>
-                  )}
-                </span>
+              <Field label={`Handling partner${parties.length !== 1 ? "s" : ""}`}>
+                {parties.length === 0 ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : (
+                  <div className="grid gap-1.5">
+                    {parties.map((p) => {
+                      const resp = partnerResponses.find(
+                        (r) => r.partnerEntityId === p.partnerEntityId
+                      )
+                      const basis = Number(recognizedBasis ?? 0)
+                      const share = partyShare(
+                        { shareType: p.shareType, shareValue: Number(p.shareValue) },
+                        basis,
+                        basis
+                      )
+                      return (
+                        <span
+                          key={p.partnerEntityId}
+                          className="inline-flex flex-wrap items-center gap-1.5"
+                        >
+                          <Badge variant="outline">Intercompany</Badge>
+                          {p.partnerName}
+                          <span className="text-xs text-muted-foreground">
+                            {formatMoney(share.toFixed(2), currency)}
+                          </span>
+                          {resp ? (
+                            <Badge
+                              variant={
+                                resp.response === "accepted"
+                                  ? "default"
+                                  : "destructive"
+                              }
+                              title={resp.reason ?? undefined}
+                            >
+                              {resp.response === "accepted"
+                                ? "Accepted"
+                                : "Declined"}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">Awaiting response</Badge>
+                          )}
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
               </Field>
             ) : null}
 

@@ -20,6 +20,7 @@ import {
 } from "@/db/schema"
 import { toDateString } from "@/lib/dates"
 import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
+import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { logActivity } from "@/server/services/activity"
 import { maybeCompleteProject } from "@/server/services/finance"
 import { opportunityNetValue } from "@/server/services/value"
@@ -56,6 +57,9 @@ export type ProjectDetail = {
   opportunityName: string | null
   quotationNumber: string | null
   ownerName: string | null
+  /** Whether the caller may edit this project — mirrors updateProject's own
+   *  ownership check, so the Edit button never appears only to be denied. */
+  canEdit: boolean
 }
 
 export type ProjectCodeNature = "auto" | "manual"
@@ -161,6 +165,9 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
       opportunityName: row.opportunityName,
       quotationNumber: row.quotationNumber,
       ownerName: row.ownerName,
+      canEdit:
+        canManageAllRecords(ctx) ||
+        ownsOrManages(visible, row.project.ownerMemberId),
     }
   })
 }
@@ -262,9 +269,11 @@ export async function createProject(
             ownerMemberId: ctx.memberId,
             status: isStatus(input.status) ? input.status : "planning",
             value: input.value ? input.value : null,
-            // Carry the source deal currency through; the column defaults to MYR
-            // only when the caller has no currency to propagate.
-            ...(input.currency ? { currency: input.currency } : {}),
+            // Carry the source deal currency through; fall back to the tenant's
+            // configured default currency (not a hardcoded MYR) when the caller
+            // has none to propagate.
+            currency:
+              input.currency || (await tenantDefaultCurrency(tx, ctx.tenantId)),
             startDate: input.startDate || null,
           })
           .returning({ id: projects.id, projectCode: projects.projectCode })
@@ -476,6 +485,42 @@ export async function deleteProject(id: string): Promise<ActionResult<void>> {
     })
   })
   revalidatePath("/projects")
+  })
+}
+
+export type QuotationLinkOption = {
+  id: string
+  quoteNumber: string
+  status: string
+  total: string
+  currency: string
+  isPrimary: boolean
+}
+
+/** Quotations under an opportunity, offered as link targets in the project
+ *  edit dialog. A quotation belongs to one opportunity, so the pickable set is
+ *  the project's own funnel; RLS already scopes to this tenant. Primary first. */
+export async function listQuotationLinkOptions(
+  opportunityId: string
+): Promise<QuotationLinkOption[]> {
+  return withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx) => {
+    return tx
+      .select({
+        id: quotations.id,
+        quoteNumber: quotations.quoteNumber,
+        status: quotations.status,
+        total: quotations.total,
+        currency: quotations.currency,
+        isPrimary: quotations.isPrimary,
+      })
+      .from(quotations)
+      .where(
+        and(
+          eq(quotations.opportunityId, opportunityId),
+          isNull(quotations.deletedAt)
+        )
+      )
+      .orderBy(desc(quotations.isPrimary), asc(quotations.quoteNumber))
   })
 }
 

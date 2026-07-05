@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   MoreHorizontal,
   Plus,
@@ -66,6 +67,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DataTable, SortableHeader } from "@/components/data-table"
+import { EmptyState } from "@/components/empty-state"
+import { formatDate } from "@/lib/format"
 import { PERMISSIONS, PERMISSION_GROUPS } from "@/lib/permissions"
 import {
   addMember,
@@ -204,7 +207,7 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
     })
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(
@@ -375,7 +378,7 @@ function EditMemberDialog({
     })
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Member updated")
@@ -489,7 +492,7 @@ function MemberRowActions({
     const res = await removeMember(member.memberId)
     setBusy(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Member removed")
@@ -503,7 +506,7 @@ function MemberRowActions({
       disabled ? "active" : "disabled"
     )
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(disabled ? "Member reactivated" : "Member disabled")
@@ -624,6 +627,32 @@ function MembersTab({
           ),
       },
       {
+        id: "lastActive",
+        accessorFn: (r) => r.lastLoginAt?.getTime() ?? 0,
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Last active" />
+        ),
+        cell: ({ row }) => {
+          const { lastLoginAt, lastActiveAt } = row.original
+          if (!lastLoginAt && !lastActiveAt) {
+            return <span className="text-muted-foreground">Never</span>
+          }
+          return (
+            <div className="grid gap-0.5 text-sm">
+              <span>{lastLoginAt ? formatDate(lastLoginAt) : "—"}</span>
+              {lastActiveAt ? (
+                <span
+                  className="text-xs text-muted-foreground"
+                  title="Approximate — newest session refresh"
+                >
+                  seen ~{formatDate(lastActiveAt)}
+                </span>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
         id: "actions",
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => (
@@ -689,7 +718,7 @@ function RoleFormDialog({
       : await createRole({ name: name.trim(), tier: Number(tier) || 0 })
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(role ? "Role updated" : "Role created")
@@ -821,7 +850,7 @@ function PermissionsDialog({
     const res = await setRolePermissions(role.id, Array.from(checked))
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Permissions saved")
@@ -947,7 +976,7 @@ function RoleCard({ role }: { role: TeamRoleView }) {
     const res = await deleteRole(role.id)
     setBusy(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Role deleted")
@@ -1051,8 +1080,8 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
 
       {roles.length === 0 ? (
         <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No roles yet.
+          <CardContent>
+            <EmptyState title="No roles yet." />
           </CardContent>
         </Card>
       ) : (
@@ -1101,7 +1130,7 @@ function PendingInvitesCard({ invites }: { invites: PendingInviteView[] }) {
               onClick={async () => {
                 const res = await revokePendingInvite(inv.id)
                 if (!res.ok) {
-                  toast.error(res.error)
+                  showActionError(res)
                   return
                 }
                 toast.success("Invite revoked")

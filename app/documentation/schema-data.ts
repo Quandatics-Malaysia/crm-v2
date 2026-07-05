@@ -336,6 +336,12 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "type": "timestamp with time zone",
         "nullable": false,
         "def": "now()"
+      },
+      {
+        "name": "last_login_at",
+        "type": "timestamp with time zone",
+        "nullable": true,
+        "def": null
       }
     ]
   },
@@ -832,6 +838,72 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ]
   },
   {
+    "name": "intercompany_deal_parties",
+    "module": "Intercompany",
+    "columns": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "nullable": false,
+        "def": "gen_random_uuid()"
+      },
+      {
+        "name": "opportunity_id",
+        "type": "uuid",
+        "nullable": false,
+        "def": null
+      },
+      {
+        "name": "partner_entity_id",
+        "type": "text",
+        "nullable": false,
+        "def": null
+      },
+      {
+        "name": "share_type",
+        "type": "intercompany_share_type (percent | amount)",
+        "nullable": false,
+        "def": "'amount'"
+      },
+      {
+        "name": "share_value",
+        "type": "numeric",
+        "nullable": false,
+        "def": null
+      },
+      {
+        "name": "currency",
+        "type": "character",
+        "nullable": false,
+        "def": "'MYR'"
+      },
+      {
+        "name": "manual_fx_rate",
+        "type": "numeric",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "sort_order",
+        "type": "integer",
+        "nullable": false,
+        "def": "0"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false,
+        "def": "now()"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false,
+        "def": "now()"
+      }
+    ]
+  },
+  {
     "name": "intercompany_deal_responses",
     "module": "Intercompany",
     "columns": [
@@ -956,12 +1028,6 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "recognized_percent",
-        "type": "numeric",
-        "nullable": true,
-        "def": null
-      },
-      {
         "name": "status",
         "type": "text",
         "nullable": false,
@@ -1008,6 +1074,30 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "type": "boolean",
         "nullable": false,
         "def": "true"
+      },
+      {
+        "name": "share_type",
+        "type": "intercompany_share_type (percent | amount)",
+        "nullable": false,
+        "def": "'amount'"
+      },
+      {
+        "name": "share_value",
+        "type": "numeric",
+        "nullable": false,
+        "def": null
+      },
+      {
+        "name": "partner_currency",
+        "type": "character",
+        "nullable": false,
+        "def": "'MYR'"
+      },
+      {
+        "name": "manual_fx_rate",
+        "type": "numeric",
+        "nullable": true,
+        "def": null
       }
     ]
   },
@@ -2362,18 +2452,6 @@ export const SCHEMA_TABLES: SchemaTable[] = [
       {
         "name": "project_natures",
         "type": "jsonb",
-        "nullable": true,
-        "def": null
-      },
-      {
-        "name": "handling_partner_entity_id",
-        "type": "text",
-        "nullable": true,
-        "def": null
-      },
-      {
-        "name": "handling_partner_name",
-        "type": "text",
         "nullable": true,
         "def": null
       }

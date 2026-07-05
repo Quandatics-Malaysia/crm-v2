@@ -5,6 +5,7 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { writeAudit } from "@/server/audit"
+import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
 import {
@@ -142,7 +143,11 @@ export async function createProduct(
           productCode: clean(input.productCode),
           subcategory: clean(input.subcategory),
           uom: clean(input.uom),
-          currency: (clean(input.currency) ?? "MYR").toUpperCase().slice(0, 3),
+          currency: (
+            clean(input.currency) ?? (await tenantDefaultCurrency(tx, ctx.tenantId))
+          )
+            .toUpperCase()
+            .slice(0, 3),
           standardPrice,
           description: clean(input.description),
           isActive: input.isActive ?? true,
@@ -184,7 +189,11 @@ export async function updateProduct(
           productCode: clean(input.productCode),
           subcategory: clean(input.subcategory),
           uom: clean(input.uom),
-          currency: (clean(input.currency) ?? "MYR").toUpperCase().slice(0, 3),
+          currency: (
+            clean(input.currency) ?? (await tenantDefaultCurrency(tx, ctx.tenantId))
+          )
+            .toUpperCase()
+            .slice(0, 3),
           standardPrice,
           description: clean(input.description),
           isActive: input.isActive ?? true,

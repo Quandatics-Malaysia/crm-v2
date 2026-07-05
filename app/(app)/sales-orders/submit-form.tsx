@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Select,
   SelectContent,
@@ -96,7 +97,7 @@ export function SubmitSalesOrderForm({
       if (paymentTerm) fd.set("paymentTerm", paymentTerm)
       const res = await submitSalesOrderWithDocument(fd)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         setSubmitting(false)
         return
       }

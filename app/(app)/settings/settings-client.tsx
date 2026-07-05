@@ -7,6 +7,7 @@ import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   ArrowRight,
   ArrowUp,
@@ -111,6 +112,7 @@ import {
   DEFAULT_SO_DOCUMENT_KINDS,
 } from "@/lib/tenant-defaults"
 import { Textarea } from "@/components/ui/textarea"
+import { EmptyState } from "@/components/empty-state"
 import type {
   TenantSettingsView,
   TenantMemberView,
@@ -314,7 +316,7 @@ function GeneralForm({
         allowPasswordLogin: parsed.allowPasswordLogin,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       const updated = res.data
@@ -715,9 +717,10 @@ function GeneralForm({
 // ─── Numbering ───────────────────────────────────────────────────────────────
 
 const numberingSchema = z.object({
-  quotePrefix: z.string().trim().min(1, "Required"),
   quoteNextNumber: z.coerce.number().int().min(1, "≥ 1"),
   quotePadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
+  soNextNumber: z.coerce.number().int().min(1, "≥ 1"),
+  soPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
   projectPadWidth: z.coerce.number().int().min(1, "1–10").max(10, "1–10"),
   /** Empty = no default validity prefill. */
   quoteValidDays: z
@@ -753,9 +756,10 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   const form = useForm<NumberingValues>({
     resolver: zodResolver(numberingSchema),
     defaultValues: {
-      quotePrefix: settings.quotePrefix,
       quoteNextNumber: settings.quoteNextNumber,
       quotePadWidth: settings.quotePadWidth,
+      soNextNumber: settings.soNextNumber,
+      soPadWidth: settings.soPadWidth,
       projectPadWidth: settings.projectPadWidth,
       quoteValidDays:
         settings.quoteValidDays == null ? "" : String(settings.quoteValidDays),
@@ -767,10 +771,20 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   const currentYear = new Date().getFullYear()
   const entityCode = (settings.entityCode || "ENTITY").toUpperCase()
   const values = useWatch({ control: form.control })
-  const quotePreview = `${values.quotePrefix ?? ""}${pad(
+  // Quote numbers now mint as {ENTITY}Q-{running} (see nextQuoteNumber), mirroring
+  // the SO scheme; the entity code drives the prefix, not the legacy quotePrefix.
+  const quotePreview = `${entityCode}Q-${pad(
     Number(values.quoteNextNumber) || 0,
     Number(values.quotePadWidth) || 1
   )}`
+  // SO numbers mint as {ENTITY}SO-{running} (see nextSoNumber).
+  const soPreview = `${entityCode}SO-${pad(
+    Number(values.soNextNumber) || 0,
+    Number(values.soPadWidth) || 1
+  )}`
+  const soBelowIssued =
+    Number(values.soNextNumber) > 0 &&
+    Number(values.soNextNumber) < settings.soNextNumber
   // Project codes are {YYYY}-{Entity}-{Account}-{ProjectNature}-{NNN}; the running
   // number (NNN) resets to 1 each year, so the preview always shows the first.
   const projectPreview = `${currentYear}-${entityCode}-ACME-WEB-${pad(
@@ -793,14 +807,15 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
           parsed.invoiceDueDays === "" ? null : Number(parsed.invoiceDueDays),
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       const updated = res.data
       form.reset({
-        quotePrefix: updated.quotePrefix,
         quoteNextNumber: updated.quoteNextNumber,
         quotePadWidth: updated.quotePadWidth,
+        soNextNumber: updated.soNextNumber,
+        soPadWidth: updated.soPadWidth,
         projectPadWidth: updated.projectPadWidth,
         quoteValidDays:
           updated.quoteValidDays == null ? "" : String(updated.quoteValidDays),
@@ -822,19 +837,6 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-3">
-            <FormField
-              control={form.control}
-              name="quotePrefix"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Prefix</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Q-" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name="quoteNextNumber"
@@ -931,6 +933,67 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                 )}
               />
             ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales-order numbering</CardTitle>
+            <CardDescription>
+              Next sales order: <span className="font-mono">{soPreview}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5 sm:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="soNextNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Next number</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      value={String(field.value ?? "")}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    />
+                  </FormControl>
+                  {soBelowIssued ? (
+                    <p className="text-sm text-destructive">
+                      Number {settings.soNextNumber - 1} has already been issued.
+                      Saving a value below {settings.soNextNumber} will collide
+                      with existing sales orders.
+                    </p>
+                  ) : null}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="soPadWidth"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pad width</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      value={String(field.value ?? "")}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
 
@@ -1081,7 +1144,7 @@ function CountriesCard({
     startTransition(async () => {
       const res = await updateCountries(items)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setItems(res.data)
@@ -1150,9 +1213,7 @@ function CountriesCard({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    No states yet (optional).
-                  </p>
+                  <EmptyState title="No states yet (optional)." className="py-4" />
                 )}
                 <div className="flex gap-2">
                   <Input
@@ -1185,7 +1246,7 @@ function CountriesCard({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No countries yet.</p>
+          <EmptyState title="No countries yet." />
         )}
 
         <div className="flex justify-end">
@@ -1243,7 +1304,7 @@ function ProjectNaturesCard({ projectNatures }: { projectNatures: ProjectNature[
     startTransition(async () => {
       const res = await updateProjectNatures(items)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setItems(res.data)
@@ -1313,7 +1374,7 @@ function ProjectNaturesCard({ projectNatures }: { projectNatures: ProjectNature[
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No project natures yet.</p>
+          <EmptyState title="No project natures yet." />
         )}
 
         <div className="flex justify-end">
@@ -1370,7 +1431,7 @@ function ProductCodesCard({ productCodes }: { productCodes: ProductCode[] }) {
     startTransition(async () => {
       const res = await updateProductCodes(items)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setItems(res.data)
@@ -1439,7 +1500,7 @@ function ProductCodesCard({ productCodes }: { productCodes: ProductCode[] }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No product codes yet.</p>
+          <EmptyState title="No product codes yet." />
         )}
 
         <div className="flex justify-end">
@@ -1535,7 +1596,7 @@ function CustomFunnelFieldsCard({ fields }: { fields: CustomFunnelField[] }) {
         }))
       )
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setItems(res.data)
@@ -1678,7 +1739,7 @@ function CustomFunnelFieldsCard({ fields }: { fields: CustomFunnelField[] }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No custom fields yet.</p>
+          <EmptyState title="No custom fields yet." />
         )}
 
         <div className="flex justify-end">
@@ -1806,7 +1867,7 @@ function StageDialog({
         })
     setSaving(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(initial ? "Stage updated" : "Stage created")
@@ -2075,7 +2136,7 @@ function StageRowActions({
     const res = await deleteStage(stage.id)
     setBusy(false)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Stage deleted")
@@ -2202,7 +2263,7 @@ function FunnelStagesCard({
       const res = await reorderStages(order)
       setReordering(false)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Order saved")
@@ -2441,7 +2502,7 @@ function AutoJoinCard({
     startTransition(async () => {
       const res = await updateAutoJoin({ domains: items, role: roleName })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setItems(res.data.domains)
@@ -2574,7 +2635,7 @@ function MilestoneTemplateCard({
     startTransition(async () => {
       const res = await updateMilestoneTemplate(parsed)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setBaseline(JSON.stringify(res.data.milestoneTemplate))
@@ -2695,7 +2756,7 @@ function CompanyProfileCard({
     startTransition(async () => {
       const res = await updateCompanyProfile(values)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setValues(res.data.companyProfile)
@@ -2712,7 +2773,7 @@ function CompanyProfileCard({
       fd.set("file", file)
       const res = await uploadCompanyLogo(fd)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Logo updated")
@@ -2729,7 +2790,7 @@ function CompanyProfileCard({
     try {
       const res = await removeCompanyLogo()
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Logo removed")
@@ -3024,7 +3085,7 @@ function IntercompanyPartnersCard({
     startTransition(async () => {
       const res = await updateIntercompanyPartners([...selected])
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       setSelected(new Set(res.data.intercompanyPartnerIds))

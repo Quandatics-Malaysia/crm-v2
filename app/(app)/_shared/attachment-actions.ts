@@ -24,6 +24,7 @@ import {
 import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
 import { storage } from "@/lib/storage"
 import { logActivity, type ActivityEntity } from "@/server/services/activity"
+import { writeAudit } from "@/server/audit"
 
 export type AttachmentRow = {
   id: string
@@ -323,6 +324,7 @@ export async function renameEntityAttachment(
         .select({
           attachableType: attachments.attachableType,
           attachableId: attachments.attachableId,
+          fileName: attachments.fileName,
         })
         .from(attachments)
         .where(eq(attachments.id, id))
@@ -333,10 +335,18 @@ export async function renameEntityAttachment(
       if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
         throw new Error("FORBIDDEN: not permitted on this record")
       }
+      const nextName = name.slice(0, 200)
       await tx
         .update(attachments)
-        .set({ fileName: name.slice(0, 200) })
+        .set({ fileName: nextName })
         .where(eq(attachments.id, id))
+      await writeAudit(tx, ctx, {
+        action: "attachment.renamed",
+        entityType: "attachment",
+        entityId: id,
+        before: { fileName: row.fileName },
+        after: { fileName: nextName },
+      })
     })
     if (revalidate) revalidatePath(revalidate)
   })
@@ -390,6 +400,16 @@ export async function deleteEntityAttachment(
         }
       }
       await tx.delete(attachments).where(eq(attachments.id, id))
+      await writeAudit(tx, ctx, {
+        action: "attachment.deleted",
+        entityType: "attachment",
+        entityId: id,
+        before: {
+          fileName: row.fileName,
+          attachableType: row.attachableType,
+          attachableId: row.attachableId,
+        },
+      })
       try {
         await storage.delete(row.storageKey)
       } catch {

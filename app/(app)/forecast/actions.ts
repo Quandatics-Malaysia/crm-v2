@@ -1,11 +1,12 @@
 "use server"
 
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import { requireContext, assertCan } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { visibleMemberIds, canManageAllRecords } from "@/lib/access-scope"
 import { intercompanyDeals, organization, tenantSettings } from "@/db/schema"
+import { partyShare } from "@/lib/interco-share"
 
 /** One row of the weighted billing forecast (per OPEN opportunity). */
 export type ForecastRow = {
@@ -94,11 +95,11 @@ export async function getForecast(): Promise<ForecastRow[]> {
     }))
 
     // INBOUND intercompany share: deals sibling entities assigned to this
-    // entity for delivery. The share (basis × (100 − origin's recognized %))
-    // is this entity's own expected revenue and belongs in its forecast,
-    // weighted by the origin's stage probability (snapshotted on the mirror).
-    // Gated by the intercompany permission so record-scoped reps don't see
-    // whole-entity numbers through the back door.
+    // entity for delivery. This entity's own party row carries its OWN share
+    // (independent of any other party on the deal — see lib/interco-share.ts)
+    // and belongs in its forecast, weighted by the origin's stage probability
+    // (snapshotted on the mirror). Gated by the intercompany permission so
+    // record-scoped reps don't see whole-entity numbers through the back door.
     if (!ctx.can(PERMISSIONS.INTERCOMPANY_VIEW)) return own
 
     const inboundRows = await tx
@@ -109,7 +110,8 @@ export async function getForecast(): Promise<ForecastRow[]> {
         currency: intercompanyDeals.currency,
         estimatedAmount: intercompanyDeals.estimatedAmount,
         quotedAmount: intercompanyDeals.quotedAmount,
-        recognizedPercent: intercompanyDeals.recognizedPercent,
+        shareType: intercompanyDeals.shareType,
+        shareValue: intercompanyDeals.shareValue,
         stageName: intercompanyDeals.stageName,
         stageProbability: intercompanyDeals.stageProbability,
         expectedCloseDate: intercompanyDeals.expectedCloseDate,
@@ -119,18 +121,19 @@ export async function getForecast(): Promise<ForecastRow[]> {
       .where(
         and(
           eq(intercompanyDeals.partnerTenantId, ctx.tenantId),
-          eq(intercompanyDeals.includeInForecast, true),
-          // Without the origin's recognized % there is no defined share.
-          isNotNull(intercompanyDeals.recognizedPercent)
+          eq(intercompanyDeals.includeInForecast, true)
         )
       )
       .orderBy(desc(intercompanyDeals.updatedAt))
 
     const inbound: ForecastRow[] = inboundRows.flatMap((d) => {
-      const sharePercent = Math.max(0, 100 - Number(d.recognizedPercent))
-      if (sharePercent <= 0) return []
       const basis = Number(d.quotedAmount ?? d.estimatedAmount ?? 0)
-      const share = (basis * sharePercent) / 100
+      const share = partyShare(
+        { shareType: d.shareType, shareValue: Number(d.shareValue) },
+        basis,
+        basis
+      )
+      if (share <= 0) return []
       const probability = Number(d.stageProbability ?? 0)
       const weighted = (share * probability) / 100
       const month = d.expectedCloseDate

@@ -10,6 +10,7 @@ import { Pencil } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -32,41 +33,56 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { updateProject, type ProjectRow } from "../actions"
+import {
+  updateProject,
+  type ProjectRow,
+  type QuotationLinkOption,
+} from "../actions"
+import { formatMoney } from "@/lib/format"
 import { PROJECT_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
+
+/** Sentinel for "no linked quotation" (Select can't hold an empty value). */
+const NO_QUOTATION = "__none__"
 
 const schema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   value: z.string().trim().optional(),
   startDate: z.string().trim().optional(),
   status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]),
+  quotationId: z.string(),
 })
 
 type FormValues = z.infer<typeof schema>
 
-export function ProjectEditButton({ project }: { project: ProjectRow }) {
+export function ProjectEditButton({
+  project,
+  quotationOptions = [],
+}: {
+  project: ProjectRow
+  /** Quotations under the project's funnel; empty hides the picker. */
+  quotationOptions?: QuotationLinkOption[]
+}) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
+  const defaults = React.useMemo<FormValues>(
+    () => ({
       name: project.name,
       value: project.value ?? "",
       startDate: project.startDate ?? "",
       status: project.status,
-    },
+      quotationId: project.quotationId ?? NO_QUOTATION,
+    }),
+    [project]
+  )
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: defaults,
   })
 
   React.useEffect(() => {
-    if (open) {
-      form.reset({
-        name: project.name,
-        value: project.value ?? "",
-        startDate: project.startDate ?? "",
-        status: project.status,
-      })
-    }
+    if (open) form.reset(defaults)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -76,9 +92,11 @@ export function ProjectEditButton({ project }: { project: ProjectRow }) {
       value: values.value || null,
       startDate: values.startDate || null,
       status: values.status,
+      quotationId:
+        values.quotationId === NO_QUOTATION ? null : values.quotationId,
     })
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Project updated")
@@ -185,6 +203,50 @@ export function ProjectEditButton({ project }: { project: ProjectRow }) {
                 </FormItem>
               )}
             />
+
+            {quotationOptions.length > 0 ? (
+              <FormField
+                control={form.control}
+                name="quotationId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Quotation</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(v) => field.onChange(v ?? NO_QUOTATION)}
+                      items={[
+                        { value: NO_QUOTATION, label: "No quotation" },
+                        ...quotationOptions.map((q) => ({
+                          value: q.id,
+                          label: `${q.quoteNumber}${q.isPrimary ? " (primary)" : ""} · ${formatMoney(q.total, q.currency)}`,
+                        })),
+                      ]}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="No quotation" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_QUOTATION}>No quotation</SelectItem>
+                        {quotationOptions.map((q) => (
+                          <SelectItem key={q.id} value={q.id}>
+                            {q.quoteNumber}
+                            {q.isPrimary ? " (primary)" : ""} ·{" "}
+                            {formatMoney(q.total, q.currency)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      Links a quote from this project&apos;s funnel. Value and
+                      milestones are unchanged.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
             <div className="-mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t bg-muted/50 p-4">
               <Button

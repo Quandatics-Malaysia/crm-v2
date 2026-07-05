@@ -137,9 +137,12 @@ export const opportunities = pgTable(
    */
   estimatedAmount: numeric("estimated_amount", { precision: 14, scale: 2 }),
   /**
-   * Recognized revenue percentage (0–100) the tenant keeps on this deal. For an
-   * intercompany middle-man deal the tenant recognizes only its cut (e.g. 10);
-   * Recognized Amount is derived as estimatedAmount × recognizedPercent / 100.
+   * Recognized revenue percentage (0–100) the tenant keeps on this deal. For a
+   * multi-party intercompany deal this is a CACHE derived as
+   * `100 - sum(each party's effective % share of the deal)` (see
+   * lib/interco-share.ts, recomputed by server/services/intercompany.ts
+   * whenever intercompany_deal_parties rows change); Recognized Amount is
+   * derived as estimatedAmount × recognizedPercent / 100.
    */
   recognizedPercent: numeric("recognized_percent", { precision: 5, scale: 2 }),
   /** Free-text funnel description. */
@@ -147,25 +150,12 @@ export const opportunities = pgTable(
   /** Project / license year (e.g. 2024). */
   projectYear: integer("project_year"),
   /**
-   * Intercompany deal: a partner entity handles delivery and the tenant is the
-   * contracting/billing middle-man (so it recognizes only recognizedPercent).
+   * Intercompany deal: one or more partner entities handle delivery and the
+   * tenant is the contracting/billing middle-man (so it recognizes only
+   * recognizedPercent). Party assignments live in intercompany_deal_parties
+   * (db/schema/intercompany.ts) — never an external customer account.
    */
   isIntercompany: boolean("is_intercompany").notNull().default(false),
-  /**
-   * The partner ENTITY (another organization the user belongs to) that handles
-   * delivery on an interco deal. Intercompany transfers only ever go to a
-   * sibling group entity — never an external customer account.
-   */
-  handlingPartnerEntityId: text("handling_partner_entity_id").references(
-    () => organization.id,
-    { onDelete: "set null" }
-  ),
-  /**
-   * Snapshot of the handling entity's name at write time. Display resolves the
-   * LIVE organization name first (renames propagate); this is the fallback for
-   * entities that no longer resolve.
-   */
-  handlingPartnerName: text("handling_partner_name"),
   currency: char("currency", { length: 3 }).notNull().default("MYR"),
   /**
    * Default project nature for this funnel (code from

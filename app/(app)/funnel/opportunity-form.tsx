@@ -2,10 +2,12 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { useForm } from "react-hook-form"
+import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
+import { Plus, Trash2 } from "lucide-react"
+import { MAX_INTERCOMPANY_PARTIES } from "@/lib/interco-share"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +16,7 @@ import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { groupCustomFields, type CustomFunnelField } from "@/lib/stage-gate"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -73,7 +76,18 @@ const schema = z.object({
   projectYear: z.string().optional(),
   description: z.string().optional(),
   isIntercompany: z.boolean().optional(),
-  handlingPartnerEntityId: z.string().optional(),
+  parties: z
+    .array(
+      z.object({
+        partnerEntityId: z.string().min(1, "Pick a partner entity"),
+        shareType: z.enum(["percent", "amount"]),
+        shareValue: z
+          .string()
+          .min(1, "Required")
+          .refine((v) => Number(v) > 0, "Must be greater than 0"),
+      })
+    )
+    .max(MAX_INTERCOMPANY_PARTIES, `At most ${MAX_INTERCOMPANY_PARTIES} parties`),
   customFields: z.record(z.string(), z.string()),
 })
 
@@ -158,7 +172,11 @@ export function OpportunityForm({
               : "",
           description: opportunity.description ?? "",
           isIntercompany: opportunity.isIntercompany ?? false,
-          handlingPartnerEntityId: opportunity.handlingPartnerEntityId ?? "",
+          parties: opportunity.parties.map((p) => ({
+            partnerEntityId: p.partnerEntityId,
+            shareType: p.shareType,
+            shareValue: p.shareValue,
+          })),
           customFields: { ...(opportunity.customFields ?? {}) },
         }
       : {
@@ -176,10 +194,12 @@ export function OpportunityForm({
           projectYear: "",
           description: "",
           isIntercompany: false,
-          handlingPartnerEntityId: "",
+          parties: [],
           customFields: {},
         },
   })
+
+  const partyFields = useFieldArray({ control: form.control, name: "parties" })
 
   const selectedAccountId = form.watch("accountId")
   const selectedFunnelId = form.watch("funnelId")
@@ -225,11 +245,11 @@ export function OpportunityForm({
         projectYear: values.projectYear ? Number(values.projectYear) : null,
         description: values.description || null,
         isIntercompany: !!values.isIntercompany,
-        handlingPartnerEntityId: values.handlingPartnerEntityId || null,
+        parties: values.isIntercompany ? values.parties : [],
         customFields: values.customFields,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Funnel created")
@@ -249,11 +269,11 @@ export function OpportunityForm({
         projectYear: values.projectYear ? Number(values.projectYear) : null,
         description: values.description || null,
         isIntercompany: !!values.isIntercompany,
-        handlingPartnerEntityId: values.handlingPartnerEntityId || null,
+        parties: values.isIntercompany ? values.parties : [],
         customFields: values.customFields,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Funnel updated")
@@ -719,54 +739,125 @@ export function OpportunityForm({
             />
 
             {form.watch("isIntercompany") ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="handlingPartnerEntityId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Handling partner</FormLabel>
-                      <FormControl>
-                        <Combobox
-                          value={field.value ?? ""}
-                          onChange={(v) => field.onChange(v || "")}
-                          options={entityOptions.map((e) => ({
-                            value: e.id,
-                            label: e.name,
-                          }))}
-                          placeholder={
-                            entityOptions.length
-                              ? "Select the partner entity"
-                              : "No other entities available"
-                          }
-                          searchPlaceholder="Search entities…"
-                          emptyMessage="No other entities. Intercompany transfers only go to your own entities."
+              <div className="grid gap-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <FormLabel>
+                    Handling partner{partyFields.fields.length !== 1 ? "s" : ""}
+                  </FormLabel>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={partyFields.fields.length >= MAX_INTERCOMPANY_PARTIES}
+                    onClick={() =>
+                      partyFields.append({
+                        partnerEntityId: "",
+                        shareType: "amount",
+                        shareValue: "",
+                      })
+                    }
+                  >
+                    <Plus className="size-4" /> Add party
+                  </Button>
+                </div>
+                <FormDescription>
+                  Other entities that handle delivery — not external customers.
+                  Our recognized cut = deal value − all parties&apos; shares.
+                </FormDescription>
+
+                {partyFields.fields.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No parties yet — add one above.
+                  </p>
+                ) : (
+                  partyFields.fields.map((field, index) => {
+                    const chosenElsewhere = form
+                      .watch("parties")
+                      .filter((_, i) => i !== index)
+                      .map((p) => p.partnerEntityId)
+                    return (
+                      <div
+                        key={field.id}
+                        className="grid grid-cols-[1fr_auto_1fr_auto] items-start gap-2"
+                      >
+                        <FormField
+                          control={form.control}
+                          name={`parties.${index}.partnerEntityId`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Combobox
+                                  value={f.value ?? ""}
+                                  onChange={(v) => f.onChange(v || "")}
+                                  options={entityOptions
+                                    .filter((e) => !chosenElsewhere.includes(e.id))
+                                    .map((e) => ({ value: e.id, label: e.name }))}
+                                  placeholder={
+                                    entityOptions.length
+                                      ? "Select entity"
+                                      : "No other entities available"
+                                  }
+                                  searchPlaceholder="Search entities…"
+                                  emptyMessage="No other entities. Intercompany transfers only go to your own entities."
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                      </FormControl>
-                      <FormDescription>
-                        Another of your entities that handles delivery — not an
-                        external customer.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="recognizedPercent"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Recognized % (our cut)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" min="0" max="100" placeholder="10" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Recognized amount = estimated × this %.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormField
+                          control={form.control}
+                          name={`parties.${index}.shareType`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <Select value={f.value} onValueChange={f.onChange}>
+                                <FormControl>
+                                  <SelectTrigger className="w-[90px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="amount">Amount</SelectItem>
+                                  <SelectItem value="percent">Percent</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`parties.${index}.shareValue`}
+                          render={({ field: f }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder={
+                                    form.watch(`parties.${index}.shareType`) === "percent"
+                                      ? "0-100%"
+                                      : `0.00 ${form.watch("currency")}`
+                                  }
+                                  {...f}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => partyFields.remove(index)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             ) : null}
 

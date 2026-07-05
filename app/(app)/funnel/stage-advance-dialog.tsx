@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { HelpCircleIcon } from "lucide-react"
+import { showActionError } from "@/lib/show-action-error"
 
 import {
   missingFromKeys,
@@ -219,7 +220,7 @@ export function StageAdvanceDialog({
         customFields: Object.keys(values).length > 0 ? values : undefined,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       const result = res.data
@@ -242,7 +243,7 @@ export function StageAdvanceDialog({
           if (up.ok) {
             toast.success("Supporting document attached")
           } else {
-            toast.error(up.error)
+            showActionError(up)
           }
         }
         // Keep the dialog open so the requester can attach more files.

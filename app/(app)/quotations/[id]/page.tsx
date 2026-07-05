@@ -10,13 +10,6 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
 import { getQuotation, getProjectForQuotation } from "../actions"
 import { QuotationForm } from "../quotation-form"
@@ -147,25 +140,13 @@ export default async function QuotationDetailPage({
           project={
             project ? { id: project.id, projectCode: project.projectCode } : null
           }
+          documents={attachments.map((a) => ({
+            ...a,
+            source: "Quotation",
+            ownedHere: true,
+          }))}
           perms={perms}
         />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Attachments</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            <AttachmentsPanel
-              attachableType="quotation"
-              attachableId={id}
-              items={attachments}
-              revalidate={`/quotations/${id}`}
-            />
-            <p className="text-xs text-muted-foreground">
-              Files attached here also appear on the funnel.
-            </p>
-          </CardContent>
-        </Card>
       </PageBody>
     </>
   )

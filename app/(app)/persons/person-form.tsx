@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogClose,
@@ -133,7 +134,7 @@ export function PersonForm({
       ? await updatePerson(person!.id, payload)
       : await createPerson(payload)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(editing ? "Contact updated" : "Contact created")

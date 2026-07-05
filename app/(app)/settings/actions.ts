@@ -47,9 +47,10 @@ export type TenantSettingsView = {
   autoWinOnQuoteAccept: boolean
   allowPasswordLogin: boolean
   entityCode: string
-  quotePrefix: string
   quoteNextNumber: number
   quotePadWidth: number
+  soNextNumber: number
+  soPadWidth: number
   projectNextNumber: number
   projectPadWidth: number
   industries: string[]
@@ -151,9 +152,10 @@ export type UpdateSettingsInput = {
 }
 
 export type UpdateNumberingInput = {
-  quotePrefix: string
   quoteNextNumber: number
   quotePadWidth: number
+  soNextNumber: number
+  soPadWidth: number
   // The project running number now resets per year and lives in
   // `project_counters`; only the zero-pad width is configured here.
   projectPadWidth: number
@@ -219,9 +221,10 @@ function toView(
     autoWinOnQuoteAccept: row.autoWinOnQuoteAccept,
     allowPasswordLogin: row.allowPasswordLogin,
     entityCode: row.entityCode ?? "",
-    quotePrefix: row.quotePrefix,
     quoteNextNumber: row.quoteNextNumber,
     quotePadWidth: row.quotePadWidth,
+    soNextNumber: row.soNextNumber,
+    soPadWidth: row.soPadWidth,
     projectNextNumber: row.projectNextNumber,
     projectPadWidth: row.projectPadWidth,
     industries: row.industries ?? [],
@@ -592,6 +595,11 @@ export async function removeCompanyLogo(): Promise<ActionResult<void>> {
           updatedAt: new Date(),
         })
         .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      await writeAudit(tx, ctx, {
+        action: "settings.logo_removed",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+      })
       if (prev?.key) await storage.delete(prev.key).catch(() => {})
     })
     revalidatePath("/settings")
@@ -758,15 +766,15 @@ export async function updateNumbering(
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
-  const quotePrefix = (input.quotePrefix ?? "").trim()
-  if (quotePrefix.length === 0) {
-    throw new Error("Quotation prefix is required.")
-  }
   if (!Number.isInteger(input.quoteNextNumber) || input.quoteNextNumber < 1) {
     throw new Error("Quotation next number must be a positive integer.")
   }
+  if (!Number.isInteger(input.soNextNumber) || input.soNextNumber < 1) {
+    throw new Error("Sales-order next number must be a positive integer.")
+  }
   for (const [label, n] of [
     ["Quotation pad width", input.quotePadWidth],
+    ["Sales-order pad width", input.soPadWidth],
     ["Project pad width", input.projectPadWidth],
   ] as const) {
     if (!Number.isInteger(n) || n < 1 || n > 10) {
@@ -791,9 +799,10 @@ export async function updateNumbering(
   }
 
   const values = {
-    quotePrefix,
     quoteNextNumber: input.quoteNextNumber,
     quotePadWidth: input.quotePadWidth,
+    soNextNumber: input.soNextNumber,
+    soPadWidth: input.soPadWidth,
     // projectNextNumber is intentionally not written here — the project running
     // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
@@ -803,11 +812,14 @@ export async function updateNumbering(
   }
 
   const view = await runInTenant(ctx.tenantId, async (tx) => {
-    // The stored quote counter is always (highest issued number + 1). Lowering
-    // it below the current value would re-issue numbers already on live
-    // documents and surface later as cryptic unique-constraint failures.
+    // The stored quote/SO counters are always (highest issued number + 1).
+    // Lowering either below its current value would re-issue numbers already on
+    // live documents and surface later as cryptic unique-constraint failures.
     const [current] = await tx
-      .select({ quoteNextNumber: tenantSettings.quoteNextNumber })
+      .select({
+        quoteNextNumber: tenantSettings.quoteNextNumber,
+        soNextNumber: tenantSettings.soNextNumber,
+      })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
@@ -815,6 +827,11 @@ export async function updateNumbering(
       if (input.quoteNextNumber < current.quoteNextNumber) {
         throw new Error(
           `Quotation next number can't go below ${current.quoteNextNumber} — number ${current.quoteNextNumber - 1} has already been issued.`
+        )
+      }
+      if (input.soNextNumber < current.soNextNumber) {
+        throw new Error(
+          `Sales-order next number can't go below ${current.soNextNumber} — number ${current.soNextNumber - 1} has already been issued.`
         )
       }
     }

@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
@@ -110,30 +111,22 @@ export function ProjectDetailBody({
               <TabsList className="flex-wrap">
                 <TabsTrigger value="milestones">
                   Milestones
-                  <span className="ml-1.5 rounded bg-secondary px-1.5 text-xs text-secondary-foreground">
-                    {milestones.length}
-                  </span>
+                  <Badge variant="secondary" className="ml-1.5">{milestones.length}</Badge>
                 </TabsTrigger>
                 <TabsTrigger value="orders">
                   Sales orders
-                  <span className="ml-1.5 rounded bg-secondary px-1.5 text-xs text-secondary-foreground">
-                    {salesOrders.length}
-                  </span>
+                  <Badge variant="secondary" className="ml-1.5">{salesOrders.length}</Badge>
                 </TabsTrigger>
                 {billing ? (
                   <TabsTrigger value="billing">
                     Billing
-                    <span className="ml-1.5 rounded bg-secondary px-1.5 text-xs text-secondary-foreground">
-                      {billing.docs.length}
-                    </span>
+                    <Badge variant="secondary" className="ml-1.5">{billing.docs.length}</Badge>
                   </TabsTrigger>
                 ) : null}
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="documents">
                   Documents
-                  <span className="ml-1.5 rounded bg-secondary px-1.5 text-xs text-secondary-foreground">
-                    {documents.length}
-                  </span>
+                  <Badge variant="secondary" className="ml-1.5">{documents.length}</Badge>
                 </TabsTrigger>
               </TabsList>
 

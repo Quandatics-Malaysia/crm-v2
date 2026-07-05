@@ -22,8 +22,9 @@ export function isDuplicateNumberError(e: unknown): boolean {
 }
 
 /**
- * Allocate the next quotation number using the tenant's configurable
- * prefix / sequence / padding, atomically incrementing the counter.
+ * Allocate the next quotation number in the format `{EntityCode}Q-{running}`
+ * (e.g. `QMQ-0001`) — the entity code prefix + a "Q" document marker, mirroring
+ * nextSoNumber's `{EntityCode}SO-` scheme. Each entity keeps its own counter.
  * Call inside the same tx that inserts the quotation.
  */
 export async function nextQuoteNumber(tx: Tx, ctx: ServerContext): Promise<string> {
@@ -32,14 +33,17 @@ export async function nextQuoteNumber(tx: Tx, ctx: ServerContext): Promise<strin
     .set({ quoteNextNumber: sql`${tenantSettings.quoteNextNumber} + 1` })
     .where(eq(tenantSettings.organizationId, ctx.tenantId))
     .returning({
-      prefix: tenantSettings.quotePrefix,
+      entityCode: tenantSettings.entityCode,
       next: tenantSettings.quoteNextNumber,
       pad: tenantSettings.quotePadWidth,
     })
-  const assigned = (s?.next ?? 1) - 1
-  const prefix = s?.prefix ?? "Q-"
-  const pad = s?.pad ?? 4
-  return `${prefix}${String(assigned).padStart(pad, "0")}`
+  // A zero-row UPDATE means the tenant has no settings row — fail loudly rather
+  // than mint a bogus ENTQ-0000 that collides for every such tenant.
+  if (!s) throw new Error("Quotation numbering is not configured for this tenant")
+  const assigned = s.next - 1
+  const entity = (s.entityCode || "ENT").toUpperCase()
+  const running = String(assigned).padStart(s.pad ?? 4, "0")
+  return `${entity}Q-${running}`
 }
 
 /**

@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 
 import {
   Form,
@@ -198,7 +199,7 @@ export function ProjectCreateForm({
         values.codeNature === "manual" ? values.projectCode : undefined,
     })
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setSubmitting(false)
       return
     }

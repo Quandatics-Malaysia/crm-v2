@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Combobox } from "@/components/ui/combobox"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -121,7 +122,7 @@ export function CreateDocDialog({
         notes: notes || null,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(`${meta.label} ${res.data.number} created (draft)`)
@@ -306,7 +307,7 @@ export function FinanceDocsTable({
   async function move(doc: FinanceDocRow, next: "issued" | "settled" | "cancelled") {
     const res = await setFinanceDocStatus(doc.id, next)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success(`${doc.number} ${next}`)

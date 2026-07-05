@@ -548,6 +548,42 @@ export const changelogPage: DocPage = {
         </Li>
       </Ul>
 
+      <H2>v4 — Multi-party intercompany + permission UX (0044–0046)</H2>
+      <Ul>
+        <Li>
+          <B>Schema:</B> <Code>user.last_login_at</Code>; new{" "}
+          <Code>intercompany_deal_parties</Code> junction table (
+          <Code>opportunity_id, partner_entity_id, share_type
+          (percent | amount), share_value, currency, manual_fx_rate</Code>) —
+          replaces the old <Code>opportunities.handling_partner_entity_id /
+          handling_partner_name / interco_leg_amount</Code> scalar columns, so
+          a deal can now split across multiple sibling entities (capped at
+          10) instead of exactly one.{" "}
+          <Code>intercompany_deals</Code> becomes one mirror row per{" "}
+          <Code>(opportunity, partner)</Code> pair, carrying that party's own{" "}
+          <Code>share_type / share_value / partner_currency /
+          manual_fx_rate</Code> instead of a single origin-side{" "}
+          <Code>recognized_percent</Code> complement.{" "}
+          <Code>opportunities.recognized_percent</Code> stays, now a cache of
+          the origin's remainder after every party's share. This is the one
+          deliberately destructive migration in the project's history — the
+          usual additive/no-rename practice below didn't fit a genuine 2-to-N
+          shape change; the migration backfills existing 1-partner deals into
+          the new table before dropping the old columns.
+        </Li>
+        <Li>
+          <B>Behavior:</B> N-party share math is independent per party (not a
+          complement — see <Code>lib/interco-share.ts</Code>{" "}
+          <Code>partyShare</Code> / <Code>validatePartyShares</Code> /{" "}
+          <Code>deriveOriginRecognizedPercent</Code>); the billing auto-mirror
+          loops over parties minting one document pair per party; the funnel
+          form gained a repeatable party editor; permission-denial toasts
+          (<Code>runAction</Code>) now resolve and name a contact — the
+          user's manager or an Owner/Admin — instead of surfacing a raw{" "}
+          <Code>FORBIDDEN: ...</Code> string.
+        </Li>
+      </Ul>
+
       <H2>Versioning practice</H2>
       <Ul>
         <Li>

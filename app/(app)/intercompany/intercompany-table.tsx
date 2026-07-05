@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   ArrowLeftRightIcon,
   CheckIcon,
@@ -35,6 +36,7 @@ import {
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { formatMoney, formatDate } from "@/lib/format"
+import { partyShare } from "@/lib/interco-share"
 import { createProject } from "@/app/(app)/projects/actions"
 import {
   respondToIntercompanyDeal,
@@ -44,19 +46,23 @@ import {
 // Status pill: rendered by the app-wide <StatusBadge> tone map.
 
 /**
- * This entity's share of the deal: the origin keeps recognizedPercent, the
- * handling partner delivers (and bills the origin for) the remainder. Basis
- * mirrors the funnel detail rule — quoted net once a quote exists, else the
- * origin's estimate.
+ * This entity's OWN share of the deal — independent of any other party on it
+ * (see lib/interco-share.ts). Basis mirrors the funnel detail rule — quoted
+ * net once a quote exists, else the origin's estimate.
  */
 function partnerShare(r: InboundIntercompanyDeal): {
   amount: string
   percent: number
-} | null {
-  if (r.recognizedPercent == null) return null
-  const percent = Math.max(0, 100 - Number(r.recognizedPercent))
+  fixed: boolean
+} {
   const basis = Number(r.quotedAmount ?? r.estimatedAmount ?? 0)
-  return { amount: ((basis * percent) / 100).toFixed(2), percent }
+  const share = partyShare(
+    { shareType: r.shareType, shareValue: Number(r.shareValue) },
+    basis,
+    basis
+  )
+  const percent = basis > 0 ? Math.round((share / basis) * 100) : 0
+  return { amount: share.toFixed(2), percent, fixed: r.shareType === "amount" }
 }
 
 function DeclineDialog({
@@ -75,7 +81,7 @@ function DeclineDialog({
     try {
       const res = await respondToIntercompanyDeal(deal.id, "declined", reason)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Assignment declined")
@@ -158,7 +164,7 @@ function CreateDeliveryProjectDialog({
         intercompanyDealId: deal.id,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(`Project ${res.data.projectCode} created`)
@@ -226,7 +232,9 @@ function CreateDeliveryProjectDialog({
             />
             {share ? (
               <p className="text-xs text-muted-foreground">
-                Prefilled with your {share.percent}% share of the deal.
+                {share.fixed
+                  ? "Prefilled with your fixed leg amount for the deal."
+                  : `Prefilled with your ${share.percent}% share of the deal.`}
               </p>
             ) : null}
           </div>
@@ -267,7 +275,7 @@ export function IntercompanyTable({
   async function accept(deal: InboundIntercompanyDeal) {
     const res = await respondToIntercompanyDeal(deal.id, "accepted")
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Assignment accepted")
@@ -378,7 +386,7 @@ export function IntercompanyTable({
             <span className="font-medium tabular-nums">
               {formatMoney(share.amount, row.original.currency)}
               <span className="ml-1 text-xs font-normal text-muted-foreground">
-                ({share.percent}%)
+                ({share.fixed ? "fixed" : `${share.percent}%`})
               </span>
             </span>
           )

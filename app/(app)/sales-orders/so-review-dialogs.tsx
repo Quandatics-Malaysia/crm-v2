@@ -8,6 +8,7 @@ import { CheckIcon, XIcon, ExternalLinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -103,7 +104,7 @@ export function ApproveSalesOrderDialog({
     setSubmitting(true)
     const res = await approveSalesOrder(order.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setSubmitting(false)
       return
     }
@@ -207,7 +208,7 @@ export function DeclineSalesOrderDialog({
     setSubmitting(true)
     const res = await rejectSalesOrder(order.id, reason)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setSubmitting(false)
       return
     }

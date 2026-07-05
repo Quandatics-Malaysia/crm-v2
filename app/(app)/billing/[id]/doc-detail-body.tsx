@@ -8,6 +8,7 @@ import { BellRingIcon, PlusIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Card,
   CardContent,
@@ -75,7 +76,7 @@ export function DocDetailBody({
     try {
       const res = await setFinanceDocStatus(doc.id, next)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(`${doc.number} ${next}`)
@@ -88,7 +89,7 @@ export function DocDetailBody({
   async function remind() {
     const res = await logReminder(doc.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Reminder logged")

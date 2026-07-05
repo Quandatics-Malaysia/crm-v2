@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Check, X, Ban, ChevronRight, Loader2, Info } from "lucide-react"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Tabs,
   TabsContent,
@@ -132,7 +133,7 @@ function DecisionDialog({
         note: note.trim() || undefined,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       // An approve can resolve as "obsolete" when the funnel already moved past
@@ -204,7 +205,7 @@ function CancelDialog({ row, onDone }: { row: ApprovalRow; onDone: () => void })
         decision: "cancelled",
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(res.data.message)

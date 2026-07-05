@@ -173,7 +173,7 @@ export default async function LeadDetailPage({
               : null
           }
           activity={activity}
-          files={files}
+          files={files.map((f) => ({ ...f, source: "Lead", ownedHere: true }))}
         />
       </PageBody>
     </>

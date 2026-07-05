@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { showActionError } from "@/lib/show-action-error"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -118,7 +119,7 @@ export function LeadsTable({
   async function handleCreate(values: LeadInput) {
     const res = await createLead(values)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Lead created")
@@ -130,7 +131,7 @@ export function LeadsTable({
     if (!editLead) return
     const res = await updateLead(editLead.id, values)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Lead updated")
@@ -479,7 +480,7 @@ export function LeadsTable({
                 const target = deleteTarget
                 const res = await deleteLead(target.id)
                 if (!res.ok) {
-                  toast.error(res.error)
+                  showActionError(res)
                   return
                 }
                 toast.success("Lead deleted", {
@@ -488,7 +489,7 @@ export function LeadsTable({
                     onClick: async () => {
                       const r = await restoreLead(target.id)
                       if (!r.ok) {
-                        toast.error(r.error)
+                        showActionError(r)
                         return
                       }
                       toast.success("Lead restored")
@@ -533,7 +534,7 @@ function DisqualifyDialog({
     try {
       const res = await disqualifyLead(lead.id, reason)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success("Lead disqualified")

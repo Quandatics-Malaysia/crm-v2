@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +63,7 @@ function RowActions({
   async function onDelete() {
     const res = await deleteAccount(account.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setConfirmOpen(false)
       return
     }
@@ -72,7 +73,7 @@ function RowActions({
         onClick: async () => {
           const r = await restoreAccount(account.id)
           if (!r.ok) {
-            toast.error(r.error)
+            showActionError(r)
             return
           }
           toast.success("Account restored")

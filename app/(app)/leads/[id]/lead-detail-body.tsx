@@ -8,11 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { AttachmentsPanel } from "@/components/attachments/attachments-panel"
+import { DocumentsSection, type SectionDocument } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { type ProgressStep } from "@/components/stage-progress"
+import { showActionError } from "@/lib/show-action-error"
 import {
   StagePathView,
   type PathStep,
@@ -58,7 +59,7 @@ export type LeadDetailData = {
   funnelNote: PathNote
   converted: LeadConverted | null
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
-  files: React.ComponentProps<typeof AttachmentsPanel>["items"]
+  files: SectionDocument[]
 }
 
 /** Lead detail: a details panel + conversion links on the left; the lead/funnel
@@ -91,7 +92,7 @@ export function LeadDetailBody({
   async function changeStatus(next: string) {
     const res = await setLeadStatus(leadId, next)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Lead status updated")
@@ -101,7 +102,7 @@ export function LeadDetailBody({
   async function changeFunnelStage(stageId: string) {
     const res = await setLeadStage(leadId, stageId)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       return
     }
     toast.success("Stage updated")
@@ -242,10 +243,10 @@ export function LeadDetailBody({
               </TabsContent>
 
               <TabsContent value="documents" className="mt-4">
-                <AttachmentsPanel
-                  attachableType="lead"
-                  attachableId={leadId}
-                  items={files}
+                <DocumentsSection
+                  uploadType="lead"
+                  uploadId={leadId}
+                  documents={files}
                   revalidate={revalidate}
                 />
               </TabsContent>

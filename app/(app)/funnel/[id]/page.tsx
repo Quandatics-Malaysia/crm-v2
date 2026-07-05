@@ -141,8 +141,7 @@ export default async function OpportunityDetailPage({
     description: opp.description,
     projectYear: opp.projectYear,
     isIntercompany: opp.isIntercompany,
-    handlingPartnerEntityId: opp.handlingPartnerEntityId,
-    handlingPartnerName: opp.handlingPartnerName,
+    parties: detail.parties,
     currency: opp.currency,
     status: opp.status,
     expectedCloseDate: opp.expectedCloseDate,
@@ -290,8 +289,8 @@ export default async function OpportunityDetailPage({
           description={opp.description}
           projectYear={opp.projectYear}
           isIntercompany={opp.isIntercompany}
-          handlingPartnerName={detail.handlingPartnerName}
-          partnerResponse={detail.partnerResponse}
+          parties={detail.parties}
+          partnerResponses={detail.partnerResponses}
           expectedCloseDate={opp.expectedCloseDate}
           createdAt={opp.createdAt}
           stageName={stage.name}

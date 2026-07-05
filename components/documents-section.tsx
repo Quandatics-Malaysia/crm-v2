@@ -7,6 +7,7 @@ import { PaperclipIcon, Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { showActionError } from "@/lib/show-action-error"
 import {
   DocumentViewerButton,
   FileTypeIcon,
@@ -80,7 +81,7 @@ export function DocumentsSection({
       toast.success("File attached")
       router.refresh()
     } else {
-      toast.error(res.error)
+      showActionError(res)
     }
     setBusy(false)
     if (fileRef.current) fileRef.current.value = ""
@@ -92,7 +93,7 @@ export function DocumentsSection({
       toast.success("File renamed")
       router.refresh()
     } else {
-      toast.error(res.error)
+      showActionError(res)
     }
   }
 
@@ -102,7 +103,7 @@ export function DocumentsSection({
       toast.success("File removed")
       router.refresh()
     } else {
-      toast.error(res.error)
+      showActionError(res)
     }
   }
 

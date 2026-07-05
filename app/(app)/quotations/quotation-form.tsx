@@ -16,8 +16,10 @@ import { Combobox } from "@/components/ui/combobox"
 import { Badge } from "@/components/ui/badge"
 import type { ProductOption } from "@/lib/lookups"
 import { StatusBadge } from "@/components/status-badge"
-import { RelatedQuickLinks } from "@/components/object-tile"
+import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import { DocumentsSection, type SectionDocument } from "@/components/documents-section"
 import { Separator } from "@/components/ui/separator"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Card,
   CardContent,
@@ -117,6 +119,7 @@ export function QuotationForm({
   projectNatures = [],
   products = [],
   project = null,
+  documents = [],
   perms = ALL_QUOTATION_PERMS,
 }: {
   detail: QuotationDetail
@@ -128,6 +131,8 @@ export function QuotationForm({
   products?: ProductOption[]
   /** The delivery project created from this quotation, if any. */
   project?: { id: string; projectCode: string } | null
+  /** Files attached to this quotation (shown in the Documents tab). */
+  documents?: SectionDocument[]
   perms?: QuotationPerms
 }) {
   const router = useRouter()
@@ -328,7 +333,7 @@ export function QuotationForm({
       })),
     })
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setBusy(false)
       return
     }
@@ -341,7 +346,7 @@ export function QuotationForm({
     setBusy(true)
     const res = await acceptQuotation(quotation.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setBusy(false)
       return
     }
@@ -369,7 +374,7 @@ export function QuotationForm({
     setBusy(true)
     const res = await setPrimaryQuotation(quotation.id)
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setBusy(false)
       return
     }
@@ -385,7 +390,7 @@ export function QuotationForm({
               onClick: async () => {
                 const undo = await setPrimaryQuotation(previousId)
                 if (!undo.ok) {
-                  toast.error(undo.error)
+                  showActionError(undo)
                   return
                 }
                 toast.success("Primary quotation restored")
@@ -407,7 +412,7 @@ export function QuotationForm({
     setBusy(true)
     const res = await fn()
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setBusy(false)
       return
     }
@@ -422,12 +427,13 @@ export function QuotationForm({
       <TabsList>
         <TabsTrigger value="build">Build</TabsTrigger>
         <TabsTrigger value="preview">Preview</TabsTrigger>
+        <TabsTrigger value="documents">Documents</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="build" className="grid gap-6 lg:grid-cols-4">
+      <TabsContent value="build" className="grid gap-6 lg:grid-cols-3">
       {/* Facts/Actions/Related sit on the LEFT (house record anatomy);
           the build form takes the wide right column. */}
-      <div className="lg:order-2 lg:col-span-3">
+      <div className="lg:order-2 lg:col-span-2">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
             {!isDraft ? (
@@ -758,7 +764,10 @@ export function QuotationForm({
       <div className="grid h-fit gap-6 lg:order-1 lg:sticky lg:top-4 lg:self-start">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>{quotation.quoteNumber}</CardTitle>
+            <div className="flex items-center gap-2.5">
+              <ObjectTile kind="quotation" />
+              <CardTitle>{quotation.quoteNumber}</CardTitle>
+            </div>
             <StatusBadge status={quotation.status} className="capitalize" />
           </CardHeader>
           <CardContent className="grid gap-2 text-sm">
@@ -1017,6 +1026,25 @@ export function QuotationForm({
           </CardContent>
         </Card>
       </div>
+      </TabsContent>
+
+      <TabsContent value="documents">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Documents</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <DocumentsSection
+              uploadType="quotation"
+              uploadId={quotation.id}
+              documents={documents}
+              revalidate={`/quotations/${quotation.id}`}
+            />
+            <p className="text-xs text-muted-foreground">
+              Files attached here also appear on the funnel.
+            </p>
+          </CardContent>
+        </Card>
       </TabsContent>
 
       <TabsContent value="preview" className="grid gap-3">

@@ -9,6 +9,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogClose,
@@ -256,7 +257,7 @@ export function AccountForm({
         ? await updateAccount(account!.id, payload)
         : await createAccount(payload)
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       toast.success(editing ? "Account updated" : "Account created")

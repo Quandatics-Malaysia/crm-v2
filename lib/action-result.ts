@@ -1,4 +1,7 @@
 import "server-only"
+import { humanizeDenial } from "@/lib/permissions"
+import { resolveDenialContact, type DenialContact } from "@/lib/permission-denial"
+import { requireContext } from "@/lib/server-context"
 
 /**
  * Discriminated result returned by mutating Server Actions.
@@ -10,12 +13,15 @@ import "server-only"
  */
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
-  | { ok: false; error: string }
+  | { ok: false; error: string; contact?: DenialContact }
 
 /**
  * Wrap a mutating Server Action body. Runs `fn`, returning its value as
  * `{ ok: true, data }`. Any thrown `Error` is logged server-side and returned
- * as `{ ok: false, error: message }` so the client can surface it.
+ * as `{ ok: false, error: message }` so the client can surface it. A
+ * `FORBIDDEN: ...` message is humanized (no leaked permission keys) and
+ * enriched with a `contact` — the user's manager, or an Owner/Admin — so the
+ * client can tell them who to ask instead of dead-ending on a raw error.
  *
  *   export async function deleteThing(id: string): Promise<ActionResult> {
  *     return runAction(async () => {
@@ -35,7 +41,18 @@ export async function runAction<T>(
     return { ok: true, data: data as [T] extends [void] ? undefined : T }
   } catch (e) {
     console.error("[action]", e)
-    const error = e instanceof Error ? e.message : "Something went wrong"
-    return { ok: false, error }
+    const rawMessage = e instanceof Error ? e.message : "Something went wrong"
+    const isForbidden = rawMessage.startsWith("FORBIDDEN")
+    const error = humanizeDenial(rawMessage)
+    if (!isForbidden) return { ok: false, error }
+    // Best-effort: never let contact resolution itself break the error path.
+    let contact: DenialContact | undefined
+    try {
+      const ctx = await requireContext()
+      contact = (await resolveDenialContact(ctx)) ?? undefined
+    } catch {
+      // no active session/tenant to resolve a contact from — fall back below.
+    }
+    return { ok: false, error, contact }
   }
 }

@@ -6,7 +6,7 @@ import { db, runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
-import { PERMISSIONS, PERMISSION_GROUPS } from "@/lib/permissions"
+import { PERMISSIONS, permLabel } from "@/lib/permissions"
 import {
   member,
   membershipProfiles,
@@ -14,6 +14,7 @@ import {
   rolePermissions,
   permissions,
   user,
+  session,
   pendingInvites,
 } from "@/db/schema"
 
@@ -35,17 +36,6 @@ async function isLastOwner(tx: Tx, memberId: string): Promise<boolean> {
       )
     )
   return owners.length === 1 && owners[0].memberId === memberId
-}
-
-/** Human label for a permission key, for friendly "withheld permission" errors. */
-const PERMISSION_LABELS: Map<string, string> = new Map(
-  PERMISSION_GROUPS.flatMap((g) =>
-    g.items.map((i) => [i.key as string, i.label])
-  )
-)
-
-function permLabel(key: string): string {
-  return PERMISSION_LABELS.get(key) ?? key
 }
 
 /**
@@ -86,6 +76,10 @@ export type TeamMemberView = {
   managerMemberId: string | null
   managerName: string | null
   status: string
+  /** Stamped on each sign-in. Null if the user has never logged in. */
+  lastLoginAt: Date | null
+  /** Approximate — newest session refresh (session.updatedAt, ~daily precision). */
+  lastActiveAt: Date | null
 }
 
 export type TeamRoleView = {
@@ -116,10 +110,26 @@ export async function listTeamMembers(): Promise<TeamMemberView[]> {
       userId: member.userId,
       name: user.name,
       email: user.email,
+      lastLoginAt: user.lastLoginAt,
     })
     .from(member)
     .innerJoin(user, eq(member.userId, user.id))
     .where(eq(member.organizationId, ctx.tenantId))
+
+  // Approximate "last active" = newest session refresh per user (session is not
+  // RLS). session.updatedAt bumps ~daily, so this is a coarse recency signal.
+  const userIds = memberRows.map((m) => m.userId)
+  const activeRows = userIds.length
+    ? await db
+        .select({
+          userId: session.userId,
+          lastActiveAt: sql<Date | null>`max(${session.updatedAt})`,
+        })
+        .from(session)
+        .where(inArray(session.userId, userIds))
+        .groupBy(session.userId)
+    : []
+  const lastActiveByUser = new Map(activeRows.map((r) => [r.userId, r.lastActiveAt]))
 
   // membership profiles + roles (RLS).
   const { profiles, roleRows } = await runInTenant(ctx.tenantId, async (tx) => {
@@ -159,6 +169,8 @@ export async function listTeamMembers(): Promise<TeamMemberView[]> {
           ? nameByMember.get(managerMemberId) ?? null
           : null,
         status: p?.status ?? "active",
+        lastLoginAt: m.lastLoginAt ?? null,
+        lastActiveAt: lastActiveByUser.get(m.userId) ?? null,
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))

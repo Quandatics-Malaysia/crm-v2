@@ -289,11 +289,10 @@ async function main() {
         // Demo an intercompany middle-man deal: a partner handles delivery and
         // we recognize only 10% as the contracting middle-man.
         isIntercompany: o.k === "umbrella-crm",
-        recognizedPercent: o.k === "umbrella-crm" ? "10.00" : null,
         // Intercompany partner must be another ENTITY (org); the sample seed has
-        // only one, so leave it unset. The badge + recognized % still demo it.
-        handlingPartnerEntityId: null,
-        handlingPartnerName: null,
+        // only one, so no intercompany_deal_parties row is seeded. The badge +
+        // recognized % (manual, no party) still demo the flag.
+        recognizedPercent: o.k === "umbrella-crm" ? "10.00" : null,
         projectYear: o.expected ? Number(o.expected.slice(0, 4)) : null,
         currency: "MYR",
         projectNatureCode: o.projectNature,

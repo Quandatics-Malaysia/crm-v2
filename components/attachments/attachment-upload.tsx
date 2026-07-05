@@ -5,6 +5,7 @@ import { Paperclip, Download, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { showActionError } from "@/lib/show-action-error"
 import {
   uploadEntityAttachment,
   type AttachmentRow,
@@ -47,7 +48,7 @@ export function AttachmentUpload({
         if (inputRef.current) inputRef.current.value = ""
         onUploaded?.()
       } else {
-        toast.error(res.error)
+        showActionError(res)
       }
     })
   }

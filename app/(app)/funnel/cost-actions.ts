@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { withTenant } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
+import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { writeAudit } from "@/server/audit"
 import {
   visibleMemberIds,
@@ -88,7 +89,11 @@ export async function createDealCost(
           partyKind: input.partyKind ?? "supplier",
           supplierName: clean(input.supplierName),
           poNumber: clean(input.poNumber),
-          currency: (clean(input.currency) ?? "MYR").toUpperCase().slice(0, 3),
+          currency: (
+            clean(input.currency) ?? (await tenantDefaultCurrency(tx, ctx.tenantId))
+          )
+            .toUpperCase()
+            .slice(0, 3),
           amount: input.amount ? Number(input.amount).toFixed(2) : "0",
           exchangeRate: input.exchangeRate
             ? Number(input.exchangeRate).toString()

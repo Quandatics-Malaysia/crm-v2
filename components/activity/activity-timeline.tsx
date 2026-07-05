@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 import {
   StickyNoteIcon,
   PhoneIcon,
@@ -121,7 +122,7 @@ export function ActivityTimeline({
         revalidate,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
       reset()

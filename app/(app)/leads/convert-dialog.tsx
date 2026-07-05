@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { showActionError } from "@/lib/show-action-error"
 
 import {
   Dialog,
@@ -96,7 +97,7 @@ export function ConvertDialog({
           : null,
       })
       if (!res.ok) {
-        toast.error(res.error)
+        showActionError(res)
         return
       }
 

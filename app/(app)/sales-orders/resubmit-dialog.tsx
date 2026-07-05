@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { showActionError } from "@/lib/show-action-error"
 import {
   Dialog,
   DialogContent,
@@ -45,7 +46,7 @@ export function ResubmitDialog({
       notes: notes.trim() || undefined,
     })
     if (!res.ok) {
-      toast.error(res.error)
+      showActionError(res)
       setSubmitting(false)
       return
     }
@@ -59,7 +60,7 @@ export function ResubmitDialog({
       fd.set("revalidate", `/projects/${projectId}`)
       const up = await uploadEntityAttachment(fd)
       if (!up.ok) {
-        toast.error(up.error)
+        showActionError(up)
         setSubmitting(false)
         return
       }

@@ -21,7 +21,7 @@ FROM base AS migrator
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx db/seed.ts"]
+CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx --conditions=react-server db/seed.ts"]
 
 # ---- minimal production runner ----
 FROM base AS runner

@@ -28,6 +28,11 @@ export const MODULE_CONFIG = {
   /** Audit trail & compliance-log VIEWER (the log is always recorded; this only
    *  gates the /audit reporting surface). Deferred in the Core Edition. */
   audit: false,
+  /** Advanced roles: custom roles, the granular per-module permission matrix
+   *  editor, and seniority-tier editing. OFF = fixed preset roles + basic role
+   *  assignment + simple reporting line (the permission ENGINE always runs).
+   *  Deferred in the Core Edition (PROP-0003 "Advanced roles" expansion). */
+  advancedRoles: false,
   /** In-app documentation site. Kept on by default. */
   documentation: true,
 } as const

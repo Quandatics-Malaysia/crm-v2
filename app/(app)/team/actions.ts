@@ -17,6 +17,7 @@ import {
   session,
   pendingInvites,
 } from "@/db/schema"
+import { assertModuleEnabled, isModuleEnabled } from "@/lib/modules"
 
 /**
  * True if `memberId` is the only ACTIVE member holding the system "Owner" role
@@ -248,6 +249,7 @@ export async function setRolePermissions(
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+    assertModuleEnabled("advancedRoles")
 
     await runInTenant(ctx.tenantId, async (tx) => {
       const [role] = await tx
@@ -348,6 +350,7 @@ export async function createRole(input: {
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+    assertModuleEnabled("advancedRoles")
     validateRoleInput(input.name, input.tier)
 
     const view = await runInTenant(ctx.tenantId, async (tx) => {
@@ -397,6 +400,7 @@ export async function updateRole(
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+  assertModuleEnabled("advancedRoles")
   validateRoleInput(input.name, input.tier)
 
   await runInTenant(ctx.tenantId, async (tx) => {
@@ -459,6 +463,7 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
+  assertModuleEnabled("advancedRoles")
 
   await runInTenant(ctx.tenantId, async (tx) => {
     const [role] = await tx
@@ -702,6 +707,11 @@ export async function updateMember(
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+
+  // Seniority tiers are an Advanced-roles feature. With the module off, a
+  // member's tier follows its role preset — ignore any tier change. Basic role
+  // assignment and the simple reporting line (manager) stay available.
+  if (!isModuleEnabled("advancedRoles")) input = { ...input, tierLevel: undefined }
 
   if (
     input.tierLevel !== undefined &&

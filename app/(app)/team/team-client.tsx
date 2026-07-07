@@ -85,6 +85,12 @@ import {
   type TeamRoleView,
   type PendingInviteView,
 } from "./actions"
+import { isModuleEnabled } from "@/lib/modules"
+
+// When the Advanced-roles module is off, the customization surface (custom
+// roles, the permission matrix editor, seniority-tier editing) is hidden —
+// leaving fixed preset roles, basic role assignment, and the reporting line.
+const ADVANCED_ROLES = isModuleEnabled("advancedRoles")
 
 // ─── Permission metadata (UI-only help + danger flags) ───────────────────────
 
@@ -281,6 +287,7 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
                 </SelectContent>
               </Select>
             </div>
+            {ADVANCED_ROLES ? (
             <div className="grid gap-2">
               <Label htmlFor="add-member-tier">Tier</Label>
               <Input
@@ -305,6 +312,7 @@ function AddMemberDialog({ roles }: { roles: TeamRoleView[] }) {
                 </p>
               ) : null}
             </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={saving || !roleId}>
@@ -414,6 +422,7 @@ function EditMemberDialog({
                 </SelectContent>
               </Select>
             </div>
+            {ADVANCED_ROLES ? (
             <div className="grid gap-2">
               <Label htmlFor="edit-member-tier">Tier</Label>
               <Input
@@ -438,6 +447,7 @@ function EditMemberDialog({
                 </p>
               ) : null}
             </div>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <Label>Manager</Label>
@@ -886,6 +896,7 @@ function PermissionsDialog({
                       <Checkbox
                         checked={allChecked}
                         indeterminate={!allChecked && someChecked}
+                        disabled={!ADVANCED_ROLES}
                         onCheckedChange={(value) =>
                           toggleGroup(groupKeys, value)
                         }
@@ -907,6 +918,7 @@ function PermissionsDialog({
                             id={`perm-${item.key}`}
                             className="mt-0.5"
                             checked={checked.has(item.key)}
+                            disabled={!ADVANCED_ROLES}
                             onCheckedChange={(value) => toggle(item.key, value)}
                           />
                           <div className="grid gap-0.5">
@@ -953,9 +965,11 @@ function PermissionsDialog({
         )}
 
         <DialogFooter>
+          {ADVANCED_ROLES ? (
           <Button onClick={onSave} disabled={saving || loading}>
             {saving ? "Saving…" : "Save permissions"}
           </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1016,18 +1030,22 @@ function RoleCard({ role }: { role: TeamRoleView }) {
           <Button size="sm" variant="outline" onClick={() => setPermsOpen(true)}>
             Permissions
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-            Edit
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            disabled={role.isSystem}
-            onClick={() => setConfirmOpen(true)}
-          >
-            Delete
-          </Button>
+          {ADVANCED_ROLES ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                disabled={role.isSystem}
+                onClick={() => setConfirmOpen(true)}
+              >
+                Delete
+              </Button>
+            </>
+          ) : null}
         </div>
       </CardContent>
 
@@ -1072,10 +1090,12 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
         <p className="text-sm text-muted-foreground">
           {roles.length} role{roles.length === 1 ? "" : "s"}
         </p>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" />
-          New role
-        </Button>
+        {ADVANCED_ROLES ? (
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            New role
+          </Button>
+        ) : null}
       </div>
 
       {roles.length === 0 ? (

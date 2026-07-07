@@ -34,6 +34,7 @@ export const MODULES: Record<ModuleId, ModuleMeta> = {
   finance: { id: "finance", label: "Billing & Purchasing", dependsOn: ["projects", "salesOrders"] },
   forecast: { id: "forecast", label: "Forecast", dependsOn: [] },
   audit: { id: "audit", label: "Audit log", dependsOn: [] },
+  advancedRoles: { id: "advancedRoles", label: "Advanced roles", dependsOn: [] },
   documentation: { id: "documentation", label: "Documentation", dependsOn: [] },
 }
 

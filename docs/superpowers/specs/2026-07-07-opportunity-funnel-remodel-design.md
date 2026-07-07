@@ -187,6 +187,31 @@ thin layer of new container logic.
   deferred (it depends on license quote lines + project item lists).
 - **Migration** = clean reseed, no in-place data migration. *(Confirmed.)*
 
+## 9a. Implementation notes & deviations (as-built)
+
+Delivered on `feature/opportunity-funnel-remodel`:
+
+- **Data-layer rename** was done as a scripted, word-boundary, `tsc`-verified
+  transform (not by hand) — the deal's UI already lived at `/funnel`, so the DB
+  rename `opportunities → funnels` *aligned* DB with UI. Migration `0047`.
+- **Kept existing column names** `funnels.amount` (quoted) and
+  `funnels.estimated_amount` (estimated funnel amount) and the
+  `opportunity_status` enum — renaming them was cosmetic and high-churn; the UI
+  labels convey the Salesforce terms. (Deviates from §3.2's rename of these.)
+- **Prospect → Customer** needed a new flag: crm-v2's `account_type` is
+  client/reseller (orthogonal), so `accounts.is_customer` was added (migration
+  `0048`), flipped on Closed Won.
+- **Won automations** live in `applyStageMove` (server/services/stage.ts) — the
+  one choke point covering manual + quote-accept auto-win.
+- **Container auto-provisioning:** creating a funnel or converting a lead
+  auto-creates/links a 1:1 container (PPVVC cascades down); explicit
+  multi-funnel grouping is seeded (Acme) and available via the data model.
+- **Deferred to a follow-up** (helpers exist, not yet wired): PPVVC cascade on
+  *container edit* (container UI is read-only for now), and the
+  auto-`formatFunnelName` flow (funnels keep their user-entered name). The
+  products-required-from-1D gate is served by the existing stage-gate
+  (`hasQuote`/custom-field requirements), not a new products check.
+
 ## 10. Related / parked work
 
 - **`advancedRoles` module gate** — the business already decided to gate

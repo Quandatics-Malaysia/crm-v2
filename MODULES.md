@@ -12,7 +12,8 @@ migrations, RLS, and any existing rows stay intact. Flip the flag back on and
 the feature returns exactly as it was.
 
 Current plugins: `projects`, `salesOrders`, `finance` (billing + purchasing +
-intercompany), `forecast`, `audit` (the log viewer), `documentation`.
+intercompany), `forecast`, `audit` (the log viewer), `advancedRoles` (custom
+roles + permission-matrix editor + seniority tiers), `documentation`.
 
 ---
 

@@ -43,6 +43,7 @@ export const MODULE_CONFIG = {
   finance: false,       // Billing + Purchasing + intercompany (needs projects + salesOrders)
   forecast: false,      // Probability-weighted billing forecast
   audit: false,         // Audit-log VIEWER (the log is always recorded regardless)
+  advancedRoles: false, // Custom roles + permission-matrix editor + seniority tiers
   documentation: true,  // In-app docs
 } as const
 ```
@@ -59,6 +60,11 @@ export const MODULE_CONFIG = {
   intact — flip the flag back on and it returns unchanged.
 - **Audit note:** `audit: false` only hides the `/audit` viewer; `writeAudit`
   keeps recording the compliance log, so enabling it later shows full history.
+- **Advanced-roles note:** `advancedRoles: false` hides only the role
+  *customization* surface (custom roles, the permission-matrix editor, seniority
+  tiers). The permission ENGINE always runs, basic role assignment and the
+  reporting line stay available, and every permission grant is retained — flip
+  it on later and the full role framework returns unchanged.
 
 ### Finance module (O2C / P2P add-on)
 

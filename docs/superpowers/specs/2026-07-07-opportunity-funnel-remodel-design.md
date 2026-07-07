@@ -212,6 +212,15 @@ Delivered on `feature/opportunity-funnel-remodel`:
   products-required-from-1D gate is served by the existing stage-gate
   (`hasQuote`/custom-field requirements), not a new products check.
 
+## 9b. Known follow-ups
+
+- **Drizzle snapshot refresh:** migrations `0047`/`0048` were hand-written (the
+  3-way table rename can't be produced by `drizzle-kit generate`'s
+  non-interactive mode), so the `db/migrations/meta` snapshots still reflect
+  `0046`. Before the next `npm run db:generate`, refresh the snapshot to the
+  current schema so drizzle doesn't emit a spurious "rename everything"
+  migration. `db:migrate` (the runtime path) is unaffected and verified.
+
 ## 10. Related / parked work
 
 - **`advancedRoles` module gate** — the business already decided to gate

@@ -11,10 +11,9 @@ import {
   quotations,
   salesOrders,
   stageApprovalRequests,
-  tenantSettings,
 } from "@/db/schema"
 import { PERMISSIONS } from "@/lib/permissions"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import { type ServerContext } from "@/lib/server-context"
 
 /**
@@ -213,13 +212,7 @@ export async function canAccessAttachable(
   // ATTACH_PERMS) within the RLS-scoped tenant. The module flag still
   // applies: with the add-on off, its attachments/activity are off too.
   if (type === "finance_doc") {
-    if (!FINANCE_MODULE) return false
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    return s?.on ?? false
+    return isModuleEnabled("finance")
   }
   if (mode === "view" && canViewAllRecords(ctx)) return true
   if (mode === "manage" && canManageAllRecords(ctx)) return true

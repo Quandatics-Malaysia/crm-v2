@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm"
 import * as schema from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { computeQuotation } from "@/server/services/quotation-math"
+import { isModuleEnabled } from "@/lib/modules"
 
 /**
  * Idempotent sample-data seed for role-play / demos.
@@ -416,67 +417,75 @@ async function main() {
     .set({ primaryQuotationId: quoteId("stark-accepted") })
     .where(eq(opportunities.id, oppId("stark-msp")))
 
-  // ── 6. project off the accepted quote (won deal) ──────────────────────────
+  // ── 6+7. project + milestones off the accepted quote (won deal) ───────────
+  // Only when the projects plugin is enabled — otherwise a core-only seed would
+  // create orphan project/milestone rows. The PROJECT_ID string is declared
+  // unconditionally (a deterministic id, harmless) so section 8 can reference it.
   const PROJECT_ID = det("project:stark-msp")
-  await db
-    .insert(projects)
-    .values({
-      id: PROJECT_ID,
-      tenantId: TENANT_ID,
-      projectCode: "2026-DEMO-STARKR-MSP-001",
-      codeNature: "manual",
-      projectNatureCode: "MSP",
-      name: "Stark Managed Services — Year 1",
-      accountId: accId("stark"),
-      opportunityId: oppId("stark-msp"),
-      quotationId: quoteId("stark-accepted"),
-      ownerMemberId: MEM_S2,
-      status: "active",
-      startDate: "2026-06-05",
-      value: "40280.00",
-      currency: "MYR",
-      notes: "Delivery kicked off after quote acceptance.",
-    })
-    .onConflictDoNothing()
-
-  // ── 7. payment milestones reconciling to the accepted quote total ─────────
-  const milestones = [
-    { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
-    { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
-  ]
-  for (const m of milestones) {
+  if (isModuleEnabled("projects")) {
     await db
-      .insert(paymentMilestones)
+      .insert(projects)
       .values({
-        id: det(`milestone:${m.k}`),
+        id: PROJECT_ID,
         tenantId: TENANT_ID,
-        projectId: PROJECT_ID,
+        projectCode: "2026-DEMO-STARKR-MSP-001",
+        codeNature: "manual",
+        projectNatureCode: "MSP",
+        name: "Stark Managed Services — Year 1",
+        accountId: accId("stark"),
+        opportunityId: oppId("stark-msp"),
         quotationId: quoteId("stark-accepted"),
-        title: m.title,
-        amount: m.amount,
-        dueDate: m.due,
-        status: m.status as "pending" | "invoiced" | "paid",
-        sortOrder: m.sort,
+        ownerMemberId: MEM_S2,
+        status: "active",
+        startDate: "2026-06-05",
+        value: "40280.00",
+        currency: "MYR",
+        notes: "Delivery kicked off after quote acceptance.",
       })
       .onConflictDoNothing()
+
+    // payment milestones reconciling to the accepted quote total
+    const milestones = [
+      { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
+      { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
+    ]
+    for (const m of milestones) {
+      await db
+        .insert(paymentMilestones)
+        .values({
+          id: det(`milestone:${m.k}`),
+          tenantId: TENANT_ID,
+          projectId: PROJECT_ID,
+          quotationId: quoteId("stark-accepted"),
+          title: m.title,
+          amount: m.amount,
+          dueDate: m.due,
+          status: m.status as "pending" | "invoiced" | "paid",
+          sortOrder: m.sort,
+        })
+        .onConflictDoNothing()
+    }
   }
 
   // ── 8. sales order submitted against the project (awaits manager review) ──
-  await db
-    .insert(salesOrders)
-    .values({
-      id: det("so:stark"),
-      tenantId: TENANT_ID,
-      projectId: PROJECT_ID,
-      soNumber: null, // issued only on approval
-      documentKind: "po",
-      paymentTerm: "30 days",
-      status: "submitted",
-      submittedByMemberId: MEM_S2,
-      notes: "Customer PO attached; awaiting sales-admin approval.",
-      submittedAt: new Date("2026-06-03T02:00:00Z"),
-    })
-    .onConflictDoNothing()
+  // Requires BOTH projects (for the parent row) and salesOrders plugins.
+  if (isModuleEnabled("projects") && isModuleEnabled("salesOrders")) {
+    await db
+      .insert(salesOrders)
+      .values({
+        id: det("so:stark"),
+        tenantId: TENANT_ID,
+        projectId: PROJECT_ID,
+        soNumber: null, // issued only on approval
+        documentKind: "po",
+        paymentTerm: "30 days",
+        status: "submitted",
+        submittedByMemberId: MEM_S2,
+        notes: "Customer PO attached; awaiting sales-admin approval.",
+        submittedAt: new Date("2026-06-03T02:00:00Z"),
+      })
+      .onConflictDoNothing()
+  }
 
   // ── 9. PENDING stage-approval request (the key item for manager's inbox) ──
   // sales1 (tier 20, below the bypass tier 40) advancing the gated 2c→3b move

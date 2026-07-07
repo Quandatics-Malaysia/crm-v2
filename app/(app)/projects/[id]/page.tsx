@@ -6,6 +6,8 @@ import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { requireContext } from "@/lib/server-context"
+import { requireModule } from "@/lib/module-guard"
+import { isModuleEnabled } from "@/lib/modules"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
@@ -21,6 +23,7 @@ export default async function ProjectDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  requireModule("projects")
   const { id } = await params
   const detail = await getProject(id)
   if (!detail) notFound()
@@ -33,7 +36,10 @@ export default async function ProjectDetailPage({
       listEntityTimeline("project", id),
       listEntityDocuments("project", id),
       listMilestones(id),
-      listProjectSalesOrders(id),
+      // Empty when the sales-orders plugin is off (the action would throw).
+      isModuleEnabled("salesOrders")
+        ? listProjectSalesOrders(id)
+        : Promise.resolve([]),
       requireContext(),
       // Null when the finance module is off (or user lacks finance.view).
       getProjectBillingSummary(id).catch(() => null),
@@ -147,6 +153,7 @@ export default async function ProjectDetailPage({
           currency={project.currency}
           canManage={canUpdate}
           salesOrders={salesOrders}
+          salesOrdersEnabled={isModuleEnabled("salesOrders")}
           canSubmit={canSubmitSO}
           canApprove={canApproveSO}
           activity={activity}

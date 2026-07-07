@@ -4,6 +4,7 @@ import { FolderPlusIcon, ClockIcon, FileTextIcon } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
+import { isModuleEnabled } from "@/lib/modules"
 import {
   listAccountOptions,
   listMembers,
@@ -127,7 +128,8 @@ export default async function OpportunityDetailPage({
   const canUpdate = ctx.can(PERMISSIONS.OPPORTUNITY_UPDATE)
   const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
   const canCreateQuote = ctx.can(PERMISSIONS.QUOTATION_CREATE)
-  const canCreateProject = ctx.can(PERMISSIONS.PROJECT_CREATE)
+  const canCreateProject =
+    isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE)
 
   // Build the list-shaped row the edit form expects from the detail payload.
   const editRow: OpportunityListRow = {
@@ -212,6 +214,7 @@ export default async function OpportunityDetailPage({
                 projectNatures={projectNatures}
                 customFieldDefs={customFunnelFields}
                 entityOptions={entities}
+                financeEnabled={isModuleEnabled("finance")}
                 currencies={currencies}
                 defaultOwnerMemberId={ctx.memberId}
                 opportunity={editRow}
@@ -305,6 +308,8 @@ export default async function OpportunityDetailPage({
           canManageCosts={canUpdate}
           canCreateQuote={canCreateQuote}
           canCreateProject={canCreateProject}
+          financeEnabled={isModuleEnabled("finance")}
+          projectsEnabled={isModuleEnabled("projects")}
           contractYears={contractYears}
           projectNatureNames={projectNatureNames}
           gate={gate}

@@ -19,9 +19,7 @@ Quick reference first; details below.
 | Apply DB migrations + RLS + views + permission sync | `npm run db:migrate` |
 | Seed base data (roles, funnel, tax, demo admin) | `npm run db:seed` |
 | Seed sample CRM data | `npm run db:seed-sample` |
-| **List tenants + finance-module state** | `npm run module:finance` |
-| **Finance module ON for a tenant** | `npm run module:finance -- <tenant-id> on` |
-| **Finance module OFF for a tenant** | `npm run module:finance -- <tenant-id> off` |
+| **Enable/disable an optional module** | edit `modules.config.ts`, then rebuild + redeploy |
 | Run tests | `npm test` |
 | Typecheck / lint / build | `npx tsc --noEmit` · `npm run lint` · `npm run build` |
 | Full stack via Docker | `docker compose up -d --build` (migrate runs automatically) |
@@ -31,37 +29,43 @@ Quick reference first; details below.
 `npm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
-## Finance module (O2C / P2P add-on)
+## Optional modules (plugins)
+
+Everything beyond the core CRM is an optional plugin, toggled **deployment-wide**
+in one file — `modules.config.ts` at the repo root — with one boolean each:
+
+```ts
+export const MODULE_CONFIG = {
+  projects: false,      // Delivery projects + payment milestones
+  salesOrders: false,   // Accepted quote → sales order (needs projects)
+  finance: false,       // Billing + Purchasing + intercompany (needs projects + salesOrders)
+  forecast: false,      // Probability-weighted billing forecast
+  audit: false,         // Audit-log VIEWER (the log is always recorded regardless)
+  documentation: true,  // In-app docs
+} as const
+```
+
+- **One switch, global.** Set a value and **rebuild + redeploy** (`npm run build`
+  + restart). There is no per-tenant flag anymore — the old
+  `npm run module:finance` CLI and `tenant_settings.finance_module` column are
+  retired (the column is kept but no longer read).
+- **Dependencies are validated at boot** (`lib/modules.ts` → `validateModuleConfig`,
+  called from `instrumentation.ts`): enabling `finance` without `projects` +
+  `salesOrders`, for example, refuses to start with a clear error.
+- **Disable, don't delete.** A disabled plugin's nav, routes, actions, and roles-
+  matrix group all disappear, but its code, DB tables, and any existing data stay
+  intact — flip the flag back on and it returns unchanged.
+- **Audit note:** `audit: false` only hides the `/audit` viewer; `writeAudit`
+  keeps recording the compliance log, so enabling it later shows full history.
+
+### Finance module (O2C / P2P add-on)
 
 The Billing + Purchasing document chains — Sales Order → Delivery Order
 (optional) → Invoice → Credit Note / Payment Receipt, and SO → RFQ / direct
-PO → Purchase Invoice → Payment. Ships **off**; the rest of the CRM is
-unaffected until enabled.
+PO → Purchase Invoice → Payment. Ships **off**. Enable by setting `finance: true`
+(and its deps `projects` + `salesOrders`) in `modules.config.ts`, then redeploy.
 
-Two switches, **both** must be on:
-
-1. **Master switch (code)** — `FINANCE_MODULE` in `lib/modules.ts`.
-   `true` by default. Set `false` + deploy to hide the module for **all**
-   tenants (nav, pages, actions, and the "Billing & Purchasing" group in the
-   roles matrix all disappear).
-
-2. **Per-tenant flag (database)** — `tenant_settings.finance_module`.
-   Toggle from the repo (or inside the container), no restart needed:
-
-   ```bash
-   npm run module:finance                     # list tenants + current state
-   npm run module:finance -- demo-entity on
-   npm run module:finance -- demo-entity off
-   ```
-
-   Raw SQL equivalent:
-
-   ```sql
-   UPDATE tenant_settings SET finance_module = true  WHERE organization_id = '<tenant-id>';
-   UPDATE tenant_settings SET finance_module = false WHERE organization_id = '<tenant-id>';
-   ```
-
-What ON enables for that tenant:
+What ON enables:
 - **Streamlined issuance**: Project → Billing tab shows a progress bar
   (invoiced/paid vs value), billed margin, and one-click "Draft invoice" per
   pending milestone — amount, customer, sales order and due date all derived.

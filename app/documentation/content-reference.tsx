@@ -187,8 +187,7 @@ export const settingsReferencePage: DocPage = {
       <DocTable
         head={["Knob", "How", "Effect"]}
         rows={[
-          [<Code key="s">finance_module</Code>, <Code key="h">npm run module:finance -- &lt;tenant&gt; on|off</Code>, "The finance add-on per tenant (see the Finance page for production-safety notes)."],
-          [<Code key="s">FINANCE_MODULE</Code>, <Code key="h">lib/modules.ts</Code>, "Code master switch for the finance add-on (deploy to change)."],
+          [<Code key="s">MODULE_CONFIG</Code>, <Code key="h">modules.config.ts</Code>, "Deployment-wide on/off for every optional module (projects, salesOrders, finance, forecast, audit, documentation). Rebuild + redeploy to change."],
           [<Code key="s">tenant_settings.status</Code>, "SQL", "suspended locks the entity; active restores it."],
           [<Code key="s">user.is_superadmin</Code>, "SQL", "Permission bypass (break-glass)."],
         ]}
@@ -327,7 +326,7 @@ export const operationsPage: DocPage = {
 npm run db:migrate       # migrations + RLS + views + permission sync + backfills
 npm run db:seed          # base data (roles, funnel stages, tax, demo admin)
 npm run db:seed-sample   # sample CRM data
-npm run module:finance   # list tenants + finance flag; add "-- <tenant> on|off"
+# optional modules: edit modules.config.ts (projects/salesOrders/finance/forecast/audit), then rebuild
 npm test                 # vitest suite (money math, milestone split, reminders…)
 npx tsc --noEmit && npm run lint && npm run build
 docker compose up -d --build   # full stack; migrate runs automatically`}</Pre>
@@ -485,9 +484,8 @@ export const changelogPage: DocPage = {
         <Li>
           <B>Behavior:</B> O2C + P2P chains as data
           (<Code>lib/finance-kinds.ts</Code>), status machine
-          draft→issued→settled/cancelled, count-based numbering, operator
-          toggle script <Code>npm run module:finance</Code>, master switch{" "}
-          <Code>FINANCE_MODULE</Code>.
+          draft→issued→settled/cancelled, count-based numbering, toggled by the{" "}
+          <Code>finance</Code> flag in <Code>modules.config.ts</Code>.
         </Li>
       </Ul>
 

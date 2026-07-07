@@ -35,7 +35,7 @@ import {
   type FinanceDocKind,
 } from "@/lib/finance-kinds"
 import { partyShare } from "@/lib/interco-share"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled, assertModuleEnabled } from "@/lib/modules"
 import {
   DEFAULT_INVOICE_DUE_DAYS,
   DEFAULT_REMINDER_DAYS,
@@ -71,33 +71,15 @@ export type FinanceDocRow = {
   createdAt: Date
 }
 
-/** The module is an add-on: every entry point re-checks the master switch
- *  (lib/modules.ts) AND the tenant's backend flag. */
+/** The module is an add-on gated globally by the plugin registry
+ *  (lib/modules.ts). */
 async function assertFinanceEnabled(tx: Tx, tenantId: string): Promise<void> {
-  if (!FINANCE_MODULE) {
-    throw new Error("The billing & purchasing module is disabled.")
-  }
-  const [s] = await tx
-    .select({ on: tenantSettings.financeModule })
-    .from(tenantSettings)
-    .where(eq(tenantSettings.organizationId, tenantId))
-    .limit(1)
-  if (!s?.on) {
-    throw new Error("The billing & purchasing module is not enabled for this organization.")
-  }
+  assertModuleEnabled("finance")
 }
 
 /** Whether the finance module is enabled (for nav/pages). */
 export async function isFinanceEnabled(): Promise<boolean> {
-  if (!FINANCE_MODULE) return false
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    return s?.on ?? false
-  })
+  return isModuleEnabled("finance")
 }
 
 /** All documents in one direction (sale = O2C, purchase = P2P), newest first. */
@@ -874,15 +856,9 @@ async function executeIntercoMirror(m: IntercoMirror): Promise<void> {
   const today = toDateString(new Date())
 
   // The partner must have the finance module ON — otherwise the mirrored
-  // documents would be invisible and unmanageable on their side.
-  const partnerOn = await runInTenant(m.partnerTenantId, async (tx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, m.partnerTenantId))
-      .limit(1)
-    return s?.on ?? false
-  })
+  // documents would be invisible and unmanageable on their side. Finance is
+  // now a global (deployment-wide) plugin, so the partner's state matches ours.
+  const partnerOn = isModuleEnabled("finance")
   if (!partnerOn) {
     await runInTenant(m.originTenantId, (tx) =>
       logActivity(tx, ctx, {
@@ -1234,13 +1210,7 @@ export async function getProjectBillingSummary(
   projectId: string
 ): Promise<ProjectBillingSummary | null> {
   return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    if (!FINANCE_MODULE) return null
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (!s?.on) return null
+    if (!isModuleEnabled("finance")) return null
 
     const [proj] = await tx
       .select({ value: projects.value, currency: projects.currency })
@@ -1316,14 +1286,8 @@ export type BilledMarginRow = {
  *  invoices, issued+settled) for the forecast page. */
 export async function getBilledMargin(): Promise<BilledMarginRow[]> {
   const ctx = await requireContext()
-  if (!FINANCE_MODULE || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
+  if (!isModuleEnabled("finance") || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
   return runInTenant(ctx.tenantId, async (tx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (!s?.on) return []
     const rows = await tx
       .select({
         currency: financeDocs.currency,

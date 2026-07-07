@@ -40,6 +40,7 @@ import { partyShare } from "@/lib/interco-share"
 import { createProject } from "@/app/(app)/projects/actions"
 import {
   respondToIntercompanyDeal,
+  ensureOriginEntityAccount,
   type InboundIntercompanyDeal,
 } from "./actions"
 
@@ -150,15 +151,22 @@ function CreateDeliveryProjectDialog({
   const [busy, setBusy] = React.useState(false)
 
   async function submit() {
-    if (!accountId) {
-      toast.error("Pick the account to bill this project under.")
-      return
-    }
     setBusy(true)
     try {
+      // Auto-provision the origin-entity account when none is picked, so the
+      // partner doesn't have to hand-create it first.
+      let acctId = accountId
+      if (!acctId) {
+        const prov = await ensureOriginEntityAccount(deal.id)
+        if (!prov.ok) {
+          showActionError(prov)
+          return
+        }
+        acctId = prov.data.id
+      }
       const res = await createProject({
         name: name.trim() || deal.name,
-        accountId,
+        accountId: acctId,
         value: value || undefined,
         currency: deal.currency,
         intercompanyDealId: deal.id,
@@ -203,7 +211,7 @@ function CreateDeliveryProjectDialog({
               items={accountItems}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pick the account (e.g. the origin entity)" />
+                <SelectValue placeholder={`Leave blank to auto-create ${deal.originEntityName ?? "the origin entity"}`} />
               </SelectTrigger>
               <SelectContent>
                 {accountItems.map((a) => (
@@ -214,8 +222,8 @@ function CreateDeliveryProjectDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Usually an account representing {deal.originEntityName ?? "the origin entity"} —
-              create one under Accounts first if it doesn&apos;t exist yet.
+              Leave blank to auto-create an account for{" "}
+              {deal.originEntityName ?? "the origin entity"}, or pick an existing one.
             </p>
           </div>
           <div className="grid gap-2">

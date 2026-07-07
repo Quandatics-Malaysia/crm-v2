@@ -15,7 +15,7 @@ import {
   tenantSettings,
   financeDocs,
 } from "@/db/schema"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import { DEFAULT_REMINDER_DAYS } from "@/lib/tenant-defaults"
 import { canViewAllRecords } from "@/lib/access-scope"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -169,7 +169,6 @@ export async function getDashboardData(): Promise<DashboardData> {
       .select({
         followUpDueDays: tenantSettings.followUpDueDays,
         staleDealDays: tenantSettings.staleDealDays,
-        financeModule: tenantSettings.financeModule,
         invoiceReminderDays: tenantSettings.invoiceReminderDays,
       })
       .from(tenantSettings)
@@ -180,7 +179,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
     // Overdue customer invoices — finance add-on, capability-gated.
     const financeOn =
-      FINANCE_MODULE && (s?.financeModule ?? false) && ctx.can(PERMISSIONS.FINANCE_VIEW)
+      isModuleEnabled("finance") && ctx.can(PERMISSIONS.FINANCE_VIEW)
     const reminderSchedule = financeOn
       ? s?.invoiceReminderDays?.length
         ? s.invoiceReminderDays

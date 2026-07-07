@@ -1,12 +1,13 @@
 "use server"
 
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant } from "@/lib/actions"
+import { withModule } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import {
+  accounts,
   intercompanyDeals,
   intercompanyDealResponses,
   organization,
@@ -59,7 +60,7 @@ export type InboundIntercompanyDeal = {
 export async function listInboundIntercompanyDeals(): Promise<
   InboundIntercompanyDeal[]
 > {
-  return withTenant(PERMISSIONS.INTERCOMPANY_VIEW, async (tx, ctx) => {
+  return withModule("finance", PERMISSIONS.INTERCOMPANY_VIEW, async (tx, ctx) => {
     const rows = await tx
       .select({
         id: intercompanyDeals.id,
@@ -113,7 +114,7 @@ export async function respondToIntercompanyDeal(
   reason?: string
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-    await withTenant(PERMISSIONS.INTERCOMPANY_VIEW, async (tx, ctx) => {
+    await withModule("finance", PERMISSIONS.INTERCOMPANY_VIEW, async (tx, ctx) => {
       const [deal] = await tx
         .select({
           id: intercompanyDeals.id,
@@ -161,5 +162,73 @@ export async function respondToIntercompanyDeal(
       })
     })
     revalidatePath("/intercompany")
+  })
+}
+
+/**
+ * Ensure a local internal Account exists representing the ORIGIN sibling entity
+ * of an inbound intercompany deal, and return it. Idempotent — reuses a live
+ * account already named after the origin entity rather than creating a
+ * duplicate. Used by the "create delivery project" flow so the partner doesn't
+ * have to hand-create an account for the sibling entity first.
+ */
+export async function ensureOriginEntityAccount(
+  dealId: string
+): Promise<ActionResult<{ id: string; name: string }>> {
+  return runAction(async () => {
+    return withModule("finance", PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
+      const [deal] = await tx
+        .select({
+          id: intercompanyDeals.id,
+          originEntityName: organization.name,
+        })
+        .from(intercompanyDeals)
+        .leftJoin(organization, eq(intercompanyDeals.tenantId, organization.id))
+        .where(
+          and(
+            eq(intercompanyDeals.id, dealId),
+            eq(intercompanyDeals.partnerTenantId, ctx.tenantId)
+          )
+        )
+        .limit(1)
+      if (!deal)
+        throw new Error("Deal not found or not assigned to this entity.")
+      const entityName =
+        (deal.originEntityName ?? "").trim() || "Origin entity"
+
+      // Reuse an existing live account with this name (idempotent).
+      const [existing] = await tx
+        .select({ id: accounts.id, name: accounts.name })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.tenantId, ctx.tenantId),
+            eq(accounts.name, entityName),
+            isNull(accounts.deletedAt)
+          )
+        )
+        .limit(1)
+      if (existing) return existing
+
+      const [created] = await tx
+        .insert(accounts)
+        .values({
+          tenantId: ctx.tenantId,
+          name: entityName,
+          // The sibling entity we bill through is a channel/reseller to us.
+          accountType: "reseller",
+          ownerMemberId: ctx.memberId,
+        })
+        .returning({ id: accounts.id, name: accounts.name })
+
+      await writeAudit(tx, ctx, {
+        action: "account.created",
+        entityType: "account",
+        entityId: created.id,
+        after: { name: entityName, source: "intercompany-auto-provision" },
+      })
+      revalidatePath("/accounts")
+      return created
+    })
   })
 }

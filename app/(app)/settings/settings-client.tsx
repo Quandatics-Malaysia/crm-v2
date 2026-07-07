@@ -402,10 +402,10 @@ function GeneralForm({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Read-only — identifies this entity in backend operations, e.g.{" "}
-                <code className="font-mono">
-                  npm run module:finance -- {settings.organizationId} on
-                </code>
+                Read-only — identifies this entity in backend operations.
+                Optional modules are enabled deployment-wide in{" "}
+                <code className="font-mono">modules.config.ts</code> (then rebuild
+                / redeploy), not per entity.
               </p>
             </div>
             <FormField

@@ -2,11 +2,12 @@ import { notFound, redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { requireContext } from "@/lib/server-context"
+import { requireModule } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
-import { getFinanceDoc, isFinanceEnabled } from "../actions"
+import { getFinanceDoc } from "../actions"
 import { DocDetailBody } from "./doc-detail-body"
 
 export default async function FinanceDocPage({
@@ -14,15 +15,15 @@ export default async function FinanceDocPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { id } = await params
-  const enabled = await isFinanceEnabled().catch(() => false)
-  if (!enabled) redirect("/dashboard")
+  requireModule("finance")
+  const ctx = await requireContext()
+  if (!ctx.can(PERMISSIONS.FINANCE_VIEW)) redirect("/dashboard")
 
+  const { id } = await params
   const detail = await getFinanceDoc(id)
   if (!detail) notFound()
 
-  const [ctx, activity, documents] = await Promise.all([
-    requireContext(),
+  const [activity, documents] = await Promise.all([
     listActivities("finance_doc", id),
     listEntityDocuments("finance_doc", id),
   ])

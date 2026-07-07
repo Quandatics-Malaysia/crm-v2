@@ -146,24 +146,19 @@ stateDiagram-v2
       </P>
 
       <H2>Toggling the module</H2>
-      <P>Two switches, both must be on:</P>
-      <Ul>
-        <Li>
-          <B>Code master switch</B> — <Code>FINANCE_MODULE</Code> in{" "}
-          <Code>lib/modules.ts</Code> (hides the module for every tenant when
-          false; requires a deploy).
-        </Li>
-        <Li>
-          <B>Per-tenant flag</B> — <Code>tenant_settings.finance_module</Code>,
-          no restart needed:
-        </Li>
-      </Ul>
-      <Pre>{`npm run module:finance                   # list tenants + current state
-npm run module:finance -- <tenant-id> on
-npm run module:finance -- <tenant-id> off
-
--- raw SQL equivalent
-UPDATE tenant_settings SET finance_module = true WHERE organization_id = '<tenant-id>';`}</Pre>
+      <P>
+        One switch, deployment-wide: set <Code>finance</Code> in{" "}
+        <Code>modules.config.ts</Code> at the repo root, then rebuild + redeploy.
+        Finance depends on <Code>projects</Code> and <Code>salesOrders</Code>, so
+        enable those too (the app validates this at boot).
+      </P>
+      <Pre>{`// modules.config.ts
+export const MODULE_CONFIG = {
+  projects: true,
+  salesOrders: true,
+  finance: true,   // billing + purchasing + intercompany
+  // …
+} as const`}</Pre>
 
       <H3>Is toggling safe in production?</H3>
       <P>

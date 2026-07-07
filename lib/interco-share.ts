@@ -60,7 +60,14 @@ export function deriveRecognizedPercent(
   return Math.min(100, Math.max(0, round2(pct)))
 }
 
-/** A deal can be split across at most this many partner entities. */
+/**
+ * A deal can be split across at most this many partner entities. 10 is well
+ * above a 3-tier chain (e.g. QM→CC→QAW) — such chains work as soon as 3+
+ * entities exist in the group; there is no code-level tier limit. External
+ * (non-entity) suppliers are captured separately as deal costs (see
+ * cost-actions.ts / CostsPanel), not as parties, so they reduce the true margin
+ * without being folded into the origin's recognized cut.
+ */
 export const MAX_INTERCOMPANY_PARTIES = 10
 
 export type PartyShare = {
@@ -97,6 +104,11 @@ export function partyShare(
  * generalizes `deriveRecognizedPercent` to N parties. Amount-mode parties are
  * converted to an effective percent-of-basis first, then summed alongside
  * percent-mode parties. `null` when there's no basis yet.
+ *
+ * This is a 2-decimal cache (the `recognized_percent` column is numeric(5,2))
+ * kept so the percent-based forecast view keeps working; the probability-
+ * weighted forecast therefore inherits a sub-cent rounding error. For any
+ * exact recognized MONEY figure use `deriveOriginRecognizedAmount` instead.
  */
 export function deriveOriginRecognizedPercent(
   basis: number,
@@ -109,6 +121,27 @@ export function deriveOriginRecognizedPercent(
     return sum + pct
   }, 0)
   return Math.min(100, Math.max(0, round2(100 - consumedPercent)))
+}
+
+/**
+ * The origin's recognized cut as an EXACT money amount: `basis − Σ party
+ * shares`, each party's share taken at the full deal basis. Use this for any
+ * money display/report instead of `basis × recognizedPercent`, which loses
+ * precision because `recognizedPercent` is a 2-decimal round of the split (a
+ * fixed RM879,306 leg on a RM1,018,000 deal must yield exactly RM138,694.00,
+ * not RM138,651.60). Returns 0 when there's no basis.
+ */
+export function deriveOriginRecognizedAmount(
+  basis: number,
+  parties: Pick<PartyShare, "shareType" | "shareValue">[]
+): number {
+  if (!(basis > 0)) return 0
+  const consumed = parties.reduce(
+    (sum, p) =>
+      sum + partyShare({ shareType: p.shareType, shareValue: p.shareValue }, basis, basis),
+    0
+  )
+  return round2(Math.min(basis, Math.max(0, basis - consumed)))
 }
 
 /**

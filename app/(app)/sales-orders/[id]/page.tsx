@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { requireContext } from "@/lib/server-context"
+import { requireModule } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { getSalesOrder } from "../actions"
 import { SalesOrderDetailBody } from "./sales-order-detail-body"
@@ -14,6 +15,7 @@ export default async function SalesOrderDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  requireModule("salesOrders")
   const { id } = await params
   const [order, ctx] = await Promise.all([getSalesOrder(id), requireContext()])
   if (!order) notFound()

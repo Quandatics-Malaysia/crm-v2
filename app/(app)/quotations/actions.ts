@@ -32,10 +32,7 @@ import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
 import { toDateString } from "@/lib/dates"
-import {
-  createProject,
-  prefillFromOpportunity,
-} from "@/app/(app)/projects/actions"
+import { isModuleEnabled } from "@/lib/modules"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -286,6 +283,7 @@ export async function getQuotationDocument(
 export async function getProjectForQuotation(
   quotationId: string
 ): Promise<{ id: string; projectCode: string; name: string } | null> {
+  if (!isModuleEnabled("projects")) return null
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [scope] = await tx
@@ -911,8 +909,14 @@ export async function acceptQuotation(
   // account code yet, missing permission, duplicate code race) surfaces as a
   // warning, never as a failed acceptance.
   let projectCreated: AcceptQuotationResult["projectCreated"]
-  if (result.autoProject) {
+  if (result.autoProject && isModuleEnabled("projects")) {
     try {
+      // Loaded lazily so core quotations carries no static dependency on the
+      // projects plugin (whose actions transitively import sales-orders +
+      // finance).
+      const { createProject, prefillFromOpportunity } = await import(
+        "@/app/(app)/projects/actions"
+      )
       const ctx = await requireContext()
       if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) {
         throw new Error("you don't have the Create projects permission")
@@ -1152,16 +1156,19 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
       throw new Error(
         "An accepted quotation can't be deleted. Create a revision instead."
       )
-    // Refuse if a live project was built from this quotation.
-    const [linkedProject] = await tx
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
-      .limit(1)
-    if (linkedProject)
-      throw new Error(
-        "This quotation can't be deleted because a project references it."
-      )
+    // Refuse if a live project was built from this quotation. Only relevant
+    // when the projects plugin is on (no project rows can exist otherwise).
+    if (isModuleEnabled("projects")) {
+      const [linkedProject] = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
+        .limit(1)
+      if (linkedProject)
+        throw new Error(
+          "This quotation can't be deleted because a project references it."
+        )
+    }
     const [updated] = await tx
       .update(quotations)
       .set({ deletedAt: new Date(), isPrimary: false, updatedAt: new Date() })

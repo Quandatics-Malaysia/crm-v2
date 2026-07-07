@@ -18,7 +18,7 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { formatDate, formatMoney } from "@/lib/format"
-import { partyShare } from "@/lib/interco-share"
+import { partyShare, deriveOriginRecognizedAmount } from "@/lib/interco-share"
 import {
   formatCustomFieldValue,
   groupCustomFields,
@@ -38,12 +38,13 @@ import type { DealCostRow } from "../cost-actions"
 import type { ContractYearRow } from "../contract-actions"
 
 /**
- * The Cost & margin tracker is hidden for now — the model isn't mature and its
- * margin (quoted revenue − cost) doesn't reconcile with the intercompany
- * "recognized %" cut, which confuses more than it helps. The panel, actions and
- * schema are kept intact; flip this to re-enable once the model is settled.
+ * The Cost & margin tracker (external supplier / partner PO lines) is part of
+ * the intercompany-billing economics, so it surfaces only when the finance
+ * plugin is enabled (see `showCostMargin` in the component). Its margin is
+ * computed against the deal's RECOGNIZED cut for intercompany deals — not the
+ * whole quoted value — so external supplier costs reduce the true margin
+ * instead of being folded into "our" recognized cut.
  */
-const SHOW_COST_MARGIN = false
 
 /**
  * The multi-year Contract tracker is also hidden for now (same reasoning — not
@@ -99,6 +100,10 @@ export type FunnelDetailData = {
   /** Gates the per-tab "New quotation" / "New project" related-list actions. */
   canCreateQuote: boolean
   canCreateProject: boolean
+  /** Whether the finance plugin (intercompany billing) is enabled. */
+  financeEnabled: boolean
+  /** Whether the projects plugin is enabled (gates the Projects related-list tab). */
+  projectsEnabled: boolean
   contractYears: ContractYearRow[]
   projectNatureNames: string[]
   /** Resolved per-stage entry gate (preset + custom field completeness). */
@@ -150,6 +155,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     canManageCosts,
     canCreateQuote,
     canCreateProject,
+    financeEnabled,
+    projectsEnabled,
     contractYears,
     projectNatureNames,
     gate,
@@ -168,10 +175,31 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   // have. The label states which basis applied.
   const recognizedBasis = quotedAmount ?? estimatedAmount
   const recognizedBasisLabel = quotedAmount ? "quoted" : "estimated"
+  // Exact recognized money: when handling partners are authored, derive it from
+  // their shares (basis − Σ shares) so a fixed-amount leg is exact to the cent
+  // instead of round-tripping through the 2-decimal recognizedPercent. Fall
+  // back to the stored percent only for legacy deals with no party rows.
   const recognizedAmount = (
-    (Number(recognizedBasis ?? 0) * Number(recognizedPercent ?? 0)) /
-    100
+    parties.length > 0
+      ? deriveOriginRecognizedAmount(
+          Number(recognizedBasis ?? 0),
+          parties.map((p) => ({
+            shareType: p.shareType,
+            shareValue: Number(p.shareValue),
+          }))
+        )
+      : (Number(recognizedBasis ?? 0) * Number(recognizedPercent ?? 0)) / 100
   ).toFixed(2)
+
+  // Cost & margin tracker: part of the finance/intercompany economics. Margin
+  // is measured against the RECOGNIZED cut for intercompany deals (so external
+  // supplier costs reduce what we actually keep) and the whole quoted value
+  // otherwise.
+  const showCostMargin = financeEnabled
+  const marginRevenue =
+    isIntercompany && parties.length > 0 ? Number(recognizedAmount) : costRevenue
+  const marginRevenueLabel =
+    isIntercompany && parties.length > 0 ? "Recognized revenue" : "Quoted revenue"
 
   const quoteColumns = React.useMemo<ColumnDef<(typeof quotations)[number]>[]>(
     () => [
@@ -375,20 +403,22 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 <span className="text-muted-foreground">No quotation yet</span>
               )}
             </Field>
-            <Field label="Recognized">
-              {recognizedPercent ? (
-                <span className="tabular-nums">
-                  {formatMoney(recognizedAmount, currency)}
-                  <span className="ml-1 text-xs text-muted-foreground">
-                    ({Number(recognizedPercent)}% of {recognizedBasisLabel})
+            {financeEnabled ? (
+              <Field label="Recognized">
+                {recognizedPercent ? (
+                  <span className="tabular-nums">
+                    {formatMoney(recognizedAmount, currency)}
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({Number(recognizedPercent)}% of {recognizedBasisLabel})
+                    </span>
                   </span>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </Field>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </Field>
+            ) : null}
 
-            {isIntercompany ? (
+            {financeEnabled && isIntercompany ? (
               <Field label={`Handling partner${parties.length !== 1 ? "s" : ""}`}>
                 {parties.length === 0 ? (
                   <span className="text-muted-foreground">—</span>
@@ -507,8 +537,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               items={[
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
                 { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
-                { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
-                ...(SHOW_COST_MARGIN
+                ...(projectsEnabled
+                  ? [{ kind: "project" as const, label: "Projects", count: projects.length, onSelect: () => setTab("projects") }]
+                  : []),
+                ...(showCostMargin
                   ? [{ kind: "account" as const, label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") }]
                   : []),
                 ...(SHOW_CONTRACT
@@ -557,13 +589,15 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     {products.length}
                   </Badge>
                 </TabsTrigger>
-                <TabsTrigger value="projects">
-                  Projects
-                  <Badge variant="secondary" className="ml-1.5">
-                    {projects.length}
-                  </Badge>
-                </TabsTrigger>
-                {SHOW_COST_MARGIN ? (
+                {projectsEnabled ? (
+                  <TabsTrigger value="projects">
+                    Projects
+                    <Badge variant="secondary" className="ml-1.5">
+                      {projects.length}
+                    </Badge>
+                  </TabsTrigger>
+                ) : null}
+                {showCostMargin ? (
                   <TabsTrigger value="costs">
                     Costs &amp; margin
                     <Badge variant="secondary" className="ml-1.5">
@@ -635,40 +669,43 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 />
               </TabsContent>
 
-              <TabsContent value="projects" className="mt-4">
-                <DataTable
-                  columns={projectColumns}
-                  data={projects}
-                  tableId="funnel-projects"
-                  searchColumn="name"
-                  searchPlaceholder="Search projects…"
-                  emptyMessage="No projects from this funnel yet."
-                  pageSize={5}
-                  toolbar={
-                    canCreateProject ? (
-                      <Button
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                          <Link
-                            href={`/projects/new?opportunityId=${opportunityId}&accountId=${accountId}`}
-                          />
-                        }
-                      >
-                        <Plus className="size-4" />
-                        Add project
-                      </Button>
-                    ) : undefined
-                  }
-                />
-              </TabsContent>
+              {projectsEnabled ? (
+                <TabsContent value="projects" className="mt-4">
+                  <DataTable
+                    columns={projectColumns}
+                    data={projects}
+                    tableId="funnel-projects"
+                    searchColumn="name"
+                    searchPlaceholder="Search projects…"
+                    emptyMessage="No projects from this funnel yet."
+                    pageSize={5}
+                    toolbar={
+                      canCreateProject ? (
+                        <Button
+                          size="sm"
+                          nativeButton={false}
+                          render={
+                            <Link
+                              href={`/projects/new?opportunityId=${opportunityId}&accountId=${accountId}`}
+                            />
+                          }
+                        >
+                          <Plus className="size-4" />
+                          Add project
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                </TabsContent>
+              ) : null}
 
-              {SHOW_COST_MARGIN ? (
+              {showCostMargin ? (
                 <TabsContent value="costs" className="mt-4">
                   <CostsPanel
                     opportunityId={opportunityId}
                     costs={costs}
-                    revenue={costRevenue}
+                    revenue={marginRevenue}
+                    revenueLabel={marginRevenueLabel}
                     currency={currency}
                     canManage={canManageCosts}
                   />

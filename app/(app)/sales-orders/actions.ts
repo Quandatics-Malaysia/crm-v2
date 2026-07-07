@@ -2,7 +2,7 @@
 
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant, requireContext, assertCan } from "@/lib/actions"
+import { withTenant, withModule, requireContext, assertCan } from "@/lib/actions"
 import { runInTenant } from "@/db"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
@@ -349,7 +349,8 @@ export async function resubmitSalesOrder(
   input: ResubmitSalesOrderInput
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-  const projectId = await withTenant(
+  const projectId = await withModule(
+    "salesOrders",
     PERMISSIONS.SALES_ORDER_SUBMIT,
     async (tx, ctx) => {
       // Lock the SO row so a concurrent resubmit/approve can't double-act on it.
@@ -420,7 +421,8 @@ export async function approveSalesOrder(
   id: string
 ): Promise<ActionResult<{ soNumber: string }>> {
   return runAction(async () => {
-  const result = await withTenant(
+  const result = await withModule(
+    "salesOrders",
     PERMISSIONS.SALES_ORDER_APPROVE,
     async (tx, ctx) => {
       // Lock the SO row first: minting the official number and flipping the
@@ -512,7 +514,8 @@ export async function rejectSalesOrder(
   return runAction(async () => {
   const trimmed = (reason ?? "").trim()
   if (!trimmed) throw new Error("A reason is required")
-  const projectId = await withTenant(
+  const projectId = await withModule(
+    "salesOrders",
     PERMISSIONS.SALES_ORDER_APPROVE,
     async (tx, ctx) => {
       // Lock the SO row so a concurrent approve/reject can't double-act on it.
@@ -577,7 +580,7 @@ export type SalesOrderProjectOption = {
 export async function listSubmittableProjects(): Promise<
   SalesOrderProjectOption[]
 > {
-  return withTenant(PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
+  return withModule("salesOrders", PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
       .select({
@@ -602,7 +605,7 @@ export async function listSalesOrderSubmitOptions(): Promise<{
   paymentTerms: string[]
   documentKinds: string[]
 }> {
-  return withTenant(PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
+  return withModule("salesOrders", PERMISSIONS.SALES_ORDER_SUBMIT, async (tx, ctx) => {
     const [s] = await tx
       .select({
         paymentTerms: tenantSettings.paymentTerms,
@@ -624,7 +627,7 @@ export async function listSalesOrderSubmitOptions(): Promise<{
 
 /** All tenant sales orders, newest submission first. */
 export async function listSalesOrders(): Promise<SalesOrderRow[]> {
-  return withTenant(PERMISSIONS.SALES_ORDER_VIEW, (tx, ctx) =>
+  return withModule("salesOrders", PERMISSIONS.SALES_ORDER_VIEW, (tx, ctx) =>
     fetchRows(tx, ctx)
   )
 }
@@ -633,14 +636,14 @@ export async function listSalesOrders(): Promise<SalesOrderRow[]> {
 export async function listProjectSalesOrders(
   projectId: string
 ): Promise<SalesOrderRow[]> {
-  return withTenant(PERMISSIONS.SALES_ORDER_VIEW, (tx, ctx) =>
+  return withModule("salesOrders", PERMISSIONS.SALES_ORDER_VIEW, (tx, ctx) =>
     fetchRows(tx, ctx, projectId)
   )
 }
 
 /** One sales order with its review context, or null if not visible. */
 export async function getSalesOrder(id: string): Promise<SalesOrderRow | null> {
-  return withTenant(PERMISSIONS.SALES_ORDER_VIEW, async (tx, ctx) => {
+  return withModule("salesOrders", PERMISSIONS.SALES_ORDER_VIEW, async (tx, ctx) => {
     const [row] = await fetchRows(tx, ctx, undefined, id)
     return row ?? null
   })

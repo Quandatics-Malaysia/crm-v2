@@ -42,7 +42,7 @@ import {
   type PartyShare,
 } from "@/lib/interco-share"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
-import { syncIntercompanyMirror } from "@/server/services/intercompany"
+import { isModuleEnabled } from "@/lib/modules"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 
@@ -557,10 +557,14 @@ export async function createOpportunity(
 
       assertRecognizedPercent(input.recognizedPercent)
       const dealBasis = Number(input.estimatedAmount ?? 0)
+      // Intercompany billing is part of the finance plugin — force it off when
+      // that plugin is disabled so no partner rows or mirror are written.
+      const wantsInterco =
+        isModuleEnabled("finance") && (input.isIntercompany ?? false)
       const parties = await resolvePartyList(
         tx,
         ctx,
-        input.isIntercompany,
+        wantsInterco,
         input.parties,
         dealBasis
       )
@@ -603,7 +607,7 @@ export async function createOpportunity(
           recognizedPercent: recognizedPercentValue,
           description: input.description || null,
           projectYear: input.projectYear ?? null,
-          isIntercompany: input.isIntercompany ?? false,
+          isIntercompany: wantsInterco,
           currency,
           // Primary nature = first of the set (falls back to the single field).
           projectNatureCode:
@@ -617,7 +621,9 @@ export async function createOpportunity(
         })
         .returning({ id: opportunities.id })
 
-      await saveParties(tx, row.id, parties, currency)
+      if (isModuleEnabled("finance")) {
+        await saveParties(tx, row.id, parties, currency)
+      }
 
       // Seed the stage history with the opening stage.
       await tx.insert(opportunityStageHistory).values({
@@ -644,7 +650,13 @@ export async function createOpportunity(
         subject: "Funnel created",
       })
       // Publish the partner-facing mirror rows (no-op unless intercompany).
-      await syncIntercompanyMirror(tx, row.id)
+      // Loaded lazily so core funnel carries no static dependency on finance.
+      if (isModuleEnabled("finance")) {
+        const { syncIntercompanyMirror } = await import(
+          "@/server/services/intercompany"
+        )
+        await syncIntercompanyMirror(tx, row.id)
+      }
       return row
     }
   )
@@ -699,10 +711,13 @@ export async function updateOpportunity(
     // non-intercompany deal clears it; an explicit `parties` array replaces it;
     // otherwise the existing parties are kept (but re-validated against the
     // possibly-changed basis/allow-list).
+    // Intercompany billing belongs to the finance plugin — force it off (and
+    // clear any parties) when that plugin is disabled.
     const effectiveInterco =
-      input.isIntercompany === undefined
+      isModuleEnabled("finance") &&
+      (input.isIntercompany === undefined
         ? existing.isIntercompany
-        : !!input.isIntercompany
+        : !!input.isIntercompany)
     assertRecognizedPercent(input.recognizedPercent)
     const nextEstimated =
       input.estimatedAmount === undefined
@@ -787,7 +802,9 @@ export async function updateOpportunity(
       })
       .where(eq(opportunities.id, id))
 
-    await saveParties(tx, id, parties, input.currency ?? existing.currency)
+    if (isModuleEnabled("finance")) {
+      await saveParties(tx, id, parties, input.currency ?? existing.currency)
+    }
 
     await writeAudit(tx, ctx, {
       action: "opportunity.updated",
@@ -806,7 +823,12 @@ export async function updateOpportunity(
       subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.
-    await syncIntercompanyMirror(tx, id)
+    if (isModuleEnabled("finance")) {
+      const { syncIntercompanyMirror } = await import(
+        "@/server/services/intercompany"
+      )
+      await syncIntercompanyMirror(tx, id)
+    }
   })
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${id}`)
@@ -840,7 +862,12 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       entityId: id,
     })
     // A deleted deal must disappear from the partner's inbound list too.
-    await syncIntercompanyMirror(tx, id)
+    if (isModuleEnabled("finance")) {
+      const { syncIntercompanyMirror } = await import(
+        "@/server/services/intercompany"
+      )
+      await syncIntercompanyMirror(tx, id)
+    }
   })
   revalidatePath("/funnel")
   })

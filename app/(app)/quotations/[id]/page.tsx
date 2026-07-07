@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
+import { isModuleEnabled } from "@/lib/modules"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions, listProjectNatures, listProductOptions } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
@@ -57,7 +58,8 @@ export default async function QuotationDetailPage({
     canSend: ctx.can(PERMISSIONS.QUOTATION_SEND),
     canAccept: ctx.can(PERMISSIONS.QUOTATION_ACCEPT),
     canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),
-    canCreateProject: ctx.can(PERMISSIONS.PROJECT_CREATE),
+    canCreateProject:
+      isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE),
   }
 
   return (

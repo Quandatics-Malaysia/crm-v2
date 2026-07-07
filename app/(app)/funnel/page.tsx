@@ -1,5 +1,6 @@
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
+import { isModuleEnabled } from "@/lib/modules"
 import {
   listAccountOptions,
   listMembers,
@@ -54,6 +55,7 @@ export default async function OpportunitiesPage() {
       projectNatures={projectNatures}
       customFieldDefs={customFunnelFields}
       entityOptions={entities}
+      financeEnabled={isModuleEnabled("finance")}
       currencies={currencies}
       defaultOwnerMemberId={ctx.memberId}
     />

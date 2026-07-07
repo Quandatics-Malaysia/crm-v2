@@ -102,6 +102,7 @@ export function OpportunityForm({
   projectNatures = [],
   customFieldDefs = [],
   entityOptions = [],
+  financeEnabled = false,
   currencies = DEFAULT_CURRENCIES,
   defaultOwnerMemberId,
   opportunity,
@@ -118,6 +119,8 @@ export function OpportunityForm({
   customFieldDefs?: CustomFunnelField[]
   /** Other entities the user belongs to — the only valid intercompany partners. */
   entityOptions?: Option[]
+  /** Whether the finance plugin (intercompany billing) is enabled. */
+  financeEnabled?: boolean
   /** Tenant currency picklist (Settings → General); first = default. */
   currencies?: string[]
   defaultOwnerMemberId: string | null
@@ -716,29 +719,31 @@ export function OpportunityForm({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="isIntercompany"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <div className="grid gap-0.5">
-                    <FormLabel>Intercompany deal</FormLabel>
-                    <FormDescription>
-                      A partner entity handles delivery; we&apos;re the
-                      contracting middle-man and recognize only our cut.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={!!field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            {financeEnabled ? (
+              <FormField
+                control={form.control}
+                name="isIntercompany"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="grid gap-0.5">
+                      <FormLabel>Intercompany deal</FormLabel>
+                      <FormDescription>
+                        A partner entity handles delivery; we&apos;re the
+                        contracting middle-man and recognize only our cut.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={!!field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
-            {form.watch("isIntercompany") ? (
+            {financeEnabled && form.watch("isIntercompany") ? (
               <div className="grid gap-3 rounded-lg border p-3">
                 <div className="flex items-center justify-between">
                   <FormLabel>

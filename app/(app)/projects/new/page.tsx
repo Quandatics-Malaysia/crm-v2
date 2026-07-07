@@ -3,6 +3,7 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { listAccountOptions } from "@/lib/lookups"
 import { requireContext } from "@/lib/server-context"
+import { requireModule } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   listOpportunityOptions,
@@ -20,6 +21,7 @@ export default async function NewProjectPage({
     quotationId?: string
   }>
 }) {
+  requireModule("projects")
   const ctx = await requireContext()
   // No create permission -> there's no affordance to land here; bounce back.
   if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) redirect("/projects")
@@ -46,6 +48,9 @@ export default async function NewProjectPage({
   // A bare ?quotationId= (no funnel) still links the source quote on the project.
   let defaultQuotationId: string | undefined = sp.quotationId
   let prefillQuoteNumber: string | undefined
+  // Code year segment defaults to the current year, but a deal prefill keys it
+  // to the source funnel's contract/license year (matches nextProjectCode).
+  let codeYear = meta.year
   if (defaultOpportunityId) {
     const prefill = await prefillFromOpportunity(defaultOpportunityId)
     if (prefill) {
@@ -56,6 +61,7 @@ export default async function NewProjectPage({
       defaultProjectNatureCode = prefill.projectNatureCode || defaultProjectNatureCode
       defaultQuotationId = prefill.quotationId ?? defaultQuotationId
       prefillQuoteNumber = prefill.quoteNumber ?? undefined
+      if (prefill.projectYear && prefill.projectYear > 0) codeYear = prefill.projectYear
     } else {
       // Fall back to deriving the account from the funnel options.
       const opp = opportunities.find((o) => o.id === defaultOpportunityId)
@@ -90,7 +96,7 @@ export default async function NewProjectPage({
           opportunities={opportunities}
           projectNatures={meta.projectNatures}
           entityCode={meta.entityCode}
-          codeYear={meta.year}
+          codeYear={codeYear}
           accountCodes={meta.accountCodes}
           defaultName={defaultName}
           defaultAccountId={defaultAccountId}

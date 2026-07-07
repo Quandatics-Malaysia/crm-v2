@@ -17,7 +17,7 @@ import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -242,7 +242,7 @@ function toView(
     autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
-    financeEnabled: FINANCE_MODULE && row.financeModule,
+    financeEnabled: isModuleEnabled("finance"),
     documentationModule: row.documentationModule,
     invoiceReminderDays: row.invoiceReminderDays ?? [],
     invoiceDueDays: row.invoiceDueDays ?? null,

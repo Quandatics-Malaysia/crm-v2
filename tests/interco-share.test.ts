@@ -4,6 +4,7 @@ import {
   deriveRecognizedPercent,
   partyShare,
   deriveOriginRecognizedPercent,
+  deriveOriginRecognizedAmount,
   validatePartyShares,
 } from "@/lib/interco-share"
 
@@ -92,6 +93,40 @@ describe("deriveOriginRecognizedPercent", () => {
       deriveOriginRecognizedPercent(100000, [
         { shareType: "amount", shareValue: 120000 },
       ])
+    ).toBe(0)
+  })
+})
+
+describe("deriveOriginRecognizedAmount — exact money (regression: RM42.40 bug)", () => {
+  it("fixed-amount leg yields an exact recognized cut, not a rounded-percent recompute", () => {
+    // The reported defect: RM879,306 fixed leg on a RM1,018,000 deal.
+    // Correct = 1,018,000 − 879,306 = 138,694.00 (NOT 138,651.60, which is
+    // what basis × round2(13.6242%) produced).
+    expect(
+      deriveOriginRecognizedAmount(1018000, [
+        { shareType: "amount", shareValue: 879306 },
+      ])
+    ).toBe(138694)
+  })
+
+  it("percent party and mixed multi-party splits are exact to the cent", () => {
+    // 100k basis, one 20% party → origin keeps 80,000.
+    expect(
+      deriveOriginRecognizedAmount(100000, [{ shareType: "percent", shareValue: 20 }])
+    ).toBe(80000)
+    // 100k basis: 20% party + 30k amount party → 100,000 − 20,000 − 30,000 = 50,000.
+    expect(
+      deriveOriginRecognizedAmount(100000, [
+        { shareType: "percent", shareValue: 20 },
+        { shareType: "amount", shareValue: 30000 },
+      ])
+    ).toBe(50000)
+  })
+
+  it("clamps to [0, basis] and returns 0 with no basis", () => {
+    expect(deriveOriginRecognizedAmount(0, [])).toBe(0)
+    expect(
+      deriveOriginRecognizedAmount(100000, [{ shareType: "amount", shareValue: 120000 }])
     ).toBe(0)
   })
 })

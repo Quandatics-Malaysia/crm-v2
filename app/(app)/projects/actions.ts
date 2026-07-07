@@ -2,7 +2,8 @@
 
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant, type Tx } from "@/lib/actions"
+import { withModule, type Tx } from "@/lib/actions"
+import { isModuleEnabled } from "@/lib/modules"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   projects,
@@ -104,7 +105,7 @@ export type ProjectUpdateInput = {
 
 /** All non-deleted projects with denormalized account + funnel names, newest first. */
 export async function listProjects(): Promise<ProjectListItem[]> {
-  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({
@@ -139,7 +140,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 
 /** Full detail for one project with linked account / funnel / quotation / owner. */
 export async function getProject(id: string): Promise<ProjectDetail | null> {
-  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [row] = await tx
       .select({
@@ -180,7 +181,8 @@ export async function createProject(
   input: ProjectCreateInput
 ): Promise<ActionResult<{ id: string; projectCode: string }>> {
   return runAction(async () => {
-  const created = await withTenant(
+  const created = await withModule(
+    "projects",
     PERMISSIONS.PROJECT_CREATE,
     async (tx, ctx) => {
       const [acct] = await tx
@@ -246,9 +248,26 @@ export async function createProject(
             "This account has no account code yet. Set the account's code before creating a project."
           )
         }
+        // Key the code's year to the deal's contract/license year (the source
+        // funnel's projectYear), then the project start date, else the current
+        // year (nextProjectCode's fallback).
+        let contractYear: number | null = null
+        if (input.opportunityId) {
+          const [srcOpp] = await tx
+            .select({ projectYear: opportunities.projectYear })
+            .from(opportunities)
+            .where(eq(opportunities.id, input.opportunityId))
+            .limit(1)
+          contractYear = srcOpp?.projectYear ?? null
+        }
+        if (!contractYear && input.startDate) {
+          const y = Number(input.startDate.slice(0, 4))
+          if (Number.isFinite(y) && y > 0) contractYear = y
+        }
         projectCode = await nextProjectCode(tx, ctx, {
           accountCode: acct.code,
           projectNatureCode,
+          year: contractYear,
         })
       }
 
@@ -344,7 +363,7 @@ export async function updateProject(
   input: ProjectUpdateInput
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-  await withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
+  await withModule("projects", PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
     // Lock the project row so this value edit serializes against concurrent
     // milestone writes (which also lock it) before reconciling allocation.
     const [existing] = await tx
@@ -423,7 +442,7 @@ export async function updateProject(
 
 export async function deleteProject(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
-  await withTenant(PERMISSIONS.PROJECT_DELETE, async (tx, ctx) => {
+  await withModule("projects", PERMISSIONS.PROJECT_DELETE, async (tx, ctx) => {
     const [existing] = await tx
       .select({ ownerMemberId: projects.ownerMemberId })
       .from(projects)
@@ -440,18 +459,20 @@ export async function deleteProject(id: string): Promise<ActionResult<void>> {
     // milestones, so an approved (number-minted) SO would keep showing in the
     // global list pointing at a hidden project, and milestones would orphan.
     // Refuse while live dependents exist, mirroring deleteAccount's guard.
-    const [{ soCount }] = await tx
-      .select({
-        soCount: sql<number>`count(*)`,
-      })
-      .from(salesOrders)
-      .where(
-        and(eq(salesOrders.projectId, id), ne(salesOrders.status, "rejected"))
-      )
-    if (Number(soCount) > 0) {
-      throw new Error(
-        "This project has active sales orders. Reject them before deleting the project."
-      )
+    if (isModuleEnabled("salesOrders")) {
+      const [{ soCount }] = await tx
+        .select({
+          soCount: sql<number>`count(*)`,
+        })
+        .from(salesOrders)
+        .where(
+          and(eq(salesOrders.projectId, id), ne(salesOrders.status, "rejected"))
+        )
+      if (Number(soCount) > 0) {
+        throw new Error(
+          "This project has active sales orders. Reject them before deleting the project."
+        )
+      }
     }
 
     const [{ milestoneCount }] = await tx
@@ -503,7 +524,7 @@ export type QuotationLinkOption = {
 export async function listQuotationLinkOptions(
   opportunityId: string
 ): Promise<QuotationLinkOption[]> {
-  return withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_UPDATE, async (tx) => {
     return tx
       .select({
         id: quotations.id,
@@ -528,7 +549,7 @@ export async function listQuotationLinkOptions(
 export async function listOpportunityOptions(): Promise<
   { id: string; name: string; accountId: string }[]
 > {
-  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
       .select({
@@ -565,7 +586,7 @@ export type ProjectCreateMeta = {
  * and the live project-code preview ({YYYY}-{ENTITY}-{ACCOUNTCODE}-{TYPE}-###).
  */
 export async function listProjectCreateMeta(): Promise<ProjectCreateMeta> {
-  return withTenant(PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [s] = await tx
       .select({
@@ -610,6 +631,8 @@ export type ProjectPrefill = {
    * prefilled-but-editable suggestion; createProject defaults to "GEN").
    */
   projectNatureCode: string
+  /** Source deal's contract/license year — drives the project code's year segment. */
+  projectYear: number | null
 }
 
 /**
@@ -623,7 +646,7 @@ export type ProjectPrefill = {
 export async function prefillFromOpportunity(
   opportunityId: string
 ): Promise<ProjectPrefill | null> {
-  return withTenant(PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
@@ -633,6 +656,7 @@ export async function prefillFromOpportunity(
         accountName: accounts.name,
         currency: opportunities.currency,
         projectNatureCode: opportunities.projectNatureCode,
+        projectYear: opportunities.projectYear,
         ownerMemberId: opportunities.ownerMemberId,
       })
       .from(opportunities)
@@ -682,6 +706,7 @@ export async function prefillFromOpportunity(
       quoteNumber,
       opportunityName: opp.name,
       projectNatureCode: projectNatureCode ?? "",
+      projectYear: opp.projectYear ?? null,
     }
   })
 }
@@ -751,7 +776,7 @@ const cents = (n: number) => Math.round(n * 100)
 export async function listMilestones(
   projectId: string
 ): Promise<MilestoneItem[]> {
-  return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+  return withModule("projects", PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [project] = await tx
       .select({ ownerMemberId: projects.ownerMemberId })
@@ -783,7 +808,8 @@ export async function createMilestone(
   input: MilestoneCreateInput
 ): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
-  const created = await withTenant(
+  const created = await withModule(
+    "projects",
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
       // Lock the project row so concurrent milestone writes on the same
@@ -879,7 +905,8 @@ export async function updateMilestone(
   input: MilestoneUpdateInput
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-  const projectId = await withTenant(
+  const projectId = await withModule(
+    "projects",
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
       const [existing] = await tx
@@ -997,7 +1024,8 @@ export async function updateMilestone(
 
 export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
-  const projectId = await withTenant(
+  const projectId = await withModule(
+    "projects",
     PERMISSIONS.PROJECT_UPDATE,
     async (tx, ctx) => {
       const [milestone] = await tx
@@ -1064,7 +1092,7 @@ export async function reorderMilestones(
   order: string[]
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
-  await withTenant(PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
+  await withModule("projects", PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
     const [project] = await tx
       .select({ ownerMemberId: projects.ownerMemberId })
       .from(projects)

@@ -70,7 +70,7 @@ export default async function LeadDetailPage({
       value: funnelName ? (
         lead.convertedOpportunityId ? (
           <Link
-            href={`/funnel/${lead.convertedOpportunityId}`}
+            href={`/opportunities/${lead.convertedOpportunityId}`}
             className="link"
           >
             {funnelName}

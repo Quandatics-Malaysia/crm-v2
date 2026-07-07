@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
 import {
   funnels,
+  accounts,
   pipelineStages,
   funnelStageHistory,
   stageApprovalRequests,
@@ -12,6 +13,7 @@ import {
   permissions,
   tenantSettings,
 } from "@/db/schema"
+import { recomputeOpportunityTotal } from "@/server/services/opportunity-container"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   buildStageGate,
@@ -230,6 +232,25 @@ async function applyStageMove(
         : null,
     })
     .where(eq(funnels.id, opp.id))
+
+  // ── Salesforce "Closed Won" automations (core) ─────────────────────────────
+  if (status === "won") {
+    const wonSet: Partial<typeof funnels.$inferInsert> = {}
+    // Award Date → Estimated Funnel Close Date.
+    if (opp.awardDate) wonSet.expectedCloseDate = opp.awardDate
+    // Quoted Amount → Estimated Funnel Amount (the won deal's value is the quote).
+    if (opp.amount != null && Number(opp.amount) > 0) wonSet.estimatedAmount = opp.amount
+    if (Object.keys(wonSet).length > 0) {
+      await tx.update(funnels).set(wonSet).where(eq(funnels.id, opp.id))
+    }
+    // Account type Prospect → Customer.
+    await tx
+      .update(accounts)
+      .set({ isCustomer: true })
+      .where(and(eq(accounts.id, opp.accountId), eq(accounts.isCustomer, false)))
+    // Estimated amount may have changed → refresh the container rollup.
+    await recomputeOpportunityTotal(tx, ctx.tenantId, opp.opportunityId)
+  }
 
   await tx.insert(funnelStageHistory).values({
     tenantId: ctx.tenantId,

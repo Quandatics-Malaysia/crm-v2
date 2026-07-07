@@ -169,8 +169,8 @@ export function LeadDetailBody({
                   ? [
                       {
                         kind: "funnel" as const,
-                        label: converted.funnelName ?? "Funnel",
-                        href: `/funnel/${converted.funnelId}`,
+                        label: converted.funnelName ?? "Opportunity",
+                        href: `/opportunities/${converted.funnelId}`,
                       },
                     ]
                   : []),

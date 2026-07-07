@@ -858,6 +858,9 @@ export async function updateOpportunity(
       })
       .where(eq(funnels.id, id))
 
+    // estimatedAmount may have changed → refresh the parent container's rollup.
+    await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
+
     if (isModuleEnabled("finance")) {
       await saveParties(tx, id, parties, input.currency ?? existing.currency)
     }
@@ -899,6 +902,7 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       .select({
         id: funnels.id,
         ownerMemberId: funnels.ownerMemberId,
+        opportunityId: funnels.opportunityId,
       })
       .from(funnels)
       .where(and(eq(funnels.id, id), isNull(funnels.deletedAt)))
@@ -911,6 +915,9 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       .update(funnels)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(funnels.id, id))
+
+    // Removing a funnel changes its container's rollup.
+    await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
 
     await writeAudit(tx, ctx, {
       action: "opportunity.deleted",

@@ -9,6 +9,7 @@ import {
   Building2Icon,
   UsersIcon,
   FilterIcon,
+  BriefcaseIcon,
   StampIcon,
   FileTextIcon,
   FolderKanbanIcon,
@@ -85,6 +86,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Sales",
     items: [
+      { title: "Opportunities", url: "/opportunities", icon: BriefcaseIcon, tile: "bg-amber-600", permission: PERMISSIONS.OPPORTUNITY_VIEW },
       { title: "Funnel", url: "/funnel", icon: FilterIcon, tile: "bg-amber-500", permission: PERMISSIONS.OPPORTUNITY_VIEW },
       { title: "Quotations", url: "/quotations", icon: FileTextIcon, tile: "bg-green-600", permission: PERMISSIONS.QUOTATION_VIEW },
       { title: "Products", url: "/products", icon: PackageIcon, tile: "bg-sky-500", permission: PERMISSIONS.PRODUCT_VIEW },

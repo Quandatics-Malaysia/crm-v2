@@ -243,7 +243,7 @@ export function LeadsTable({
             </Badge>
           )
           return lead.convertedOpportunityId ? (
-            <Link href={`/funnel/${lead.convertedOpportunityId}`}>{badge}</Link>
+            <Link href={`/opportunities/${lead.convertedOpportunityId}`}>{badge}</Link>
           ) : (
             badge
           )
@@ -281,7 +281,7 @@ export function LeadsTable({
               ) : null}
               {lead.convertedOpportunityId ? (
                 <Link
-                  href={`/funnel/${lead.convertedOpportunityId}`}
+                  href={`/opportunities/${lead.convertedOpportunityId}`}
                   className="link"
                 >
                   Funnel

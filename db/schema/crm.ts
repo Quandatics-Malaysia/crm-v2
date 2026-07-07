@@ -39,6 +39,11 @@ export const accounts = pgTable(
     ),
     /** "client" (end user) or "reseller" (channel). */
     accountType: text("account_type"),
+    /**
+     * Customer lifecycle (Salesforce "Prospect → Customer"): false = prospect,
+     * flipped true automatically when a funnel on this account reaches Closed Won.
+     */
+    isCustomer: boolean("is_customer").notNull().default(false),
     /** For reseller accounts: the end-user client account. */
     endUserAccountId: uuid("end_user_account_id").references(
       (): AnyPgColumn => accounts.id,

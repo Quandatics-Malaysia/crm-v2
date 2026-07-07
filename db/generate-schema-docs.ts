@@ -12,7 +12,7 @@ import "dotenv/config"
 const MODULE_OF: [RegExp, string][] = [
   [/^(leads|accounts|persons)$/, "CRM"],
   [
-    /^(opportunities|funnels|funnel_stages|stage_approval_requests|opportunity_stage_history|quotations|quotation_line_items|products|tax_settings|projects|payment_milestones|sales_orders|deal_costs|contract_years)$/,
+    /^(funnels|pipelines|pipeline_stages|stage_approval_requests|funnel_stage_history|quotations|quotation_line_items|products|tax_settings|projects|payment_milestones|sales_orders|deal_costs|contract_years)$/,
     "Sales",
   ],
   [/^finance_docs$/, "Finance add-on"],

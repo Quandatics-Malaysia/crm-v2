@@ -10,11 +10,11 @@ CREATE OR REPLACE VIEW v_billing_forecast
 WITH (security_invoker = true) AS
 SELECT
   o.tenant_id,
-  o.id                                       AS opportunity_id,
+  o.id                                       AS funnel_id,
   o.name                                     AS opportunity_name,
   o.account_id,
   o.owner_member_id,
-  o.funnel_id,
+  o.pipeline_id,
   fs.code                                    AS stage_code,
   fs.name                                    AS stage_name,
   fs.probability,
@@ -41,8 +41,8 @@ SELECT
       * COALESCE(o.recognized_percent, 100) / 100.0,
     2
   )                                          AS recognized_weighted_value
-FROM opportunities o
-JOIN funnel_stages fs ON fs.id = o.current_stage_id
+FROM funnels o
+JOIN pipeline_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL
   -- defense-in-depth: explicit tenant predicate on top of security_invoker + RLS,
   -- so a superuser/BYPASSRLS connection still cannot leak across tenants.
@@ -64,7 +64,7 @@ CREATE OR REPLACE VIEW v_pipeline_summary
 WITH (security_invoker = true) AS
 SELECT
   o.tenant_id,
-  o.funnel_id,
+  o.pipeline_id,
   fs.code        AS stage_code,
   fs.name        AS stage_name,
   fs.kind        AS stage_kind,
@@ -76,11 +76,11 @@ SELECT
                                  AS weighted_amount,
   o.currency,
   o.owner_member_id
-FROM opportunities o
-JOIN funnel_stages fs ON fs.id = o.current_stage_id
+FROM funnels o
+JOIN pipeline_stages fs ON fs.id = o.current_stage_id
 WHERE o.deleted_at IS NULL
   AND o.tenant_id = current_setting('app.current_tenant', true)
-GROUP BY o.tenant_id, o.funnel_id, o.currency, o.owner_member_id, fs.code, fs.name, fs.kind, fs.sort_order;
+GROUP BY o.tenant_id, o.pipeline_id, o.currency, o.owner_member_id, fs.code, fs.name, fs.kind, fs.sort_order;
 
 -- Stage velocity: average seconds an opportunity spent in each stage.
 CREATE OR REPLACE VIEW v_stage_velocity
@@ -95,9 +95,9 @@ FROM (
   SELECT
     h.*,
     LAG(h.changed_at) OVER (
-      PARTITION BY h.opportunity_id ORDER BY h.changed_at
+      PARTITION BY h.funnel_id ORDER BY h.changed_at
     ) AS prev_changed_at
-  FROM opportunity_stage_history h
+  FROM funnel_stage_history h
 ) s
 WHERE from_stage_id IS NOT NULL
   AND tenant_id = current_setting('app.current_tenant', true)

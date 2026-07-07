@@ -24,7 +24,7 @@ export const PERMISSIONS = {
   PERSON_CREATE: "person.create",
   PERSON_UPDATE: "person.update",
   PERSON_DELETE: "person.delete",
-  // opportunities + pipeline
+  // funnels + pipeline
   OPPORTUNITY_VIEW: "opportunity.view",
   OPPORTUNITY_CREATE: "opportunity.create",
   OPPORTUNITY_UPDATE: "opportunity.update",
@@ -178,13 +178,13 @@ const ALL_GROUPS: {
   {
     group: "Funnel",
     items: [
-      { key: PERMISSIONS.OPPORTUNITY_VIEW, label: "View funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_CREATE, label: "Create funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_UPDATE, label: "Edit funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_DELETE, label: "Delete funnels" },
+      { key: PERMISSIONS.OPPORTUNITY_VIEW, label: "View pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_CREATE, label: "Create pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_UPDATE, label: "Edit pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_DELETE, label: "Delete pipelines" },
       { key: PERMISSIONS.STAGE_ADVANCE, label: "Advance stages" },
       { key: PERMISSIONS.STAGE_ADVANCE_APPROVE, label: "Approve stage advances" },
-      { key: PERMISSIONS.FUNNEL_MANAGE, label: "Manage funnels & stages" },
+      { key: PERMISSIONS.FUNNEL_MANAGE, label: "Manage pipelines & stages" },
     ],
   },
   {

@@ -33,7 +33,7 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, funnels, accountOptions, countries] = await Promise.all([
+  const [data, pipelines, accountOptions, countries] = await Promise.all([
     getLead(id),
     listFunnelsWithStages(),
     listAccountOptions(),
@@ -95,11 +95,11 @@ export default async function LeadDetailPage({
     !!lead.convertedOpportunityId
 
   // When the lead has its own pipeline stage, render a funnel progress below
-  // the lead-status progress. Stages come from the already-loaded funnels
+  // the lead-status progress. Stages come from the already-loaded pipelines
   // lookup (id/name/kind/sortOrder, ordered) — no extra fetch needed.
   const leadFunnelStages =
-    lead.funnelId && lead.currentStageId
-      ? funnels.find((f) => f.id === lead.funnelId)?.stages ?? null
+    lead.pipelineId && lead.currentStageId
+      ? pipelines.find((f) => f.id === lead.pipelineId)?.stages ?? null
       : null
   const funnelProgress =
     leadFunnelStages && lead.currentStageId
@@ -141,7 +141,7 @@ export default async function LeadDetailPage({
                 countries={countries}
               />
             ) : null}
-            <LeadEditButton lead={lead} funnels={funnels} />
+            <LeadEditButton lead={lead} pipelines={pipelines} />
             <Button
               variant="outline"
               nativeButton={false}
@@ -167,7 +167,7 @@ export default async function LeadDetailPage({
                   accountName,
                   personId: lead.convertedPersonId,
                   personName,
-                  opportunityId: lead.convertedOpportunityId,
+                  funnelId: lead.convertedOpportunityId,
                   funnelName,
                 }
               : null

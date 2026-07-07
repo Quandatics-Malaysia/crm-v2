@@ -14,8 +14,8 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { listOpportunities, listPersonsWithAccount } from "./actions"
-import { OpportunitiesBoard } from "./opportunities-board"
-import { OpportunitiesTable } from "./opportunities-table"
+import { OpportunitiesBoard } from "./funnels-board"
+import { OpportunitiesTable } from "./funnels-table"
 import { OpportunityForm } from "./opportunity-form"
 
 export default async function OpportunitiesPage() {
@@ -25,7 +25,7 @@ export default async function OpportunitiesPage() {
     accounts,
     persons,
     members,
-    funnels,
+    pipelines,
     projectNatures,
     customFunnelFields,
     entities,
@@ -51,7 +51,7 @@ export default async function OpportunitiesPage() {
       accounts={accounts}
       persons={persons}
       members={members}
-      funnels={funnels}
+      pipelines={pipelines}
       projectNatures={projectNatures}
       customFieldDefs={customFunnelFields}
       entityOptions={entities}
@@ -81,7 +81,7 @@ export default async function OpportunitiesPage() {
           <TabsContent value="board" className="pt-2">
             <OpportunitiesBoard
               data={rows}
-              funnels={funnels}
+              pipelines={pipelines}
               canAdvance={canAdvance}
               customFieldDefs={customFunnelFields}
             />

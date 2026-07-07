@@ -12,7 +12,7 @@ export const timestamps = {
     .$onUpdate(() => new Date()),
 }
 
-/** Soft-delete marker for business records (leads, accounts, persons, opportunities, quotations). */
+/** Soft-delete marker for business records (leads, accounts, persons, funnels, quotations). */
 export const softDelete = {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }

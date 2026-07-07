@@ -62,7 +62,7 @@ async function main() {
   console.log("→ reconciling intercompany mirror…")
   await sql`
     INSERT INTO intercompany_deals (
-      tenant_id, opportunity_id, partner_tenant_id, name, account_name,
+      tenant_id, funnel_id, partner_tenant_id, name, account_name,
       currency, estimated_amount, quoted_amount, share_type, share_value,
       partner_currency, manual_fx_rate,
       status, stage_name, stage_probability, include_in_forecast,
@@ -75,13 +75,13 @@ async function main() {
       o.status, fs.name, fs.probability,
       coalesce(fs.include_in_forecast, true) AND fs.kind IN ('OPEN', 'WON'),
       o.expected_close_date, o.project_year
-    FROM opportunities o
-    JOIN intercompany_deal_parties idp ON idp.opportunity_id = o.id
+    FROM funnels o
+    JOIN intercompany_deal_parties idp ON idp.funnel_id = o.id
     LEFT JOIN accounts a ON a.id = o.account_id
-    LEFT JOIN funnel_stages fs ON fs.id = o.current_stage_id
+    LEFT JOIN pipeline_stages fs ON fs.id = o.current_stage_id
     WHERE o.is_intercompany
       AND o.deleted_at IS NULL
-    ON CONFLICT (opportunity_id, partner_tenant_id) DO UPDATE SET
+    ON CONFLICT (funnel_id, partner_tenant_id) DO UPDATE SET
       name = EXCLUDED.name,
       account_name = EXCLUDED.account_name,
       currency = EXCLUDED.currency,
@@ -101,14 +101,14 @@ async function main() {
   `
   await sql`
     DELETE FROM intercompany_deals icd
-    USING opportunities o
-    WHERE icd.opportunity_id = o.id
+    USING funnels o
+    WHERE icd.funnel_id = o.id
       AND (
         o.deleted_at IS NOT NULL
         OR NOT o.is_intercompany
         OR NOT EXISTS (
           SELECT 1 FROM intercompany_deal_parties idp
-          WHERE idp.opportunity_id = icd.opportunity_id
+          WHERE idp.funnel_id = icd.funnel_id
             AND idp.partner_entity_id = icd.partner_tenant_id
         )
       )

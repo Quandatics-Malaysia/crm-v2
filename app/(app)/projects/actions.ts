@@ -9,7 +9,7 @@ import {
   projects,
   projectStatus,
   accounts,
-  opportunities,
+  funnels,
   quotations,
   member,
   user,
@@ -44,7 +44,7 @@ export type ProjectListItem = {
   name: string
   accountId: string
   accountName: string | null
-  opportunityId: string | null
+  funnelId: string | null
   opportunityName: string | null
   status: ProjectStatus
   value: string | null
@@ -68,7 +68,7 @@ export type ProjectCodeNature = "auto" | "manual"
 export type ProjectCreateInput = {
   name: string
   accountId: string
-  opportunityId?: string
+  funnelId?: string
   quotationId?: string
   value?: string
   /** ISO-4217 currency carried from the source opportunity/quotation; MYR if absent. */
@@ -96,7 +96,7 @@ export type ProjectCreateInput = {
 export type ProjectUpdateInput = {
   name?: string
   accountId?: string
-  opportunityId?: string | null
+  funnelId?: string | null
   quotationId?: string | null
   value?: string | null
   startDate?: string | null
@@ -114,8 +114,8 @@ export async function listProjects(): Promise<ProjectListItem[]> {
         name: projects.name,
         accountId: projects.accountId,
         accountName: accounts.name,
-        opportunityId: projects.opportunityId,
-        opportunityName: opportunities.name,
+        funnelId: projects.funnelId,
+        opportunityName: funnels.name,
         status: projects.status,
         value: projects.value,
         currency: projects.currency,
@@ -123,7 +123,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
       })
       .from(projects)
       .leftJoin(accounts, eq(projects.accountId, accounts.id))
-      .leftJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(projects.funnelId, funnels.id))
       .where(
         and(
           isNull(projects.deletedAt),
@@ -146,13 +146,13 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
       .select({
         project: projects,
         accountName: accounts.name,
-        opportunityName: opportunities.name,
+        opportunityName: funnels.name,
         quotationNumber: quotations.quoteNumber,
         ownerName: user.name,
       })
       .from(projects)
       .leftJoin(accounts, eq(projects.accountId, accounts.id))
-      .leftJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(projects.funnelId, funnels.id))
       .leftJoin(quotations, eq(projects.quotationId, quotations.id))
       .leftJoin(member, eq(projects.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
@@ -252,11 +252,11 @@ export async function createProject(
         // funnel's projectYear), then the project start date, else the current
         // year (nextProjectCode's fallback).
         let contractYear: number | null = null
-        if (input.opportunityId) {
+        if (input.funnelId) {
           const [srcOpp] = await tx
-            .select({ projectYear: opportunities.projectYear })
-            .from(opportunities)
-            .where(eq(opportunities.id, input.opportunityId))
+            .select({ projectYear: funnels.projectYear })
+            .from(funnels)
+            .where(eq(funnels.id, input.funnelId))
             .limit(1)
           contractYear = srcOpp?.projectYear ?? null
         }
@@ -282,7 +282,7 @@ export async function createProject(
             projectNatureCode: projectNatureCode || null,
             name: input.name,
             accountId: input.accountId,
-            opportunityId: input.opportunityId || null,
+            funnelId: input.funnelId || null,
             quotationId: input.quotationId || null,
             intercompanyDealId: input.intercompanyDealId || null,
             ownerMemberId: ctx.memberId,
@@ -402,10 +402,10 @@ export async function updateProject(
       .set({
         name: input.name ?? existing.name,
         accountId: input.accountId ?? existing.accountId,
-        opportunityId:
-          input.opportunityId === undefined
-            ? existing.opportunityId
-            : input.opportunityId || null,
+        funnelId:
+          input.funnelId === undefined
+            ? existing.funnelId
+            : input.funnelId || null,
         quotationId:
           input.quotationId === undefined
             ? existing.quotationId
@@ -522,7 +522,7 @@ export type QuotationLinkOption = {
  *  edit dialog. A quotation belongs to one opportunity, so the pickable set is
  *  the project's own funnel; RLS already scopes to this tenant. Primary first. */
 export async function listQuotationLinkOptions(
-  opportunityId: string
+  funnelId: string
 ): Promise<QuotationLinkOption[]> {
   return withModule("projects", PERMISSIONS.PROJECT_UPDATE, async (tx) => {
     return tx
@@ -537,7 +537,7 @@ export async function listQuotationLinkOptions(
       .from(quotations)
       .where(
         and(
-          eq(quotations.opportunityId, opportunityId),
+          eq(quotations.funnelId, funnelId),
           isNull(quotations.deletedAt)
         )
       )
@@ -545,7 +545,7 @@ export async function listQuotationLinkOptions(
   })
 }
 
-/** Open opportunities (funnels) for the create-form picker, with their account. */
+/** Open funnels (pipelines) for the create-form picker, with their account. */
 export async function listOpportunityOptions(): Promise<
   { id: string; name: string; accountId: string }[]
 > {
@@ -553,18 +553,18 @@ export async function listOpportunityOptions(): Promise<
     const visible = await visibleMemberIds(tx, ctx)
     return tx
       .select({
-        id: opportunities.id,
-        name: opportunities.name,
-        accountId: opportunities.accountId,
+        id: funnels.id,
+        name: funnels.name,
+        accountId: funnels.accountId,
       })
-      .from(opportunities)
+      .from(funnels)
       .where(
         and(
-          isNull(opportunities.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          isNull(funnels.deletedAt),
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
-      .orderBy(asc(opportunities.name))
+      .orderBy(asc(funnels.name))
   })
 }
 
@@ -644,27 +644,27 @@ export type ProjectPrefill = {
  * then the tenant's first project nature) so the form prefills it editable.
  */
 export async function prefillFromOpportunity(
-  opportunityId: string
+  funnelId: string
 ): Promise<ProjectPrefill | null> {
   return withModule("projects", PERMISSIONS.PROJECT_CREATE, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
-        id: opportunities.id,
-        name: opportunities.name,
-        accountId: opportunities.accountId,
+        id: funnels.id,
+        name: funnels.name,
+        accountId: funnels.accountId,
         accountName: accounts.name,
-        currency: opportunities.currency,
-        projectNatureCode: opportunities.projectNatureCode,
-        projectYear: opportunities.projectYear,
-        ownerMemberId: opportunities.ownerMemberId,
+        currency: funnels.currency,
+        projectNatureCode: funnels.projectNatureCode,
+        projectYear: funnels.projectYear,
+        ownerMemberId: funnels.ownerMemberId,
       })
-      .from(opportunities)
-      .leftJoin(accounts, eq(opportunities.accountId, accounts.id))
+      .from(funnels)
+      .leftJoin(accounts, eq(funnels.accountId, accounts.id))
       .where(
         and(
-          eq(opportunities.id, opportunityId),
-          isNull(opportunities.deletedAt)
+          eq(funnels.id, funnelId),
+          isNull(funnels.deletedAt)
         )
       )
       .limit(1)
@@ -673,7 +673,7 @@ export async function prefillFromOpportunity(
 
     const { value, fromQuoteId, quoteNumber } = await opportunityNetValue(
       tx,
-      opportunityId
+      funnelId
     )
 
     // Derive the project nature: the accepted/source quotation snapshot wins, then

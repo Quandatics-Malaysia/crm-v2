@@ -12,7 +12,7 @@ import {
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
-import { dealCosts, opportunities } from "@/db/schema"
+import { dealCosts, funnels } from "@/db/schema"
 
 export type DealCostRow = typeof dealCosts.$inferSelect
 
@@ -45,12 +45,12 @@ function baseAmount(amount?: string | null, rate?: string | null): string {
 async function assertOppAccess(
   tx: Parameters<Parameters<typeof withTenant>[1]>[0],
   ctx: Parameters<Parameters<typeof withTenant>[1]>[1],
-  opportunityId: string
+  funnelId: string
 ): Promise<void> {
   const [opp] = await tx
-    .select({ ownerMemberId: opportunities.ownerMemberId })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId))
+    .select({ ownerMemberId: funnels.ownerMemberId })
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
     .limit(1)
   if (!opp) throw new Error("Funnel not found")
   const visible = await visibleMemberIds(tx, ctx)
@@ -59,31 +59,31 @@ async function assertOppAccess(
 }
 
 export async function listDealCosts(
-  opportunityId: string
+  funnelId: string
 ): Promise<DealCostRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
-    await assertOppAccess(tx, ctx, opportunityId)
+    await assertOppAccess(tx, ctx, funnelId)
     return tx
       .select()
       .from(dealCosts)
-      .where(eq(dealCosts.opportunityId, opportunityId))
+      .where(eq(dealCosts.funnelId, funnelId))
       .orderBy(asc(dealCosts.createdAt))
   })
 }
 
 export async function createDealCost(
-  opportunityId: string,
+  funnelId: string,
   input: DealCostInput
 ): Promise<ActionResult<DealCostRow>> {
   return runAction(async () => {
     const row = await withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
-      await assertOppAccess(tx, ctx, opportunityId)
+      await assertOppAccess(tx, ctx, funnelId)
       const amountBase = baseAmount(input.amount, input.exchangeRate)
       const [created] = await tx
         .insert(dealCosts)
         .values({
           tenantId: ctx.tenantId,
-          opportunityId,
+          funnelId,
           category: clean(input.category),
           contractYear: input.contractYear ?? null,
           partyKind: input.partyKind ?? "supplier",
@@ -105,12 +105,12 @@ export async function createDealCost(
       await writeAudit(tx, ctx, {
         action: "deal_cost.created",
         entityType: "opportunity",
-        entityId: opportunityId,
+        entityId: funnelId,
         after: { id: created.id, amountBase },
       })
       return created
     })
-    revalidatePath(`/funnel/${opportunityId}`)
+    revalidatePath(`/funnel/${funnelId}`)
     return row
   })
 }
@@ -124,14 +124,14 @@ export async function deleteDealCost(id: string): Promise<ActionResult<void>> {
         .where(eq(dealCosts.id, id))
         .limit(1)
       if (!before) throw new Error("Cost line not found")
-      await assertOppAccess(tx, ctx, before.opportunityId)
+      await assertOppAccess(tx, ctx, before.funnelId)
       await tx.delete(dealCosts).where(eq(dealCosts.id, id))
       await writeAudit(tx, ctx, {
         action: "deal_cost.deleted",
         entityType: "opportunity",
-        entityId: before.opportunityId,
+        entityId: before.funnelId,
       })
-      revalidatePath(`/funnel/${before.opportunityId}`)
+      revalidatePath(`/funnel/${before.funnelId}`)
     })
   })
 }

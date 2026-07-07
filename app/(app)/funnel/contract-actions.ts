@@ -11,7 +11,7 @@ import {
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
-import { contractYears, opportunities } from "@/db/schema"
+import { contractYears, funnels } from "@/db/schema"
 
 export type ContractYearRow = typeof contractYears.$inferSelect
 
@@ -32,12 +32,12 @@ function clean(v?: string | null): string | null {
 async function assertOppAccess(
   tx: Parameters<Parameters<typeof withTenant>[1]>[0],
   ctx: Parameters<Parameters<typeof withTenant>[1]>[1],
-  opportunityId: string
+  funnelId: string
 ): Promise<void> {
   const [opp] = await tx
-    .select({ ownerMemberId: opportunities.ownerMemberId })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId))
+    .select({ ownerMemberId: funnels.ownerMemberId })
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
     .limit(1)
   if (!opp) throw new Error("Funnel not found")
   const visible = await visibleMemberIds(tx, ctx)
@@ -46,36 +46,36 @@ async function assertOppAccess(
 }
 
 export async function listContractYears(
-  opportunityId: string
+  funnelId: string
 ): Promise<ContractYearRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
-    await assertOppAccess(tx, ctx, opportunityId)
+    await assertOppAccess(tx, ctx, funnelId)
     return tx
       .select()
       .from(contractYears)
-      .where(eq(contractYears.opportunityId, opportunityId))
+      .where(eq(contractYears.funnelId, funnelId))
       .orderBy(asc(contractYears.year), asc(contractYears.sortOrder))
   })
 }
 
 export async function createContractYear(
-  opportunityId: string,
+  funnelId: string,
   input: ContractYearInput
 ): Promise<ActionResult<ContractYearRow>> {
   return runAction(async () => {
     if (!input.year) throw new Error("A year is required")
     const row = await withTenant(PERMISSIONS.OPPORTUNITY_UPDATE, async (tx, ctx) => {
-      await assertOppAccess(tx, ctx, opportunityId)
+      await assertOppAccess(tx, ctx, funnelId)
       const [oppCurrency] = await tx
-        .select({ currency: opportunities.currency })
-        .from(opportunities)
-        .where(eq(opportunities.id, opportunityId))
+        .select({ currency: funnels.currency })
+        .from(funnels)
+        .where(eq(funnels.id, funnelId))
         .limit(1)
       const [created] = await tx
         .insert(contractYears)
         .values({
           tenantId: ctx.tenantId,
-          opportunityId,
+          funnelId,
           year: input.year!,
           title: clean(input.title),
           amount: input.amount ? Number(input.amount).toFixed(2) : "0",
@@ -91,12 +91,12 @@ export async function createContractYear(
       await writeAudit(tx, ctx, {
         action: "contract_year.created",
         entityType: "opportunity",
-        entityId: opportunityId,
+        entityId: funnelId,
         after: { id: created.id, year: created.year },
       })
       return created
     })
-    revalidatePath(`/funnel/${opportunityId}`)
+    revalidatePath(`/funnel/${funnelId}`)
     return row
   })
 }
@@ -113,7 +113,7 @@ export async function updateContractYear(
         .where(eq(contractYears.id, id))
         .limit(1)
       if (!before) throw new Error("Contract year not found")
-      await assertOppAccess(tx, ctx, before.opportunityId)
+      await assertOppAccess(tx, ctx, before.funnelId)
       const [updated] = await tx
         .update(contractYears)
         .set({
@@ -135,12 +135,12 @@ export async function updateContractYear(
       await writeAudit(tx, ctx, {
         action: "contract_year.updated",
         entityType: "opportunity",
-        entityId: before.opportunityId,
+        entityId: before.funnelId,
         after: { id, year: updated.year, status: updated.status },
       })
       return updated
     })
-    revalidatePath(`/funnel/${row.opportunityId}`)
+    revalidatePath(`/funnel/${row.funnelId}`)
     return row
   })
 }
@@ -154,14 +154,14 @@ export async function deleteContractYear(id: string): Promise<ActionResult<void>
         .where(eq(contractYears.id, id))
         .limit(1)
       if (!before) throw new Error("Contract year not found")
-      await assertOppAccess(tx, ctx, before.opportunityId)
+      await assertOppAccess(tx, ctx, before.funnelId)
       await tx.delete(contractYears).where(eq(contractYears.id, id))
       await writeAudit(tx, ctx, {
         action: "contract_year.deleted",
         entityType: "opportunity",
-        entityId: before.opportunityId,
+        entityId: before.funnelId,
       })
-      revalidatePath(`/funnel/${before.opportunityId}`)
+      revalidatePath(`/funnel/${before.funnelId}`)
     })
   })
 }

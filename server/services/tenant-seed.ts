@@ -6,8 +6,8 @@ import {
   rolePermissions,
   permissions,
   tenantSettings,
-  funnels,
-  funnelStages,
+  pipelines,
+  pipelineStages,
   taxSettings,
 } from "@/db/schema"
 import { ROLE_TEMPLATES, ALL_PERMISSION_KEYS } from "@/lib/permissions"
@@ -94,19 +94,19 @@ export async function seedTenant(
 
   // default funnel + canonical stages (only if none exist)
   const existing = await tx
-    .select({ id: funnels.id })
-    .from(funnels)
-    .where(eq(funnels.tenantId, tenantId))
+    .select({ id: pipelines.id })
+    .from(pipelines)
+    .where(eq(pipelines.tenantId, tenantId))
     .limit(1)
   if (existing.length === 0) {
     const [funnel] = await tx
-      .insert(funnels)
+      .insert(pipelines)
       .values({ tenantId, name: "Sales Funnel", isDefault: true, isActive: true })
       .returning()
-    await tx.insert(funnelStages).values(
+    await tx.insert(pipelineStages).values(
       CANONICAL_STAGES.map((s) => ({
         tenantId,
-        funnelId: funnel.id,
+        pipelineId: funnel.id,
         code: s.code,
         name: s.name,
         probability: String(s.probability),

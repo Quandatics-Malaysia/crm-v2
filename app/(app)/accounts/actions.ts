@@ -17,8 +17,8 @@ import type { Tx, ServerContext } from "@/lib/actions"
 import {
   accounts,
   persons,
-  opportunities,
-  funnelStages,
+  funnels,
+  pipelineStages,
   projects,
   quotations,
   member,
@@ -48,12 +48,12 @@ export type BillingAddress = {
 
 /** One opportunity related to an account, with its current stage resolved. */
 export type AccountFunnelItem = {
-  opportunityId: string
+  funnelId: string
   name: string
   status: string
   amount: string | null
   currency: string
-  funnelId: string
+  pipelineId: string
   stageId: string
   stageName: string
   stageCode: string
@@ -126,7 +126,7 @@ export async function listAccounts(): Promise<AccountListItem[]> {
 
 /**
  * A single account with its persons, direct child accounts, and related
- * funnels (opportunities for this account + their current stage so each row
+ * pipelines (funnels for this account + their current stage so each row
  * can link to /funnel/<oppId>).
  */
 export async function getAccount(id: string) {
@@ -189,32 +189,32 @@ export async function getAccount(id: string) {
       .where(and(eq(persons.accountId, id), isNull(persons.deletedAt)))
       .orderBy(asc(persons.firstName))
 
-    const funnels = await tx
+    const pipelines = await tx
       .select({
-        opportunityId: opportunities.id,
-        name: opportunities.name,
-        status: opportunities.status,
-        amount: opportunities.estimatedAmount,
-        currency: opportunities.currency,
-        funnelId: opportunities.funnelId,
-        stageId: funnelStages.id,
-        stageName: funnelStages.name,
-        stageCode: funnelStages.code,
-        stageKind: funnelStages.kind,
+        funnelId: funnels.id,
+        name: funnels.name,
+        status: funnels.status,
+        amount: funnels.estimatedAmount,
+        currency: funnels.currency,
+        pipelineId: funnels.pipelineId,
+        stageId: pipelineStages.id,
+        stageName: pipelineStages.name,
+        stageCode: pipelineStages.code,
+        stageKind: pipelineStages.kind,
       })
-      .from(opportunities)
+      .from(funnels)
       .innerJoin(
-        funnelStages,
-        eq(opportunities.currentStageId, funnelStages.id)
+        pipelineStages,
+        eq(funnels.currentStageId, pipelineStages.id)
       )
       .where(
         and(
-          eq(opportunities.accountId, id),
-          isNull(opportunities.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          eq(funnels.accountId, id),
+          isNull(funnels.deletedAt),
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
-      .orderBy(asc(funnelStages.sortOrder), asc(opportunities.name))
+      .orderBy(asc(pipelineStages.sortOrder), asc(funnels.name))
 
     // Resolve the account owner / account manager (member -> user name).
     const ownerName = account.ownerMemberId
@@ -234,7 +234,7 @@ export async function getAccount(id: string) {
       endUserAccount,
       children,
       contacts,
-      funnels: funnels as AccountFunnelItem[],
+      pipelines: pipelines as AccountFunnelItem[],
       ownerName,
     }
   })
@@ -273,7 +273,7 @@ export async function listAccountProjects(
   })
 }
 
-/** One quotation across an account's opportunities. */
+/** One quotation across an account's funnels. */
 export type AccountQuotationItem = {
   id: string
   quoteNumber: string
@@ -283,8 +283,8 @@ export type AccountQuotationItem = {
 }
 
 /**
- * Quotations for every opportunity under an account (quotations -> opportunities
- * where opportunities.accountId = accountId), newest first, for the account page.
+ * Quotations for every opportunity under an account (quotations -> funnels
+ * where funnels.accountId = accountId), newest first, for the account page.
  */
 export async function listAccountQuotations(
   accountId: string
@@ -300,13 +300,13 @@ export async function listAccountQuotations(
         currency: quotations.currency,
       })
       .from(quotations)
-      .innerJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .innerJoin(funnels, eq(quotations.funnelId, funnels.id))
       .where(
         and(
-          eq(opportunities.accountId, accountId),
+          eq(funnels.accountId, accountId),
           isNull(quotations.deletedAt),
-          isNull(opportunities.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          isNull(funnels.deletedAt),
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
       .orderBy(desc(quotations.createdAt))
@@ -666,7 +666,7 @@ export async function deleteAccount(id: string): Promise<ActionResult<void>> {
       }
 
       // Soft-delete doesn't cascade, so block while active dependents exist —
-      // otherwise contacts/opportunities/projects would be orphaned under a
+      // otherwise contacts/funnels/projects would be orphaned under a
       // hidden account.
       const [contact] = await tx
         .select({ id: persons.id })
@@ -679,13 +679,13 @@ export async function deleteAccount(id: string): Promise<ActionResult<void>> {
         )
       }
       const [opp] = await tx
-        .select({ id: opportunities.id })
-        .from(opportunities)
-        .where(and(eq(opportunities.accountId, id), isNull(opportunities.deletedAt)))
+        .select({ id: funnels.id })
+        .from(funnels)
+        .where(and(eq(funnels.accountId, id), isNull(funnels.deletedAt)))
         .limit(1)
       if (opp) {
         throw new Error(
-          "Close or remove this account's funnels before deleting it."
+          "Close or remove this account's pipelines before deleting it."
         )
       }
       const [project] = await tx

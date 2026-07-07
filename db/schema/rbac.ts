@@ -62,8 +62,8 @@ export const tenantSettings = pgTable("tenant_settings", {
   /**
    * Tenant-defined custom funnel fields. Each is a stable `key` + display
    * `label`; salespeople fill them on the funnel (stored in
-   * opportunities.custom_fields), and admins can require them per stage
-   * (funnel_stages.required_fields references the key). See lib/stage-gate.ts.
+   * funnels.custom_fields), and admins can require them per stage
+   * (pipeline_stages.required_fields references the key). See lib/stage-gate.ts.
    */
   customFunnelFields: jsonb("custom_funnel_fields")
     .$type<

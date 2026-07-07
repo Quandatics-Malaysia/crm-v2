@@ -91,7 +91,7 @@ function PipelineCards({ scope, p }: { scope: Scope; p: OpenPipeline }) {
         icon={Target}
         chip="violet"
         value={p.count}
-        hint={team ? "Open funnels across the team" : "Funnels you own still in flight"}
+        hint={team ? "Open pipelines across the team" : "Funnels you own still in flight"}
       />
     </>
   )

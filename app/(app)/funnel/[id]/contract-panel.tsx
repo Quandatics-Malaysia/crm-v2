@@ -37,12 +37,12 @@ const STATUS = [
  * Cancelled years are excluded from the contract total.
  */
 export function ContractPanel({
-  opportunityId,
+  funnelId,
   years,
   currency,
   canManage,
 }: {
-  opportunityId: string
+  funnelId: string
   years: ContractYearRow[]
   currency: string
   canManage: boolean
@@ -81,7 +81,7 @@ export function ContractPanel({
     }
     run(
       () =>
-        createContractYear(opportunityId, {
+        createContractYear(funnelId, {
           year: Number(year),
           title: title || null,
           amount: amount || "0",

@@ -17,7 +17,7 @@ export default async function NewProjectPage({
 }: {
   searchParams: Promise<{
     accountId?: string
-    opportunityId?: string
+    funnelId?: string
     quotationId?: string
   }>
 }) {
@@ -26,7 +26,7 @@ export default async function NewProjectPage({
   // No create permission -> there's no affordance to land here; bounce back.
   if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) redirect("/projects")
   const sp = await searchParams
-  const [accounts, opportunities, meta] = await Promise.all([
+  const [accounts, funnels, meta] = await Promise.all([
     listAccountOptions(),
     listOpportunityOptions(),
     listProjectCreateMeta(),
@@ -34,7 +34,7 @@ export default async function NewProjectPage({
 
   // Prefill from query: explicit opportunity wins and derives its account.
   let defaultAccountId = sp.accountId
-  const defaultOpportunityId = sp.opportunityId
+  const defaultOpportunityId = sp.funnelId
 
   // When created from a funnel, pre-fill name + value + linked quotation from the
   // opportunity's source quote (net of tax) so the user mostly just picks the
@@ -64,7 +64,7 @@ export default async function NewProjectPage({
       if (prefill.projectYear && prefill.projectYear > 0) codeYear = prefill.projectYear
     } else {
       // Fall back to deriving the account from the funnel options.
-      const opp = opportunities.find((o) => o.id === defaultOpportunityId)
+      const opp = funnels.find((o) => o.id === defaultOpportunityId)
       if (opp) {
         defaultAccountId = opp.accountId
         defaultName = opp.name
@@ -93,7 +93,7 @@ export default async function NewProjectPage({
         </p>
         <ProjectCreateForm
           accounts={accounts}
-          opportunities={opportunities}
+          funnels={funnels}
           projectNatures={meta.projectNatures}
           entityCode={meta.entityCode}
           codeYear={codeYear}

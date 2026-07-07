@@ -18,7 +18,7 @@ import { isModuleEnabled } from "@/lib/modules"
  *   - adds four normal members (manager / sales1 / sales2 / viewer), all
  *     email+password sign-in, all `isSuperadmin = false` (the one-superadmin
  *     DB invariant is preserved),
- *   - owns accounts/contacts/funnels/quotations across sales1 & sales2 so
+ *   - owns accounts/contacts/pipelines/quotations across sales1 & sales2 so
  *     record-scoped access is actually exercised, and
  *   - files ONE pending stage-approval request (sales1, low tier, advancing a
  *     gated stage) routed to the manager, with the opportunity LEFT at its
@@ -36,12 +36,13 @@ const {
   account,
   member,
   membershipProfiles,
-  funnels,
-  funnelStages,
+  pipelines,
+  pipelineStages,
   taxSettings,
   accounts,
   persons,
   opportunities,
+  funnels,
   quotations,
   quotationLineItems,
   stageApprovalRequests,
@@ -95,14 +96,14 @@ async function main() {
   // Default funnel + stage code→id map.
   const [funnel] = await db
     .select()
-    .from(funnels)
-    .where(and(eq(funnels.tenantId, TENANT_ID), eq(funnels.isDefault, true)))
+    .from(pipelines)
+    .where(and(eq(pipelines.tenantId, TENANT_ID), eq(pipelines.isDefault, true)))
     .limit(1)
   if (!funnel) throw new Error("Default funnel not found — run `npm run db:seed` first.")
   const stageRows = await db
     .select()
-    .from(funnelStages)
-    .where(eq(funnelStages.funnelId, funnel.id))
+    .from(pipelineStages)
+    .where(eq(pipelineStages.pipelineId, funnel.id))
   const stage = new Map<string, string>(stageRows.map((s) => [s.code, s.id]))
 
   // Default tax setting (SST 6%).
@@ -251,7 +252,7 @@ async function main() {
       .onConflictDoNothing()
   }
 
-  // ── 4. opportunities (funnels) across stages ──────────────────────────────
+  // ── 4. funnels (pipelines) across stages ──────────────────────────────
   const oppId = (k: string) => det(`opportunity:${k}`)
   // projectNature codes below come from the tenant's product_types picklist
   // seeded in seed.ts (CONSULT/IMPL/MSP/WEB/INFRA/SUPP). The funnel's
@@ -271,17 +272,68 @@ async function main() {
     { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", projectNature: "CONSULT" },
   ]
   const oppProjectNature = new Map(oppValues.map((o) => [o.k, o.projectNature]))
-  for (const o of oppValues) {
-    const closeTs = o.closed ? new Date("2026-06-01T08:00:00Z") : null
+
+  // Opportunity CONTAINERS (parent of funnels). Acme's two deals share ONE
+  // container to demo the Total-Estimated-Funnel-Amount rollup (1 opp → N funnels).
+  const containerOf: Record<string, string> = {
+    "acme-erp": "acme-platform",
+    "acme-data": "acme-platform",
+    "globex-cloud": "globex-cloud",
+    "initech-audit": "initech-audit",
+    "umbrella-crm": "umbrella-crm",
+    "stark-msp": "stark-msp",
+    "globex-legacy": "globex-legacy",
+    "umbpharma-pilot": "umbpharma-pilot",
+  }
+  const containerId = (ck: string) => det(`opportunity-container:${ck}`)
+  const containerName: Record<string, string> = {
+    "acme-platform": "Acme Digital Platform Programme",
+    "globex-cloud": "Globex Cloud Migration",
+    "initech-audit": "Initech Security Audit",
+    "umbrella-crm": "Umbrella CRM Rollout",
+    "stark-msp": "Stark Managed Services",
+    "globex-legacy": "Globex Legacy Upgrade",
+    "umbpharma-pilot": "Umbrella Pharma Pilot",
+  }
+  const containerKeys = [...new Set(Object.values(containerOf))]
+  let cnum = 0
+  for (const ck of containerKeys) {
+    cnum++
+    const members = oppValues.filter((o) => containerOf[o.k] === ck)
+    const first = members[0]
+    const total = members
+      .reduce((s, o) => s + Number(o.amount), 0)
+      .toFixed(2)
     await db
       .insert(opportunities)
       .values({
+        id: containerId(ck),
+        tenantId: TENANT_ID,
+        accountId: accId(first.account),
+        primaryPersonId: first.person ? perId(first.person) : null,
+        ownerMemberId: first.owner,
+        opportunityYear: 2026,
+        opportunityNumber: cnum,
+        code: `OPP-2026-${String(cnum).padStart(4, "0")}`,
+        name: containerName[ck] ?? ck,
+        totalEstimatedFunnelAmount: total,
+        currency: "MYR",
+      })
+      .onConflictDoNothing()
+  }
+
+  for (const o of oppValues) {
+    const closeTs = o.closed ? new Date("2026-06-01T08:00:00Z") : null
+    await db
+      .insert(funnels)
+      .values({
         id: oppId(o.k),
         tenantId: TENANT_ID,
+        opportunityId: containerId(containerOf[o.k]),
         name: o.name,
         accountId: accId(o.account),
         primaryPersonId: o.person ? perId(o.person) : null,
-        funnelId: funnel.id,
+        pipelineId: funnel.id,
         currentStageId: stage.get(o.stage)!,
         ownerMemberId: o.owner,
         amount: o.amount,
@@ -367,7 +419,7 @@ async function main() {
       .values({
         id: quoteId(q.k),
         tenantId: TENANT_ID,
-        opportunityId: oppId(q.opp),
+        funnelId: oppId(q.opp),
         quoteNumber: q.number,
         version: 1,
         isPrimary: q.isPrimary,
@@ -413,9 +465,9 @@ async function main() {
   }
   // point the won opportunity at its accepted primary quote
   await db
-    .update(opportunities)
+    .update(funnels)
     .set({ primaryQuotationId: quoteId("stark-accepted") })
-    .where(eq(opportunities.id, oppId("stark-msp")))
+    .where(eq(funnels.id, oppId("stark-msp")))
 
   // ── 6+7. project + milestones off the accepted quote (won deal) ───────────
   // Only when the projects plugin is enabled — otherwise a core-only seed would
@@ -433,7 +485,7 @@ async function main() {
         projectNatureCode: "MSP",
         name: "Stark Managed Services — Year 1",
         accountId: accId("stark"),
-        opportunityId: oppId("stark-msp"),
+        funnelId: oppId("stark-msp"),
         quotationId: quoteId("stark-accepted"),
         ownerMemberId: MEM_S2,
         status: "active",
@@ -498,7 +550,7 @@ async function main() {
     .values({
       id: APPROVAL_ID,
       tenantId: TENANT_ID,
-      opportunityId: oppId("initech-audit"),
+      funnelId: oppId("initech-audit"),
       requesterMemberId: MEM_S1,
       fromStageId: stage.get("2c")!,
       targetStageId: stage.get("3b")!,
@@ -572,7 +624,7 @@ async function main() {
       .values({
         id: det(`contractyear:umbrella:${cy.y}`),
         tenantId: TENANT_ID,
-        opportunityId: umbrellaOppId,
+        funnelId: umbrellaOppId,
         year: cy.y,
         title: cy.t,
         amount: cy.a,

@@ -57,17 +57,17 @@ flowchart TD
           ],
           [
             "Funnel → Account / Contact",
-            <Code key="c">opportunities.account_id / person_id</Code>,
+            <Code key="c">funnels.account_id / person_id</Code>,
             "Funnel create form.",
           ],
           [
             "Quotation → Funnel",
-            <Code key="c">quotations.opportunity_id</Code>,
+            <Code key="c">quotations.funnel_id</Code>,
             "New quotation (from the funnel or the Quotations list).",
           ],
           [
             "Project → Funnel / Quotation / Account",
-            <Code key="c">projects.opportunity_id / quotation_id / account_id</Code>,
+            <Code key="c">projects.funnel_id / quotation_id / account_id</Code>,
             "Create project (manual or auto on quote accept).",
           ],
           [
@@ -90,7 +90,7 @@ flowchart TD
           ],
           [
             "Interco mirror → Funnel",
-            <Code key="c">intercompany_deals.opportunity_id</Code>,
+            <Code key="c">intercompany_deals.funnel_id</Code>,
             "Synced automatically on every interco funnel mutation.",
           ],
         ]}
@@ -224,12 +224,12 @@ export const crmCorePage: DocPage = {
       <P>
         People at accounts (<Code>persons</Code> table). Contacts link to an
         account and can be named on funnel deals. The detail page shows the
-        person’s funnels, activities and documents.
+        person’s pipelines, activities and documents.
       </P>
 
       <H2>Ownership</H2>
       <P>
-        Leads, accounts, contacts, funnels and projects carry an{" "}
+        Leads, accounts, contacts, pipelines and projects carry an{" "}
         <Code>owner_member_id</Code>. Who can see/edit which records is
         governed by the owner + managed-subtree scope described in{" "}
         <Link className="link" href="/documentation/access-control">
@@ -250,7 +250,7 @@ export const funnelForecastPage: DocPage = {
     <>
       <H2>Pipeline</H2>
       <P>
-        Deals (“funnels”) move through tenant-configurable stages, each with a{" "}
+        Deals (“pipelines”) move through tenant-configurable stages, each with a{" "}
         <B>probability</B> and a kind (<Code>OPEN / WON / LOST / PARKED</Code>).
         Stages can require <B>approval to enter</B>: reps below the bypass tier
         raise a stage-approval request that a manager approves on /approvals.
@@ -289,7 +289,7 @@ export const funnelForecastPage: DocPage = {
           Intercompany
         </Link>
         ). Multiple <B>project natures</B> per deal are held in{" "}
-        <Code>opportunities.project_natures</Code>; the first is the primary
+        <Code>funnels.project_natures</Code>; the first is the primary
         and drives the project code. A deal may also carry a description and a
         project/license year.
       </P>
@@ -327,7 +327,7 @@ export const funnelForecastPage: DocPage = {
       <H2>Hygiene automation</H2>
       <Ul>
         <Li>
-          <B>Stale funnels:</B> deals untouched for{" "}
+          <B>Stale pipelines:</B> deals untouched for{" "}
           <Code>stale_deal_days</Code> surface on the dashboard.
         </Li>
         <Li>

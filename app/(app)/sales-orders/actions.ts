@@ -14,7 +14,7 @@ import {
   member,
   user,
   attachments,
-  opportunities,
+  funnels,
   quotations,
   tenantSettings,
 } from "@/db/schema"
@@ -141,14 +141,14 @@ async function fetchRows(
       reviewedAt: salesOrders.reviewedAt,
       amount: projects.value,
       currency: projects.currency,
-      funnelName: opportunities.name,
+      funnelName: funnels.name,
       quoteNumber: quotations.quoteNumber,
     })
     .from(salesOrders)
     .innerJoin(projects, eq(salesOrders.projectId, projects.id))
     // Review context inherited from the parent project: the funnel it came from
     // and the accepted quotation it was based on (both optional).
-    .leftJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+    .leftJoin(funnels, eq(projects.funnelId, funnels.id))
     .leftJoin(quotations, eq(projects.quotationId, quotations.id))
     .where(
       and(

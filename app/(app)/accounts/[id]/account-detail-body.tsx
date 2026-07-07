@@ -48,7 +48,7 @@ export type AccountDetailData = {
   accountId: string
   fields: { label: string; value: React.ReactNode }[]
   contacts: PersonRow[]
-  funnels: AccountFunnelItem[]
+  pipelines: AccountFunnelItem[]
   projects: AccountProjectItem[]
   quotations: AccountQuotationItem[]
   childAccounts: AccountChild[]
@@ -63,7 +63,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     accountId,
     fields,
     contacts,
-    funnels,
+    pipelines,
     projects,
     quotations,
     childAccounts,
@@ -81,7 +81,7 @@ export function AccountDetailBody(props: AccountDetailData) {
         header: ({ column }) => <SortableHeader column={column} title="Funnel" />,
         cell: ({ row }) => (
           <Link
-            href={`/funnel/${row.original.opportunityId}`}
+            href={`/funnel/${row.original.funnelId}`}
             className="font-medium link"
           >
             {row.original.name}
@@ -233,7 +233,7 @@ export function AccountDetailBody(props: AccountDetailData) {
             <RelatedQuickLinks
               items={[
                 { kind: "contact", label: "Contacts", count: contacts.length, onSelect: () => setTab("contacts") },
-                { kind: "funnel", label: "Funnels", count: funnels.length, onSelect: () => setTab("funnels") },
+                { kind: "funnel", label: "Funnels", count: pipelines.length, onSelect: () => setTab("pipelines") },
                 { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
                 { kind: "account", label: "Child accounts", count: childAccounts.length, onSelect: () => setTab("children") },
@@ -255,10 +255,10 @@ export function AccountDetailBody(props: AccountDetailData) {
                     {contacts.length}
                   </Badge>
                 </TabsTrigger>
-                <TabsTrigger value="funnels">
+                <TabsTrigger value="pipelines">
                   Funnels
                   <Badge variant="secondary" className="ml-1.5">
-                    {funnels.length}
+                    {pipelines.length}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="projects">
@@ -292,14 +292,14 @@ export function AccountDetailBody(props: AccountDetailData) {
                 <AccountContacts accountId={accountId} contacts={contacts} />
               </TabsContent>
 
-              <TabsContent value="funnels" className="mt-4">
+              <TabsContent value="pipelines" className="mt-4">
                 <DataTable
                   columns={funnelColumns}
-                  data={funnels}
-                  tableId="account-funnels"
+                  data={pipelines}
+                  tableId="account-pipelines"
                   searchColumn="name"
-                  searchPlaceholder="Search funnels…"
-                  emptyMessage="No funnels for this account yet."
+                  searchPlaceholder="Search pipelines…"
+                  emptyMessage="No pipelines for this account yet."
                   pageSize={5}
                 />
               </TabsContent>

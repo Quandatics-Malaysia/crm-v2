@@ -32,7 +32,7 @@ DECLARE
   tenant_tables text[] := ARRAY[
     'roles', 'role_permissions', 'membership_profiles',
     'leads', 'accounts', 'persons',
-    'funnels', 'funnel_stages', 'opportunities', 'opportunity_stage_history',
+    'pipelines', 'pipeline_stages', 'opportunities', 'funnels', 'funnel_stage_history',
     'stage_approval_requests', 'attachments',
     'tax_settings', 'quotations', 'quotation_line_items',
     'custom_field_defs', 'activities', 'projects', 'payment_milestones',

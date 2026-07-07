@@ -13,12 +13,13 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import {
+  funnels,
   opportunities,
   accounts,
   persons,
-  funnels,
-  funnelStages,
-  opportunityStageHistory,
+  pipelines,
+  pipelineStages,
+  funnelStageHistory,
   quotations,
   quotationLineItems,
   products,
@@ -43,6 +44,11 @@ import {
 } from "@/lib/interco-share"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
 import { isModuleEnabled } from "@/lib/modules"
+import {
+  createOpportunityContainer,
+  recomputeOpportunityTotal,
+} from "@/server/services/opportunity-container"
+import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 
@@ -122,17 +128,17 @@ async function resolvePartyList(
 /** Replace an opportunity's intercompany_deal_parties rows to match `parties`. */
 async function saveParties(
   tx: Tx,
-  opportunityId: string,
+  funnelId: string,
   parties: PartyRow[],
   dealCurrency: string
 ): Promise<void> {
   await tx
     .delete(intercompanyDealParties)
-    .where(eq(intercompanyDealParties.opportunityId, opportunityId))
+    .where(eq(intercompanyDealParties.funnelId, funnelId))
   if (parties.length === 0) return
   await tx.insert(intercompanyDealParties).values(
     parties.map((p, i) => ({
-      opportunityId,
+      funnelId,
       partnerEntityId: p.partnerEntityId,
       shareType: p.shareType,
       shareValue: p.shareValue,
@@ -179,8 +185,8 @@ export type OpportunityListRow = {
   stageKind: string
   stageProbability: string
   stageSortOrder: number
-  funnelId: string
-  funnelIsDefault: boolean
+  pipelineId: string
+  pipelineIsDefault: boolean
   primaryQuotationId: string | null
   projectNatureCode: string | null
   projectNatures: string[] | null
@@ -191,7 +197,15 @@ export type OpportunityInput = {
   name: string
   accountId: string
   primaryPersonId?: string | null
-  funnelId: string
+  /** Parent Opportunity container. When omitted, a 1:1 container is auto-created. */
+  opportunityId?: string | null
+  /** PPVVC analysis — seeds the auto-created container and cascades to the funnel. */
+  pain?: string | null
+  power?: string | null
+  vision?: string | null
+  value?: string | null
+  control?: string | null
+  pipelineId: string
   currentStageId: string
   ownerMemberId: string
   /** Estimated Funnel Amount (manual) — drives the forecast + recognized amount. */
@@ -214,8 +228,8 @@ export type OpportunityInput = {
 }
 
 /**
- * Live-resolved party rows for a set of opportunities, grouped by
- * opportunityId. Entity names resolve LIVE (`organization` is deliberately
+ * Live-resolved party rows for a set of funnels, grouped by
+ * funnelId. Entity names resolve LIVE (`organization` is deliberately
  * RLS-excluded, so this sibling-entity join is allowed) so a rename in
  * Settings propagates to every deal that references it.
  */
@@ -227,7 +241,7 @@ async function loadPartiesByOpportunity(
   if (opportunityIds.length === 0) return byOpp
   const rows = await tx
     .select({
-      opportunityId: intercompanyDealParties.opportunityId,
+      funnelId: intercompanyDealParties.funnelId,
       partnerEntityId: intercompanyDealParties.partnerEntityId,
       partnerName: organization.name,
       shareType: intercompanyDealParties.shareType,
@@ -240,10 +254,10 @@ async function loadPartiesByOpportunity(
       organization,
       eq(intercompanyDealParties.partnerEntityId, organization.id)
     )
-    .where(inArray(intercompanyDealParties.opportunityId, opportunityIds))
+    .where(inArray(intercompanyDealParties.funnelId, opportunityIds))
     .orderBy(asc(intercompanyDealParties.sortOrder))
   for (const r of rows) {
-    const list = byOpp.get(r.opportunityId) ?? []
+    const list = byOpp.get(r.funnelId) ?? []
     list.push({
       partnerEntityId: r.partnerEntityId,
       partnerName: r.partnerName,
@@ -252,57 +266,57 @@ async function loadPartiesByOpportunity(
       currency: r.currency,
       manualFxRate: r.manualFxRate,
     })
-    byOpp.set(r.opportunityId, list)
+    byOpp.set(r.funnelId, list)
   }
   return byOpp
 }
 
-/** All open + closed opportunities (non-deleted), with denormalized lookups. */
+/** All open + closed funnels (non-deleted), with denormalized lookups. */
 export async function listOpportunities(): Promise<OpportunityListRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const rows = await tx
       .select({
-        id: opportunities.id,
-        name: opportunities.name,
-        accountId: opportunities.accountId,
+        id: funnels.id,
+        name: funnels.name,
+        accountId: funnels.accountId,
         accountName: accounts.name,
-        amount: opportunities.amount,
-        estimatedAmount: opportunities.estimatedAmount,
-        recognizedPercent: opportunities.recognizedPercent,
-        description: opportunities.description,
-        projectYear: opportunities.projectYear,
-        isIntercompany: opportunities.isIntercompany,
-        currency: opportunities.currency,
-        status: opportunities.status,
-        expectedCloseDate: opportunities.expectedCloseDate,
-        ownerMemberId: opportunities.ownerMemberId,
+        amount: funnels.amount,
+        estimatedAmount: funnels.estimatedAmount,
+        recognizedPercent: funnels.recognizedPercent,
+        description: funnels.description,
+        projectYear: funnels.projectYear,
+        isIntercompany: funnels.isIntercompany,
+        currency: funnels.currency,
+        status: funnels.status,
+        expectedCloseDate: funnels.expectedCloseDate,
+        ownerMemberId: funnels.ownerMemberId,
         ownerName: user.name,
-        stageId: funnelStages.id,
-        stageName: funnelStages.name,
-        stageKind: funnelStages.kind,
-        stageProbability: funnelStages.probability,
-        stageSortOrder: funnelStages.sortOrder,
-        funnelId: opportunities.funnelId,
-        funnelIsDefault: funnels.isDefault,
-        primaryQuotationId: opportunities.primaryQuotationId,
-        projectNatureCode: opportunities.projectNatureCode,
-        projectNatures: opportunities.projectNatures,
-        customFields: opportunities.customFields,
+        stageId: pipelineStages.id,
+        stageName: pipelineStages.name,
+        stageKind: pipelineStages.kind,
+        stageProbability: pipelineStages.probability,
+        stageSortOrder: pipelineStages.sortOrder,
+        pipelineId: funnels.pipelineId,
+        pipelineIsDefault: pipelines.isDefault,
+        primaryQuotationId: funnels.primaryQuotationId,
+        projectNatureCode: funnels.projectNatureCode,
+        projectNatures: funnels.projectNatures,
+        customFields: funnels.customFields,
       })
-      .from(opportunities)
-      .innerJoin(accounts, eq(opportunities.accountId, accounts.id))
-      .innerJoin(funnelStages, eq(opportunities.currentStageId, funnelStages.id))
-      .innerJoin(funnels, eq(opportunities.funnelId, funnels.id))
-      .leftJoin(member, eq(opportunities.ownerMemberId, member.id))
+      .from(funnels)
+      .innerJoin(accounts, eq(funnels.accountId, accounts.id))
+      .innerJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
+      .innerJoin(pipelines, eq(funnels.pipelineId, pipelines.id))
+      .leftJoin(member, eq(funnels.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
       .where(
         and(
-          isNull(opportunities.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          isNull(funnels.deletedAt),
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
-      .orderBy(desc(opportunities.createdAt))
+      .orderBy(desc(funnels.createdAt))
 
     const partiesByOpp = await loadPartiesByOpportunity(
       tx,
@@ -322,12 +336,12 @@ export type OpportunityDetail = {
     reason: string | null
     respondedAt: Date
   }[]
-  opportunity: typeof opportunities.$inferSelect
+  opportunity: typeof funnels.$inferSelect
   accountName: string
   personName: string | null
   ownerName: string | null
-  stage: typeof funnelStages.$inferSelect
-  funnelStagesList: (typeof funnelStages.$inferSelect)[]
+  stage: typeof pipelineStages.$inferSelect
+  funnelStagesList: (typeof pipelineStages.$inferSelect)[]
   /** Quote number of the primary quotation, if the amount derives from one. */
   quoteNumber: string | null
   /** True when opportunity.amount is synced from a primary quotation (net). */
@@ -362,8 +376,8 @@ export async function getOpportunity(
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select()
-      .from(opportunities)
-      .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
+      .from(funnels)
+      .where(and(eq(funnels.id, id), isNull(funnels.deletedAt)))
       .limit(1)
     if (!opp) return null
     if (!ownsOrManages(visible, opp.ownerMemberId)) return null
@@ -394,7 +408,7 @@ export async function getOpportunity(
           intercompanyDealResponses,
           eq(intercompanyDealResponses.dealId, intercompanyDeals.id)
         )
-        .where(eq(intercompanyDeals.opportunityId, id))
+        .where(eq(intercompanyDeals.funnelId, id))
       partnerResponses = rows
     }
 
@@ -417,8 +431,8 @@ export async function getOpportunity(
 
     const [stage] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, opp.currentStageId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, opp.currentStageId))
       .limit(1)
 
     // Resolve the primary quotation's number so the summary can show that the
@@ -436,9 +450,9 @@ export async function getOpportunity(
 
     const funnelStagesList = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.funnelId, opp.funnelId))
-      .orderBy(asc(funnelStages.sortOrder))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.pipelineId, opp.pipelineId))
+      .orderBy(asc(pipelineStages.sortOrder))
 
     const quotes = await tx
       .select({
@@ -451,31 +465,31 @@ export async function getOpportunity(
       })
       .from(quotations)
       .where(
-        and(eq(quotations.opportunityId, id), isNull(quotations.deletedAt))
+        and(eq(quotations.funnelId, id), isNull(quotations.deletedAt))
       )
       .orderBy(desc(quotations.version))
 
-    const toStage = alias(funnelStages, "to_stage")
+    const toStage = alias(pipelineStages, "to_stage")
     const historyRows = await tx
       .select({
-        id: opportunityStageHistory.id,
+        id: funnelStageHistory.id,
         toStageName: toStage.name,
-        source: opportunityStageHistory.source,
-        probabilityAtChange: opportunityStageHistory.probabilityAtChange,
-        valueAtChange: opportunityStageHistory.valueAtChange,
-        changedAt: opportunityStageHistory.changedAt,
-        fromStageId: opportunityStageHistory.fromStageId,
+        source: funnelStageHistory.source,
+        probabilityAtChange: funnelStageHistory.probabilityAtChange,
+        valueAtChange: funnelStageHistory.valueAtChange,
+        changedAt: funnelStageHistory.changedAt,
+        fromStageId: funnelStageHistory.fromStageId,
         changedByName: user.name,
       })
-      .from(opportunityStageHistory)
-      .innerJoin(toStage, eq(opportunityStageHistory.toStageId, toStage.id))
+      .from(funnelStageHistory)
+      .innerJoin(toStage, eq(funnelStageHistory.toStageId, toStage.id))
       .leftJoin(
         member,
-        eq(opportunityStageHistory.changedByMemberId, member.id)
+        eq(funnelStageHistory.changedByMemberId, member.id)
       )
       .leftJoin(user, eq(member.userId, user.id))
-      .where(eq(opportunityStageHistory.opportunityId, id))
-      .orderBy(desc(opportunityStageHistory.changedAt))
+      .where(eq(funnelStageHistory.funnelId, id))
+      .orderBy(desc(funnelStageHistory.changedAt))
 
     // Resolve fromStage names with a single lookup map.
     const stageNameById = new Map(
@@ -492,7 +506,7 @@ export async function getOpportunity(
       .from(stageApprovalRequests)
       .where(
         and(
-          eq(stageApprovalRequests.opportunityId, id),
+          eq(stageApprovalRequests.funnelId, id),
           eq(stageApprovalRequests.status, "pending")
         )
       )
@@ -544,11 +558,11 @@ export async function createOpportunity(
     async (tx, ctx) => {
       const [stage] = await tx
         .select()
-        .from(funnelStages)
-        .where(eq(funnelStages.id, input.currentStageId))
+        .from(pipelineStages)
+        .where(eq(pipelineStages.id, input.currentStageId))
         .limit(1)
       if (!stage) throw new Error("Invalid stage")
-      if (stage.funnelId !== input.funnelId)
+      if (stage.pipelineId !== input.pipelineId)
         throw new Error("Stage does not belong to the selected funnel")
 
       // owner_member_id is NOT NULL — default to the creator when unspecified.
@@ -592,16 +606,56 @@ export async function createOpportunity(
       const currency =
         input.currency || (await tenantDefaultCurrency(tx, ctx.tenantId))
 
+      // Resolve the parent Opportunity container: use the one passed in (PPVVC
+      // cascades DOWN from it), or auto-create a 1:1 container so the single-step
+      // "create a funnel" UX keeps working. The funnel's account is inherited
+      // from the container (Salesforce "auto-populate funnel account").
+      let containerId: string
+      let containerAccountId: string
+      let ppvvc: Ppvvc
+      if (input.opportunityId) {
+        const [c] = await tx
+          .select()
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.id, input.opportunityId),
+              isNull(opportunities.deletedAt)
+            )
+          )
+          .limit(1)
+        if (!c) throw new Error("Parent opportunity not found")
+        containerId = c.id
+        containerAccountId = c.accountId
+        ppvvc = pickPpvvc(c)
+      } else {
+        const c = await createOpportunityContainer(tx, ctx, {
+          accountId: input.accountId,
+          ownerMemberId,
+          name: input.name,
+          year: input.projectYear,
+          currency,
+          description: input.description,
+          ppvvc: pickPpvvc(input),
+          primaryPersonId: input.primaryPersonId,
+        })
+        containerId = c.id
+        containerAccountId = c.accountId
+        ppvvc = c.ppvvc
+      }
+
       const [row] = await tx
-        .insert(opportunities)
+        .insert(funnels)
         .values({
           tenantId: ctx.tenantId,
+          opportunityId: containerId,
           name: input.name,
-          accountId: input.accountId,
+          accountId: containerAccountId,
           primaryPersonId: input.primaryPersonId || null,
-          funnelId: input.funnelId,
+          pipelineId: input.pipelineId,
           currentStageId: input.currentStageId,
           ownerMemberId,
+          ...ppvvc,
           // amount stays null on create — it's synced from the primary quote.
           estimatedAmount: input.estimatedAmount ? input.estimatedAmount : null,
           recognizedPercent: recognizedPercentValue,
@@ -619,16 +673,16 @@ export async function createOpportunity(
           customFields: input.customFields ?? {},
           expectedCloseDate: input.expectedCloseDate || null,
         })
-        .returning({ id: opportunities.id })
+        .returning({ id: funnels.id })
 
       if (isModuleEnabled("finance")) {
         await saveParties(tx, row.id, parties, currency)
       }
 
       // Seed the stage history with the opening stage.
-      await tx.insert(opportunityStageHistory).values({
+      await tx.insert(funnelStageHistory).values({
         tenantId: ctx.tenantId,
-        opportunityId: row.id,
+        funnelId: row.id,
         fromStageId: null,
         toStageId: stage.id,
         changedByMemberId: ctx.memberId,
@@ -657,6 +711,8 @@ export async function createOpportunity(
         )
         await syncIntercompanyMirror(tx, row.id)
       }
+      // Roll the new funnel's estimate up into its container total.
+      await recomputeOpportunityTotal(tx, ctx.tenantId, containerId)
       return row
     }
   )
@@ -674,8 +730,8 @@ export async function updateOpportunity(
     const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
       .select()
-      .from(opportunities)
-      .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
+      .from(funnels)
+      .where(and(eq(funnels.id, id), isNull(funnels.deletedAt)))
       .limit(1)
     if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
@@ -756,7 +812,7 @@ export async function updateOpportunity(
         : input.recognizedPercent || null
 
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({
         name: input.name ?? existing.name,
         accountId: input.accountId ?? existing.accountId,
@@ -800,7 +856,7 @@ export async function updateOpportunity(
             : input.expectedCloseDate || null,
         updatedAt: new Date(),
       })
-      .where(eq(opportunities.id, id))
+      .where(eq(funnels.id, id))
 
     if (isModuleEnabled("finance")) {
       await saveParties(tx, id, parties, input.currency ?? existing.currency)
@@ -841,20 +897,20 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
     const visible = await visibleMemberIds(tx, ctx)
     const [existing] = await tx
       .select({
-        id: opportunities.id,
-        ownerMemberId: opportunities.ownerMemberId,
+        id: funnels.id,
+        ownerMemberId: funnels.ownerMemberId,
       })
-      .from(opportunities)
-      .where(and(eq(opportunities.id, id), isNull(opportunities.deletedAt)))
+      .from(funnels)
+      .where(and(eq(funnels.id, id), isNull(funnels.deletedAt)))
       .limit(1)
     if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
       throw new Error("FORBIDDEN: not permitted on this Funnel")
 
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(opportunities.id, id))
+      .where(eq(funnels.id, id))
 
     await writeAudit(tx, ctx, {
       action: "opportunity.deleted",
@@ -912,7 +968,7 @@ export type OpportunityProjectRow = {
 
 /** Delivery projects created from this opportunity (non-deleted). */
 export async function listOpportunityProjects(
-  opportunityId: string
+  funnelId: string
 ): Promise<OpportunityProjectRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
@@ -926,7 +982,7 @@ export async function listOpportunityProjects(
       .from(projects)
       .where(
         and(
-          eq(projects.opportunityId, opportunityId),
+          eq(projects.funnelId, funnelId),
           isNull(projects.deletedAt),
           ownerScope(projects.ownerMemberId, visible)
         )
@@ -950,7 +1006,7 @@ export type OpportunityProductRow = {
  * is being offered" without opening each quote.
  */
 export async function listOpportunityProducts(
-  opportunityId: string
+  funnelId: string
 ): Promise<OpportunityProductRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx) => {
     const rows = await tx
@@ -969,7 +1025,7 @@ export async function listOpportunityProducts(
       .innerJoin(products, eq(quotationLineItems.productId, products.id))
       .where(
         and(
-          eq(quotations.opportunityId, opportunityId),
+          eq(quotations.funnelId, funnelId),
           isNull(quotations.deletedAt)
         )
       )
@@ -999,7 +1055,7 @@ export async function listOpportunityProducts(
 
 /** Advance an opportunity's stage. Routes through approval if gated. */
 export async function advanceStageAction(input: {
-  opportunityId: string
+  funnelId: string
   targetStageId: string
   reason?: string
   customFields?: Record<string, string>
@@ -1010,12 +1066,12 @@ export async function advanceStageAction(input: {
   await runInTenant(ctx.tenantId, async (tx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
-      .from(opportunities)
+      .select({ ownerMemberId: funnels.ownerMemberId })
+      .from(funnels)
       .where(
         and(
-          eq(opportunities.id, input.opportunityId),
-          isNull(opportunities.deletedAt)
+          eq(funnels.id, input.funnelId),
+          isNull(funnels.deletedAt)
         )
       )
       .limit(1)
@@ -1025,7 +1081,7 @@ export async function advanceStageAction(input: {
   })
   const result = await requestStageAdvance(ctx, input)
   revalidatePath("/funnel")
-  revalidatePath(`/funnel/${input.opportunityId}`)
+  revalidatePath(`/funnel/${input.funnelId}`)
   return result
   })
 }
@@ -1036,7 +1092,7 @@ export async function advanceStageAction(input: {
  * as advancing; the terminal-state rules themselves are enforced in the service.
  */
 export async function reopenStageAction(input: {
-  opportunityId: string
+  funnelId: string
   targetStageId: string
   reason?: string
 }): Promise<ActionResult> {
@@ -1046,12 +1102,12 @@ export async function reopenStageAction(input: {
     await runInTenant(ctx.tenantId, async (tx) => {
       const visible = await visibleMemberIds(tx, ctx)
       const [opp] = await tx
-        .select({ ownerMemberId: opportunities.ownerMemberId })
-        .from(opportunities)
+        .select({ ownerMemberId: funnels.ownerMemberId })
+        .from(funnels)
         .where(
           and(
-            eq(opportunities.id, input.opportunityId),
-            isNull(opportunities.deletedAt)
+            eq(funnels.id, input.funnelId),
+            isNull(funnels.deletedAt)
           )
         )
         .limit(1)
@@ -1061,6 +1117,6 @@ export async function reopenStageAction(input: {
     })
     await reopenOpportunity(ctx, input)
     revalidatePath("/funnel")
-    revalidatePath(`/funnel/${input.opportunityId}`)
+    revalidatePath(`/funnel/${input.funnelId}`)
   })
 }

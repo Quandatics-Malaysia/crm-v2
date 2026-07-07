@@ -59,7 +59,7 @@ const schema = z.object({
   name: z.string().min(1, "Name is required"),
   accountId: z.string().min(1, "Account is required"),
   primaryPersonId: z.string().optional(),
-  funnelId: z.string().min(1, "Funnel is required"),
+  pipelineId: z.string().min(1, "Funnel is required"),
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
@@ -98,7 +98,7 @@ export function OpportunityForm({
   accounts,
   persons,
   members,
-  funnels,
+  pipelines,
   projectNatures = [],
   customFieldDefs = [],
   entityOptions = [],
@@ -112,7 +112,7 @@ export function OpportunityForm({
   accounts: Option[]
   persons: (Option & { accountId: string })[]
   members: MemberOption[]
-  funnels: FunnelWithStages[]
+  pipelines: FunnelWithStages[]
   /** Tenant project-nature picklist (code + name) from listProjectNatures(). */
   projectNatures?: { code: string; name: string }[]
   /** Tenant custom funnel fields to capture on the funnel. */
@@ -143,7 +143,7 @@ export function OpportunityForm({
 
   // Resolve the default funnel + its first OPEN stage by sortOrder.
   const defaultFunnel =
-    funnels.find((f) => f.isDefault) ?? funnels[0] ?? null
+    pipelines.find((f) => f.isDefault) ?? pipelines[0] ?? null
   const firstOpenStage = defaultFunnel
     ? [...defaultFunnel.stages]
         .filter((s) => s.kind === "OPEN")
@@ -157,7 +157,7 @@ export function OpportunityForm({
           name: opportunity.name,
           accountId: opportunity.accountId,
           primaryPersonId: "",
-          funnelId: opportunity.funnelId,
+          pipelineId: opportunity.pipelineId,
           currentStageId: opportunity.stageId,
           ownerMemberId: opportunity.ownerMemberId,
           currency: opportunity.currency ?? "MYR",
@@ -186,7 +186,7 @@ export function OpportunityForm({
           name: "",
           accountId: "",
           primaryPersonId: "",
-          funnelId: defaultFunnel?.id ?? "",
+          pipelineId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
           currency: currencies[0] ?? "MYR",
@@ -205,7 +205,7 @@ export function OpportunityForm({
   const partyFields = useFieldArray({ control: form.control, name: "parties" })
 
   const selectedAccountId = form.watch("accountId")
-  const selectedFunnelId = form.watch("funnelId")
+  const selectedFunnelId = form.watch("pipelineId")
 
   // Picker options become local state seeded from props so inline "+ Create"
   // can append the new record and have it be immediately selectable.
@@ -227,9 +227,9 @@ export function OpportunityForm({
     [allPersons, selectedAccountId]
   )
   const stageOptions = React.useMemo(() => {
-    const f = funnels.find((x) => x.id === selectedFunnelId)
+    const f = pipelines.find((x) => x.id === selectedFunnelId)
     return f ? [...f.stages].sort((a, b) => a.sortOrder - b.sortOrder) : []
-  }, [funnels, selectedFunnelId])
+  }, [pipelines, selectedFunnelId])
 
   async function onSubmit(values: FormValues) {
     if (mode === "create") {
@@ -237,7 +237,7 @@ export function OpportunityForm({
         name: values.name,
         accountId: values.accountId,
         primaryPersonId: values.primaryPersonId || null,
-        funnelId: values.funnelId,
+        pipelineId: values.pipelineId,
         currentStageId: values.currentStageId,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
@@ -390,7 +390,7 @@ export function OpportunityForm({
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
-                  name="funnelId"
+                  name="pipelineId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel required>Funnel</FormLabel>
@@ -399,7 +399,7 @@ export function OpportunityForm({
                           value={field.value}
                           onChange={(v) => {
                             field.onChange(v)
-                            const f = funnels.find((x) => x.id === v)
+                            const f = pipelines.find((x) => x.id === v)
                             const first = f
                               ? [...f.stages]
                                   .filter((s) => s.kind === "OPEN")
@@ -409,13 +409,13 @@ export function OpportunityForm({
                               : undefined
                             form.setValue("currentStageId", first?.id ?? "")
                           }}
-                          options={funnels.map((f) => ({
+                          options={pipelines.map((f) => ({
                             value: f.id,
                             label: `${f.name}${f.isDefault ? " (default)" : ""}`,
                           }))}
                           placeholder="Pick a funnel…"
-                          searchPlaceholder="Search funnels…"
-                          emptyMessage="No funnels found."
+                          searchPlaceholder="Search pipelines…"
+                          emptyMessage="No pipelines found."
                         />
                       </FormControl>
                       <FormMessage />

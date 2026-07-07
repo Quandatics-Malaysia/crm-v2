@@ -351,7 +351,7 @@ export function ForecastClient({
           <CardDescription>Forecast total</CardDescription>
           {byCurrency.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No forecast-eligible funnels.
+              No forecast-eligible pipelines.
             </p>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -430,7 +430,7 @@ export function ForecastClient({
         ))}
         <Card>
           <CardHeader>
-            <CardDescription>Forecast-eligible funnels</CardDescription>
+            <CardDescription>Forecast-eligible pipelines</CardDescription>
             <CardTitle className="text-2xl tabular-nums">{rows.length}</CardTitle>
             <p className="text-xs text-muted-foreground">
               Funnels contributing to forecast
@@ -443,9 +443,9 @@ export function ForecastClient({
         columns={columns}
         data={rows}
         searchColumn="opportunityName"
-        searchPlaceholder="Search funnels…"
+        searchPlaceholder="Search pipelines…"
         facets={[{ columnId: "source", title: "Source" }]}
-        emptyMessage="No forecast-eligible funnels."
+        emptyMessage="No forecast-eligible pipelines."
         pageSize={15}
       />
     </div>

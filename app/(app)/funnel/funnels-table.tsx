@@ -94,8 +94,8 @@ export function OpportunitiesTable({
       columns={columns}
       data={data}
       searchColumn="name"
-      searchPlaceholder="Search funnels…"
-      emptyMessage="No funnels yet."
+      searchPlaceholder="Search pipelines…"
+      emptyMessage="No pipelines yet."
       toolbar={toolbar}
       tableId="funnel"
       cap={1000}

@@ -31,10 +31,10 @@ export function ProductDetailBody({
 }) {
   const [tab, setTab] = React.useState("details")
 
-  // Distinct funnels this product appears in (via its quotations).
-  const funnels = React.useMemo(() => {
+  // Distinct pipelines this product appears in (via its quotations).
+  const pipelines = React.useMemo(() => {
     const map = new Map<string, string>()
-    for (const u of usage) map.set(u.opportunityId, u.funnelName)
+    for (const u of usage) map.set(u.funnelId, u.funnelName)
     return [...map.entries()].map(([id, name]) => ({ id, name }))
   }, [usage])
 
@@ -57,7 +57,7 @@ export function ProductDetailBody({
         header: "Funnel",
         cell: ({ row }) => (
           <Link
-            href={`/funnel/${row.original.opportunityId}`}
+            href={`/funnel/${row.original.funnelId}`}
             className="link"
           >
             {row.original.funnelName}
@@ -152,7 +152,7 @@ export function ProductDetailBody({
                 {
                   kind: "funnel",
                   label: "Funnels",
-                  count: funnels.length,
+                  count: pipelines.length,
                   onSelect: () => setTab("usage"),
                 },
               ]}

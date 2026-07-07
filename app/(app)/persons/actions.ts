@@ -16,8 +16,8 @@ import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   accounts,
   persons,
-  opportunities,
-  funnelStages,
+  funnels,
+  pipelineStages,
   projects,
 } from "@/db/schema"
 
@@ -49,7 +49,7 @@ export type PersonProject = {
 export type PersonDetail = {
   person: PersonRow
   accountName: string | null
-  opportunities: PersonOpportunity[]
+  funnels: PersonOpportunity[]
   projects: PersonProject[]
 }
 
@@ -93,7 +93,7 @@ export async function listPersons(): Promise<PersonListItem[]> {
 }
 
 /**
- * One contact with its account name and the opportunities where this person
+ * One contact with its account name and the funnels where this person
  * is the primary contact (each with its current stage for a badge + link).
  */
 export async function getPerson(id: string): Promise<PersonDetail | null> {
@@ -120,29 +120,29 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
 
     const opps = await tx
       .select({
-        id: opportunities.id,
-        name: opportunities.name,
-        amount: opportunities.estimatedAmount,
-        currency: opportunities.currency,
-        status: opportunities.status,
-        stageName: funnelStages.name,
-        stageKind: funnelStages.kind,
-        stageProbability: funnelStages.probability,
+        id: funnels.id,
+        name: funnels.name,
+        amount: funnels.estimatedAmount,
+        currency: funnels.currency,
+        status: funnels.status,
+        stageName: pipelineStages.name,
+        stageKind: pipelineStages.kind,
+        stageProbability: pipelineStages.probability,
       })
-      .from(opportunities)
+      .from(funnels)
       .leftJoin(
-        funnelStages,
-        eq(opportunities.currentStageId, funnelStages.id)
+        pipelineStages,
+        eq(funnels.currentStageId, pipelineStages.id)
       )
       .where(
         and(
-          eq(opportunities.primaryPersonId, id),
-          isNull(opportunities.deletedAt)
+          eq(funnels.primaryPersonId, id),
+          isNull(funnels.deletedAt)
         )
       )
-      .orderBy(desc(opportunities.updatedAt))
+      .orderBy(desc(funnels.updatedAt))
 
-    // Projects that belong to this contact's funnels (the deals they're on).
+    // Projects that belong to this contact's pipelines (the deals they're on).
     const oppIds = opps.map((o) => o.id)
     const projs = oppIds.length
       ? await tx
@@ -155,7 +155,7 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
           .from(projects)
           .where(
             and(
-              inArray(projects.opportunityId, oppIds),
+              inArray(projects.funnelId, oppIds),
               isNull(projects.deletedAt)
             )
           )
@@ -165,7 +165,7 @@ export async function getPerson(id: string): Promise<PersonDetail | null> {
     return {
       person: row.person,
       accountName: row.accountName,
-      opportunities: opps,
+      funnels: opps,
       projects: projs,
     }
   })

@@ -52,8 +52,8 @@ export default async function ProjectDetailPage({
   // Quotations linkable to this project = those under its funnel. Empty when the
   // project has no funnel (nothing to link) or the user can't edit.
   const quotationOptions =
-    canUpdate && project.opportunityId
-      ? await listQuotationLinkOptions(project.opportunityId)
+    canUpdate && project.funnelId
+      ? await listQuotationLinkOptions(project.funnelId)
       : []
 
   const fields: { label: string; value: React.ReactNode }[] = [
@@ -85,9 +85,9 @@ export default async function ProjectDetailPage({
     },
     {
       label: "Funnel",
-      value: project.opportunityId ? (
+      value: project.funnelId ? (
         <Link
-          href={`/funnel/${project.opportunityId}`}
+          href={`/funnel/${project.funnelId}`}
           className="font-medium link"
         >
           {opportunityName ?? "View funnel"}

@@ -20,7 +20,7 @@ import {
   paymentMilestones,
   tenantSettings,
   attachments,
-  opportunities,
+  funnels,
   organization,
   intercompanyDeals,
   intercompanyDealParties,
@@ -777,12 +777,12 @@ async function prepareIntercoMirror(
   if (!intercoAutoMirror || !doc.projectId) return []
   const [opp] = await tx
     .select({
-      isIntercompany: opportunities.isIntercompany,
-      quotedAmount: opportunities.amount,
-      estimatedAmount: opportunities.estimatedAmount,
+      isIntercompany: funnels.isIntercompany,
+      quotedAmount: funnels.amount,
+      estimatedAmount: funnels.estimatedAmount,
     })
     .from(projects)
-    .innerJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+    .innerJoin(funnels, eq(projects.funnelId, funnels.id))
     .where(eq(projects.id, doc.projectId))
     .limit(1)
   if (!opp?.isIntercompany) return []
@@ -797,17 +797,17 @@ async function prepareIntercoMirror(
     })
     .from(intercompanyDealParties)
     .innerJoin(
-      opportunities,
-      eq(opportunities.id, intercompanyDealParties.opportunityId)
+      funnels,
+      eq(funnels.id, intercompanyDealParties.funnelId)
     )
     .innerJoin(
       projects,
-      eq(projects.opportunityId, opportunities.id)
+      eq(projects.funnelId, funnels.id)
     )
     .leftJoin(
       intercompanyDeals,
       and(
-        eq(intercompanyDeals.opportunityId, intercompanyDealParties.opportunityId),
+        eq(intercompanyDeals.funnelId, intercompanyDealParties.funnelId),
         eq(intercompanyDeals.partnerTenantId, intercompanyDealParties.partnerEntityId)
       )
     )

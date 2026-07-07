@@ -51,7 +51,7 @@ export default async function OpportunityDetailPage({
     accounts,
     persons,
     members,
-    funnels,
+    pipelines,
     projectNatures,
     customFunnelFields,
     activity,
@@ -154,9 +154,9 @@ export default async function OpportunityDetailPage({
     stageKind: stage.kind,
     stageProbability: stage.probability,
     stageSortOrder: stage.sortOrder,
-    funnelId: opp.funnelId,
-    funnelIsDefault:
-      funnels.find((f) => f.id === opp.funnelId)?.isDefault ?? false,
+    pipelineId: opp.pipelineId,
+    pipelineIsDefault:
+      pipelines.find((f) => f.id === opp.pipelineId)?.isDefault ?? false,
     primaryQuotationId: opp.primaryQuotationId,
     projectNatureCode: opp.projectNatureCode,
     projectNatures: opp.projectNatures,
@@ -183,7 +183,7 @@ export default async function OpportunityDetailPage({
                 variant="outline"
                 nativeButton={false}
                 render={
-                  <Link href={`/quotations/new?opportunityId=${opp.id}`} />
+                  <Link href={`/quotations/new?funnelId=${opp.id}`} />
                 }
               >
                 <FileTextIcon />
@@ -196,7 +196,7 @@ export default async function OpportunityDetailPage({
                 nativeButton={false}
                 render={
                   <Link
-                    href={`/projects/new?opportunityId=${opp.id}&accountId=${opp.accountId}`}
+                    href={`/projects/new?funnelId=${opp.id}&accountId=${opp.accountId}`}
                   />
                 }
               >
@@ -210,7 +210,7 @@ export default async function OpportunityDetailPage({
                 accounts={accounts}
                 persons={persons}
                 members={members}
-                funnels={funnels}
+                pipelines={pipelines}
                 projectNatures={projectNatures}
                 customFieldDefs={customFunnelFields}
                 entityOptions={entities}
@@ -233,7 +233,7 @@ export default async function OpportunityDetailPage({
             ) : !canAdvance ? null : terminal ? (
               reopenable ? (
                 <StageReopenDialog
-                  opportunityId={opp.id}
+                  funnelId={opp.id}
                   stages={detail.funnelStagesList}
                 />
               ) : null
@@ -243,7 +243,7 @@ export default async function OpportunityDetailPage({
               </Button>
             ) : (
               <StageAdvanceDialog
-                opportunityId={opp.id}
+                funnelId={opp.id}
                 currentStageId={opp.currentStageId}
                 stages={detail.funnelStagesList}
                 gate={gate}
@@ -272,7 +272,7 @@ export default async function OpportunityDetailPage({
         ) : null}
 
         <FunnelDetailBody
-          opportunityId={opp.id}
+          funnelId={opp.id}
           currentStageId={opp.currentStageId}
           stages={detail.funnelStagesList}
           interactive={canAdvance && !terminal && !pendingApproval}
@@ -288,7 +288,7 @@ export default async function OpportunityDetailPage({
           quoteNumber={detail.quoteNumber}
           status={opp.status}
           projectNatureName={projectNatureName}
-          funnelName={funnels.find((f) => f.id === opp.funnelId)?.name ?? null}
+          funnelName={pipelines.find((f) => f.id === opp.pipelineId)?.name ?? null}
           description={opp.description}
           projectYear={opp.projectYear}
           isIntercompany={opp.isIntercompany}

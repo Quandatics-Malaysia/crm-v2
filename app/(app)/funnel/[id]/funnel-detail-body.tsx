@@ -58,7 +58,7 @@ const SHOW_CONTRACT = false
 type StageLite = OpportunityDetail["funnelStagesList"][number]
 
 export type FunnelDetailData = {
-  opportunityId: string
+  funnelId: string
   currentStageId: string
   stages: StageLite[]
   interactive: boolean
@@ -119,7 +119,7 @@ export type FunnelDetailData = {
  *  plus a tabbed panel of related lists on the right (each top-5 + search). */
 export function FunnelDetailBody(props: FunnelDetailData) {
   const {
-    opportunityId,
+    funnelId,
     currentStageId,
     stages,
     interactive,
@@ -167,7 +167,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   } = props
 
   const [tab, setTab] = React.useState("activity")
-  const revalidate = `/funnel/${opportunityId}`
+  const revalidate = `/funnel/${funnelId}`
 
   // Recognized Amount = deal value × Recognized % (the tenant's cut). Once a
   // primary quotation exists its net IS the deal's real value, so the quoted
@@ -560,7 +560,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           </CardHeader>
           <CardContent>
             <StagePath
-              opportunityId={opportunityId}
+              funnelId={funnelId}
               currentStageId={currentStageId}
               stages={stages}
               interactive={interactive}
@@ -625,7 +625,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               <TabsContent value="activity" className="mt-4">
                 <ActivityTimeline
                   entityType="opportunity"
-                  entityId={opportunityId}
+                  entityId={funnelId}
                   items={activity}
                   revalidate={revalidate}
                 />
@@ -646,7 +646,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                         size="sm"
                         nativeButton={false}
                         render={
-                          <Link href={`/quotations/new?opportunityId=${opportunityId}`} />
+                          <Link href={`/quotations/new?funnelId=${funnelId}`} />
                         }
                       >
                         <Plus className="size-4" />
@@ -686,7 +686,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                           nativeButton={false}
                           render={
                             <Link
-                              href={`/projects/new?opportunityId=${opportunityId}&accountId=${accountId}`}
+                              href={`/projects/new?funnelId=${funnelId}&accountId=${accountId}`}
                             />
                           }
                         >
@@ -702,7 +702,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               {showCostMargin ? (
                 <TabsContent value="costs" className="mt-4">
                   <CostsPanel
-                    opportunityId={opportunityId}
+                    funnelId={funnelId}
                     costs={costs}
                     revenue={marginRevenue}
                     revenueLabel={marginRevenueLabel}
@@ -715,7 +715,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               {SHOW_CONTRACT ? (
                 <TabsContent value="contract" className="mt-4">
                   <ContractPanel
-                    opportunityId={opportunityId}
+                    funnelId={funnelId}
                     years={contractYears}
                     currency={currency}
                     canManage={canManageCosts}
@@ -738,7 +738,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               <TabsContent value="documents" className="mt-4">
                 <DocumentsSection
                   uploadType="opportunity"
-                  uploadId={opportunityId}
+                  uploadId={funnelId}
                   documents={documents}
                   revalidate={revalidate}
                 />

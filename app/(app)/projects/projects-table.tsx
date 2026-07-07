@@ -70,9 +70,9 @@ const columns: ColumnDef<ProjectListItem>[] = [
     accessorKey: "opportunityName",
     header: "Funnel",
     cell: ({ row }) =>
-      row.original.opportunityId ? (
+      row.original.funnelId ? (
         <Link
-          href={`/funnel/${row.original.opportunityId}`}
+          href={`/funnel/${row.original.funnelId}`}
           className="link"
         >
           {row.original.opportunityName ?? "View funnel"}

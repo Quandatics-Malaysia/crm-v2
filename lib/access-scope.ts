@@ -5,7 +5,7 @@ import {
   membershipProfiles,
   accounts,
   leads,
-  opportunities,
+  funnels,
   projects,
   persons,
   quotations,
@@ -134,9 +134,9 @@ export async function attachableOwner(
     }
     case "opportunity": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
-        .from(opportunities)
-        .where(eq(opportunities.id, id))
+        .select({ o: funnels.ownerMemberId })
+        .from(funnels)
+        .where(eq(funnels.id, id))
         .limit(1)
       return r?.o ?? null
     }
@@ -159,11 +159,11 @@ export async function attachableOwner(
     }
     case "quotation": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
+        .select({ o: funnels.ownerMemberId })
         .from(quotations)
         .innerJoin(
-          opportunities,
-          eq(quotations.opportunityId, opportunities.id)
+          funnels,
+          eq(quotations.funnelId, funnels.id)
         )
         .where(eq(quotations.id, id))
         .limit(1)
@@ -180,11 +180,11 @@ export async function attachableOwner(
     }
     case "stage_approval_request": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
+        .select({ o: funnels.ownerMemberId })
         .from(stageApprovalRequests)
         .innerJoin(
-          opportunities,
-          eq(stageApprovalRequests.opportunityId, opportunities.id)
+          funnels,
+          eq(stageApprovalRequests.funnelId, funnels.id)
         )
         .where(eq(stageApprovalRequests.id, id))
         .limit(1)

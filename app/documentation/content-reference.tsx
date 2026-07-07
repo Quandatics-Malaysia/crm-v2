@@ -56,7 +56,7 @@ flowchart TD
         </Li>
         <Li>
           <B>Layer 3 — record scope.</B> Owned records (leads, accounts,
-          contacts, funnels, projects) are visible to their owner plus the
+          contacts, pipelines, projects) are visible to their owner plus the
           owner’s management chain (transitive reports via{" "}
           <Code>manager_member_id</Code>; cycles are rejected).{" "}
           <Code>records.view_all</Code> / <Code>records.manage_all</Code>{" "}
@@ -127,7 +127,7 @@ export const settingsReferencePage: DocPage = {
         head={["Setting", "Default", "Effect"]}
         rows={[
           [<Code key="s">entity_name / entity_code</Code>, "—", "Display name + the prefix minted into project and finance-document numbers."],
-          [<Code key="s">default_currency</Code>, "MYR", "Prefill for new funnels/quotes/projects."],
+          [<Code key="s">default_currency</Code>, "MYR", "Prefill for new pipelines/quotes/projects."],
           [<Code key="s">currencies / payment_terms</Code>, "built-ins", "Picklists for money fields and SO submission."],
           [<Code key="s">fiscal_year_start_month</Code>, "1", "FY windows on /forecast."],
           [<Code key="s">tax_inclusive</Code>, "off", "Quotation math treats unit prices as tax-inclusive."],
@@ -396,7 +396,7 @@ export const changelogPage: DocPage = {
           (user/session/organization/member), <Code>tenant_settings</Code>,
           RBAC (roles/permissions/role_permissions),{" "}
           <Code>leads / accounts / persons</Code>,{" "}
-          <Code>opportunities + funnel_stages + stage_approval_requests</Code>,{" "}
+          <Code>funnels + pipeline_stages + stage_approval_requests</Code>,{" "}
           <Code>quotations + quotation_line_items + tax_settings +
           products</Code>, <Code>projects + payment_milestones +
           sales_orders</Code>, polymorphic{" "}
@@ -414,7 +414,7 @@ export const changelogPage: DocPage = {
       <H2>v2 — Value model & intercompany (0022–0033)</H2>
       <Ul>
         <Li>
-          <B>Schema:</B> <Code>opportunities.estimated_amount</Code>{" "}
+          <B>Schema:</B> <Code>funnels.estimated_amount</Code>{" "}
           (backfilled from <Code>amount</Code> so forecasts did not reset),{" "}
           <Code>project_natures</Code> (multi-nature),{" "}
           <Code>is_intercompany / handling_partner_entity_id /
@@ -551,9 +551,9 @@ export const changelogPage: DocPage = {
         <Li>
           <B>Schema:</B> <Code>user.last_login_at</Code>; new{" "}
           <Code>intercompany_deal_parties</Code> junction table (
-          <Code>opportunity_id, partner_entity_id, share_type
+          <Code>funnel_id, partner_entity_id, share_type
           (percent | amount), share_value, currency, manual_fx_rate</Code>) —
-          replaces the old <Code>opportunities.handling_partner_entity_id /
+          replaces the old <Code>funnels.handling_partner_entity_id /
           handling_partner_name / interco_leg_amount</Code> scalar columns, so
           a deal can now split across multiple sibling entities (capped at
           10) instead of exactly one.{" "}
@@ -562,7 +562,7 @@ export const changelogPage: DocPage = {
           <Code>share_type / share_value / partner_currency /
           manual_fx_rate</Code> instead of a single origin-side{" "}
           <Code>recognized_percent</Code> complement.{" "}
-          <Code>opportunities.recognized_percent</Code> stays, now a cache of
+          <Code>funnels.recognized_percent</Code> stays, now a cache of
           the origin's remainder after every party's share. This is the one
           deliberately destructive migration in the project's history — the
           usual additive/no-rename practice below didn't fit a genuine 2-to-N

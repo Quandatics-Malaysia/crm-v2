@@ -5,13 +5,17 @@ import {
   leads,
   accounts,
   persons,
-  opportunities,
   funnels,
-  funnelStages,
-  opportunityStageHistory,
+  pipelines,
+  pipelineStages,
+  funnelStageHistory,
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
 import { tenantDefaultCurrency } from "./tenant-currency"
+import {
+  createOpportunityContainer,
+  recomputeOpportunityTotal,
+} from "./opportunity-container"
 import { writeAudit } from "@/server/audit"
 import {
   visibleMemberIds,
@@ -23,6 +27,7 @@ import type { ServerContext } from "@/lib/server-context"
 export type ConversionResult = {
   accountId: string
   personId: string
+  /** The created Opportunity container (null when createOpportunity was false). */
   opportunityId: string | null
 }
 
@@ -158,59 +163,76 @@ export async function convertLead(
       })
       .returning()
 
-    // Optional opportunity at the first stage of the default funnel.
-    let opportunityId: string | null = null
+    // Optional Opportunity container (+ first funnel) at the first stage.
+    let containerId: string | null = null
     if (input.createOpportunity) {
       const [defaultFunnel] = await tx
         .select()
-        .from(funnels)
-        .where(and(eq(funnels.tenantId, ctx.tenantId), eq(funnels.isDefault, true)))
+        .from(pipelines)
+        .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.isDefault, true)))
         .limit(1)
       const funnel =
         defaultFunnel ??
         (
           await tx
             .select()
-            .from(funnels)
-            .where(eq(funnels.tenantId, ctx.tenantId))
+            .from(pipelines)
+            .where(eq(pipelines.tenantId, ctx.tenantId))
             .limit(1)
         )[0]
 
       if (funnel) {
         const [stage] = await tx
           .select()
-          .from(funnelStages)
+          .from(pipelineStages)
           .where(
             and(
-              eq(funnelStages.funnelId, funnel.id),
-              eq(funnelStages.code, FIRST_STAGE_CODE)
+              eq(pipelineStages.pipelineId, funnel.id),
+              eq(pipelineStages.code, FIRST_STAGE_CODE)
             )
           )
           .limit(1)
         if (stage) {
+          const dealName =
+            input.opportunityName || `${lead.companyName || lead.name} opportunity`
+          const currency = await tenantDefaultCurrency(tx, ctx.tenantId)
+          const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""
+          // Lead → Opportunity CONTAINER, with a first funnel under it.
+          const container = await createOpportunityContainer(tx, ctx, {
+            accountId,
+            ownerMemberId,
+            name: dealName,
+            year: input.expectedCloseDate
+              ? Number(input.expectedCloseDate.slice(0, 4))
+              : null,
+            currency,
+            primaryPersonId: person.id,
+          })
+          containerId = container.id
           const [opp] = await tx
-            .insert(opportunities)
+            .insert(funnels)
             .values({
               tenantId: ctx.tenantId,
-              name: input.opportunityName || `${lead.companyName || lead.name} opportunity`,
+              opportunityId: container.id,
+              name: dealName,
               accountId,
               primaryPersonId: person.id,
-              funnelId: funnel.id,
+              pipelineId: funnel.id,
               currentStageId: stage.id,
-              ownerMemberId: lead.ownerMemberId ?? ctx.memberId ?? "",
-              currency: await tenantDefaultCurrency(tx, ctx.tenantId),
+              ownerMemberId,
+              currency,
               expectedCloseDate: input.expectedCloseDate ?? null,
             })
             .returning()
-          opportunityId = opp.id
-          await tx.insert(opportunityStageHistory).values({
+          await tx.insert(funnelStageHistory).values({
             tenantId: ctx.tenantId,
-            opportunityId: opp.id,
+            funnelId: opp.id,
             toStageId: stage.id,
             changedByMemberId: ctx.memberId,
             probabilityAtChange: stage.probability,
             source: "manual",
           })
+          await recomputeOpportunityTotal(tx, ctx.tenantId, container.id)
         }
       }
     }
@@ -221,7 +243,7 @@ export async function convertLead(
         status: "converted",
         convertedAccountId: accountId,
         convertedPersonId: person.id,
-        convertedOpportunityId: opportunityId,
+        convertedOpportunityId: containerId,
         convertedAt: new Date(),
       })
       .where(eq(leads.id, input.leadId))
@@ -230,9 +252,9 @@ export async function convertLead(
       action: "lead.converted",
       entityType: "lead",
       entityId: input.leadId,
-      after: { accountId, personId: person.id, opportunityId },
+      after: { accountId, personId: person.id, opportunityId: containerId },
     })
 
-    return { accountId, personId: person.id, opportunityId }
+    return { accountId, personId: person.id, opportunityId: containerId }
   })
 }

@@ -47,7 +47,7 @@ export default async function AccountDetailPage({
     endUserAccount,
     children,
     contacts,
-    funnels,
+    pipelines,
     ownerName,
   } = data
   const isReseller = account.accountType === "reseller"
@@ -175,7 +175,7 @@ export default async function AccountDetailPage({
           accountId={account.id}
           fields={detail}
           contacts={contacts}
-          funnels={funnels}
+          pipelines={pipelines}
           projects={accountProjects}
           quotations={accountQuotations}
           childAccounts={children}

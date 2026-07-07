@@ -8,7 +8,7 @@ import {
   index,
 } from "drizzle-orm/pg-core"
 import { organization } from "./auth"
-import { opportunities } from "./pipeline"
+import { funnels } from "./pipeline"
 import { timestamps } from "./_helpers"
 
 /**
@@ -25,9 +25,9 @@ export const contractYears = pgTable(
     tenantId: text("tenant_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    opportunityId: uuid("opportunity_id")
+    funnelId: uuid("funnel_id")
       .notNull()
-      .references(() => opportunities.id, { onDelete: "cascade" }),
+      .references(() => funnels.id, { onDelete: "cascade" }),
     /** Calendar/contract year, e.g. 2024. */
     year: integer("year").notNull(),
     /** Optional label, e.g. "Y1 — License + AMS". */
@@ -41,5 +41,5 @@ export const contractYears = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     ...timestamps,
   },
-  (t) => [index("contract_years_opportunity_idx").on(t.tenantId, t.opportunityId)]
+  (t) => [index("contract_years_opportunity_idx").on(t.tenantId, t.funnelId)]
 )

@@ -32,13 +32,13 @@ export default async function ForecastPage() {
           </h2>
           <p className="text-sm text-muted-foreground">
             Weighted by stage probability across forecast-eligible
-            funnels. Amounts are grouped by currency — figures in
+            pipelines. Amounts are grouped by currency — figures in
             different currencies are never summed together.
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
           Report — derived, read-only. Figures are computed from
-          forecast-eligible funnels and their primary quotation; nothing
+          forecast-eligible pipelines and their primary quotation; nothing
           here is editable. Stages included in the forecast are configured in
           Settings → Funnel Stages.
         </p>

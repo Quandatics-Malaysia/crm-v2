@@ -2198,8 +2198,8 @@ function StageRowActions({
             <AlertDialogTitle>Delete stage?</AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes the “{stage.name}” stage from the funnel.
-              Stages that still have funnels in them can&apos;t be deleted —
-              move those funnels to another stage first.
+              Stages that still have pipelines in them can&apos;t be deleted —
+              move those pipelines to another stage first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

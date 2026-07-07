@@ -115,7 +115,7 @@ export const leads = pgTable(
   disqualifyReason: text("disqualify_reason"),
   // A lead can sit in a pipeline stage of its own (FK-less to avoid an
   // import cycle with pipeline.ts; resolved in the app layer).
-  funnelId: uuid("funnel_id"),
+  pipelineId: uuid("pipeline_id"),
   currentStageId: uuid("current_stage_id"),
   ownerMemberId: text("owner_member_id").references(() => member.id, {
     onDelete: "set null",
@@ -126,7 +126,7 @@ export const leads = pgTable(
   convertedPersonId: uuid("converted_person_id").references(() => persons.id, {
     onDelete: "set null",
   }),
-  // references opportunities (defined in pipeline.ts) — kept FK-less to avoid an import cycle
+  // references funnels (defined in pipeline.ts) — kept FK-less to avoid an import cycle
   convertedOpportunityId: uuid("converted_opportunity_id"),
   convertedAt: timestamp("converted_at", { withTimezone: true }),
   ...timestamps,

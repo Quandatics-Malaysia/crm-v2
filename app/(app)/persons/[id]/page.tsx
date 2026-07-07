@@ -28,7 +28,7 @@ export default async function PersonDetailPage({
   ])
 
   if (!data) notFound()
-  const { person, accountName, opportunities, projects } = data
+  const { person, accountName, funnels, projects } = data
 
   const name = fullName(person) || "Unnamed contact"
 
@@ -99,7 +99,7 @@ export default async function PersonDetailPage({
         <PersonDetailBody
           personId={id}
           fields={detail}
-          opportunities={opportunities}
+          funnels={funnels}
           projects={projects}
           activity={activity}
           documents={documents}

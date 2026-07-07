@@ -35,7 +35,7 @@ export const MILESTONE_STATUS_OPTIONS: StatusOption[] = [
   { value: "paid", label: "Paid" },
 ]
 
-/** How a funnel stage change happened (opportunity_stage_history.source). */
+/** How a funnel stage change happened (funnel_stage_history.source). */
 export const STAGE_SOURCE_LABELS: Record<string, string> = {
   manual: "Manual",
   approval: "Via approval",

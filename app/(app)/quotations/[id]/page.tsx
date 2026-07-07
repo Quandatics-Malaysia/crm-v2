@@ -79,7 +79,7 @@ export default async function QuotationDetailPage({
             </h2>
             {detail.opportunityName ? (
               <Link
-                href={`/funnel/${detail.quotation.opportunityId}`}
+                href={`/funnel/${detail.quotation.funnelId}`}
                 className="text-sm link"
               >
                 {detail.opportunityName}
@@ -115,7 +115,7 @@ export default async function QuotationDetailPage({
               variant="outline"
               size="sm"
               nativeButton={false}
-              render={<Link href={`/funnel/${detail.quotation.opportunityId}`} />}
+              render={<Link href={`/funnel/${detail.quotation.funnelId}`} />}
             >
               View funnel
             </Button>

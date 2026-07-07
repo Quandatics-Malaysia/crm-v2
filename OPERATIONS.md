@@ -32,7 +32,9 @@ errors always mean a pending migration.
 ## Optional modules (plugins)
 
 Everything beyond the core CRM is an optional plugin, toggled **deployment-wide**
-in one file — `modules.config.ts` at the repo root — with one boolean each:
+in one file — `modules.config.ts` at the repo root — with one boolean each.
+See [`MODULES.md`](./MODULES.md) for the architecture and the recipe to add a
+brand-new module.
 
 ```ts
 export const MODULE_CONFIG = {

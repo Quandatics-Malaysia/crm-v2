@@ -74,6 +74,17 @@ async function consumePendingInvites(user: {
               status: "active",
             })
             .onConflictDoNothing()
+          // member_roles is the effective-permission source (union of roles).
+          if (invite.roleId) {
+            await tx
+              .insert(schema.memberRoles)
+              .values({
+                tenantId: invite.tenantId,
+                memberId,
+                roleId: invite.roleId,
+              })
+              .onConflictDoNothing()
+          }
         }
         await tx
           .delete(schema.pendingInvites)
@@ -138,6 +149,13 @@ async function autoJoinByDomain(user: {
       tierLevel: tier,
       status: "active",
     })
+    if (roleRow?.id) {
+      await tx.insert(schema.memberRoles).values({
+        tenantId: org.orgId,
+        memberId,
+        roleId: roleRow.id,
+      })
+    }
   })
   return org.orgId
 }

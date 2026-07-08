@@ -278,6 +278,7 @@ export function AccountDetailBody(props: AccountDetailData) {
             <RelatedQuickLinks
               items={[
                 { kind: "contact", label: "Contacts", count: contacts.length, onSelect: () => setTab("contacts") },
+                { kind: "opportunity", label: "Opportunities", count: opportunities.length, onSelect: () => setTab("opportunities") },
                 { kind: "funnel", label: "Funnels", count: pipelines.length, onSelect: () => setTab("pipelines") },
                 { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },

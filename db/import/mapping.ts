@@ -259,7 +259,17 @@ export const MAPPINGS: ObjectMap[] = [
       CurrencyIsoCode: { col: "currency", xform: asCurrency },
     },
     consumes: ["Status"],
-    defaults: (r) => ({ status: QUOTE_STATUS[(r.Status || "").toLowerCase()] ?? "draft" }),
+    // SF exports no grand-total and Tax is 0 for every quote → total =
+    // subtotal - discount, tax 0 (matches server/services/quotation-math.ts).
+    defaults: (r) => {
+      const sub = Number(r.Total_Excluding_Tax__c) || 0
+      const disc = Number(r.Total_Discount__c) || 0
+      return {
+        status: QUOTE_STATUS[(r.Status || "").toLowerCase()] ?? "draft",
+        tax_total: 0,
+        total: Math.max(0, Math.round((sub - disc) * 100) / 100),
+      }
+    },
   },
   {
     object: "QuoteLineItem",
@@ -270,11 +280,29 @@ export const MAPPINGS: ObjectMap[] = [
       Product2Id: { col: "product_id", xform: ref("Product2") },
       Quantity: { col: "quantity", xform: numOr(1) },
       UnitPrice: { col: "unit_price", xform: numOr(0) },
+      // Item_Discount__c is an ABSOLUTE per-line discount amount; the physical
+      // `discount_percent` column is mapped to `discountAmount` in the schema.
       Item_Discount__c: { col: "discount_percent", xform: numOr(0) },
       SortOrder: { col: "sort_order", xform: intOr(0) },
     },
     consumes: ["Description", "Description__c"],
-    defaults: (r) => ({ description: r.Description__c || r.Description || "—" }),
+    // SF has no per-line subtotal/tax/total → net = max(0, qty*price - disc).
+    defaults: (r) => {
+      const net = Math.max(
+        0,
+        Math.round(
+          ((Number(r.Quantity) || 1) * (Number(r.UnitPrice) || 0) -
+            (Number(r.Item_Discount__c) || 0)) *
+            100
+        ) / 100
+      )
+      return {
+        description: r.Description__c || r.Description || "—",
+        line_subtotal: net,
+        line_tax: 0,
+        line_total: net,
+      }
+    },
   },
 
   // ── Deferred objects (data-only 1:1; UI/automation stays plugin-gated) ──────

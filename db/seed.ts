@@ -21,6 +21,7 @@ const {
   account,
   member,
   membershipProfiles,
+  memberRoles,
 } = schema
 
 const TENANT_ID = "demo-entity"
@@ -241,6 +242,14 @@ async function main() {
       tierLevel: 100,
       status: "active",
     })
+    const ownerRoleId = roleId.get("Owner")
+    if (ownerRoleId) {
+      await db.insert(memberRoles).values({
+        tenantId: TENANT_ID,
+        memberId: mid,
+        roleId: ownerRoleId,
+      })
+    }
   }
 
   await sql.end()

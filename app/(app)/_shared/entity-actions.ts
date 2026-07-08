@@ -4,7 +4,7 @@ import { headers } from "next/headers"
 import { and, eq, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
-import { member, membershipProfiles } from "@/db/schema"
+import { member, membershipProfiles, memberRoles } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
 import { seedTenant } from "@/server/services/tenant-seed"
 import { writeAuthAudit } from "@/server/audit"
@@ -86,6 +86,13 @@ export async function createEntity(input: {
           status: "active",
         })
         .onConflictDoNothing()
+      // member_roles = effective-permission source (union of assigned roles).
+      if (ownerRoleId) {
+        await tx
+          .insert(memberRoles)
+          .values({ tenantId: orgId, memberId: m.id, roleId: ownerRoleId })
+          .onConflictDoNothing()
+      }
       // Audit the entity's creation, scoped to the new org (RLS-safe here since
       // runInTenant sets app.current_tenant = orgId).
       await writeAuthAudit(tx, {

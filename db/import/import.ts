@@ -279,6 +279,13 @@ async function importUsers(sql: postgres.Sql, commit: boolean): Promise<Set<stri
       await sql`insert into membership_profiles (id, member_id, tenant_id, role_id, tier_level, status)
                 values (${det(`Profile:${sf}`)}, ${mid}, ${TENANT}, ${role?.id ?? null}, ${role?.default_tier_level ?? 0}, 'active')
                 on conflict (id) do nothing`
+      // member_roles is the source of truth for effective permissions (union of
+      // all assigned roles). Seed each imported member with their primary role.
+      if (role?.id) {
+        await sql`insert into member_roles (id, tenant_id, member_id, role_id)
+                  values (${det(`MemberRole:${sf}`)}, ${TENANT}, ${mid}, ${role.id})
+                  on conflict (id) do nothing`
+      }
       imported.add(sf)
       written++
     } catch (e) {

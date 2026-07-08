@@ -38,6 +38,7 @@ import {
   updateRole,
   deleteRole,
   type RoleWithPermissions,
+  type PermissionAdmin,
 } from "../actions"
 
 // Group the permission catalog into tabbed areas.
@@ -73,24 +74,44 @@ function areaGroups(areaId: string): Group[] {
   return inArea
 }
 
-export function RolesManager({ roles }: { roles: RoleWithPermissions[] }) {
+// Only areas that actually have visible permission groups. Areas whose every
+// group is gated off by a disabled plugin (e.g. "Finance & Insights" in the
+// Core Edition) drop out entirely rather than showing an empty tab.
+const VISIBLE_AREAS = AREAS.filter((a) => areaGroups(a.id).length > 0)
+
+export function RolesManager({
+  roles,
+  admins,
+  initialRoleId,
+}: {
+  roles: RoleWithPermissions[]
+  admins: PermissionAdmin[]
+  initialRoleId?: string
+}) {
   const router = useRouter()
-  const [selectedId, setSelectedId] = React.useState(roles[0]?.id ?? "")
+  const [selectedId, setSelectedId] = React.useState(
+    (initialRoleId && roles.some((r) => r.id === initialRoleId)
+      ? initialRoleId
+      : roles[0]?.id) ?? ""
+  )
   const selected = roles.find((r) => r.id === selectedId) ?? roles[0]
 
   const [checked, setChecked] = React.useState<Set<string>>(
     () => new Set(selected?.permissions ?? [])
   )
-  const [area, setArea] = React.useState("crm")
+  const [area, setArea] = React.useState(VISIBLE_AREAS[0]?.id ?? "crm")
   const [saving, setSaving] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
   const [confirmDelete, setConfirmDelete] = React.useState(false)
 
-  // Reset the working set whenever the selected role changes.
-  React.useEffect(() => {
+  // Reset the working set whenever the selected role changes
+  // (adjust-during-render — no effect, matches the app's set-state convention).
+  const [lastSelectedId, setLastSelectedId] = React.useState(selectedId)
+  if (selectedId !== lastSelectedId) {
+    setLastSelectedId(selectedId)
     setChecked(new Set(selected?.permissions ?? []))
-  }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const baseline = React.useMemo(
     () => [...(selected?.permissions ?? [])].sort().join(","),
@@ -169,7 +190,6 @@ export function RolesManager({ roles }: { roles: RoleWithPermissions[] }) {
                   <ShieldCheck className="size-3" />
                   {r.permissionCount} perms
                 </span>
-                <span className="tabular-nums">tier {r.tierLevel}</span>
               </span>
             </button>
           ))}
@@ -189,8 +209,10 @@ export function RolesManager({ roles }: { roles: RoleWithPermissions[] }) {
               ) : null}
             </CardTitle>
             <span className="text-sm text-muted-foreground">
-              {selected.description ?? `Tier ${selected.tierLevel}`} ·{" "}
-              {selected.memberCount} member{selected.memberCount === 1 ? "" : "s"}
+              {selected.description ??
+                (selected.isSystem ? "Built-in role" : "Custom role")}{" "}
+              · {selected.memberCount} member
+              {selected.memberCount === 1 ? "" : "s"}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -214,16 +236,32 @@ export function RolesManager({ roles }: { roles: RoleWithPermissions[] }) {
           </div>
         </CardHeader>
         <CardContent>
+          {admins.length > 0 ? (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+              <span className="font-medium">Who can change permissions:</span>{" "}
+              <span className="text-muted-foreground">
+                only members with the “Manage roles” permission —{" "}
+                {admins.map((a, i) => (
+                  <span key={a.memberId}>
+                    {i > 0 ? ", " : ""}
+                    <span className="font-medium text-foreground">{a.name}</span>{" "}
+                    ({a.roleNames.join(", ")})
+                  </span>
+                ))}
+                .
+              </span>
+            </div>
+          ) : null}
           <Tabs value={area} onValueChange={setArea}>
             <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
-              {AREAS.map((a) => (
+              {VISIBLE_AREAS.map((a) => (
                 <TabsTrigger key={a.id} value={a.id}>
                   {a.label}
                 </TabsTrigger>
               ))}
             </TabsList>
 
-            {AREAS.map((a) => (
+            {VISIBLE_AREAS.map((a) => (
               <TabsContent key={a.id} value={a.id} className="mt-4 grid gap-3">
                 {areaGroups(a.id).map((group) => {
                   const keys = group.items.map((i) => i.key)
@@ -325,21 +363,20 @@ function RoleFormDialog({
   onDone: () => void
 }) {
   const [name, setName] = React.useState("")
-  const [tier, setTier] = React.useState("0")
   const [busy, setBusy] = React.useState(false)
 
-  React.useEffect(() => {
-    if (open) {
-      setName(role?.name ?? "")
-      setTier(String(role?.tierLevel ?? 0))
-    }
-  }, [open, role])
+  // Reset to the role's name each time the dialog opens (adjust-during-render).
+  const [wasOpen, setWasOpen] = React.useState(false)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setName(role?.name ?? "")
+  }
 
   async function submit() {
     setBusy(true)
     const res = role
-      ? await updateRole(role.id, { name: name.trim(), tier: Number(tier) || 0 })
-      : await createRole({ name: name.trim(), tier: Number(tier) || 0 })
+      ? await updateRole(role.id, { name: name.trim() })
+      : await createRole({ name: name.trim() })
     setBusy(false)
     if (!res.ok) return showActionError(res)
     toast.success(role ? "Role updated" : "Role created")
@@ -363,18 +400,9 @@ function RoleFormDialog({
               placeholder="e.g. Sales Manager"
               autoFocus
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="role-tier">Seniority tier</Label>
-            <Input
-              id="role-tier"
-              type="number"
-              min={0}
-              value={tier}
-              onChange={(e) => setTier(e.target.value)}
-            />
             <p className="text-xs text-muted-foreground">
-              Higher tiers can approve lower tiers’ stage advances.
+              Choose what this role can do from the permission grid below. A
+              member&apos;s access is the union of all the roles they hold.
             </p>
           </div>
         </div>

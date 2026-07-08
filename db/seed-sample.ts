@@ -36,6 +36,7 @@ const {
   account,
   member,
   membershipProfiles,
+  memberRoles,
   pipelines,
   pipelineStages,
   taxSettings,
@@ -191,6 +192,19 @@ async function main() {
         status: "active",
       })
       .onConflictDoNothing()
+    // member_roles = effective-permission source (union of assigned roles).
+    const rid = roleId.get(p.roleName)
+    if (rid) {
+      await db
+        .insert(memberRoles)
+        .values({
+          id: det(`mr:${p.key}`),
+          tenantId: TENANT_ID,
+          memberId: memberIdOf(p.key),
+          roleId: rid,
+        })
+        .onConflictDoNothing()
+    }
   }
 
   const MEM_MGR = memberIdOf("mgr")

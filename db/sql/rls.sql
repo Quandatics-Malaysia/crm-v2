@@ -30,7 +30,7 @@ DO $$
 DECLARE
   t text;
   tenant_tables text[] := ARRAY[
-    'roles', 'role_permissions', 'membership_profiles',
+    'roles', 'role_permissions', 'membership_profiles', 'member_roles',
     'leads', 'accounts', 'persons',
     'pipelines', 'pipeline_stages', 'opportunities', 'funnels', 'funnel_stage_history',
     'stage_approval_requests', 'attachments',

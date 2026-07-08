@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ObjectTile } from "@/components/object-tile"
+import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { formatMoney } from "@/lib/format"
 import type { OpportunityContainerDetail } from "../actions"
@@ -196,6 +196,22 @@ export function OpportunityDetailBody({
                 {detail.funnels.length}
               </Badge>
             </Field>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Related</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RelatedQuickLinks
+              items={[
+                { kind: "account", label: "Account", href: `/accounts/${detail.accountId}` },
+                { kind: "funnel", label: "Funnels", count: detail.funnels.length, onSelect: () => setTab("funnels") },
+                { kind: "quotation", label: "Quotations", count: detail.quotations.length, onSelect: () => setTab("quotations") },
+                { kind: "product", label: "Products", count: detail.products.length, onSelect: () => setTab("products") },
+              ]}
+            />
           </CardContent>
         </Card>
       </div>

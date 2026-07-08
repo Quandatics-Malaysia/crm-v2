@@ -365,6 +365,13 @@
 			"when": 1783214429643,
 			"tag": "0051_lead_company_link",
 			"breakpoints": true
+		},
+		{
+			"idx": 52,
+			"version": "7",
+			"when": 1783214430643,
+			"tag": "0052_member_roles",
+			"breakpoints": true
 		}
 	]
 }

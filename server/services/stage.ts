@@ -91,14 +91,11 @@ function assertTransitionAllowed(from: StageRow, to: StageRow): void {
 /** Whether the actor may enter approval-gated stages without a request. */
 function canBypassApproval(
   ctx: ServerContext,
-  settings: typeof tenantSettings.$inferSelect | undefined
+  _settings: typeof tenantSettings.$inferSelect | undefined
 ): boolean {
-  const bypassTier = settings?.approvalBypassTier ?? 40
-  return (
-    ctx.isSuperadmin ||
-    ctx.tierLevel >= bypassTier ||
-    ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
-  )
+  // Tiers retired: you may self-advance an approval-gated stage iff you hold
+  // the stage-approval permission (otherwise it routes to the upline).
+  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 }
 
 /** Walk the upline chain for the first ancestor that can approve; else any approver. */
@@ -128,7 +125,7 @@ async function resolveApprover(
       // Only an active member can actually act on the request — a disabled or
       // still-invited approver would leave it stuck pending and invisible.
       mgrProf.status === "active" &&
-      (mgrProf.tierLevel ?? 0) >= requesterTier &&
+      // Tiers retired: the first upline who can approve is the approver.
       (await memberHasPermission(tx, mgr, PERMISSIONS.STAGE_ADVANCE_APPROVE))
     ) {
       return mgr

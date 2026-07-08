@@ -10,6 +10,7 @@ import { PERMISSIONS, permLabel } from "@/lib/permissions"
 import {
   member,
   membershipProfiles,
+  memberRoles,
   roles,
   rolePermissions,
   permissions,
@@ -17,7 +18,6 @@ import {
   session,
   pendingInvites,
 } from "@/db/schema"
-import { isModuleEnabled } from "@/lib/modules"
 
 /**
  * True if `memberId` is the only ACTIVE member holding the system "Owner" role
@@ -71,9 +71,12 @@ export type TeamMemberView = {
   memberId: string
   name: string
   email: string
+  /** Legacy "primary" role (first of `roleIds`); kept for back-compat display. */
   roleId: string | null
   roleName: string | null
-  tierLevel: number
+  /** Every role assigned to this member — access = the union of these grids. */
+  roleIds: string[]
+  roleNames: string[]
   managerMemberId: string | null
   managerName: string | null
   status: string
@@ -132,39 +135,59 @@ export async function listTeamMembers(): Promise<TeamMemberView[]> {
     : []
   const lastActiveByUser = new Map(activeRows.map((r) => [r.userId, r.lastActiveAt]))
 
-  // membership profiles + roles (RLS).
-  const { profiles, roleRows } = await runInTenant(ctx.tenantId, async (tx) => {
-    const profiles = await tx
-      .select({
-        memberId: membershipProfiles.memberId,
-        roleId: membershipProfiles.roleId,
-        tierLevel: membershipProfiles.tierLevel,
-        managerMemberId: membershipProfiles.managerMemberId,
-        status: membershipProfiles.status,
-      })
-      .from(membershipProfiles)
-    const roleRows = await tx
-      .select({ id: roles.id, name: roles.name })
-      .from(roles)
-    return { profiles, roleRows }
-  })
+  // membership profiles + roles + role assignments (RLS).
+  const { profiles, roleRows, assignments } = await runInTenant(
+    ctx.tenantId,
+    async (tx) => {
+      const profiles = await tx
+        .select({
+          memberId: membershipProfiles.memberId,
+          roleId: membershipProfiles.roleId,
+          managerMemberId: membershipProfiles.managerMemberId,
+          status: membershipProfiles.status,
+        })
+        .from(membershipProfiles)
+      const roleRows = await tx
+        .select({ id: roles.id, name: roles.name })
+        .from(roles)
+      const assignments = await tx
+        .select({ memberId: memberRoles.memberId, roleId: memberRoles.roleId })
+        .from(memberRoles)
+      return { profiles, roleRows, assignments }
+    }
+  )
 
   const profileByMember = new Map(profiles.map((p) => [p.memberId, p]))
   const roleNameById = new Map(roleRows.map((r) => [r.id, r.name]))
   const nameByMember = new Map(memberRows.map((m) => [m.memberId, m.name]))
+  // member → assigned role ids (from the many-to-many join).
+  const rolesByMember = new Map<string, string[]>()
+  for (const a of assignments) {
+    const arr = rolesByMember.get(a.memberId) ?? []
+    arr.push(a.roleId)
+    rolesByMember.set(a.memberId, arr)
+  }
 
   return memberRows
     .map((m) => {
       const p = profileByMember.get(m.memberId)
-      const roleId = p?.roleId ?? null
+      // Prefer the join table; fall back to the legacy single primary role.
+      let roleIds = rolesByMember.get(m.memberId) ?? []
+      if (roleIds.length === 0 && p?.roleId) roleIds = [p.roleId]
+      // Stable, name-sorted for display.
+      roleIds = [...roleIds].sort((a, b) =>
+        (roleNameById.get(a) ?? "").localeCompare(roleNameById.get(b) ?? "")
+      )
+      const roleNames = roleIds.map((id) => roleNameById.get(id) ?? "").filter(Boolean)
       const managerMemberId = p?.managerMemberId ?? null
       return {
         memberId: m.memberId,
         name: m.name,
         email: m.email,
-        roleId,
-        roleName: roleId ? roleNameById.get(roleId) ?? null : null,
-        tierLevel: p?.tierLevel ?? 0,
+        roleId: roleIds[0] ?? null,
+        roleName: roleNames[0] ?? null,
+        roleIds,
+        roleNames,
         managerMemberId,
         managerName: managerMemberId
           ? nameByMember.get(managerMemberId) ?? null
@@ -244,6 +267,84 @@ export async function listRolesWithPermissions(): Promise<RoleWithPermissions[]>
     }
     return roleViews.map((r) => ({ ...r, permissions: byRole.get(r.id) ?? [] }))
   })
+}
+
+export type PermissionAdmin = { memberId: string; name: string; roleNames: string[] }
+
+/**
+ * Active members who can configure roles/permissions — i.e. whose effective
+ * (union-of-roles) grants include `tenant.manage_roles`. Surfaced on the roles
+ * page so it's clear WHO is able to change permissions.
+ */
+export async function listPermissionAdmins(): Promise<PermissionAdmin[]> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+
+  const { assignments, adminRoleIds, roleNameById } = await runInTenant(
+    ctx.tenantId,
+    async (tx) => {
+      // Roles that grant the "Manage roles" permission.
+      const adminRoles = await tx
+        .select({ roleId: rolePermissions.roleId })
+        .from(rolePermissions)
+        .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+        .where(eq(permissions.key, PERMISSIONS.TENANT_MANAGE_ROLES))
+      const adminRoleIds = new Set(adminRoles.map((r) => r.roleId))
+
+      const roleRows = await tx.select({ id: roles.id, name: roles.name }).from(roles)
+      const roleNameById = new Map(roleRows.map((r) => [r.id, r.name]))
+
+      // Every member→role assignment (union model), plus the legacy primary.
+      const mr = await tx
+        .select({ memberId: memberRoles.memberId, roleId: memberRoles.roleId })
+        .from(memberRoles)
+      const profiles = await tx
+        .select({
+          memberId: membershipProfiles.memberId,
+          roleId: membershipProfiles.roleId,
+          status: membershipProfiles.status,
+        })
+        .from(membershipProfiles)
+      const activeMembers = new Set(
+        profiles.filter((p) => p.status === "active").map((p) => p.memberId)
+      )
+      const assignments = new Map<string, Set<string>>()
+      for (const row of mr) {
+        if (!activeMembers.has(row.memberId)) continue
+        const set = assignments.get(row.memberId) ?? new Set<string>()
+        set.add(row.roleId)
+        assignments.set(row.memberId, set)
+      }
+      // Legacy fallback: members with a primary role but no member_roles rows.
+      for (const p of profiles) {
+        if (!p.roleId || !activeMembers.has(p.memberId)) continue
+        if (!assignments.has(p.memberId)) {
+          assignments.set(p.memberId, new Set([p.roleId]))
+        }
+      }
+      return { assignments, adminRoleIds, roleNameById }
+    }
+  )
+
+  // Names come from user (not RLS), filtered to this tenant's members.
+  const memberRows = await db
+    .select({ memberId: member.id, name: user.name })
+    .from(member)
+    .innerJoin(user, eq(member.userId, user.id))
+    .where(eq(member.organizationId, ctx.tenantId))
+  const nameByMember = new Map(memberRows.map((m) => [m.memberId, m.name]))
+
+  const admins: PermissionAdmin[] = []
+  for (const [memberId, roleIds] of assignments) {
+    const adminRoles = [...roleIds].filter((id) => adminRoleIds.has(id))
+    if (adminRoles.length === 0) continue
+    admins.push({
+      memberId,
+      name: nameByMember.get(memberId) ?? "—",
+      roleNames: adminRoles.map((id) => roleNameById.get(id) ?? "—").sort(),
+    })
+  }
+  return admins.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Permission keys currently granted to a role. */
@@ -357,21 +458,19 @@ export async function setRolePermissions(
   })
 }
 
-function validateRoleInput(name: string, tier: number) {
+function validateRoleInput(name: string) {
   if (name.trim().length === 0) throw new Error("Role name is required.")
-  if (!Number.isInteger(tier) || tier < 0) {
-    throw new Error("Tier must be a non-negative integer.")
-  }
 }
 
 export async function createRole(input: {
   name: string
-  tier: number
+  /** Legacy seniority tier — dormant (access is now the union of role grids). */
+  tier?: number
 }): Promise<ActionResult<TeamRoleView>> {
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-    validateRoleInput(input.name, input.tier)
+    validateRoleInput(input.name)
 
     const view = await runInTenant(ctx.tenantId, async (tx) => {
       const name = input.name.trim()
@@ -387,7 +486,7 @@ export async function createRole(input: {
         .values({
           tenantId: ctx.tenantId,
           name,
-          defaultTierLevel: input.tier,
+          defaultTierLevel: input.tier ?? 0,
           isSystem: false,
         })
         .returning()
@@ -415,12 +514,12 @@ export async function createRole(input: {
 
 export async function updateRole(
   id: string,
-  input: { name: string; tier: number }
+  input: { name: string; tier?: number }
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-  validateRoleInput(input.name, input.tier)
+  validateRoleInput(input.name)
 
   await runInTenant(ctx.tenantId, async (tx) => {
     const [role] = await tx
@@ -431,17 +530,9 @@ export async function updateRole(
     if (!role) throw new Error("Role not found.")
 
     const name = input.name.trim()
-    // System roles are immutable templates: neither renamed nor re-tiered.
+    // System roles are immutable templates: they can't be renamed.
     if (role.isSystem && name !== role.name) {
       throw new Error("System roles can't be renamed.")
-    }
-    if (role.isSystem && input.tier !== role.defaultTierLevel) {
-      throw new Error("System roles' tier can't be changed.")
-    }
-    // Tier ceiling: a non-superadmin can't set a role's tier above their own
-    // (otherwise they could mint a role that outranks them and assign it).
-    if (!ctx.isSuperadmin && input.tier > ctx.tierLevel) {
-      throw new Error("You can't set a role tier above your own.")
     }
 
     if (name !== role.name) {
@@ -457,7 +548,6 @@ export async function updateRole(
       .update(roles)
       .set({
         name: role.isSystem ? role.name : name,
-        defaultTierLevel: role.isSystem ? role.defaultTierLevel : input.tier,
         updatedAt: new Date(),
       })
       .where(eq(roles.id, id))
@@ -466,10 +556,9 @@ export async function updateRole(
       action: "role.updated",
       entityType: "role",
       entityId: id,
-      before: { name: role.name, tierLevel: role.defaultTierLevel },
+      before: { name: role.name },
       after: {
         name: role.isSystem ? role.name : name,
-        tierLevel: role.isSystem ? role.defaultTierLevel : input.tier,
       },
     })
   })
@@ -518,7 +607,6 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
 export async function addMember(input: {
   email: string
   roleId: string
-  tier: number
 }): Promise<ActionResult<{ invited: boolean }>> {
   return runAction(async () => {
   const ctx = await requireContext()
@@ -530,13 +618,6 @@ export async function addMember(input: {
     throw new Error("Enter a valid email address.")
   }
   if (!input.roleId) throw new Error("Pick a role.")
-  if (!Number.isInteger(input.tier) || input.tier < 0) {
-    throw new Error("Tier must be a non-negative integer.")
-  }
-  // Tier ceiling: a non-superadmin can't grant a seniority tier above their own.
-  if (!ctx.isSuperadmin && input.tier > ctx.tierLevel) {
-    throw new Error("You can't assign a tier above your own.")
-  }
 
   // Find a user by email (case-insensitive). user is not RLS.
   const [u] = await db
@@ -562,15 +643,11 @@ export async function addMember(input: {
   // leave a profile-less but `active`-resolving member (an unintended foothold).
   await runInTenant(ctx.tenantId, async (tx) => {
     const [role] = await tx
-      .select({ id: roles.id, defaultTierLevel: roles.defaultTierLevel })
+      .select({ id: roles.id })
       .from(roles)
       .where(and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId)))
       .limit(1)
     if (!role) throw new Error("Role not found.")
-    // Role ceiling: can't grant a role whose tier outranks the actor.
-    if (!ctx.isSuperadmin && role.defaultTierLevel > ctx.tierLevel) {
-      throw new Error("You can't assign a role above your own tier.")
-    }
     // Can't confer (via a role) a permission the actor doesn't hold.
     await assertCanAssignRole(tx, ctx, input.roleId)
   })
@@ -594,14 +671,13 @@ export async function addMember(input: {
         tenantId: ctx.tenantId,
         email,
         roleId: input.roleId,
-        tierLevel: input.tier,
         invitedByMemberId: ctx.memberId,
       })
       await writeAudit(tx, ctx, {
         action: "member.invited",
         entityType: "pending_invite",
         entityId: email,
-        after: { email, roleId: input.roleId, tierLevel: input.tier },
+        after: { email, roleId: input.roleId },
       })
     })
     revalidatePath("/team")
@@ -635,15 +711,20 @@ export async function addMember(input: {
         memberId,
         tenantId: ctx.tenantId,
         roleId: input.roleId,
-        tierLevel: input.tier,
         status: "active",
+      })
+      // Mirror the primary role into member_roles (the union-permission source).
+      await tx.insert(memberRoles).values({
+        tenantId: ctx.tenantId,
+        memberId,
+        roleId: input.roleId,
       })
 
       await writeAudit(tx, ctx, {
         action: "member.added",
         entityType: "member",
         entityId: memberId,
-        after: { email, roleId: input.roleId, tierLevel: input.tier },
+        after: { email, roleId: input.roleId },
       })
     })
   } catch (err) {
@@ -717,8 +798,8 @@ export async function revokePendingInvite(
 export async function updateMember(
   memberId: string,
   input: {
-    roleId?: string | null
-    tierLevel?: number
+    /** Full set of roles for the member (many-to-many). Union = effective access. */
+    roleIds?: string[]
     managerMemberId?: string | null
   }
 ): Promise<ActionResult<void>> {
@@ -726,17 +807,6 @@ export async function updateMember(
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
-  // Seniority tiers are an Advanced-roles feature. With the module off, a
-  // member's tier follows its role preset — ignore any tier change. Basic role
-  // assignment and the simple reporting line (manager) stay available.
-  if (!isModuleEnabled("advancedRoles")) input = { ...input, tierLevel: undefined }
-
-  if (
-    input.tierLevel !== undefined &&
-    (!Number.isInteger(input.tierLevel) || input.tierLevel < 0)
-  ) {
-    throw new Error("Tier must be a non-negative integer.")
-  }
   if (input.managerMemberId && input.managerMemberId === memberId) {
     throw new Error("A member can't manage themselves.")
   }
@@ -744,143 +814,111 @@ export async function updateMember(
   const isSelf = ctx.memberId === memberId
 
   await runInTenant(ctx.tenantId, async (tx) => {
-    // Load the target's current profile so we can enforce tier ceilings.
     const [target] = await tx
-      .select({
-        roleId: membershipProfiles.roleId,
-        tierLevel: membershipProfiles.tierLevel,
-        managerMemberId: membershipProfiles.managerMemberId,
-      })
+      .select({ managerMemberId: membershipProfiles.managerMemberId })
       .from(membershipProfiles)
       .where(eq(membershipProfiles.memberId, memberId))
       .limit(1)
     if (!target) throw new Error("Member profile not found.")
 
-    // Resolve the role being assigned (if any) within this tenant.
-    let newRole: { id: string; defaultTierLevel: number } | null = null
-    if (input.roleId) {
-      const [role] = await tx
-        .select({ id: roles.id, defaultTierLevel: roles.defaultTierLevel })
+    // ── Roles (many-to-many) ─────────────────────────────────────────────
+    if (input.roleIds !== undefined) {
+      if (isSelf && !ctx.isSuperadmin) {
+        throw new Error("You can't change your own roles.")
+      }
+      // Every role must belong to this tenant, and you can't confer (via a
+      // role) a permission you don't hold yourself.
+      const found = input.roleIds.length
+        ? await tx
+            .select({ id: roles.id })
+            .from(roles)
+            .where(
+              and(inArray(roles.id, input.roleIds), eq(roles.tenantId, ctx.tenantId))
+            )
+        : []
+      const valid = new Set(found.map((r) => r.id))
+      for (const rid of input.roleIds) {
+        if (!valid.has(rid)) throw new Error("Role not found.")
+        await assertCanAssignRole(tx, ctx, rid)
+      }
+      // Protect the last Owner: can't strip the Owner role off the last owner.
+      const [ownerRole] = await tx
+        .select({ id: roles.id })
         .from(roles)
         .where(
-          and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId))
-        )
-        .limit(1)
-      if (!role) throw new Error("Role not found.")
-      newRole = role
-    }
-
-    // ── Escalation guards (superadmin bypasses) ──────────────────────────
-    if (!ctx.isSuperadmin) {
-      const changingRole =
-        input.roleId !== undefined && input.roleId !== target.roleId
-      const changingTier =
-        input.tierLevel !== undefined && input.tierLevel !== target.tierLevel
-
-      // No self-promotion: you can't change your own role or tier.
-      if (isSelf && (changingRole || changingTier)) {
-        throw new Error("You can't change your own role or tier.")
-      }
-      // You can't edit a member who already sits at or above your tier.
-      if (!isSelf && target.tierLevel >= ctx.tierLevel) {
-        throw new Error("You can't edit a member at or above your own tier.")
-      }
-      // You can't assign a tier above your own.
-      if (input.tierLevel !== undefined && input.tierLevel > ctx.tierLevel) {
-        throw new Error("You can't assign a tier above your own.")
-      }
-      // You can't assign a role whose tier outranks you.
-      if (newRole && newRole.defaultTierLevel > ctx.tierLevel) {
-        throw new Error("You can't assign a role above your own tier.")
-      }
-    }
-
-    // Can't confer (via the assigned role) a permission the actor lacks.
-    // Runs only when the role actually changes; superadmin bypasses internally.
-    if (newRole && input.roleId !== target.roleId) {
-      await assertCanAssignRole(tx, ctx, newRole.id)
-    }
-
-    // A manager must resolve to an active membership profile in THIS tenant
-    // (membershipProfiles is RLS-scoped, so a foreign id simply won't be found).
-    if (input.managerMemberId) {
-      const [mgr] = await tx
-        .select({ status: membershipProfiles.status })
-        .from(membershipProfiles)
-        .where(eq(membershipProfiles.memberId, input.managerMemberId))
-        .limit(1)
-      if (!mgr || mgr.status !== "active") {
-        throw new Error(
-          "Manager must be an active member of this organization."
-        )
-      }
-
-      // No cycles: walking UP from the proposed manager must never reach the
-      // member being edited (A→B→A would make both see each other's records
-      // via the managed-subtree scope and break upline approval routing).
-      const uplines = await tx
-        .select({
-          memberId: membershipProfiles.memberId,
-          managerId: membershipProfiles.managerMemberId,
-        })
-        .from(membershipProfiles)
-      const managerOf = new Map(uplines.map((r) => [r.memberId, r.managerId]))
-      const seen = new Set<string>()
-      let cursor: string | null = input.managerMemberId
-      while (cursor) {
-        if (cursor === memberId) {
-          throw new Error(
-            "That manager assignment would create a reporting cycle."
+          and(
+            eq(roles.name, "Owner"),
+            eq(roles.isSystem, true),
+            eq(roles.tenantId, ctx.tenantId)
           )
-        }
-        if (seen.has(cursor)) break // pre-existing cycle upstream; don't loop
-        seen.add(cursor)
-        cursor = managerOf.get(cursor) ?? null
+        )
+        .limit(1)
+      if (
+        ownerRole &&
+        !input.roleIds.includes(ownerRole.id) &&
+        (await isLastOwner(tx, memberId))
+      ) {
+        throw new Error("You can't remove the Owner role from the last Owner.")
       }
+
+      await tx.delete(memberRoles).where(eq(memberRoles.memberId, memberId))
+      if (input.roleIds.length) {
+        await tx.insert(memberRoles).values(
+          input.roleIds.map((roleId) => ({
+            tenantId: ctx.tenantId,
+            memberId,
+            roleId,
+          }))
+        )
+      }
+      // Keep the legacy primary role_id in sync (first role) for back-compat.
+      await tx
+        .update(membershipProfiles)
+        .set({ roleId: input.roleIds[0] ?? null, updatedAt: new Date() })
+        .where(eq(membershipProfiles.memberId, memberId))
     }
 
-    // Protect the last Owner: refuse to demote them off the Owner role.
-    if (
-      input.roleId !== undefined &&
-      input.roleId !== target.roleId &&
-      (await isLastOwner(tx, memberId))
-    ) {
-      throw new Error("You can't change the role of the last Owner.")
-    }
-
-    const set: Partial<typeof membershipProfiles.$inferInsert> = {
-      updatedAt: new Date(),
-    }
-    if (input.roleId !== undefined) set.roleId = input.roleId
-    if (input.tierLevel !== undefined) set.tierLevel = input.tierLevel
+    // ── Reporting line (manager) ─────────────────────────────────────────
     if (input.managerMemberId !== undefined) {
-      set.managerMemberId = input.managerMemberId
+      if (input.managerMemberId) {
+        const [mgr] = await tx
+          .select({ status: membershipProfiles.status })
+          .from(membershipProfiles)
+          .where(eq(membershipProfiles.memberId, input.managerMemberId))
+          .limit(1)
+        if (!mgr || mgr.status !== "active") {
+          throw new Error("Manager must be an active member of this organization.")
+        }
+        // No cycles: walking UP from the proposed manager must never reach the edited member.
+        const uplines = await tx
+          .select({
+            memberId: membershipProfiles.memberId,
+            managerId: membershipProfiles.managerMemberId,
+          })
+          .from(membershipProfiles)
+        const managerOf = new Map(uplines.map((r) => [r.memberId, r.managerId]))
+        const seen = new Set<string>()
+        let cursor: string | null = input.managerMemberId
+        while (cursor) {
+          if (cursor === memberId) {
+            throw new Error("That manager assignment would create a reporting cycle.")
+          }
+          if (seen.has(cursor)) break
+          seen.add(cursor)
+          cursor = managerOf.get(cursor) ?? null
+        }
+      }
+      await tx
+        .update(membershipProfiles)
+        .set({ managerMemberId: input.managerMemberId, updatedAt: new Date() })
+        .where(eq(membershipProfiles.memberId, memberId))
     }
-
-    const [updated] = await tx
-      .update(membershipProfiles)
-      .set(set)
-      .where(eq(membershipProfiles.memberId, memberId))
-      .returning({ id: membershipProfiles.id })
-    if (!updated) throw new Error("Member profile not found.")
 
     await writeAudit(tx, ctx, {
       action: "member.updated",
       entityType: "member",
       entityId: memberId,
-      before: {
-        roleId: target.roleId,
-        tierLevel: target.tierLevel,
-        managerMemberId: target.managerMemberId,
-      },
-      after: {
-        roleId: input.roleId ?? target.roleId,
-        tierLevel: input.tierLevel ?? target.tierLevel,
-        managerMemberId:
-          input.managerMemberId !== undefined
-            ? input.managerMemberId
-            : target.managerMemberId,
-      },
+      after: { roleIds: input.roleIds, managerMemberId: input.managerMemberId },
     })
   })
 

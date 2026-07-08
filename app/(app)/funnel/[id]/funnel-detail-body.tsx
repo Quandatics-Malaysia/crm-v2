@@ -546,6 +546,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           <CardContent>
             <RelatedQuickLinks
               items={[
+                ...(container
+                  ? [{ kind: "opportunity" as const, label: "Opportunity", href: `/opportunities/${container.id}` }]
+                  : []),
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
                 { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
                 ...(projectsEnabled

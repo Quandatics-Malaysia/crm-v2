@@ -1,12 +1,13 @@
 import "server-only"
 import { headers } from "next/headers"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import {
   user as userTable,
   member,
   membershipProfiles,
+  memberRoles,
   roles,
   rolePermissions,
   permissions as permissionsTable,
@@ -123,17 +124,30 @@ export async function getServerContext(): Promise<ServerContext | null> {
       .limit(1)
     const tenantSuspended = settings?.status === "suspended"
 
-    let roleName: string | null = null
-    const permKeys: string[] = []
-
-    if (profile?.roleId) {
+    // A member can hold MANY roles; effective permissions = the UNION of every
+    // assigned role's grants (member_roles). Fall back to the legacy single
+    // membership_profiles.role_id if no member_roles rows exist yet.
+    const roleRows = await tx
+      .select({ id: memberRoles.roleId, name: roles.name })
+      .from(memberRoles)
+      .innerJoin(roles, eq(roles.id, memberRoles.roleId))
+      .where(eq(memberRoles.memberId, memberRow.id))
+      .orderBy(asc(roles.name))
+    let roleIds = roleRows.map((r) => r.id)
+    let roleNames = roleRows.map((r) => r.name)
+    if (roleIds.length === 0 && profile?.roleId) {
       const [r] = await tx
         .select({ name: roles.name })
         .from(roles)
         .where(eq(roles.id, profile.roleId))
         .limit(1)
-      roleName = r?.name ?? null
+      roleIds = [profile.roleId]
+      roleNames = r?.name ? [r.name] : []
+    }
+    const roleName = roleNames.length ? roleNames.join(", ") : null
 
+    const permKeys: string[] = []
+    if (roleIds.length) {
       const rows = await tx
         .select({ key: permissionsTable.key })
         .from(rolePermissions)
@@ -141,7 +155,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
           permissionsTable,
           eq(rolePermissions.permissionId, permissionsTable.id)
         )
-        .where(eq(rolePermissions.roleId, profile.roleId))
+        .where(inArray(rolePermissions.roleId, roleIds))
       for (const row of rows) permKeys.push(row.key)
     }
 

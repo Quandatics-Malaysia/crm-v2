@@ -17,7 +17,7 @@ import { join } from "node:path"
 import { createHash } from "node:crypto"
 import postgres from "postgres"
 import { parseCsv } from "./csv"
-import { MAPPINGS, type Ctx, type ObjectMap } from "./mapping"
+import { MAPPINGS, stageCode, type Ctx, type ObjectMap } from "./mapping"
 
 const args = process.argv.slice(2)
 const flag = (name: string, def = "") =>
@@ -51,12 +51,6 @@ function det(key: string): string {
   b[8] = (b[8] & 0x3f) | 0x80
   const x = b.toString("hex")
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`
-}
-
-const STAGE_NORMALIZE: Record<string, string> = {
-  "0e": "0e", identified: "0e", "1d": "1d", qualified: "1d", "2c": "2c", proposal: "2c",
-  "3b": "3b", negotiation: "3b", "4a": "4a", commit: "4a", "closed won": "won", won: "won",
-  "closed lost": "lost", lost: "lost", kiv: "kiv",
 }
 
 function findCsv(object: string): string | null {
@@ -94,9 +88,9 @@ async function main() {
       detId: (object, sfId) => det(`${object}:${sfId}`),
       resolveOwner: (sfUserId) => ownerMap[sfUserId] ?? defaultOwner,
       resolveStage: (sfStage) => {
-        const code = STAGE_NORMALIZE[sfStage.trim().toLowerCase()] ?? sfStage.trim().toLowerCase()
+        const code = stageCode(sfStage)
         const id = stageByCode.get(code)
-        return id && pipeline ? { pipelineId: pipeline.id, stageId: id } : null
+        return id && pipeline ? { pipelineId: pipeline.id, stageId: id, code } : null
       },
       warn: (m) => warnings.push(m),
     }
@@ -106,6 +100,7 @@ async function main() {
 
     let totalRead = 0
     let totalWritten = 0
+    const deferredUpdates: Deferred[] = []
     for (const map of MAPPINGS) {
       const path = findCsv(map.object)
       if (!path) {
@@ -128,10 +123,27 @@ async function main() {
       if (badCols.length) console.log(`    ✗ mapping.ts targets non-existent columns: ${badCols.join(", ")}`)
 
       totalRead += rows.length
-      const written = await ingest(sql, map, rows, ctx, COMMIT)
+      const { written, failed } = await ingest(sql, map, rows, ctx, COMMIT, deferredUpdates)
       totalWritten += written
-      console.log(`    ${COMMIT ? "inserted" : "would insert"}: ${written}`)
+      console.log(`    ${COMMIT ? "inserted" : "would insert"}: ${written}${failed ? `   failed: ${failed}` : ""}`)
     }
+
+    // GLOBAL second pass — backfill self-refs + forward/cyclic links now that
+    // every object is in. A missing target just leaves the link null.
+    if (COMMIT && deferredUpdates.length) {
+      let linked = 0
+      for (const d of deferredUpdates) {
+        try {
+          const res = await sql`update ${sql(d.table)} set ${sql(d.vals)} where id = ${d.id}`
+          linked += res.count
+        } catch {
+          /* target row absent — leave null */
+        }
+      }
+      console.log(`\n• linked ${linked}/${deferredUpdates.length} deferred references (parents, primary quote/contact, lead conversions)`)
+    }
+
+    await reconcileCounters(sql, COMMIT)
 
     if (warnings.length) {
       const uniq = [...new Set(warnings)]
@@ -146,37 +158,101 @@ async function main() {
   }
 }
 
+/**
+ * "Smart" running-number detection: scan the source data for the highest number
+ * already issued and advance crm-v2's counters past it, so NEW records continue
+ * the sequence instead of colliding. Imported historical numbers are untouched.
+ * (Opportunity numbering is max-based in the app, so it self-continues — no
+ * counter to set here.)
+ */
+async function reconcileCounters(sql: postgres.Sql, commit: boolean): Promise<void> {
+  const maxInSource = (
+    object: string,
+    col: string,
+    minDigits: number,
+    maxDigits = 99
+  ): number => {
+    const path = findCsv(object)
+    if (!path) return 0
+    const { rows } = parseCsv(readFileSync(path, "utf8"))
+    let max = 0
+    for (const r of rows) {
+      for (const tok of (r[col] ?? "").match(/\d+/g) ?? []) {
+        if (tok.length >= minDigits && tok.length <= maxDigits) {
+          max = Math.max(max, Number(tok))
+        }
+      }
+    }
+    return max
+  }
+  const quoteNext = maxInSource("Quote", "Quote_Running_Number__c", 1) + 1
+  // SO numbers are YYNNNN-shaped, and the field is a messy multi-value list —
+  // constrain to 5-6 digit tokens so a concatenation artifact can't inflate it.
+  const soNext = maxInSource("Opportunity", "SO_Number__c", 5, 6) + 1
+
+  console.log(`\n=== running-number reconciliation ===`)
+  console.log(`    highest Quote running number → next quote number = ${quoteNext}`)
+  console.log(`    highest SO number            → next SO number     = ${soNext}`)
+  console.log(`    opportunity numbers are max-based in-app → auto-continue (no counter)`)
+
+  if (commit) {
+    // GREATEST() so we only ever advance the counter, never lower an issued one.
+    await sql`
+      update tenant_settings set
+        quote_next_number = greatest(quote_next_number, ${quoteNext}),
+        so_next_number    = greatest(so_next_number, ${soNext})
+      where organization_id = ${TENANT}`
+    console.log(`    ✓ counters advanced in tenant_settings`)
+  } else {
+    console.log(`    (dry-run — counters not changed)`)
+  }
+}
+
+type Deferred = { table: string; id: string; vals: Record<string, unknown> }
+
 async function ingest(
   sql: postgres.Sql,
   map: ObjectMap,
   rows: Record<string, string>[],
   ctx: Ctx,
-  commit: boolean
-): Promise<number> {
-  let n = 0
+  commit: boolean,
+  deferredUpdates: Deferred[]
+): Promise<{ written: number; failed: number }> {
+  const defer = new Set(map.deferCols ?? [])
+  let written = 0
+  let failed = 0
+
   for (const r of rows) {
     const sfId = r[map.sfId]
     if (!sfId) { ctx.warn(`${map.object}: row missing ${map.sfId}`); continue }
-    const record: Record<string, unknown> = {
-      id: ctx.detId(map.object, sfId),
-      tenant_id: TENANT,
-    }
+    const full: Record<string, unknown> = { id: ctx.detId(map.object, sfId), tenant_id: TENANT }
     for (const [sfCol, fm] of Object.entries(map.fields)) {
       if (!(sfCol in r)) continue
-      record[fm.col] = fm.xform ? fm.xform(r[sfCol], ctx) : (r[sfCol] || null)
+      full[fm.col] = fm.xform ? fm.xform(r[sfCol], ctx) : (r[sfCol] || null)
     }
-    if (map.defaults) Object.assign(record, map.defaults(r, ctx))
+    if (map.defaults) Object.assign(full, map.defaults(r, ctx))
 
-    if (commit) {
-      const res = await sql`
-        insert into ${sql(map.table)} ${sql(record)}
-        on conflict (id) do nothing`
-      n += res.count
-    } else {
-      n += 1
+    // Hold back deferred columns (self-refs + forward/cyclic FKs) for a GLOBAL
+    // second pass after every object is in — so the base row always inserts.
+    const record: Record<string, unknown> = {}
+    const dv: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(full)) {
+      if (defer.has(k)) { if (v != null) dv[k] = v } else record[k] = v
+    }
+    if (Object.keys(dv).length) {
+      deferredUpdates.push({ table: map.table, id: full.id as string, vals: dv })
+    }
+
+    if (!commit) { written++; continue }
+    try {
+      const res = await sql`insert into ${sql(map.table)} ${sql(record)} on conflict (id) do nothing`
+      written += res.count
+    } catch (e) {
+      failed++
+      ctx.warn(`${map.object} insert failed: ${(e as Error).message.slice(0, 100)}`)
     }
   }
-  return n
+  return { written, failed }
 }
 
 main().catch((e) => {

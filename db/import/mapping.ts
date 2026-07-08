@@ -1,19 +1,19 @@
 /**
- * Salesforce → crm-v2 field mapping registry (phase-1 core objects). The SF
- * column names below are best-guess standard/custom API names — the dry-run
- * (`import.ts`) reports any CSV header with NO mapping here, so you reconcile
- * this file against the client's REAL export headers before committing.
+ * Salesforce (QM org) → crm-v2 field mapping — built against the REAL export in
+ * project/QM_Data. Object model (confirmed from the data):
+ *   Opportunity_ID__c  (custom)  = the Opportunity CONTAINER → crm-v2 `opportunities`
+ *   Opportunity        (standard)= the FUNNEL / deal          → crm-v2 `funnels`
+ *   Company__c                    = Lead's Company            → (no table; phase 2)
+ *   OpportunityLineItem           = Opportunity Product        → (no table; phase 2)
  *
- * Import order is the array order (FK-safe): parents before children.
+ * Import order below is FK-safe (parents first). The dry-run reports any CSV
+ * header with no mapping here (your remaining parity gap).
  */
 
 export type Ctx = {
-  /** SF record Id → deterministic crm-v2 UUID (stable, so FKs + re-runs match). */
   detId: (object: string, sfId: string) => string
-  /** SF User Id → crm-v2 member id (or the default import owner). */
   resolveOwner: (sfUserId: string) => string | null
-  /** Resolve a funnel's pipeline stage id from a SF sales-stage value. */
-  resolveStage: (sfStage: string) => { pipelineId: string; stageId: string } | null
+  resolveStage: (sfStage: string) => { pipelineId: string; stageId: string; code: string } | null
   warn: (msg: string) => void
 }
 
@@ -21,66 +21,70 @@ export type Xform = (value: string, ctx: Ctx) => unknown
 export type FieldMap = { col: string; xform?: Xform }
 
 export type ObjectMap = {
-  /** SF object name = CSV file base name (case-insensitive match). */
   object: string
   table: string
-  /** SF Id column (its value seeds the deterministic UUID). */
   sfId: string
   fields: Record<string, FieldMap>
-  /** SF columns consumed by `defaults` (so they aren't reported as unmapped). */
   consumes?: string[]
-  /** Constant/derived columns not present as a single SF field. */
+  /** Self-reference columns applied in a 2nd UPDATE pass (parent may sort after child). */
+  deferCols?: string[]
   defaults?: (row: Record<string, string>, ctx: Ctx) => Record<string, unknown>
 }
 
 // ── Transforms ───────────────────────────────────────────────────────────────
 export const asText: Xform = (v) => (v === "" ? null : v)
-export const asDate: Xform = (v) => (v ? v.slice(0, 10) : null) // SF datetime → date
+export const asDate: Xform = (v) => (v ? v.slice(0, 10) : null)
 export const asNum: Xform = (v) => (v === "" ? null : Number(v))
+export const asInt: Xform = (v) => (v === "" ? null : Math.trunc(Number(v)))
 export const asBool: Xform = (v) => /^(1|true|yes|x)$/i.test(v)
+export const asCurrency: Xform = (v) => (v ? v.slice(0, 3).toUpperCase() : "MYR")
+/** Integer with a fallback for NOT-NULL columns (version, sort_order). */
+export const intOr =
+  (d: number): Xform =>
+  (v) => {
+    const n = Math.trunc(Number(v))
+    return v !== "" && Number.isFinite(n) ? n : d
+  }
+/** Number with a fallback for NOT-NULL numeric columns (discount). */
+export const numOr =
+  (d: number): Xform =>
+  (v) => {
+    const n = Number(v)
+    return v !== "" && Number.isFinite(n) ? n : d
+  }
 export const ref =
   (object: string): Xform =>
   (v, ctx) =>
     v ? ctx.detId(object, v) : null
 export const owner: Xform = (v, ctx) => ctx.resolveOwner(v)
-export const picklist =
-  (map: Record<string, string>, fallback?: string): Xform =>
-  (v, ctx) => {
-    if (v === "") return fallback ?? null
-    const hit = map[v.trim().toLowerCase()] ?? map[v]
-    if (hit == null) {
-      ctx.warn(`unmapped picklist value "${v}"`)
-      return fallback ?? v
-    }
-    return hit
-  }
 
-// Salesforce sales-stage label → crm-v2 stage code (0e/1d/2c/3b/4a/won/lost/kiv).
-const STAGE_CODE = picklist(
-  {
-    "0e": "0e", "identified": "0e",
-    "1d": "1d", "qualified": "1d",
-    "2c": "2c", "proposal": "2c",
-    "3b": "3b", "negotiation": "3b",
-    "4a": "4a", "commit": "4a",
-    "closed won": "won", "won": "won",
-    "closed lost": "lost", "lost": "lost",
-    "kiv": "kiv",
-  },
-  "0e"
-)
+/** Salesforce StageName → crm-v2 stage code (matches the real QM labels). */
+export function stageCode(sfStage: string): string {
+  const s = sfStage.trim().toLowerCase()
+  if (s.startsWith("0e")) return "0e"
+  if (s.startsWith("1d")) return "1d"
+  if (s.startsWith("2c")) return "2c"
+  if (s.startsWith("3b")) return "3b"
+  if (s.startsWith("4a")) return "4a"
+  if (s.includes("won")) return "won"
+  if (s.includes("lost")) return "lost"
+  if (s.includes("kiv")) return "kiv"
+  return "0e"
+}
+const STAGE_STATUS: Record<string, "open" | "won" | "lost" | "on_hold"> = {
+  "0e": "open", "1d": "open", "2c": "open", "3b": "open", "4a": "open",
+  won: "won", lost: "lost", kiv: "on_hold",
+}
+const LEAD_STATUS: Record<string, string> = {
+  new: "new", working: "contacted", contacted: "contacted",
+  qualified: "qualified", unqualified: "disqualified", converted: "converted",
+}
+const QUOTE_STATUS: Record<string, string> = {
+  draft: "draft", finalized: "sent", sent: "sent", accepted: "accepted",
+  rejected: "rejected", expired: "expired",
+}
 
-const OPP_STATUS = picklist(
-  { open: "open", "closed won": "won", won: "won", "closed lost": "lost", lost: "lost", kiv: "on_hold" },
-  "open"
-)
-const LEAD_STATUS = picklist(
-  { new: "new", contacted: "contacted", qualified: "qualified", unqualified: "disqualified", converted: "converted" },
-  "new"
-)
-const ACCOUNT_TYPE = picklist({ client: "client", customer: "client", reseller: "reseller", channel: "reseller" }, "client")
-
-// ── Object registry (FK order) ───────────────────────────────────────────────
+// ── Registry (FK order) ──────────────────────────────────────────────────────
 export const MAPPINGS: ObjectMap[] = [
   {
     object: "Account",
@@ -89,12 +93,44 @@ export const MAPPINGS: ObjectMap[] = [
     fields: {
       Name: { col: "name", xform: asText },
       AccountNumber: { col: "code", xform: asText },
-      Type: { col: "account_type", xform: ACCOUNT_TYPE },
       Industry: { col: "industry", xform: asText },
       Website: { col: "website", xform: asText },
       Phone: { col: "phone", xform: asText },
+      Company_Registration_No_1__c: { col: "registration_number", xform: asText },
       OwnerId: { col: "owner_member_id", xform: owner },
       Budgeting_Date__c: { col: "budgeting_date", xform: asDate },
+      ParentId: { col: "parent_account_id", xform: ref("Account") },
+    },
+    deferCols: ["parent_account_id"],
+    consumes: ["Type", "BillingStreet", "BillingCity", "BillingState", "BillingPostalCode", "BillingCountry"],
+    defaults: (r) => {
+      const type = (r.Type || "").toLowerCase()
+      const addr = {
+        line1: r.BillingStreet || "",
+        city: r.BillingCity || "",
+        state: r.BillingState || "",
+        postcode: r.BillingPostalCode || "",
+        country: r.BillingCountry || "",
+      }
+      const hasAddr = Object.values(addr).some(Boolean)
+      return {
+        account_type: type === "reseller" ? "reseller" : "client",
+        is_customer: type === "customer",
+        billing_address: hasAddr ? addr : null,
+      }
+    },
+  },
+  {
+    object: "Product2",
+    table: "products",
+    sfId: "Id",
+    fields: {
+      Name: { col: "name", xform: asText },
+      ProductCode: { col: "product_code", xform: asText },
+      Description: { col: "description", xform: asText },
+      IsActive: { col: "is_active", xform: asBool },
+      Product_Subcategory__c: { col: "subcategory", xform: asText },
+      UOM__c: { col: "uom", xform: asText },
     },
   },
   {
@@ -102,16 +138,15 @@ export const MAPPINGS: ObjectMap[] = [
     table: "persons",
     sfId: "Id",
     fields: {
-      FirstName: { col: "first_name", xform: asText },
       LastName: { col: "last_name", xform: asText },
       Title: { col: "title", xform: asText },
       Email: { col: "email", xform: asText },
       Phone: { col: "phone", xform: asText },
-      MailingCountry: { col: "country", xform: asText },
+      Country__c: { col: "country", xform: asText },
       OwnerId: { col: "owner_member_id", xform: owner },
       AccountId: { col: "account_id", xform: ref("Account") },
     },
-    // first_name is NOT NULL in crm-v2; SF FirstName may be blank.
+    consumes: ["FirstName"],
     defaults: (r) => ({ first_name: r.FirstName || r.LastName || "—" }),
   },
   {
@@ -119,73 +154,85 @@ export const MAPPINGS: ObjectMap[] = [
     table: "leads",
     sfId: "Id",
     fields: {
-      Name: { col: "name", xform: asText },
-      Company: { col: "company_name", xform: asText },
+      Company_Name__c: { col: "company_name", xform: asText },
       Email: { col: "email", xform: asText },
       Phone: { col: "phone", xform: asText },
       MobilePhone: { col: "mobile", xform: asText },
-      Country: { col: "country", xform: asText },
+      Country__c: { col: "country", xform: asText },
       LeadSource: { col: "source", xform: asText },
-      Status: { col: "status", xform: LEAD_STATUS },
       OwnerId: { col: "owner_member_id", xform: owner },
+      ConvertedAccountId: { col: "converted_account_id", xform: ref("Account") },
+      ConvertedContactId: { col: "converted_person_id", xform: ref("Contact") },
+      ConvertedOpportunityId: { col: "converted_opportunity_id", xform: ref("Opportunity") },
     },
+    deferCols: ["converted_account_id", "converted_person_id", "converted_opportunity_id"],
+    consumes: ["FirstName", "LastName", "Company", "Status"],
+    defaults: (r) => ({
+      name: [r.FirstName, r.LastName].filter(Boolean).join(" ") || r.Company || "—",
+      company_name: r.Company_Name__c || r.Company || null,
+      status: LEAD_STATUS[(r.Status || "").toLowerCase()] ?? "new",
+    }),
   },
   {
-    object: "Opportunity",
+    object: "Opportunity_ID__c",
     table: "opportunities",
     sfId: "Id",
     fields: {
       Name: { col: "name", xform: asText },
-      AccountId: { col: "account_id", xform: ref("Account") },
+      Account_Name_c__c: { col: "account_id", xform: ref("Account") },
+      Opp_Contact__c: { col: "primary_person_id", xform: ref("Contact") },
       OwnerId: { col: "owner_member_id", xform: owner },
-      Opportunity_Year__c: { col: "opportunity_year", xform: asNum },
-      Opportunity_Number__c: { col: "opportunity_number", xform: asNum },
-      Opportunity_ID__c: { col: "code", xform: asText },
+      Opportunity_Description__c: { col: "description", xform: asText },
       Pain__c: { col: "pain", xform: asText },
-      Power__c: { col: "power", xform: asText },
       Vision__c: { col: "vision", xform: asText },
       Value__c: { col: "value", xform: asText },
-      Control__c: { col: "control", xform: asText },
-      CurrencyIsoCode: { col: "currency", xform: asText },
+      Total_Estimated_Funnel_Amount__c: { col: "total_estimated_funnel_amount", xform: asNum },
+      CurrencyIsoCode: { col: "currency", xform: asCurrency },
+    },
+    deferCols: ["primary_person_id"],
+    consumes: ["Opportunity_Year__c", "Opportunity_Number__c"],
+    defaults: (r) => {
+      const year = Math.trunc(Number(r.Opportunity_Year__c)) || new Date(0).getUTCFullYear()
+      const num = Math.trunc(Number(r.Opportunity_Number__c)) || 0
+      return {
+        opportunity_year: year,
+        opportunity_number: num,
+        code: `OPP-${year}-${String(num).padStart(4, "0")}`,
+      }
     },
   },
   {
-    object: "Funnel",
+    object: "Opportunity",
     table: "funnels",
     sfId: "Id",
     fields: {
       Name: { col: "name", xform: asText },
-      Opportunity__c: { col: "opportunity_id", xform: ref("Opportunity") },
-      Account__c: { col: "account_id", xform: ref("Account") },
+      Opportunity__c: { col: "opportunity_id", xform: ref("Opportunity_ID__c") },
+      AccountId: { col: "account_id", xform: ref("Account") },
+      ContactId: { col: "primary_person_id", xform: ref("Contact") },
       OwnerId: { col: "owner_member_id", xform: owner },
-      Estimated_Funnel_Amount__c: { col: "estimated_amount", xform: asNum },
-      Quoted_Amount__c: { col: "amount", xform: asNum },
-      Award_Date__c: { col: "award_date", xform: asDate },
-      Estimated_Funnel_Close_Date__c: { col: "expected_close_date", xform: asDate },
-      Project_Year__c: { col: "project_year", xform: asNum },
-      Status: { col: "status", xform: OPP_STATUS },
-      CurrencyIsoCode: { col: "currency", xform: asText },
-    },
-    consumes: ["Sales_Stage__c"],
-    // pipeline_id + current_stage_id resolve from the SF sales stage against the
-    // seeded default pipeline (see import.ts → Ctx.resolveStage).
-    defaults: (r, ctx) => {
-      const stage = ctx.resolveStage(r.Sales_Stage__c ?? "")
-      if (!stage) { ctx.warn(`no stage for "${r.Sales_Stage__c}"`); return {} }
-      return { pipeline_id: stage.pipelineId, current_stage_id: stage.stageId }
-    },
-  },
-  {
-    object: "Product",
-    table: "products",
-    sfId: "Id",
-    fields: {
-      Name: { col: "name", xform: asText },
-      ProductCode: { col: "product_code", xform: asText },
-      Family: { col: "category", xform: asText },
+      SyncedQuoteId: { col: "primary_quotation_id", xform: ref("Quote") },
+      Amount: { col: "amount", xform: asNum },
+      Estimated_Amount__c: { col: "estimated_amount", xform: asNum },
+      Recognized_Percentage__c: { col: "recognized_percent", xform: asNum },
       Description: { col: "description", xform: asText },
-      IsActive: { col: "active", xform: asBool },
-      CurrencyIsoCode: { col: "currency", xform: asText },
+      Award_Date__c: { col: "award_date", xform: asDate },
+      CloseDate: { col: "expected_close_date", xform: asDate },
+      Pain__c: { col: "pain", xform: asText },
+      Vision__c: { col: "vision", xform: asText },
+      Value__c: { col: "value", xform: asText },
+      CurrencyIsoCode: { col: "currency", xform: asCurrency },
+    },
+    deferCols: ["primary_person_id", "primary_quotation_id"],
+    consumes: ["StageName"],
+    defaults: (r, ctx) => {
+      const stage = ctx.resolveStage(r.StageName ?? "")
+      if (!stage) { ctx.warn(`no stage for "${r.StageName}"`); return {} }
+      return {
+        pipeline_id: stage.pipelineId,
+        current_stage_id: stage.stageId,
+        status: STAGE_STATUS[stage.code] ?? "open",
+      }
     },
   },
   {
@@ -194,12 +241,16 @@ export const MAPPINGS: ObjectMap[] = [
     sfId: "Id",
     fields: {
       QuoteNumber: { col: "quote_number", xform: asText },
-      Funnel__c: { col: "funnel_id", xform: ref("Funnel") },
-      Status: { col: "status", xform: picklist({ draft: "draft", sent: "sent", accepted: "accepted" }, "draft") },
-      Quote_Date__c: { col: "quote_date", xform: asDate },
+      OpportunityId: { col: "funnel_id", xform: ref("Opportunity") },
+      Revision_Number__c: { col: "version", xform: intOr(1) },
+      Date__c: { col: "quote_date", xform: asDate },
       ExpirationDate: { col: "valid_until", xform: asDate },
-      CurrencyIsoCode: { col: "currency", xform: asText },
+      Total_Excluding_Tax__c: { col: "subtotal", xform: asNum },
+      Total_Discount__c: { col: "discount_total", xform: asNum },
+      CurrencyIsoCode: { col: "currency", xform: asCurrency },
     },
+    consumes: ["Status"],
+    defaults: (r) => ({ status: QUOTE_STATUS[(r.Status || "").toLowerCase()] ?? "draft" }),
   },
   {
     object: "QuoteLineItem",
@@ -207,11 +258,13 @@ export const MAPPINGS: ObjectMap[] = [
     sfId: "Id",
     fields: {
       QuoteId: { col: "quotation_id", xform: ref("Quote") },
-      Product2Id: { col: "product_id", xform: ref("Product") },
-      Description: { col: "description", xform: asText },
-      Quantity: { col: "quantity", xform: asNum },
-      UnitPrice: { col: "unit_price", xform: asNum },
-      Discount: { col: "discount_amount", xform: asNum },
+      Product2Id: { col: "product_id", xform: ref("Product2") },
+      Quantity: { col: "quantity", xform: numOr(1) },
+      UnitPrice: { col: "unit_price", xform: numOr(0) },
+      Item_Discount__c: { col: "discount_percent", xform: numOr(0) },
+      SortOrder: { col: "sort_order", xform: intOr(0) },
     },
+    consumes: ["Description", "Description__c"],
+    defaults: (r) => ({ description: r.Description__c || r.Description || "—" }),
   },
 ]

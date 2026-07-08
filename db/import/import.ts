@@ -89,6 +89,7 @@ async function main() {
     // Users first — so every record's OwnerId resolves to the imported member.
     const importedUsers = await importUsers(sql, COMMIT)
 
+    const usedOppNumbers = new Map<number, Set<number>>()
     const ctx: Ctx = {
       detId: (object, sfId) => det(`${object}:${sfId}`),
       resolveOwner: (sfUserId) =>
@@ -99,6 +100,14 @@ async function main() {
         const code = stageCode(sfStage)
         const id = stageByCode.get(code)
         return id && pipeline ? { pipelineId: pipeline.id, stageId: id, code } : null
+      },
+      nextFreeOppNumber: (year, number) => {
+        let used = usedOppNumbers.get(year)
+        if (!used) { used = new Set(); usedOppNumbers.set(year, used) }
+        let n = number > 0 ? number : 1
+        while (used.has(n)) n++
+        used.add(n)
+        return n
       },
       warn: (m) => warnings.push(m),
     }

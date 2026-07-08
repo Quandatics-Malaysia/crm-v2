@@ -173,7 +173,7 @@ export type FinanceSources = {
     currency: string
   }[]
   /** Pending milestones per project, for the invoice ↔ milestone tie. */
-  milestones: { id: string; projectId: string; title: string; amount: string }[]
+  milestones: { id: string; projectId: string | null; title: string; amount: string }[]
 }
 
 /** Everything the create dialog needs, in one round trip. Managers only —
@@ -423,7 +423,7 @@ export async function createFinanceDoc(
           if (!m) throw new Error("Milestone not found")
           if (m.status !== "pending")
             throw new Error("That milestone is already invoiced or paid")
-          if (!projectId || m.projectId !== projectId)
+          if (!projectId || (m.projectId ?? "") !== projectId)
             throw new Error("That milestone belongs to a different project.")
           const [claimed] = await tx
             .select({ number: financeDocs.number })
@@ -894,7 +894,7 @@ async function executeIntercoMirror(m: IntercoMirror): Promise<void> {
       kind: "purchase_invoice",
       parentId: null,
       salesOrderId: null,
-      projectId: m.projectId,
+      projectId: (m.projectId ?? ""),
       milestoneId: null,
       partyName: nameOf(m.partnerTenantId),
       amount: m.share,
@@ -1134,7 +1134,7 @@ export async function createInvoiceFromMilestone(
           })
           .from(projects)
           .leftJoin(accounts, eq(projects.accountId, accounts.id))
-          .where(and(eq(projects.id, m.projectId), isNull(projects.deletedAt)))
+          .where(and(eq(projects.id, (m.projectId ?? "")), isNull(projects.deletedAt)))
           .limit(1)
         if (!proj) throw new Error("Project not found")
 
@@ -1144,7 +1144,7 @@ export async function createInvoiceFromMilestone(
           .from(salesOrders)
           .where(
             and(
-              eq(salesOrders.projectId, m.projectId),
+              eq(salesOrders.projectId, (m.projectId ?? "")),
               eq(salesOrders.status, "approved")
             )
           )
@@ -1163,7 +1163,7 @@ export async function createInvoiceFromMilestone(
           kind: "invoice",
           parentId: null,
           salesOrderId: so.id,
-          projectId: m.projectId,
+          projectId: (m.projectId ?? ""),
           milestoneId: m.id,
           partyName: proj.accountName,
           amount: m.amount,
@@ -1180,7 +1180,7 @@ export async function createInvoiceFromMilestone(
         })
         await logActivity(tx, ctx, {
           entityType: "project",
-          entityId: m.projectId,
+          entityId: (m.projectId ?? ""),
           type: "system",
           subject: `Invoice ${row.number} drafted for milestone "${m.title}"`,
         })

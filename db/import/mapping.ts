@@ -14,6 +14,8 @@ export type Ctx = {
   detId: (object: string, sfId: string) => string
   resolveOwner: (sfUserId: string) => string | null
   resolveStage: (sfStage: string) => { pipelineId: string; stageId: string; code: string } | null
+  /** Returns a collision-free opportunity number for (year), de-duping SF dupes. */
+  nextFreeOppNumber: (year: number, number: number) => number
   warn: (msg: string) => void
 }
 
@@ -82,6 +84,9 @@ const LEAD_STATUS: Record<string, string> = {
 const QUOTE_STATUS: Record<string, string> = {
   draft: "draft", finalized: "sent", sent: "sent", accepted: "accepted",
   rejected: "rejected", expired: "expired",
+}
+const MILESTONE_STATUS: Record<string, string> = {
+  pending: "pending", invoiced: "invoiced", billed: "paid", paid: "paid", won: "pending",
 }
 
 // ── Registry (FK order) ──────────────────────────────────────────────────────
@@ -191,9 +196,12 @@ export const MAPPINGS: ObjectMap[] = [
     },
     deferCols: ["primary_person_id"],
     consumes: ["Opportunity_Year__c", "Opportunity_Number__c"],
-    defaults: (r) => {
-      const year = Math.trunc(Number(r.Opportunity_Year__c)) || new Date(0).getUTCFullYear()
-      const num = Math.trunc(Number(r.Opportunity_Number__c)) || 0
+    defaults: (r, ctx) => {
+      const year = Math.trunc(Number(r.Opportunity_Year__c)) || new Date().getUTCFullYear()
+      const raw = Math.trunc(Number(r.Opportunity_Number__c)) || 0
+      // De-dupe: bump the number until (year, number) is free (recovers the SF
+      // rows that share a duplicate opportunity number).
+      const num = ctx.nextFreeOppNumber(year, raw)
       return {
         opportunity_year: year,
         opportunity_number: num,
@@ -266,5 +274,89 @@ export const MAPPINGS: ObjectMap[] = [
     },
     consumes: ["Description", "Description__c"],
     defaults: (r) => ({ description: r.Description__c || r.Description || "—" }),
+  },
+
+  // ── Deferred objects (data-only 1:1; UI/automation stays plugin-gated) ──────
+  {
+    object: "Company__c",
+    table: "lead_companies",
+    sfId: "Id",
+    fields: {
+      Name: { col: "name", xform: asText },
+      Lead__c: { col: "lead_id", xform: ref("Lead") },
+      Address__c: { col: "address", xform: asText },
+      Company_Website__c: { col: "website", xform: asText },
+      Phone__c: { col: "phone", xform: asText },
+      Relationship__c: { col: "relationship", xform: asText },
+      Company_Code__c: { col: "company_code", xform: asText },
+      Assignment_Indicator__c: { col: "assignment_indicator", xform: asText },
+      OwnerId: { col: "owner_member_id", xform: owner },
+    },
+    deferCols: ["lead_id"],
+    defaults: (r) => ({ name: r.Name || "—" }),
+  },
+  {
+    object: "OpportunityLineItem",
+    table: "opportunity_products",
+    sfId: "Id",
+    fields: {
+      OpportunityId: { col: "funnel_id", xform: ref("Opportunity") },
+      Quantity: { col: "quantity", xform: numOr(1) },
+      UnitPrice: { col: "unit_price", xform: numOr(0) },
+      Discount: { col: "discount", xform: numOr(0) },
+      Item_Discount__c: { col: "item_discount", xform: asNum },
+      TotalPrice: { col: "total_price", xform: asNum },
+      Product_Category__c: { col: "product_category", xform: asText },
+      UOM__c: { col: "uom", xform: asText },
+      SortOrder: { col: "sort_order", xform: intOr(0) },
+    },
+    consumes: ["Description", "Description__c"],
+    defaults: (r) => ({ description: r.Description__c || r.Description || null }),
+  },
+  {
+    object: "Payment_Milestone__c",
+    table: "payment_milestones",
+    sfId: "Id",
+    fields: {
+      Funnels__c: { col: "funnel_id", xform: ref("Opportunity") },
+      Amount__c: { col: "amount", xform: numOr(0) },
+      Split_percentage__c: { col: "split_percentage", xform: asNum },
+      Invoice_Number__c: { col: "invoice_number", xform: asText },
+      Actual_Invoice_Date__c: { col: "invoice_date", xform: asDate },
+      Expected_Invoice_Month__c: { col: "expected_invoice_month", xform: asText },
+      Expected_Invoice_Year__c: { col: "expected_invoice_year", xform: asInt },
+      SO_Number__c: { col: "so_number", xform: asText },
+      Product_Category__c: { col: "product_category", xform: asText },
+      Product_Subcategory__c: { col: "product_subcategory", xform: asText },
+      Is_Default__c: { col: "is_default", xform: asBool },
+    },
+    deferCols: ["funnel_id"],
+    consumes: ["Name", "Status__c"],
+    defaults: (r) => ({
+      title: r.Name || "Milestone",
+      status: MILESTONE_STATUS[(r.Status__c || "").toLowerCase()] ?? "pending",
+    }),
+  },
+  {
+    object: "Contract",
+    table: "contracts",
+    sfId: "Id",
+    fields: {
+      AccountId: { col: "account_id", xform: ref("Account") },
+      Funnel__c: { col: "funnel_id", xform: ref("Opportunity") },
+      ContractNumber: { col: "contract_number", xform: asText },
+      StartDate: { col: "start_date", xform: asDate },
+      ContractTerm: { col: "contract_term", xform: asInt },
+      Status: { col: "status", xform: asText },
+      CustomerSignedTitle: { col: "customer_signed_title", xform: asText },
+      CustomerSignedDate: { col: "customer_signed_date", xform: asDate },
+      ActivatedDate: { col: "activated_date", xform: asDate },
+      Contract_Order_Number__c: { col: "order_number", xform: asText },
+      SpecialTerms: { col: "special_terms", xform: asText },
+      OwnerId: { col: "owner_member_id", xform: owner },
+    },
+    deferCols: ["account_id", "funnel_id"],
+    consumes: ["Name", "Contract_Name__c"],
+    defaults: (r) => ({ name: r.Contract_Name__c || r.Name || null }),
   },
 ]

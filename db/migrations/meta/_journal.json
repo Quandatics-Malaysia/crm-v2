@@ -351,6 +351,13 @@
 			"when": 1783214427643,
 			"tag": "0049_salesforce_parity_fields",
 			"breakpoints": true
+		},
+		{
+			"idx": 50,
+			"version": "7",
+			"when": 1783214428643,
+			"tag": "0050_deferred_objects",
+			"breakpoints": true
 		}
 	]
 }

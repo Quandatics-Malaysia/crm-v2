@@ -718,7 +718,7 @@ export type MilestoneStatus = (typeof paymentMilestoneStatus.enumValues)[number]
 
 export type MilestoneItem = {
   id: string
-  projectId: string
+  projectId: string | null
   quotationId: string | null
   title: string
   amount: string
@@ -921,7 +921,7 @@ export async function updateMilestone(
       const [project] = await tx
         .select({ value: projects.value, ownerMemberId: projects.ownerMemberId })
         .from(projects)
-        .where(eq(projects.id, existing.projectId))
+        .where(eq(projects.id, (existing.projectId ?? "")))
         .limit(1)
         .for("update")
 
@@ -947,7 +947,7 @@ export async function updateMilestone(
       // project value. Edits that don't raise the total (title/date/status, or
       // lowering an amount) are always allowed, even if already over-allocated.
       if (projectValue > 0) {
-        const otherTotal = await allocatedTotal(tx, existing.projectId, id)
+        const otherTotal = await allocatedTotal(tx, (existing.projectId ?? ""), id)
         const newTotal = otherTotal + Number(nextAmount)
         const oldTotal = otherTotal + Number(existing.amount)
         if (
@@ -993,7 +993,7 @@ export async function updateMilestone(
 
       await logActivity(tx, ctx, {
         entityType: "project",
-        entityId: existing.projectId,
+        entityId: (existing.projectId ?? ""),
         type: "system",
         subject:
           nextStatus !== existing.status
@@ -1004,7 +1004,7 @@ export async function updateMilestone(
       await writeAudit(tx, ctx, {
         action: "milestone.updated",
         entityType: "project",
-        entityId: existing.projectId,
+        entityId: (existing.projectId ?? ""),
         before: { amount: existing.amount, status: existing.status },
         after: { milestoneId: id, amount: nextAmount, status: nextStatus },
       })
@@ -1012,10 +1012,10 @@ export async function updateMilestone(
       // Manually marking the last milestone paid completes the project too
       // (same automation as the receipt path; toggle-gated inside).
       if (nextStatus === "paid" && nextStatus !== existing.status) {
-        await maybeCompleteProject(tx, ctx, existing.projectId)
+        await maybeCompleteProject(tx, ctx, (existing.projectId ?? ""))
       }
 
-      return existing.projectId
+      return (existing.projectId ?? "")
     }
   )
   revalidatePath(`/projects/${projectId}`)
@@ -1038,7 +1038,7 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
       const [project] = await tx
         .select({ ownerMemberId: projects.ownerMemberId })
         .from(projects)
-        .where(eq(projects.id, milestone.projectId))
+        .where(eq(projects.id, (milestone.projectId ?? "")))
         .limit(1)
       const visible = await visibleMemberIds(tx, ctx)
       if (
@@ -1059,7 +1059,7 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
 
       await logActivity(tx, ctx, {
         entityType: "project",
-        entityId: deleted.projectId,
+        entityId: (deleted.projectId ?? ""),
         type: "system",
         subject: `Milestone deleted: ${deleted.title}`,
       })
@@ -1067,14 +1067,14 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
       await writeAudit(tx, ctx, {
         action: "milestone.deleted",
         entityType: "project",
-        entityId: deleted.projectId,
+        entityId: (deleted.projectId ?? ""),
         before: { milestoneId: id, title: deleted.title },
       })
 
       // Deleting the last unpaid milestone can leave everything paid.
-      await maybeCompleteProject(tx, ctx, deleted.projectId)
+      await maybeCompleteProject(tx, ctx, (deleted.projectId ?? ""))
 
-      return deleted.projectId
+      return (deleted.projectId ?? "")
     }
   )
   revalidatePath(`/projects/${projectId}`)

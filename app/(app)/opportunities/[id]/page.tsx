@@ -112,7 +112,7 @@ export default async function OpportunityDetailPage({
                   detail.funnels.map((f) => (
                     <TableRow key={f.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/funnel/${f.id}`} className="hover:underline">
+                        <Link href={`/funnel/${f.id}`} className="font-medium link">
                           {f.name}
                         </Link>
                       </TableCell>

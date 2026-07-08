@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   boolean,
+  date,
   jsonb,
   timestamp,
   unique,
@@ -44,6 +45,8 @@ export const accounts = pgTable(
      * flipped true automatically when a funnel on this account reaches Closed Won.
      */
     isCustomer: boolean("is_customer").notNull().default(false),
+    /** Budgeting date (Salesforce "Budgeting Date" — drives budget-expiry reminders). */
+    budgetingDate: date("budgeting_date"),
     /** For reseller accounts: the end-user client account. */
     endUserAccountId: uuid("end_user_account_id").references(
       (): AnyPgColumn => accounts.id,
@@ -85,6 +88,11 @@ export const persons = pgTable(
     title: text("title"),
     email: text("email"),
     phone: text("phone"),
+    /** Contact owner (Salesforce "Contact Owner"). */
+    ownerMemberId: text("owner_member_id").references(() => member.id, {
+      onDelete: "set null",
+    }),
+    country: text("country"),
     isPrimary: boolean("is_primary").notNull().default(false),
     // DEPRECATED / UNIMPLEMENTED: custom fields were never wired into the app
     // (no definitions UI, no read/validation path) and CUSTOM_FIELD_MANAGE was
@@ -115,6 +123,8 @@ export const leads = pgTable(
   companyName: text("company_name"),
   email: text("email"),
   phone: text("phone"),
+  mobile: text("mobile"),
+  country: text("country"),
   source: text("source"),
   status: leadStatus("status").notNull().default("new"),
   disqualifyReason: text("disqualify_reason"),

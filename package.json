@@ -13,6 +13,7 @@
     "db:seed": "tsx --conditions=react-server db/seed.ts",
     "db:seed-sample": "tsx --conditions=react-server db/seed-sample.ts",
     "db:backfill-codes": "tsx db/backfill-project-codes.ts",
+    "db:import": "tsx db/import/import.ts",
     "db:setup": "tsx db/migrate.ts && tsx --conditions=react-server db/seed.ts",
     "db:setup-seeded": "tsx db/migrate.ts && tsx --conditions=react-server db/seed.ts && tsx --conditions=react-server db/seed-sample.ts",
     "db:push": "drizzle-kit push",

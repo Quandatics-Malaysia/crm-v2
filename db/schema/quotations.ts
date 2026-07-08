@@ -92,6 +92,8 @@ export const quotations = pgTable(
       .default("0"),
     taxTotal: numeric("tax_total", { precision: 14, scale: 2 }).notNull().default("0"),
     total: numeric("total", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Quote issue date (Salesforce "Quote Date"). */
+    quoteDate: date("quote_date"),
     validUntil: date("valid_until"),
     notes: text("notes"),
     sentAt: timestamp("sent_at", { withTimezone: true }),

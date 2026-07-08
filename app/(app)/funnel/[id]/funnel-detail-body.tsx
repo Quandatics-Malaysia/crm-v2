@@ -64,6 +64,7 @@ export type FunnelDetailData = {
   interactive: boolean
   accountId: string
   accountName: string | null
+  container: { id: string; code: string; name: string } | null
   ownerName: string | null
   personId: string | null
   personName: string | null
@@ -125,6 +126,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     interactive,
     accountId,
     accountName,
+    container,
     ownerName,
     personId,
     personName,
@@ -365,6 +367,15 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   className="font-medium link"
                 >
                   {accountName}
+                </Link>
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label="Opportunity">
+              {container ? (
+                <Link href={`/opportunities/${container.id}`} className="font-medium link">
+                  {container.name}
                 </Link>
               ) : (
                 "—"

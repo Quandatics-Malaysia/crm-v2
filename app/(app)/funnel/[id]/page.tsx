@@ -44,7 +44,7 @@ export default async function OpportunityDetailPage({
   const detail = await getOpportunity(id)
   if (!detail) notFound()
 
-  const { opportunity: opp, accountName, ownerName, personName, stage } = detail
+  const { opportunity: opp, accountName, container, ownerName, personName, stage } = detail
 
   const [
     ctx,
@@ -278,6 +278,7 @@ export default async function OpportunityDetailPage({
           interactive={canAdvance && !terminal && !pendingApproval}
           accountId={opp.accountId}
           accountName={accountName}
+          container={container}
           ownerName={ownerName}
           personId={opp.primaryPersonId}
           personName={personName}

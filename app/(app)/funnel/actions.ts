@@ -338,6 +338,8 @@ export type OpportunityDetail = {
   }[]
   opportunity: typeof funnels.$inferSelect
   accountName: string
+  /** Parent Opportunity container. */
+  container: { id: string; code: string; name: string } | null
   personName: string | null
   ownerName: string | null
   stage: typeof pipelineStages.$inferSelect
@@ -386,6 +388,13 @@ export async function getOpportunity(
       .select({ name: accounts.name })
       .from(accounts)
       .where(eq(accounts.id, opp.accountId))
+      .limit(1)
+
+    // Parent Opportunity container (Salesforce-style — funnel belongs to one).
+    const [container] = await tx
+      .select({ id: opportunities.id, code: opportunities.code, name: opportunities.name })
+      .from(opportunities)
+      .where(eq(opportunities.id, opp.opportunityId))
       .limit(1)
 
     // The handling partners, live-resolved (see loadPartiesByOpportunity).
@@ -534,6 +543,7 @@ export async function getOpportunity(
     return {
       opportunity: opp,
       accountName: acct?.name ?? "—",
+      container: container ?? null,
       parties,
       partnerResponses,
       personName,

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { showActionError } from "@/lib/show-action-error"
@@ -1090,12 +1091,10 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
         <p className="text-sm text-muted-foreground">
           {roles.length} role{roles.length === 1 ? "" : "s"}
         </p>
-        {ADVANCED_ROLES ? (
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            New role
-          </Button>
-        ) : null}
+        <Button size="sm" render={<Link href="/team/roles" />}>
+          <ShieldCheck className="size-4" />
+          Roles &amp; permissions
+        </Button>
       </div>
 
       {roles.length === 0 ? (

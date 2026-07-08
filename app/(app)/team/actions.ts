@@ -17,7 +17,7 @@ import {
   session,
   pendingInvites,
 } from "@/db/schema"
-import { assertModuleEnabled, isModuleEnabled } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 
 /**
  * True if `memberId` is the only ACTIVE member holding the system "Owner" role
@@ -224,6 +224,28 @@ export async function listTeamRoles(): Promise<TeamRoleView[]> {
   })
 }
 
+export type RoleWithPermissions = TeamRoleView & { permissions: string[] }
+
+/** All roles with their granted permission keys — for the roles page. */
+export async function listRolesWithPermissions(): Promise<RoleWithPermissions[]> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
+  const roleViews = await listTeamRoles()
+  return runInTenant(ctx.tenantId, async (tx) => {
+    const rows = await tx
+      .select({ roleId: rolePermissions.roleId, key: permissions.key })
+      .from(rolePermissions)
+      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+    const byRole = new Map<string, string[]>()
+    for (const r of rows) {
+      const arr = byRole.get(r.roleId) ?? []
+      arr.push(r.key)
+      byRole.set(r.roleId, arr)
+    }
+    return roleViews.map((r) => ({ ...r, permissions: byRole.get(r.id) ?? [] }))
+  })
+}
+
 /** Permission keys currently granted to a role. */
 export async function getRolePermissions(roleId: string): Promise<string[]> {
   const ctx = await requireContext()
@@ -249,7 +271,6 @@ export async function setRolePermissions(
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-    assertModuleEnabled("advancedRoles")
 
     await runInTenant(ctx.tenantId, async (tx) => {
       const [role] = await tx
@@ -350,7 +371,6 @@ export async function createRole(input: {
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-    assertModuleEnabled("advancedRoles")
     validateRoleInput(input.name, input.tier)
 
     const view = await runInTenant(ctx.tenantId, async (tx) => {
@@ -400,7 +420,6 @@ export async function updateRole(
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-  assertModuleEnabled("advancedRoles")
   validateRoleInput(input.name, input.tier)
 
   await runInTenant(ctx.tenantId, async (tx) => {
@@ -463,7 +482,6 @@ export async function deleteRole(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
-  assertModuleEnabled("advancedRoles")
 
   await runInTenant(ctx.tenantId, async (tx) => {
     const [role] = await tx

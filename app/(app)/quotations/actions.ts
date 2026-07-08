@@ -16,6 +16,7 @@ import {
   quotations,
   quotationLineItems,
   funnels,
+  opportunities,
   projects,
   taxSettings,
   tenantSettings,
@@ -66,6 +67,8 @@ export type QuotationDetail = {
   quotation: QuotationRow
   lines: QuotationLineRow[]
   opportunityName: string | null
+  /** Parent Opportunity container of the quotation's funnel. */
+  container: { id: string; name: string } | null
   accountId: string | null
   accountName: string | null
 }
@@ -103,10 +106,13 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
         oppOwner: funnels.ownerMemberId,
         accountId: funnels.accountId,
         accountName: accounts.name,
+        containerId: opportunities.id,
+        containerName: opportunities.name,
       })
       .from(quotations)
       .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
       .leftJoin(accounts, eq(funnels.accountId, accounts.id))
+      .leftJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!row) return null
@@ -120,6 +126,10 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
       quotation: row.q,
       lines,
       opportunityName: row.opportunityName,
+      container:
+        row.containerId && row.containerName
+          ? { id: row.containerId, name: row.containerName }
+          : null,
       accountId: row.accountId ?? null,
       accountName: row.accountName ?? null,
     }

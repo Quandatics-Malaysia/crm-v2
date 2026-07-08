@@ -77,16 +77,28 @@ export default async function QuotationDetailPage({
             <h2 className="text-lg font-semibold tracking-tight">
               {detail.quotation.quoteNumber}
             </h2>
-            {detail.opportunityName ? (
-              <Link
-                href={`/funnel/${detail.quotation.funnelId}`}
-                className="text-sm link"
-              >
-                {detail.opportunityName}
-              </Link>
-            ) : (
-              <p className="text-sm text-muted-foreground">—</p>
-            )}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+              {detail.container ? (
+                <Link href={`/opportunities/${detail.container.id}`} className="link">
+                  {detail.container.name}
+                </Link>
+              ) : null}
+              {detail.opportunityName ? (
+                <>
+                  {detail.container ? (
+                    <span className="text-muted-foreground">/</span>
+                  ) : null}
+                  <Link
+                    href={`/funnel/${detail.quotation.funnelId}`}
+                    className="link"
+                  >
+                    {detail.opportunityName}
+                  </Link>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
@@ -119,6 +131,16 @@ export default async function QuotationDetailPage({
             >
               View funnel
             </Button>
+            {detail.container ? (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href={`/opportunities/${detail.container.id}`} />}
+              >
+                View opportunity
+              </Button>
+            ) : null}
             {project ? (
               <Button
                 variant="outline"

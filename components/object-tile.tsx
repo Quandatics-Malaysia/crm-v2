@@ -6,6 +6,7 @@ import {
   TargetIcon,
   Building2Icon,
   UsersIcon,
+  BriefcaseIcon,
   FilterIcon,
   FileTextIcon,
   PackageIcon,
@@ -23,6 +24,7 @@ export type ObjectKind =
   | "lead"
   | "account"
   | "contact"
+  | "opportunity"
   | "funnel"
   | "quotation"
   | "product"
@@ -38,6 +40,7 @@ export const OBJECT_TILES: Record<
   lead: { label: "Lead", color: "bg-teal-500", Icon: TargetIcon },
   account: { label: "Account", color: "bg-orange-500", Icon: Building2Icon },
   contact: { label: "Contact", color: "bg-violet-500", Icon: UsersIcon },
+  opportunity: { label: "Opportunity", color: "bg-amber-600", Icon: BriefcaseIcon },
   funnel: { label: "Funnel", color: "bg-amber-500", Icon: FilterIcon },
   quotation: { label: "Quotation", color: "bg-green-600", Icon: FileTextIcon },
   product: { label: "Product", color: "bg-sky-500", Icon: PackageIcon },

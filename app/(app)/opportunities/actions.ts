@@ -8,7 +8,16 @@ import {
   ownerScope,
   ownsOrManages,
 } from "@/lib/access-scope"
-import { opportunities, funnels, accounts, member, user } from "@/db/schema"
+import {
+  opportunities,
+  funnels,
+  pipelineStages,
+  quotations,
+  opportunityProducts,
+  accounts,
+  member,
+  user,
+} from "@/db/schema"
 
 export type OpportunityContainerRow = {
   id: string
@@ -75,15 +84,35 @@ export async function listOpportunities(): Promise<OpportunityContainerRow[]> {
 
 export type OpportunityContainerDetail = {
   opportunity: typeof opportunities.$inferSelect
+  accountId: string
   accountName: string
   ownerName: string | null
   funnels: {
     id: string
     name: string
     stageName: string | null
+    stageKind: string | null
     status: string
     estimatedAmount: string | null
     currency: string
+  }[]
+  quotations: {
+    id: string
+    quoteNumber: string
+    status: string
+    total: string | null
+    currency: string
+    funnelId: string
+    funnelName: string
+  }[]
+  products: {
+    id: string
+    description: string | null
+    quantity: string
+    unitPrice: string
+    productCategory: string | null
+    funnelId: string
+    funnelName: string
   }[]
 }
 
@@ -120,18 +149,66 @@ export async function getOpportunity(
         status: funnels.status,
         estimatedAmount: funnels.estimatedAmount,
         currency: funnels.currency,
+        stageName: pipelineStages.name,
+        stageKind: pipelineStages.kind,
       })
       .from(funnels)
+      .leftJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
       .where(
         and(eq(funnels.opportunityId, id), isNull(funnels.deletedAt))
       )
       .orderBy(desc(funnels.createdAt))
 
+    const funnelIds = children.map((c) => c.id)
+    const funnelName = new Map(children.map((c) => [c.id, c.name]))
+
+    // Quotations + products roll up from ALL funnels under this opportunity.
+    const quotes = funnelIds.length
+      ? await tx
+          .select({
+            id: quotations.id,
+            quoteNumber: quotations.quoteNumber,
+            status: quotations.status,
+            total: quotations.total,
+            currency: quotations.currency,
+            funnelId: quotations.funnelId,
+          })
+          .from(quotations)
+          .where(
+            and(inArray(quotations.funnelId, funnelIds), isNull(quotations.deletedAt))
+          )
+          .orderBy(desc(quotations.createdAt))
+      : []
+
+    const prods = funnelIds.length
+      ? await tx
+          .select({
+            id: opportunityProducts.id,
+            description: opportunityProducts.description,
+            quantity: opportunityProducts.quantity,
+            unitPrice: opportunityProducts.unitPrice,
+            productCategory: opportunityProducts.productCategory,
+            funnelId: opportunityProducts.funnelId,
+          })
+          .from(opportunityProducts)
+          .where(inArray(opportunityProducts.funnelId, funnelIds))
+          .orderBy(desc(opportunityProducts.createdAt))
+      : []
+
     return {
       opportunity: opp,
+      accountId: opp.accountId,
       accountName: acct?.name ?? "—",
       ownerName: owner?.name ?? null,
-      funnels: children.map((c) => ({ ...c, stageName: null })),
+      funnels: children,
+      quotations: quotes.map((q) => ({
+        ...q,
+        funnelName: funnelName.get(q.funnelId) ?? "—",
+      })),
+      products: prods.map((p) => ({
+        ...p,
+        funnelName: funnelName.get(p.funnelId) ?? "—",
+      })),
     }
   })
 }

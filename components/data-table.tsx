@@ -31,6 +31,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { EmptyState } from "@/components/empty-state"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -99,7 +106,7 @@ export function DataTable<TData, TValue>({
   emptyIcon,
   emptyAction,
   toolbar,
-  pageSize = 10,
+  pageSize = 25,
   facets,
   tableId,
   cap,
@@ -372,6 +379,22 @@ export function DataTable<TData, TValue>({
           {table.getFilteredRowModel().rows.length} row(s)
         </span>
         <div className="flex items-center gap-2">
+          <span className="hidden text-sm text-muted-foreground sm:inline">Per page</span>
+          <Select
+            value={String(table.getState().pagination.pageSize)}
+            onValueChange={(v) => table.setPageSize(Number(v))}
+          >
+            <SelectTrigger className="h-8 w-[4.5rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[25, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"

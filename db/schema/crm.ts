@@ -121,6 +121,9 @@ export const leads = pgTable(
     .references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   companyName: text("company_name"),
+  // Link to the lead's Company record (Salesforce Company__c) — FK-less to avoid
+  // an import cycle with deferred-objects.ts; resolved in the app layer.
+  leadCompanyId: uuid("lead_company_id"),
   email: text("email"),
   phone: text("phone"),
   mobile: text("mobile"),

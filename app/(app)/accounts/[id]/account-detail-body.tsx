@@ -17,6 +17,7 @@ import { formatMoney } from "@/lib/format"
 import { AccountContacts } from "./account-contacts"
 import type {
   AccountFunnelItem,
+  AccountOpportunityItem,
   AccountProjectItem,
   AccountQuotationItem,
   PersonRow,
@@ -48,6 +49,7 @@ export type AccountDetailData = {
   accountId: string
   fields: { label: string; value: React.ReactNode }[]
   contacts: PersonRow[]
+  opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
   projects: AccountProjectItem[]
   quotations: AccountQuotationItem[]
@@ -63,6 +65,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     accountId,
     fields,
     contacts,
+    opportunities,
     pipelines,
     projects,
     quotations,
@@ -73,6 +76,48 @@ export function AccountDetailBody(props: AccountDetailData) {
 
   const [tab, setTab] = React.useState("contacts")
   const revalidate = `/accounts/${accountId}`
+
+  const opportunityColumns = React.useMemo<ColumnDef<AccountOpportunityItem>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => <SortableHeader column={column} title="Opportunity" />,
+        cell: ({ row }) => (
+          <Link href={`/opportunities/${row.original.id}`} className="font-medium link">
+            {row.original.name}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "code",
+        header: "Code",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-muted-foreground">
+            {row.original.code}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "funnelCount",
+        header: "Funnels",
+        cell: ({ row }) => (
+          <Badge variant="secondary" className="tabular-nums">
+            {row.original.funnelCount}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "totalEstimatedFunnelAmount",
+        header: () => <div className="text-right">Value</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">
+            {formatMoney(row.original.totalEstimatedFunnelAmount, row.original.currency)}
+          </div>
+        ),
+      },
+    ],
+    []
+  )
 
   const funnelColumns = React.useMemo<ColumnDef<AccountFunnelItem>[]>(
     () => [
@@ -255,6 +300,12 @@ export function AccountDetailBody(props: AccountDetailData) {
                     {contacts.length}
                   </Badge>
                 </TabsTrigger>
+                <TabsTrigger value="opportunities">
+                  Opportunities
+                  <Badge variant="secondary" className="ml-1.5">
+                    {opportunities.length}
+                  </Badge>
+                </TabsTrigger>
                 <TabsTrigger value="pipelines">
                   Funnels
                   <Badge variant="secondary" className="ml-1.5">
@@ -290,6 +341,18 @@ export function AccountDetailBody(props: AccountDetailData) {
 
               <TabsContent value="contacts" className="mt-4">
                 <AccountContacts accountId={accountId} contacts={contacts} />
+              </TabsContent>
+
+              <TabsContent value="opportunities" className="mt-4">
+                <DataTable
+                  columns={opportunityColumns}
+                  data={opportunities}
+                  tableId="account-opportunities"
+                  searchColumn="name"
+                  searchPlaceholder="Search opportunities…"
+                  emptyMessage="No opportunities for this account yet."
+                  pageSize={5}
+                />
               </TabsContent>
 
               <TabsContent value="pipelines" className="mt-4">

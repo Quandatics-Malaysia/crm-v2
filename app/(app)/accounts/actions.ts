@@ -18,6 +18,7 @@ import {
   accounts,
   persons,
   funnels,
+  opportunities,
   pipelineStages,
   projects,
   quotations,
@@ -249,6 +250,42 @@ export type AccountProjectItem = {
 }
 
 /** Non-deleted projects for an account, newest first, for the account page. */
+export type AccountOpportunityItem = {
+  id: string
+  code: string
+  name: string
+  totalEstimatedFunnelAmount: string | null
+  currency: string
+  funnelCount: number
+}
+
+/** Opportunity containers for an account, with their funnel counts. */
+export async function listAccountOpportunities(
+  accountId: string
+): Promise<AccountOpportunityItem[]> {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
+      .select({
+        id: opportunities.id,
+        code: opportunities.code,
+        name: opportunities.name,
+        totalEstimatedFunnelAmount: opportunities.totalEstimatedFunnelAmount,
+        currency: opportunities.currency,
+        funnelCount: sql<number>`(select count(*)::int from ${funnels} f where f.opportunity_id = ${opportunities.id} and f.deleted_at is null)`,
+      })
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.accountId, accountId),
+          isNull(opportunities.deletedAt),
+          ownerScope(opportunities.ownerMemberId, visible)
+        )
+      )
+      .orderBy(desc(opportunities.createdAt))
+  })
+}
+
 export async function listAccountProjects(
   accountId: string
 ): Promise<AccountProjectItem[]> {

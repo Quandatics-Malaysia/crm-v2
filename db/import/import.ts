@@ -147,15 +147,22 @@ async function main() {
     // every object is in. A missing target just leaves the link null.
     if (COMMIT && deferredUpdates.length) {
       let linked = 0
+      let total = 0
+      // Apply each deferred column on its OWN update, so one bad FK (e.g. a
+      // converted-lead pointing at a missing record) doesn't drop the others
+      // (e.g. the FK-less lead→company link) in the same row.
       for (const d of deferredUpdates) {
-        try {
-          const res = await sql`update ${sql(d.table)} set ${sql(d.vals)} where id = ${d.id}`
-          linked += res.count
-        } catch {
-          /* target row absent — leave null */
+        for (const [col, val] of Object.entries(d.vals)) {
+          total++
+          try {
+            const res = await sql`update ${sql(d.table)} set ${sql({ [col]: val })} where id = ${d.id}`
+            linked += res.count
+          } catch {
+            /* target row absent — leave null */
+          }
         }
       }
-      console.log(`\n• linked ${linked}/${deferredUpdates.length} deferred references (parents, primary quote/contact, lead conversions)`)
+      console.log(`\n• linked ${linked}/${total} deferred references (parents, primary quote/contact, lead conversions + company)`)
     }
 
     await reconcileCounters(sql, COMMIT)

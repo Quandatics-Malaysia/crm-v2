@@ -114,6 +114,59 @@ Everything else (currencies, payment terms, milestone template, company
 profile, picklists, numbering, automation toggles…) is self-service in
 **Settings** for tenant admins.
 
+## Backups & restore
+
+Backups run automatically via the `backup` service (starts with `docker compose
+up -d`). It mirrors the client's Salesforce backup flows (see
+`System Admin/Power Automate/`): a daily **Full Data** export + a weekly **dated
+snapshot**, on the owned `backups` volume.
+
+| What | When | Output (on the `backups` volume) |
+|---|---|---|
+| Per-object CSV export of every table | daily 00:00 UTC | `full-data/objects/<table>.csv` |
+| Full DB dump (restore source of truth) | daily 00:00 UTC | `full-data/crm.dump` |
+| Uploaded documents | daily 00:00 UTC | `full-data/appfiles.tar.gz` |
+| Dated snapshot of `full-data/` | weekly Sun 23:00 UTC | `archive/<YYYY-MM-DD>/` (kept 8 weeks) |
+| Restore-verification (into a scratch DB) | weekly Sun 23:00 UTC | log line `OK — restored … N accounts` |
+
+**Run a backup now / restore / verify (on-demand):**
+```bash
+docker compose exec backup /ops/backup.sh              # take a backup immediately
+docker compose exec backup /ops/verify-restore.sh      # prove the latest dump restores
+# RESTORE (destructive — stop web first):
+docker compose stop web
+docker compose exec backup /ops/restore.sh /backups/full-data/crm.dump --yes
+docker compose run --rm migrate                        # re-sync crm_app password + RLS
+docker compose start web
+```
+Copy backups off the host with your own tooling (they're plain files under the
+`backups` volume). **Optional offsite:** since you run M365, an `rclone` push of
+`backups/` to SharePoint reproduces the "Backup Transfer to BO Folder" step —
+left to you so nothing leaves the host unless you configure it.
+
+## Admin access (DB browser)
+
+A `pgweb` DB browser is available behind the `admin` profile, bound to
+**localhost only** (never exposed through Caddy). Reach it over an SSH tunnel:
+```bash
+docker compose --profile admin up -d admin       # start it
+ssh -L 8082:127.0.0.1:8082 user@server           # then open http://localhost:8082
+docker compose --profile admin down              # stop it when done
+```
+For local dev, `npm run db:studio` (drizzle-studio) is the equivalent.
+
+## Hardening notes
+
+- **Healthcheck:** `web` is health-gated on `/api/health`; Caddy only routes to a
+  healthy container and Docker restarts an unhealthy one.
+- **Log rotation:** all services cap logs at 10 MB × 3 files (the `x-logging`
+  anchor) so disks don't fill.
+- **Resource limits:** `mem_limit:` lines are present but commented in
+  `docker-compose.yaml` — uncomment and tune to your host (≥2 GB VPS: db 1g, web 1g).
+- **Secrets:** keep `.env` at `chmod 600`, gitignored. Rotate `BETTER_AUTH_SECRET`
+  and `CRM_APP_PASSWORD` periodically. Instrumentation refuses to boot in
+  production on the dev-default secret or a superuser/BYPASSRLS app role.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

@@ -11,7 +11,7 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { StatusBadge } from "@/components/status-badge"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { formatMoney } from "@/lib/format"
-import type { ProductRow, ProductUsageRow } from "./actions"
+import type { ProductRow, ProductUsageRow, ProductDealRow } from "./actions"
 
 // Status pill: rendered by the app-wide <StatusBadge> tone map.
 
@@ -24,12 +24,60 @@ export function ProductDetailBody({
   product,
   codeName,
   usage,
+  deals,
 }: {
   product: ProductRow
   codeName: string | null
   usage: ProductUsageRow[]
+  deals: ProductDealRow[]
 }) {
   const [tab, setTab] = React.useState("details")
+
+  const dealColumns = React.useMemo<ColumnDef<ProductDealRow>[]>(
+    () => [
+      {
+        accessorKey: "opportunityName",
+        header: ({ column }) => <SortableHeader column={column} title="Opportunity" />,
+        cell: ({ row }) =>
+          row.original.opportunityId ? (
+            <Link
+              href={`/opportunities/${row.original.opportunityId}`}
+              className="font-medium link"
+            >
+              {row.original.opportunityName ?? "—"}
+            </Link>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        accessorKey: "funnelName",
+        header: "Funnel",
+        cell: ({ row }) => (
+          <Link href={`/funnel/${row.original.funnelId}`} className="link">
+            {row.original.funnelName}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "quantity",
+        header: () => <div className="text-right">Qty</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">{Number(row.original.quantity)}</div>
+        ),
+      },
+      {
+        accessorKey: "unitPrice",
+        header: () => <div className="text-right">Unit price</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">
+            {formatMoney(row.original.unitPrice, row.original.currency)}
+          </div>
+        ),
+      },
+    ],
+    []
+  )
 
   // Distinct pipelines this product appears in (via its quotations).
   const pipelines = React.useMemo(() => {
@@ -174,6 +222,12 @@ export function ProductDetailBody({
                     {usage.length}
                   </Badge>
                 </TabsTrigger>
+                <TabsTrigger value="deals">
+                  On opportunities
+                  <Badge variant="secondary" className="ml-1.5">
+                    {deals.length}
+                  </Badge>
+                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="details" className="mt-4 grid gap-6">
@@ -232,6 +286,18 @@ export function ProductDetailBody({
                   searchColumn="quoteNumber"
                   searchPlaceholder="Search quotes…"
                   emptyMessage="This product isn't on any quotes yet."
+                  pageSize={5}
+                />
+              </TabsContent>
+
+              <TabsContent value="deals" className="mt-4">
+                <DataTable
+                  columns={dealColumns}
+                  data={deals}
+                  tableId="product-deals"
+                  searchColumn="opportunityName"
+                  searchPlaceholder="Search opportunities…"
+                  emptyMessage="This product isn't on any opportunities yet."
                   pageSize={5}
                 />
               </TabsContent>

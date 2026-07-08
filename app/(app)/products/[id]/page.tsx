@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { formatMoney } from "@/lib/format"
-import { getProduct, listProductUsage } from "../actions"
+import { getProduct, listProductUsage, listProductDeals } from "../actions"
 import { ProductForm } from "../product-form"
 import { ProductDetailBody } from "../product-detail-body"
 
@@ -17,10 +17,11 @@ export default async function ProductDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [product, productCodes, usage, ctx] = await Promise.all([
+  const [product, productCodes, usage, deals, ctx] = await Promise.all([
     getProduct(id),
     listProductCodes(),
     listProductUsage(id),
+    listProductDeals(id),
     requireContext(),
   ])
   if (!product) notFound()
@@ -58,7 +59,12 @@ export default async function ProductDetailPage({
           ) : null}
         </div>
 
-        <ProductDetailBody product={product} codeName={codeName} usage={usage} />
+        <ProductDetailBody
+          product={product}
+          codeName={codeName}
+          usage={usage}
+          deals={deals}
+        />
       </PageBody>
     </>
   )

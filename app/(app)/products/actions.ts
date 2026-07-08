@@ -13,6 +13,8 @@ import {
   quotations,
   quotationLineItems,
   funnels,
+  opportunities,
+  opportunityProducts,
 } from "@/db/schema"
 
 /** Largest page we ever return from a list endpoint. */
@@ -77,6 +79,48 @@ export type ProductUsageRow = {
   /** The funnel this quote belongs to — so the product page shows where it's used. */
   funnelId: string
   funnelName: string
+}
+
+export type ProductDealRow = {
+  id: string
+  funnelId: string
+  funnelName: string
+  opportunityId: string | null
+  opportunityName: string | null
+  quantity: string
+  unitPrice: string
+  currency: string
+}
+
+/** Funnels/opportunities that carry this product as a line item (Salesforce
+ *  OpportunityLineItem) — the product's "on deals" related list. */
+export async function listProductDeals(
+  productId: string
+): Promise<ProductDealRow[]> {
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx
+      .select({
+        id: opportunityProducts.id,
+        funnelId: funnels.id,
+        funnelName: funnels.name,
+        opportunityId: opportunities.id,
+        opportunityName: opportunities.name,
+        quantity: opportunityProducts.quantity,
+        unitPrice: opportunityProducts.unitPrice,
+        currency: funnels.currency,
+      })
+      .from(opportunityProducts)
+      .innerJoin(funnels, eq(opportunityProducts.funnelId, funnels.id))
+      .leftJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
+      .where(
+        and(
+          eq(opportunityProducts.productId, productId),
+          ownerScope(funnels.ownerMemberId, visible)
+        )
+      )
+      .orderBy(desc(opportunityProducts.createdAt))
+  })
 }
 
 /**

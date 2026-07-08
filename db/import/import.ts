@@ -84,9 +84,17 @@ async function main() {
     if (existsSync(omPath)) ownerMap = JSON.parse(readFileSync(omPath, "utf8"))
 
     const warnings: string[] = []
+    console.log(`\n=== crm-v2 import  (${COMMIT ? "COMMIT" : "DRY-RUN"})  tenant=${TENANT}  dir=${DIR} ===`)
+
+    // Users first — so every record's OwnerId resolves to the imported member.
+    const importedUsers = await importUsers(sql, COMMIT)
+
     const ctx: Ctx = {
       detId: (object, sfId) => det(`${object}:${sfId}`),
-      resolveOwner: (sfUserId) => ownerMap[sfUserId] ?? defaultOwner,
+      resolveOwner: (sfUserId) =>
+        importedUsers.has(sfUserId)
+          ? det(`Member:${sfUserId}`)
+          : (ownerMap[sfUserId] ?? defaultOwner),
       resolveStage: (sfStage) => {
         const code = stageCode(sfStage)
         const id = stageByCode.get(code)
@@ -94,9 +102,7 @@ async function main() {
       },
       warn: (m) => warnings.push(m),
     }
-
-    console.log(`\n=== crm-v2 import  (${COMMIT ? "COMMIT" : "DRY-RUN"})  tenant=${TENANT}  dir=${DIR} ===`)
-    if (!defaultOwner) console.log("⚠ no default owner resolved — owner_member_id rows will be null unless owner-map.json covers them")
+    if (!defaultOwner) console.log("⚠ no default owner — records for non-imported users get a null owner")
 
     let totalRead = 0
     let totalWritten = 0
@@ -206,6 +212,78 @@ async function reconcileCounters(sql: postgres.Sql, commit: boolean): Promise<vo
   } else {
     console.log(`    (dry-run — counters not changed)`)
   }
+}
+
+/**
+ * Import Salesforce Users → crm-v2 user + member + membership_profile, so record
+ * owners map to real people (not the default admin). Returns the set of SF User
+ * Ids that now have a member, so resolveOwner can map OwnerId → their member.
+ * Active users only; assigns the `--user-role` role (default "Manager"); wires
+ * the SF ManagerId reporting line in a second pass.
+ */
+async function importUsers(sql: postgres.Sql, commit: boolean): Promise<Set<string>> {
+  const imported = new Set<string>()
+  const path = findCsv("User")
+  if (!path) {
+    console.log(`\n• User — no User.csv (owners → default member)`)
+    return imported
+  }
+  const { rows } = parseCsv(readFileSync(path, "utf8"))
+  // Real people only: active + UserType 'Standard' (excludes Salesforce system
+  // users — Automated Process, Integration, Guest, …).
+  const active = rows.filter(
+    (r) =>
+      /^(1|true|yes)$/i.test(r.IsActive ?? "") &&
+      r.Id &&
+      (!("UserType" in r) || r.UserType === "" || r.UserType === "Standard")
+  )
+  const roleName = flag("user-role", "Manager")
+  const [role] = await sql<{ id: string; default_tier_level: number }[]>`
+    select id, default_tier_level from roles where tenant_id = ${TENANT} and name = ${roleName} limit 1`
+
+  console.log(`\n• User → user/member/membership_profile  (${active.length} active of ${rows.length}, role=${roleName})`)
+  if (!commit) {
+    for (const r of active) imported.add(r.Id)
+    console.log(`    would create ${active.length} members`)
+    return imported
+  }
+
+  let written = 0
+  for (const r of active) {
+    const sf = r.Id
+    const uid = det(`User:${sf}`)
+    const mid = det(`Member:${sf}`)
+    const email = (r.Email || r.Username || `${sf}@imported.local`).toLowerCase()
+    const name = [r.FirstName, r.LastName].filter(Boolean).join(" ") || email
+    try {
+      await sql`insert into ${sql("user")} (id, name, email, email_verified, is_superadmin, created_at, updated_at)
+                values (${uid}, ${name}, ${email}, true, false, now(), now()) on conflict (id) do nothing`
+      await sql`insert into member (id, organization_id, user_id, role, created_at)
+                values (${mid}, ${TENANT}, ${uid}, 'member', now()) on conflict (id) do nothing`
+      await sql`insert into membership_profiles (id, member_id, tenant_id, role_id, tier_level, status)
+                values (${det(`Profile:${sf}`)}, ${mid}, ${TENANT}, ${role?.id ?? null}, ${role?.default_tier_level ?? 0}, 'active')
+                on conflict (id) do nothing`
+      imported.add(sf)
+      written++
+    } catch (e) {
+      console.log(`    user failed (${email}): ${(e as Error).message.slice(0, 80)}`)
+    }
+  }
+  // Reporting line: SF ManagerId → membership_profiles.manager_member_id.
+  let managed = 0
+  for (const r of active) {
+    if (r.ManagerId && imported.has(r.ManagerId) && imported.has(r.Id)) {
+      try {
+        await sql`update membership_profiles set manager_member_id = ${det(`Member:${r.ManagerId}`)}
+                  where member_id = ${det(`Member:${r.Id}`)}`
+        managed++
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  console.log(`    created ${written} members, wired ${managed} reporting lines`)
+  return imported
 }
 
 type Deferred = { table: string; id: string; vals: Record<string, unknown> }

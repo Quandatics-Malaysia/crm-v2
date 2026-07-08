@@ -6,8 +6,8 @@ import {
   user,
   organization,
   accounts,
-  funnels,
-  funnelStages,
+  pipelines,
+  pipelineStages,
   taxSettings,
   tenantSettings,
   products,
@@ -71,20 +71,20 @@ export async function listFunnelsWithStages(): Promise<FunnelWithStages[]> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const fs = await tx
       .select()
-      .from(funnels)
-      .where(eq(funnels.tenantId, ctx.tenantId))
-      .orderBy(asc(funnels.name))
+      .from(pipelines)
+      .where(eq(pipelines.tenantId, ctx.tenantId))
+      .orderBy(asc(pipelines.name))
     const stages = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.tenantId, ctx.tenantId))
-      .orderBy(asc(funnelStages.sortOrder))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.tenantId, ctx.tenantId))
+      .orderBy(asc(pipelineStages.sortOrder))
     return fs.map((f) => ({
       id: f.id,
       name: f.name,
       isDefault: f.isDefault,
       stages: stages
-        .filter((s) => s.funnelId === f.id)
+        .filter((s) => s.pipelineId === f.id)
         .map((s) => ({
           id: s.id,
           code: s.code,

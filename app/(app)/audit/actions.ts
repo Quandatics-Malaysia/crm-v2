@@ -1,7 +1,7 @@
 "use server"
 
 import { desc, eq } from "drizzle-orm"
-import { withTenant } from "@/lib/actions"
+import { withModule } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { auditLog, member, user } from "@/db/schema"
 
@@ -20,7 +20,7 @@ export type AuditRow = {
  * member back to a user name; deployment-level events surface as a null actor.
  */
 export async function listAudit(): Promise<AuditRow[]> {
-  return withTenant(PERMISSIONS.AUDIT_VIEW, async (tx) => {
+  return withModule("audit", PERMISSIONS.AUDIT_VIEW, async (tx) => {
     const rows = await tx
       .select({
         id: auditLog.id,

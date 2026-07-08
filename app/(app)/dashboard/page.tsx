@@ -204,7 +204,7 @@ export default async function DashboardPage() {
                       {data.pendingApprovals.map((a) => (
                         <RowLink
                           key={a.id}
-                          href={`/funnel/${a.opportunityId}`}
+                          href={`/funnel/${a.funnelId}`}
                         >
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">
@@ -314,7 +314,7 @@ export default async function DashboardPage() {
                 </Card>
               ) : null}
 
-              {/* Stale funnels — only rendered when the nudge is configured */}
+              {/* Stale pipelines — only rendered when the nudge is configured */}
               {data.staleDealDays != null ? (
                 <Card>
                   <CardHeader>
@@ -328,7 +328,7 @@ export default async function DashboardPage() {
                       <EmptyState
                         icon={HourglassIcon}
                         title="Nothing going cold"
-                        description={`Your open funnels with no activity for ${data.staleDealDays} days will show here.`}
+                        description={`Your open pipelines with no activity for ${data.staleDealDays} days will show here.`}
                       />
                     ) : (
                       <div className="flex flex-col divide-y">

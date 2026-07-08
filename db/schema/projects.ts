@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
 import { accounts } from "./crm"
-import { opportunities } from "./pipeline"
+import { funnels } from "./pipeline"
 import { quotations } from "./quotations"
 import { intercompanyDeals } from "./intercompany"
 import { timestamps, softDelete } from "./_helpers"
@@ -52,7 +52,7 @@ export const projects = pgTable(
     // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
     accountId: uuid("account_id").notNull(),
     // the funnel this project was created from
-    opportunityId: uuid("opportunity_id").references(() => opportunities.id, {
+    funnelId: uuid("funnel_id").references(() => funnels.id, {
       onDelete: "set null",
     }),
     // the accepted quotation it was based on

@@ -45,7 +45,7 @@ export type LeadConverted = {
   accountName: string | null
   personId: string | null
   personName: string | null
-  opportunityId: string | null
+  funnelId: string | null
   funnelName: string | null
 }
 
@@ -165,12 +165,12 @@ export function LeadDetailBody({
                       },
                     ]
                   : []),
-                ...(converted?.opportunityId
+                ...(converted?.funnelId
                   ? [
                       {
                         kind: "funnel" as const,
-                        label: converted.funnelName ?? "Funnel",
-                        href: `/funnel/${converted.opportunityId}`,
+                        label: converted.funnelName ?? "Opportunity",
+                        href: `/opportunities/${converted.funnelId}`,
                       },
                     ]
                   : []),

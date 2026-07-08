@@ -19,9 +19,7 @@ Quick reference first; details below.
 | Apply DB migrations + RLS + views + permission sync | `npm run db:migrate` |
 | Seed base data (roles, funnel, tax, demo admin) | `npm run db:seed` |
 | Seed sample CRM data | `npm run db:seed-sample` |
-| **List tenants + finance-module state** | `npm run module:finance` |
-| **Finance module ON for a tenant** | `npm run module:finance -- <tenant-id> on` |
-| **Finance module OFF for a tenant** | `npm run module:finance -- <tenant-id> off` |
+| **Enable/disable an optional module** | edit `modules.config.ts`, then rebuild + redeploy |
 | Run tests | `npm test` |
 | Typecheck / lint / build | `npx tsc --noEmit` · `npm run lint` · `npm run build` |
 | Full stack via Docker | `docker compose up -d --build` (migrate runs automatically) |
@@ -31,37 +29,51 @@ Quick reference first; details below.
 `npm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
-## Finance module (O2C / P2P add-on)
+## Optional modules (plugins)
+
+Everything beyond the core CRM is an optional plugin, toggled **deployment-wide**
+in one file — `modules.config.ts` at the repo root — with one boolean each.
+See [`MODULES.md`](./MODULES.md) for the architecture and the recipe to add a
+brand-new module.
+
+```ts
+export const MODULE_CONFIG = {
+  projects: false,      // Delivery projects + payment milestones
+  salesOrders: false,   // Accepted quote → sales order (needs projects)
+  finance: false,       // Billing + Purchasing + intercompany (needs projects + salesOrders)
+  forecast: false,      // Probability-weighted billing forecast
+  audit: false,         // Audit-log VIEWER (the log is always recorded regardless)
+  advancedRoles: false, // Custom roles + permission-matrix editor + seniority tiers
+  documentation: true,  // In-app docs
+} as const
+```
+
+- **One switch, global.** Set a value and **rebuild + redeploy** (`npm run build`
+  + restart). There is no per-tenant flag anymore — the old
+  `npm run module:finance` CLI and `tenant_settings.finance_module` column are
+  retired (the column is kept but no longer read).
+- **Dependencies are validated at boot** (`lib/modules.ts` → `validateModuleConfig`,
+  called from `instrumentation.ts`): enabling `finance` without `projects` +
+  `salesOrders`, for example, refuses to start with a clear error.
+- **Disable, don't delete.** A disabled plugin's nav, routes, actions, and roles-
+  matrix group all disappear, but its code, DB tables, and any existing data stay
+  intact — flip the flag back on and it returns unchanged.
+- **Audit note:** `audit: false` only hides the `/audit` viewer; `writeAudit`
+  keeps recording the compliance log, so enabling it later shows full history.
+- **Advanced-roles note:** `advancedRoles: false` hides only the role
+  *customization* surface (custom roles, the permission-matrix editor, seniority
+  tiers). The permission ENGINE always runs, basic role assignment and the
+  reporting line stay available, and every permission grant is retained — flip
+  it on later and the full role framework returns unchanged.
+
+### Finance module (O2C / P2P add-on)
 
 The Billing + Purchasing document chains — Sales Order → Delivery Order
 (optional) → Invoice → Credit Note / Payment Receipt, and SO → RFQ / direct
-PO → Purchase Invoice → Payment. Ships **off**; the rest of the CRM is
-unaffected until enabled.
+PO → Purchase Invoice → Payment. Ships **off**. Enable by setting `finance: true`
+(and its deps `projects` + `salesOrders`) in `modules.config.ts`, then redeploy.
 
-Two switches, **both** must be on:
-
-1. **Master switch (code)** — `FINANCE_MODULE` in `lib/modules.ts`.
-   `true` by default. Set `false` + deploy to hide the module for **all**
-   tenants (nav, pages, actions, and the "Billing & Purchasing" group in the
-   roles matrix all disappear).
-
-2. **Per-tenant flag (database)** — `tenant_settings.finance_module`.
-   Toggle from the repo (or inside the container), no restart needed:
-
-   ```bash
-   npm run module:finance                     # list tenants + current state
-   npm run module:finance -- demo-entity on
-   npm run module:finance -- demo-entity off
-   ```
-
-   Raw SQL equivalent:
-
-   ```sql
-   UPDATE tenant_settings SET finance_module = true  WHERE organization_id = '<tenant-id>';
-   UPDATE tenant_settings SET finance_module = false WHERE organization_id = '<tenant-id>';
-   ```
-
-What ON enables for that tenant:
+What ON enables:
 - **Streamlined issuance**: Project → Billing tab shows a progress bar
   (invoiced/paid vs value), billed margin, and one-click "Draft invoice" per
   pending milestone — amount, customer, sales order and due date all derived.
@@ -101,6 +113,59 @@ toggling back on shows everything again.
 Everything else (currencies, payment terms, milestone template, company
 profile, picklists, numbering, automation toggles…) is self-service in
 **Settings** for tenant admins.
+
+## Backups & restore
+
+Backups run automatically via the `backup` service (starts with `docker compose
+up -d`). It mirrors the client's Salesforce backup flows (see
+`System Admin/Power Automate/`): a daily **Full Data** export + a weekly **dated
+snapshot**, on the owned `backups` volume.
+
+| What | When | Output (on the `backups` volume) |
+|---|---|---|
+| Per-object CSV export of every table | daily 00:00 UTC | `full-data/objects/<table>.csv` |
+| Full DB dump (restore source of truth) | daily 00:00 UTC | `full-data/crm.dump` |
+| Uploaded documents | daily 00:00 UTC | `full-data/appfiles.tar.gz` |
+| Dated snapshot of `full-data/` | weekly Sun 23:00 UTC | `archive/<YYYY-MM-DD>/` (kept 8 weeks) |
+| Restore-verification (into a scratch DB) | weekly Sun 23:00 UTC | log line `OK — restored … N accounts` |
+
+**Run a backup now / restore / verify (on-demand):**
+```bash
+docker compose exec backup /ops/backup.sh              # take a backup immediately
+docker compose exec backup /ops/verify-restore.sh      # prove the latest dump restores
+# RESTORE (destructive — stop web first):
+docker compose stop web
+docker compose exec backup /ops/restore.sh /backups/full-data/crm.dump --yes
+docker compose run --rm migrate                        # re-sync crm_app password + RLS
+docker compose start web
+```
+Copy backups off the host with your own tooling (they're plain files under the
+`backups` volume). **Optional offsite:** since you run M365, an `rclone` push of
+`backups/` to SharePoint reproduces the "Backup Transfer to BO Folder" step —
+left to you so nothing leaves the host unless you configure it.
+
+## Admin access (DB browser)
+
+A `pgweb` DB browser is available behind the `admin` profile, bound to
+**localhost only** (never exposed through Caddy). Reach it over an SSH tunnel:
+```bash
+docker compose --profile admin up -d admin       # start it
+ssh -L 8082:127.0.0.1:8082 user@server           # then open http://localhost:8082
+docker compose --profile admin down              # stop it when done
+```
+For local dev, `npm run db:studio` (drizzle-studio) is the equivalent.
+
+## Hardening notes
+
+- **Healthcheck:** `web` is health-gated on `/api/health`; Caddy only routes to a
+  healthy container and Docker restarts an unhealthy one.
+- **Log rotation:** all services cap logs at 10 MB × 3 files (the `x-logging`
+  anchor) so disks don't fill.
+- **Resource limits:** `mem_limit:` lines are present but commented in
+  `docker-compose.yaml` — uncomment and tune to your host (≥2 GB VPS: db 1g, web 1g).
+- **Secrets:** keep `.env` at `chmod 600`, gitignored. Rotate `BETTER_AUTH_SECRET`
+  and `CRM_APP_PASSWORD` periodically. Instrumentation refuses to boot in
+  production on the dev-default secret or a superuser/BYPASSRLS app role.
 
 ## Troubleshooting
 

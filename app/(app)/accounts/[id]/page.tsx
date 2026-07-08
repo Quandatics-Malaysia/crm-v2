@@ -12,6 +12,7 @@ import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
   getAccount,
   listParentOptions,
+  listAccountOpportunities,
   listAccountProjects,
   listAccountQuotations,
   type BillingAddress,
@@ -47,18 +48,24 @@ export default async function AccountDetailPage({
     endUserAccount,
     children,
     contacts,
-    funnels,
+    pipelines,
     ownerName,
   } = data
   const isReseller = account.accountType === "reseller"
 
-  const [activity, documents, accountProjects, accountQuotations] =
-    await Promise.all([
-      listEntityTimeline("account", id),
-      listEntityDocuments("account", id),
-      listAccountProjects(id),
-      listAccountQuotations(id),
-    ])
+  const [
+    activity,
+    documents,
+    accountOpportunities,
+    accountProjects,
+    accountQuotations,
+  ] = await Promise.all([
+    listEntityTimeline("account", id),
+    listEntityDocuments("account", id),
+    listAccountOpportunities(id),
+    listAccountProjects(id),
+    listAccountQuotations(id),
+  ])
 
   const address = formatAddress(account.billingAddress as BillingAddress | null)
 
@@ -175,7 +182,8 @@ export default async function AccountDetailPage({
           accountId={account.id}
           fields={detail}
           contacts={contacts}
-          funnels={funnels}
+          opportunities={accountOpportunities}
+          pipelines={pipelines}
           projects={accountProjects}
           quotations={accountQuotations}
           childAccounts={children}

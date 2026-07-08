@@ -2,9 +2,9 @@ import "server-only"
 import { and, eq, notInArray } from "drizzle-orm"
 import type { Tx } from "@/db"
 import {
-  opportunities,
+  funnels,
   accounts,
-  funnelStages,
+  pipelineStages,
   intercompanyDeals,
   intercompanyDealParties,
 } from "@/db/schema"
@@ -22,31 +22,31 @@ import {
  */
 export async function syncIntercompanyMirror(
   tx: Tx,
-  opportunityId: string
+  funnelId: string
 ): Promise<void> {
   const [row] = await tx
     .select({
-      id: opportunities.id,
-      tenantId: opportunities.tenantId,
-      deletedAt: opportunities.deletedAt,
-      isIntercompany: opportunities.isIntercompany,
-      name: opportunities.name,
+      id: funnels.id,
+      tenantId: funnels.tenantId,
+      deletedAt: funnels.deletedAt,
+      isIntercompany: funnels.isIntercompany,
+      name: funnels.name,
       accountName: accounts.name,
-      currency: opportunities.currency,
-      estimatedAmount: opportunities.estimatedAmount,
-      quotedAmount: opportunities.amount,
-      status: opportunities.status,
-      stageName: funnelStages.name,
-      stageProbability: funnelStages.probability,
-      stageKind: funnelStages.kind,
-      stageInForecast: funnelStages.includeInForecast,
-      expectedCloseDate: opportunities.expectedCloseDate,
-      projectYear: opportunities.projectYear,
+      currency: funnels.currency,
+      estimatedAmount: funnels.estimatedAmount,
+      quotedAmount: funnels.amount,
+      status: funnels.status,
+      stageName: pipelineStages.name,
+      stageProbability: pipelineStages.probability,
+      stageKind: pipelineStages.kind,
+      stageInForecast: pipelineStages.includeInForecast,
+      expectedCloseDate: funnels.expectedCloseDate,
+      projectYear: funnels.projectYear,
     })
-    .from(opportunities)
-    .leftJoin(accounts, eq(opportunities.accountId, accounts.id))
-    .leftJoin(funnelStages, eq(opportunities.currentStageId, funnelStages.id))
-    .where(eq(opportunities.id, opportunityId))
+    .from(funnels)
+    .leftJoin(accounts, eq(funnels.accountId, accounts.id))
+    .leftJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
+    .where(eq(funnels.id, funnelId))
     .limit(1)
 
   const parties = row
@@ -59,7 +59,7 @@ export async function syncIntercompanyMirror(
           manualFxRate: intercompanyDealParties.manualFxRate,
         })
         .from(intercompanyDealParties)
-        .where(eq(intercompanyDealParties.opportunityId, opportunityId))
+        .where(eq(intercompanyDealParties.funnelId, funnelId))
     : []
 
   // Gone, soft-deleted, no longer an interco deal, or no parties — nobody
@@ -67,7 +67,7 @@ export async function syncIntercompanyMirror(
   if (!row || row.deletedAt || !row.isIntercompany || parties.length === 0) {
     await tx
       .delete(intercompanyDeals)
-      .where(eq(intercompanyDeals.opportunityId, opportunityId))
+      .where(eq(intercompanyDeals.funnelId, funnelId))
     return
   }
 
@@ -78,7 +78,7 @@ export async function syncIntercompanyMirror(
   for (const party of parties) {
     const snapshot = {
       tenantId: row.tenantId,
-      opportunityId: row.id,
+      funnelId: row.id,
       partnerTenantId: party.partnerEntityId,
       name: row.name,
       accountName: row.accountName ?? null,
@@ -101,7 +101,7 @@ export async function syncIntercompanyMirror(
       .insert(intercompanyDeals)
       .values(snapshot)
       .onConflictDoUpdate({
-        target: [intercompanyDeals.opportunityId, intercompanyDeals.partnerTenantId],
+        target: [intercompanyDeals.funnelId, intercompanyDeals.partnerTenantId],
         set: snapshot,
       })
   }
@@ -112,7 +112,7 @@ export async function syncIntercompanyMirror(
     .delete(intercompanyDeals)
     .where(
       and(
-        eq(intercompanyDeals.opportunityId, opportunityId),
+        eq(intercompanyDeals.funnelId, funnelId),
         notInArray(
           intercompanyDeals.partnerTenantId,
           parties.map((p) => p.partnerEntityId)

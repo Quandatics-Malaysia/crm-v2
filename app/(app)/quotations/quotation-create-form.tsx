@@ -52,7 +52,7 @@ const INHERIT_PROJECT_NATURE = "__inherit__"
 const NO_PRODUCT = "__custom__"
 
 const schema = z.object({
-  opportunityId: z.string().trim().min(1, "Select a funnel"),
+  funnelId: z.string().trim().min(1, "Select a funnel"),
   taxSettingId: z.string(),
   projectNatureCode: z.string(),
   validUntil: z.string(),
@@ -69,16 +69,16 @@ export type ProjectNatureOption = { code: string; name: string }
 /**
  * Shared quotation CREATE form with the full line-item table. Rendered on the
  * `/quotations/new` page (reached from the Quotations list and the funnel's
- * "New quotation", the latter passing `?opportunityId=` to pre-bind the funnel).
- * When `opportunityId` is fixed the funnel picker is hidden and bound.
+ * "New quotation", the latter passing `?funnelId=` to pre-bind the funnel).
+ * When `funnelId` is fixed the funnel picker is hidden and bound.
  */
 export function QuotationCreateForm({
   taxOptions,
   taxInclusive,
   projectNatures = [],
   products = [],
-  opportunities,
-  opportunityId,
+  funnels,
+  funnelId,
   defaultOpportunityId,
   currency = "MYR",
   defaultValidUntil,
@@ -92,10 +92,10 @@ export function QuotationCreateForm({
   projectNatures?: ProjectNatureOption[]
   /** Active catalog products for the line-item picker. */
   products?: ProductOption[]
-  /** Picker options. Omit/empty when `opportunityId` is fixed. */
-  opportunities?: OpportunityOption[]
+  /** Picker options. Omit/empty when `funnelId` is fixed. */
+  funnels?: OpportunityOption[]
   /** Pre-bound funnel; when set the picker is hidden. */
-  opportunityId?: string
+  funnelId?: string
   /** Pre-selected funnel in the picker (picker stays visible/editable). */
   defaultOpportunityId?: string
   currency?: string
@@ -105,7 +105,7 @@ export function QuotationCreateForm({
   onCancel?: () => void
   onCreated?: (quotation: QuotationRow) => void
 }) {
-  const fixedOpportunity = !!opportunityId
+  const fixedOpportunity = !!funnelId
   const [busy, setBusy] = React.useState(false)
 
   const defaultTaxId =
@@ -115,7 +115,7 @@ export function QuotationCreateForm({
     resolver: zodResolver(schema),
     mode: "onBlur",
     defaultValues: {
-      opportunityId: opportunityId ?? defaultOpportunityId ?? "",
+      funnelId: funnelId ?? defaultOpportunityId ?? "",
       taxSettingId: defaultTaxId,
       projectNatureCode: INHERIT_PROJECT_NATURE,
       validUntil: defaultValidUntil ?? "",
@@ -199,7 +199,7 @@ export function QuotationCreateForm({
   async function onSubmit(values: FormValues) {
     setBusy(true)
     const res = await createQuotation({
-      opportunityId: values.opportunityId,
+      funnelId: values.funnelId,
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
       projectNatureCode:
@@ -245,7 +245,7 @@ export function QuotationCreateForm({
           {!fixedOpportunity ? (
             <FormField
               control={form.control}
-              name="opportunityId"
+              name="funnelId"
               render={({ field, fieldState }) => (
                 <FormItem>
                   <FormLabel required>Funnel</FormLabel>
@@ -253,13 +253,13 @@ export function QuotationCreateForm({
                     <Combobox
                       value={field.value}
                       onChange={field.onChange}
-                      options={(opportunities ?? []).map((o) => ({
+                      options={(funnels ?? []).map((o) => ({
                         value: o.id,
                         label: o.name,
                       }))}
                       placeholder="Select a funnel…"
-                      searchPlaceholder="Search funnels…"
-                      emptyMessage="No funnels found."
+                      searchPlaceholder="Search pipelines…"
+                      emptyMessage="No pipelines found."
                       aria-invalid={!!fieldState.error}
                     />
                   </FormControl>

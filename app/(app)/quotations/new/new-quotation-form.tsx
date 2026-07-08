@@ -15,7 +15,7 @@ import type { ProductOption } from "@/lib/lookups"
  * picker visible and navigates to the new quotation on success.
  */
 export function NewQuotationForm({
-  opportunities,
+  funnels,
   defaultOpportunityId,
   taxOptions,
   taxInclusive,
@@ -23,7 +23,7 @@ export function NewQuotationForm({
   products,
   defaultValidUntil,
 }: {
-  opportunities: OpportunityOption[]
+  funnels: OpportunityOption[]
   defaultOpportunityId?: string
   taxOptions: TaxOption[]
   taxInclusive: boolean
@@ -35,7 +35,7 @@ export function NewQuotationForm({
   const router = useRouter()
   return (
     <QuotationCreateForm
-      opportunities={opportunities}
+      funnels={funnels}
       defaultOpportunityId={defaultOpportunityId}
       taxOptions={taxOptions}
       taxInclusive={taxInclusive}

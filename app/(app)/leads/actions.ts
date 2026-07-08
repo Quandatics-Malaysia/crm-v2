@@ -8,8 +8,8 @@ import {
   leads,
   accounts,
   persons,
-  funnels,
-  funnelStages,
+  pipelines,
+  pipelineStages,
   tenantSettings,
 } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
@@ -27,7 +27,7 @@ import {
 const LIST_LIMIT = 1000
 
 /**
- * Validate a caller-supplied (funnelId, currentStageId) pair against the tenant:
+ * Validate a caller-supplied (pipelineId, currentStageId) pair against the tenant:
  * the funnel must exist, and the stage must belong to it. A stage without a
  * funnel is rejected. Returns the normalized ids to persist.
  */
@@ -36,29 +36,29 @@ async function resolveFunnelStage(
   ctx: ServerContext,
   funnelIdInput: string | null,
   stageIdInput: string | null
-): Promise<{ funnelId: string | null; currentStageId: string | null }> {
+): Promise<{ pipelineId: string | null; currentStageId: string | null }> {
   if (!funnelIdInput && !stageIdInput) {
-    return { funnelId: null, currentStageId: null }
+    return { pipelineId: null, currentStageId: null }
   }
   if (!funnelIdInput) throw new Error("A funnel is required to set a stage")
 
   const [funnel] = await tx
-    .select({ id: funnels.id })
-    .from(funnels)
-    .where(and(eq(funnels.id, funnelIdInput), eq(funnels.tenantId, ctx.tenantId)))
+    .select({ id: pipelines.id })
+    .from(pipelines)
+    .where(and(eq(pipelines.id, funnelIdInput), eq(pipelines.tenantId, ctx.tenantId)))
     .limit(1)
   if (!funnel) throw new Error("Funnel not found")
 
-  if (!stageIdInput) return { funnelId: funnel.id, currentStageId: null }
+  if (!stageIdInput) return { pipelineId: funnel.id, currentStageId: null }
 
   const [stage] = await tx
-    .select({ id: funnelStages.id })
-    .from(funnelStages)
-    .where(and(eq(funnelStages.id, stageIdInput), eq(funnelStages.funnelId, funnel.id)))
+    .select({ id: pipelineStages.id })
+    .from(pipelineStages)
+    .where(and(eq(pipelineStages.id, stageIdInput), eq(pipelineStages.pipelineId, funnel.id)))
     .limit(1)
   if (!stage) throw new Error("Stage not found in this funnel")
 
-  return { funnelId: funnel.id, currentStageId: stage.id }
+  return { pipelineId: funnel.id, currentStageId: stage.id }
 }
 
 export type Lead = typeof leads.$inferSelect
@@ -70,7 +70,7 @@ export type LeadInput = {
   phone?: string | null
   source?: string | null
   status?: Lead["status"]
-  funnelId?: string | null
+  pipelineId?: string | null
   currentStageId?: string | null
 }
 
@@ -131,19 +131,19 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
     let stageName: string | null = null
     if (lead.currentStageId) {
       const [stage] = await tx
-        .select({ name: funnelStages.name })
-        .from(funnelStages)
-        .where(eq(funnelStages.id, lead.currentStageId))
+        .select({ name: pipelineStages.name })
+        .from(pipelineStages)
+        .where(eq(pipelineStages.id, lead.currentStageId))
         .limit(1)
       stageName = stage?.name ?? null
     }
 
     let funnelName: string | null = null
-    if (lead.funnelId) {
+    if (lead.pipelineId) {
       const [funnel] = await tx
-        .select({ name: funnels.name })
-        .from(funnels)
-        .where(eq(funnels.id, lead.funnelId))
+        .select({ name: pipelines.name })
+        .from(pipelines)
+        .where(eq(pipelines.id, lead.pipelineId))
         .limit(1)
       funnelName = funnel?.name ?? null
     }
@@ -201,10 +201,10 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
         }
       }
 
-      const { funnelId, currentStageId } = await resolveFunnelStage(
+      const { pipelineId, currentStageId } = await resolveFunnelStage(
         tx,
         ctx,
-        clean(input.funnelId),
+        clean(input.pipelineId),
         clean(input.currentStageId)
       )
 
@@ -218,7 +218,7 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
           phone: clean(input.phone),
           source: clean(input.source),
           status: input.status ?? "new",
-          funnelId,
+          pipelineId,
           currentStageId,
           ownerMemberId: ctx.memberId,
         })
@@ -285,10 +285,10 @@ export async function updateLead(
       if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
         throw new Error("FORBIDDEN: not permitted on this lead")
 
-      const { funnelId, currentStageId: nextStageId } = await resolveFunnelStage(
+      const { pipelineId, currentStageId: nextStageId } = await resolveFunnelStage(
         tx,
         ctx,
-        clean(input.funnelId),
+        clean(input.pipelineId),
         clean(input.currentStageId)
       )
 
@@ -301,7 +301,7 @@ export async function updateLead(
           phone: clean(input.phone),
           source: clean(input.source),
           status: input.status ?? before.status,
-          funnelId,
+          pipelineId,
           currentStageId: nextStageId,
           updatedAt: new Date(),
         })
@@ -320,9 +320,9 @@ export async function updateLead(
         let toName = "—"
         if (nextStageId) {
           const [stage] = await tx
-            .select({ name: funnelStages.name })
-            .from(funnelStages)
-            .where(eq(funnelStages.id, nextStageId))
+            .select({ name: pipelineStages.name })
+            .from(pipelineStages)
+            .where(eq(pipelineStages.id, nextStageId))
             .limit(1)
           toName = stage?.name ?? "—"
         }
@@ -372,16 +372,16 @@ export async function setLeadStage(
         throw new Error("FORBIDDEN: not permitted on this lead")
 
       const [stage] = await tx
-        .select({ id: funnelStages.id, name: funnelStages.name, funnelId: funnelStages.funnelId })
-        .from(funnelStages)
-        .where(eq(funnelStages.id, targetStageId))
+        .select({ id: pipelineStages.id, name: pipelineStages.name, pipelineId: pipelineStages.pipelineId })
+        .from(pipelineStages)
+        .where(eq(pipelineStages.id, targetStageId))
         .limit(1)
       if (!stage) throw new Error("Stage not found")
 
       const [lead] = await tx
         .update(leads)
         .set({
-          funnelId: stage.funnelId,
+          pipelineId: stage.pipelineId,
           currentStageId: stage.id,
           updatedAt: new Date(),
         })

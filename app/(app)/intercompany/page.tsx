@@ -1,10 +1,12 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { listAccountOptions } from "@/lib/lookups"
+import { requireModule } from "@/lib/module-guard"
 import { listInboundIntercompanyDeals } from "./actions"
 import { IntercompanyTable } from "./intercompany-table"
 
 export default async function IntercompanyPage() {
+  requireModule("finance")
   const [rows, accountOptions] = await Promise.all([
     listInboundIntercompanyDeals(),
     listAccountOptions(),

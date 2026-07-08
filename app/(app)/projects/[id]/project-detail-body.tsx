@@ -22,6 +22,8 @@ export type ProjectDetailData = {
   currency: string
   canManage: boolean
   salesOrders: React.ComponentProps<typeof ProjectSalesOrders>["orders"]
+  /** Whether the sales-orders plugin is enabled (gates the Sales orders tab). */
+  salesOrdersEnabled: boolean
   canSubmit: boolean
   canApprove: boolean
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
@@ -42,6 +44,7 @@ export function ProjectDetailBody({
   currency,
   canManage,
   salesOrders,
+  salesOrdersEnabled,
   canSubmit,
   canApprove,
   activity,
@@ -82,7 +85,9 @@ export function ProjectDetailBody({
             <RelatedQuickLinks
               items={[
                 { kind: "milestone", label: "Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
-                { kind: "salesOrder", label: "Sales orders", count: salesOrders.length, onSelect: () => setTab("orders") },
+                ...(salesOrdersEnabled
+                  ? [{ kind: "salesOrder" as const, label: "Sales orders", count: salesOrders.length, onSelect: () => setTab("orders") }]
+                  : []),
                 { kind: "document", label: "Documents", count: documents.length, onSelect: () => setTab("documents") },
               ]}
             />
@@ -113,10 +118,12 @@ export function ProjectDetailBody({
                   Milestones
                   <Badge variant="secondary" className="ml-1.5">{milestones.length}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="orders">
-                  Sales orders
-                  <Badge variant="secondary" className="ml-1.5">{salesOrders.length}</Badge>
-                </TabsTrigger>
+                {salesOrdersEnabled ? (
+                  <TabsTrigger value="orders">
+                    Sales orders
+                    <Badge variant="secondary" className="ml-1.5">{salesOrders.length}</Badge>
+                  </TabsTrigger>
+                ) : null}
                 {billing ? (
                   <TabsTrigger value="billing">
                     Billing
@@ -140,14 +147,16 @@ export function ProjectDetailBody({
                 />
               </TabsContent>
 
-              <TabsContent value="orders" className="mt-4">
-                <ProjectSalesOrders
-                  projectId={projectId}
-                  orders={salesOrders}
-                  canSubmit={canSubmit}
-                  canApprove={canApprove}
-                />
-              </TabsContent>
+              {salesOrdersEnabled ? (
+                <TabsContent value="orders" className="mt-4">
+                  <ProjectSalesOrders
+                    projectId={projectId}
+                    orders={salesOrders}
+                    canSubmit={canSubmit}
+                    canApprove={canApprove}
+                  />
+                </TabsContent>
+              ) : null}
 
               {billing ? (
                 <TabsContent value="billing" className="mt-4">

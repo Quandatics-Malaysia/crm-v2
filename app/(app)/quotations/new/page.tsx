@@ -9,20 +9,20 @@ import { NewQuotationForm } from "./new-quotation-form"
 export default async function NewQuotationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ opportunityId?: string }>
+  searchParams: Promise<{ funnelId?: string }>
 }) {
   const ctx = await requireContext()
   // No create permission -> there's no affordance to land here; bounce back.
   if (!ctx.can(PERMISSIONS.QUOTATION_CREATE)) redirect("/quotations")
   const sp = await searchParams
-  const [opportunities, meta] = await Promise.all([
+  const [funnels, meta] = await Promise.all([
     listOpportunityOptions(),
     getQuotationFormMeta(),
   ])
 
   // Prefill from the query when the funnel still exists.
-  const defaultOpportunityId = opportunities.some((o) => o.id === sp.opportunityId)
-    ? sp.opportunityId
+  const defaultOpportunityId = funnels.some((o) => o.id === sp.funnelId)
+    ? sp.funnelId
     : undefined
 
   return (
@@ -33,7 +33,7 @@ export default async function NewQuotationPage({
         {/* Full-width: the form owns its two-column record layout — a narrow
             card strangles the line-item table. */}
         <NewQuotationForm
-          opportunities={opportunities}
+          funnels={funnels}
           defaultOpportunityId={defaultOpportunityId}
           taxOptions={meta.taxOptions}
           taxInclusive={meta.taxInclusive}

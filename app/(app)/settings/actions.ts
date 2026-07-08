@@ -17,7 +17,7 @@ import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -29,9 +29,9 @@ import {
   roles,
   member,
   user,
+  pipelines,
+  pipelineStages,
   funnels,
-  funnelStages,
-  opportunities,
   organization,
 } from "@/db/schema"
 
@@ -242,7 +242,7 @@ function toView(
     autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
-    financeEnabled: FINANCE_MODULE && row.financeModule,
+    financeEnabled: isModuleEnabled("finance"),
     documentationModule: row.documentationModule,
     invoiceReminderDays: row.invoiceReminderDays ?? [],
     invoiceDueDays: row.invoiceDueDays ?? null,
@@ -1240,10 +1240,10 @@ export async function listTenantMembers(): Promise<TenantMemberView[]> {
 
 // ─── Funnel stages (default funnel) ──────────────────────────────────────────
 
-export type FunnelStageRow = typeof funnelStages.$inferSelect
+export type FunnelStageRow = typeof pipelineStages.$inferSelect
 
 export type DefaultFunnelView = {
-  funnelId: string | null
+  pipelineId: string | null
   funnelName: string | null
   stages: FunnelStageRow[]
 }
@@ -1286,9 +1286,9 @@ async function resolveDefaultFunnelId(
 ): Promise<string | null> {
   const all = await tx
     .select()
-    .from(funnels)
-    .where(eq(funnels.tenantId, tenantId))
-    .orderBy(asc(funnels.name))
+    .from(pipelines)
+    .where(eq(pipelines.tenantId, tenantId))
+    .orderBy(asc(pipelines.name))
   const def = all.find((f) => f.isDefault) ?? all.find((f) => f.isActive) ?? all[0]
   return def?.id ?? null
 }
@@ -1300,18 +1300,18 @@ export async function getDefaultFunnel(): Promise<DefaultFunnelView> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const all = await tx
       .select()
-      .from(funnels)
-      .where(eq(funnels.tenantId, ctx.tenantId))
-      .orderBy(asc(funnels.name))
+      .from(pipelines)
+      .where(eq(pipelines.tenantId, ctx.tenantId))
+      .orderBy(asc(pipelines.name))
     const def =
       all.find((f) => f.isDefault) ?? all.find((f) => f.isActive) ?? all[0]
-    if (!def) return { funnelId: null, funnelName: null, stages: [] }
+    if (!def) return { pipelineId: null, funnelName: null, stages: [] }
     const stages = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.funnelId, def.id))
-      .orderBy(asc(funnelStages.sortOrder))
-    return { funnelId: def.id, funnelName: def.name, stages }
+      .from(pipelineStages)
+      .where(eq(pipelineStages.pipelineId, def.id))
+      .orderBy(asc(pipelineStages.sortOrder))
+    return { pipelineId: def.id, funnelName: def.name, stages }
   })
 }
 
@@ -1337,7 +1337,7 @@ export async function updateStage(
   const row = await withStageTenant(async (tx, ctx) => {
     const allowed = await allowedRequiredKeys(tx, ctx.tenantId)
     const [updated] = await tx
-      .update(funnelStages)
+      .update(pipelineStages)
       .set({
         name: input.name.trim(),
         probability: input.probability,
@@ -1347,7 +1347,7 @@ export async function updateStage(
         requiredFields: input.requiredFields.filter((k) => allowed.has(k)),
         updatedAt: new Date(),
       })
-      .where(eq(funnelStages.id, id))
+      .where(eq(pipelineStages.id, id))
       .returning()
     if (!updated) throw new Error("Stage not found.")
     await writeAudit(tx, ctx, {
@@ -1372,13 +1372,13 @@ export async function createStage(
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
   const row = await runInTenant(ctx.tenantId, async (tx) => {
     const allowed = await allowedRequiredKeys(tx, ctx.tenantId)
-    const funnelId = await resolveDefaultFunnelId(tx, ctx.tenantId)
-    if (!funnelId) throw new Error("No funnel configured for this entity.")
+    const pipelineId = await resolveDefaultFunnelId(tx, ctx.tenantId)
+    if (!pipelineId) throw new Error("No funnel configured for this entity.")
 
     const existing = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.funnelId, funnelId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.pipelineId, pipelineId))
     if (existing.some((s) => s.code === input.code)) {
       throw new Error(`Stage code "${input.code}" already exists in this funnel.`)
     }
@@ -1387,10 +1387,10 @@ export async function createStage(
     }
 
     const [created] = await tx
-      .insert(funnelStages)
+      .insert(pipelineStages)
       .values({
         tenantId: ctx.tenantId,
-        funnelId,
+        pipelineId,
         code: input.code,
         name: input.name.trim(),
         probability: input.probability,
@@ -1419,30 +1419,30 @@ export async function deleteStage(id: string): Promise<ActionResult<void>> {
   await withStageTenant(async (tx, ctx) => {
     const [before] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, id))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, id))
       .limit(1)
     if (!before) throw new Error("Stage not found.")
 
-    // Refuse to orphan live deals: a stage with non-deleted opportunities
+    // Refuse to orphan live deals: a stage with non-deleted funnels
     // referencing it can't be hard-deleted (it would break the board + forecast).
     const inUse = await tx
-      .select({ id: opportunities.id })
-      .from(opportunities)
+      .select({ id: funnels.id })
+      .from(funnels)
       .where(
         and(
-          eq(opportunities.currentStageId, id),
-          isNull(opportunities.deletedAt)
+          eq(funnels.currentStageId, id),
+          isNull(funnels.deletedAt)
         )
       )
       .limit(1)
     if (inUse.length > 0) {
       throw new Error(
-        "This stage still has funnels in it. Move them to another stage before deleting it."
+        "This stage still has pipelines in it. Move them to another stage before deleting it."
       )
     }
 
-    await tx.delete(funnelStages).where(eq(funnelStages.id, id))
+    await tx.delete(pipelineStages).where(eq(pipelineStages.id, id))
     await writeAudit(tx, ctx, {
       action: "stage.deleted",
       entityType: "funnel_stage",
@@ -1457,37 +1457,37 @@ export async function deleteStage(id: string): Promise<ActionResult<void>> {
 /**
  * Persist a new ordering. `order` is an array of stage ids in the desired
  * sequence; sortOrder is rewritten to match the index (offset to avoid the
- * unique (funnelId, sortOrder) constraint mid-update).
+ * unique (pipelineId, sortOrder) constraint mid-update).
  */
 export async function reorderStages(order: string[]): Promise<ActionResult<void>> {
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FUNNEL_MANAGE)
   await runInTenant(ctx.tenantId, async (tx) => {
-    const funnelId = await resolveDefaultFunnelId(tx, ctx.tenantId)
-    if (!funnelId) throw new Error("No funnel configured for this entity.")
-    // Two-phase write to dodge the (funnelId, sortOrder) unique constraint.
+    const pipelineId = await resolveDefaultFunnelId(tx, ctx.tenantId)
+    if (!pipelineId) throw new Error("No funnel configured for this entity.")
+    // Two-phase write to dodge the (pipelineId, sortOrder) unique constraint.
     const OFFSET = 1000
     for (let i = 0; i < order.length; i++) {
       await tx
-        .update(funnelStages)
+        .update(pipelineStages)
         .set({ sortOrder: i + OFFSET, updatedAt: new Date() })
         .where(
-          and(eq(funnelStages.id, order[i]), eq(funnelStages.funnelId, funnelId))
+          and(eq(pipelineStages.id, order[i]), eq(pipelineStages.pipelineId, pipelineId))
         )
     }
     for (let i = 0; i < order.length; i++) {
       await tx
-        .update(funnelStages)
+        .update(pipelineStages)
         .set({ sortOrder: i, updatedAt: new Date() })
         .where(
-          and(eq(funnelStages.id, order[i]), eq(funnelStages.funnelId, funnelId))
+          and(eq(pipelineStages.id, order[i]), eq(pipelineStages.pipelineId, pipelineId))
         )
     }
     await writeAudit(tx, ctx, {
       action: "stage.reordered",
       entityType: "funnel",
-      entityId: funnelId,
+      entityId: pipelineId,
       after: { order },
     })
   })

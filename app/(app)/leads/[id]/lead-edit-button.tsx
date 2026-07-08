@@ -22,10 +22,10 @@ import { updateLead, type Lead, type LeadInput } from "../actions"
 
 export function LeadEditButton({
   lead,
-  funnels,
+  pipelines,
 }: {
   lead: Lead
-  funnels: FunnelWithStages[]
+  pipelines: FunnelWithStages[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -60,7 +60,7 @@ export function LeadEditButton({
         </DialogHeader>
         <LeadForm
           lead={lead}
-          funnels={funnels}
+          pipelines={pipelines}
           onSubmit={handleUpdate}
           submitLabel="Save changes"
         />

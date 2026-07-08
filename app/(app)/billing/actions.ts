@@ -20,7 +20,7 @@ import {
   paymentMilestones,
   tenantSettings,
   attachments,
-  opportunities,
+  funnels,
   organization,
   intercompanyDeals,
   intercompanyDealParties,
@@ -35,7 +35,7 @@ import {
   type FinanceDocKind,
 } from "@/lib/finance-kinds"
 import { partyShare } from "@/lib/interco-share"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled, assertModuleEnabled } from "@/lib/modules"
 import {
   DEFAULT_INVOICE_DUE_DAYS,
   DEFAULT_REMINDER_DAYS,
@@ -71,33 +71,15 @@ export type FinanceDocRow = {
   createdAt: Date
 }
 
-/** The module is an add-on: every entry point re-checks the master switch
- *  (lib/modules.ts) AND the tenant's backend flag. */
+/** The module is an add-on gated globally by the plugin registry
+ *  (lib/modules.ts). */
 async function assertFinanceEnabled(tx: Tx, tenantId: string): Promise<void> {
-  if (!FINANCE_MODULE) {
-    throw new Error("The billing & purchasing module is disabled.")
-  }
-  const [s] = await tx
-    .select({ on: tenantSettings.financeModule })
-    .from(tenantSettings)
-    .where(eq(tenantSettings.organizationId, tenantId))
-    .limit(1)
-  if (!s?.on) {
-    throw new Error("The billing & purchasing module is not enabled for this organization.")
-  }
+  assertModuleEnabled("finance")
 }
 
 /** Whether the finance module is enabled (for nav/pages). */
 export async function isFinanceEnabled(): Promise<boolean> {
-  if (!FINANCE_MODULE) return false
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    return s?.on ?? false
-  })
+  return isModuleEnabled("finance")
 }
 
 /** All documents in one direction (sale = O2C, purchase = P2P), newest first. */
@@ -191,7 +173,7 @@ export type FinanceSources = {
     currency: string
   }[]
   /** Pending milestones per project, for the invoice ↔ milestone tie. */
-  milestones: { id: string; projectId: string; title: string; amount: string }[]
+  milestones: { id: string; projectId: string | null; title: string; amount: string }[]
 }
 
 /** Everything the create dialog needs, in one round trip. Managers only —
@@ -441,7 +423,7 @@ export async function createFinanceDoc(
           if (!m) throw new Error("Milestone not found")
           if (m.status !== "pending")
             throw new Error("That milestone is already invoiced or paid")
-          if (!projectId || m.projectId !== projectId)
+          if (!projectId || (m.projectId ?? "") !== projectId)
             throw new Error("That milestone belongs to a different project.")
           const [claimed] = await tx
             .select({ number: financeDocs.number })
@@ -795,12 +777,12 @@ async function prepareIntercoMirror(
   if (!intercoAutoMirror || !doc.projectId) return []
   const [opp] = await tx
     .select({
-      isIntercompany: opportunities.isIntercompany,
-      quotedAmount: opportunities.amount,
-      estimatedAmount: opportunities.estimatedAmount,
+      isIntercompany: funnels.isIntercompany,
+      quotedAmount: funnels.amount,
+      estimatedAmount: funnels.estimatedAmount,
     })
     .from(projects)
-    .innerJoin(opportunities, eq(projects.opportunityId, opportunities.id))
+    .innerJoin(funnels, eq(projects.funnelId, funnels.id))
     .where(eq(projects.id, doc.projectId))
     .limit(1)
   if (!opp?.isIntercompany) return []
@@ -815,17 +797,17 @@ async function prepareIntercoMirror(
     })
     .from(intercompanyDealParties)
     .innerJoin(
-      opportunities,
-      eq(opportunities.id, intercompanyDealParties.opportunityId)
+      funnels,
+      eq(funnels.id, intercompanyDealParties.funnelId)
     )
     .innerJoin(
       projects,
-      eq(projects.opportunityId, opportunities.id)
+      eq(projects.funnelId, funnels.id)
     )
     .leftJoin(
       intercompanyDeals,
       and(
-        eq(intercompanyDeals.opportunityId, intercompanyDealParties.opportunityId),
+        eq(intercompanyDeals.funnelId, intercompanyDealParties.funnelId),
         eq(intercompanyDeals.partnerTenantId, intercompanyDealParties.partnerEntityId)
       )
     )
@@ -874,15 +856,9 @@ async function executeIntercoMirror(m: IntercoMirror): Promise<void> {
   const today = toDateString(new Date())
 
   // The partner must have the finance module ON — otherwise the mirrored
-  // documents would be invisible and unmanageable on their side.
-  const partnerOn = await runInTenant(m.partnerTenantId, async (tx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, m.partnerTenantId))
-      .limit(1)
-    return s?.on ?? false
-  })
+  // documents would be invisible and unmanageable on their side. Finance is
+  // now a global (deployment-wide) plugin, so the partner's state matches ours.
+  const partnerOn = isModuleEnabled("finance")
   if (!partnerOn) {
     await runInTenant(m.originTenantId, (tx) =>
       logActivity(tx, ctx, {
@@ -918,7 +894,7 @@ async function executeIntercoMirror(m: IntercoMirror): Promise<void> {
       kind: "purchase_invoice",
       parentId: null,
       salesOrderId: null,
-      projectId: m.projectId,
+      projectId: (m.projectId ?? ""),
       milestoneId: null,
       partyName: nameOf(m.partnerTenantId),
       amount: m.share,
@@ -1158,7 +1134,7 @@ export async function createInvoiceFromMilestone(
           })
           .from(projects)
           .leftJoin(accounts, eq(projects.accountId, accounts.id))
-          .where(and(eq(projects.id, m.projectId), isNull(projects.deletedAt)))
+          .where(and(eq(projects.id, (m.projectId ?? "")), isNull(projects.deletedAt)))
           .limit(1)
         if (!proj) throw new Error("Project not found")
 
@@ -1168,7 +1144,7 @@ export async function createInvoiceFromMilestone(
           .from(salesOrders)
           .where(
             and(
-              eq(salesOrders.projectId, m.projectId),
+              eq(salesOrders.projectId, (m.projectId ?? "")),
               eq(salesOrders.status, "approved")
             )
           )
@@ -1187,7 +1163,7 @@ export async function createInvoiceFromMilestone(
           kind: "invoice",
           parentId: null,
           salesOrderId: so.id,
-          projectId: m.projectId,
+          projectId: (m.projectId ?? ""),
           milestoneId: m.id,
           partyName: proj.accountName,
           amount: m.amount,
@@ -1204,7 +1180,7 @@ export async function createInvoiceFromMilestone(
         })
         await logActivity(tx, ctx, {
           entityType: "project",
-          entityId: m.projectId,
+          entityId: (m.projectId ?? ""),
           type: "system",
           subject: `Invoice ${row.number} drafted for milestone "${m.title}"`,
         })
@@ -1234,13 +1210,7 @@ export async function getProjectBillingSummary(
   projectId: string
 ): Promise<ProjectBillingSummary | null> {
   return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    if (!FINANCE_MODULE) return null
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (!s?.on) return null
+    if (!isModuleEnabled("finance")) return null
 
     const [proj] = await tx
       .select({ value: projects.value, currency: projects.currency })
@@ -1316,14 +1286,8 @@ export type BilledMarginRow = {
  *  invoices, issued+settled) for the forecast page. */
 export async function getBilledMargin(): Promise<BilledMarginRow[]> {
   const ctx = await requireContext()
-  if (!FINANCE_MODULE || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
+  if (!isModuleEnabled("finance") || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
   return runInTenant(ctx.tenantId, async (tx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (!s?.on) return []
     const rows = await tx
       .select({
         currency: financeDocs.currency,

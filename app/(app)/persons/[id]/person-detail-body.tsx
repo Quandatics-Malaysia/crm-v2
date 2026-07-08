@@ -34,7 +34,7 @@ function stageKindClasses(kind: string | null): string {
 export type PersonDetailData = {
   personId: string
   fields: { label: string; value: React.ReactNode }[]
-  opportunities: PersonOpportunity[]
+  funnels: PersonOpportunity[]
   projects: PersonProject[]
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
@@ -45,12 +45,12 @@ export type PersonDetailData = {
 export function PersonDetailBody({
   personId,
   fields,
-  opportunities,
+  funnels,
   projects,
   activity,
   documents,
 }: PersonDetailData) {
-  const [tab, setTab] = React.useState("funnels")
+  const [tab, setTab] = React.useState("pipelines")
   const revalidate = `/persons/${personId}`
 
   const funnelColumns = React.useMemo<ColumnDef<PersonOpportunity>[]>(
@@ -155,7 +155,7 @@ export function PersonDetailBody({
           <CardContent>
             <RelatedQuickLinks
               items={[
-                { kind: "funnel", label: "Funnels", count: opportunities.length, onSelect: () => setTab("funnels") },
+                { kind: "funnel", label: "Funnels", count: funnels.length, onSelect: () => setTab("pipelines") },
                 { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
               ]}
             />
@@ -169,10 +169,10 @@ export function PersonDetailBody({
           <CardContent className="min-h-[26rem] pt-6">
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
-                <TabsTrigger value="funnels">
+                <TabsTrigger value="pipelines">
                   Funnels
                   <Badge variant="secondary" className="ml-1.5">
-                    {opportunities.length}
+                    {funnels.length}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="projects">
@@ -190,14 +190,14 @@ export function PersonDetailBody({
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="funnels" className="mt-4">
+              <TabsContent value="pipelines" className="mt-4">
                 <DataTable
                   columns={funnelColumns}
-                  data={opportunities}
-                  tableId="person-funnels"
+                  data={funnels}
+                  tableId="person-pipelines"
                   searchColumn="name"
-                  searchPlaceholder="Search funnels…"
-                  emptyMessage="No funnels for this contact yet."
+                  searchPlaceholder="Search pipelines…"
+                  emptyMessage="No pipelines for this contact yet."
                   pageSize={5}
                 />
               </TabsContent>

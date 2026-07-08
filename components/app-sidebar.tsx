@@ -9,6 +9,7 @@ import {
   Building2Icon,
   UsersIcon,
   FilterIcon,
+  BriefcaseIcon,
   StampIcon,
   FileTextIcon,
   FolderKanbanIcon,
@@ -53,6 +54,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { CreateEntityDialog } from "@/components/create-entity-dialog"
 import { authClient } from "@/lib/auth-client"
 import { PERMISSIONS } from "@/lib/permissions"
+import type { ModuleId } from "@/lib/modules"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -62,8 +64,8 @@ type NavItem = {
   /** Salesforce-style object tile colour (Tailwind bg-* class). */
   tile: string
   permission?: string
-  /** Add-on module gate (tenant_settings backend flag), on top of permission. */
-  module?: "finance"
+  /** Optional plugin gate (modules.config.ts), on top of permission. */
+  module?: ModuleId
 }
 
 type NavSection = { label: string | null; items: NavItem[] }
@@ -84,11 +86,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Sales",
     items: [
+      { title: "Opportunities", url: "/opportunities", icon: BriefcaseIcon, tile: "bg-amber-600", permission: PERMISSIONS.OPPORTUNITY_VIEW },
       { title: "Funnel", url: "/funnel", icon: FilterIcon, tile: "bg-amber-500", permission: PERMISSIONS.OPPORTUNITY_VIEW },
       { title: "Quotations", url: "/quotations", icon: FileTextIcon, tile: "bg-green-600", permission: PERMISSIONS.QUOTATION_VIEW },
       { title: "Products", url: "/products", icon: PackageIcon, tile: "bg-sky-500", permission: PERMISSIONS.PRODUCT_VIEW },
-      { title: "Projects", url: "/projects", icon: FolderKanbanIcon, tile: "bg-indigo-500", permission: PERMISSIONS.PROJECT_VIEW },
-      { title: "Sales Orders", url: "/sales-orders", icon: ReceiptIcon, tile: "bg-pink-600", permission: PERMISSIONS.SALES_ORDER_VIEW },
+      { title: "Projects", url: "/projects", icon: FolderKanbanIcon, tile: "bg-indigo-500", permission: PERMISSIONS.PROJECT_VIEW, module: "projects" },
+      { title: "Sales Orders", url: "/sales-orders", icon: ReceiptIcon, tile: "bg-pink-600", permission: PERMISSIONS.SALES_ORDER_VIEW, module: "salesOrders" },
       { title: "Approvals", url: "/approvals", icon: StampIcon, tile: "bg-rose-500", permission: PERMISSIONS.STAGE_ADVANCE },
     ],
   },
@@ -104,9 +107,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Insights",
     items: [
-      { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW },
-      { title: "Intercompany", url: "/intercompany", icon: ArrowLeftRightIcon, tile: "bg-fuchsia-600", permission: PERMISSIONS.INTERCOMPANY_VIEW },
-      { title: "Audit", url: "/audit", icon: ScrollTextIcon, tile: "bg-slate-500", permission: PERMISSIONS.AUDIT_VIEW },
+      { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW, module: "forecast" },
+      { title: "Intercompany", url: "/intercompany", icon: ArrowLeftRightIcon, tile: "bg-fuchsia-600", permission: PERMISSIONS.INTERCOMPANY_VIEW, module: "finance" },
+      { title: "Audit", url: "/audit", icon: ScrollTextIcon, tile: "bg-slate-500", permission: PERMISSIONS.AUDIT_VIEW, module: "audit" },
     ],
   },
   {
@@ -135,8 +138,8 @@ export function AppSidebar({
   activeTenant: SidebarTenant | null
   tenants: SidebarTenant[]
   permissions: string[]
-  /** Enabled add-on modules (tenant_settings backend flags). */
-  modules?: { finance?: boolean }
+  /** Enabled plugins (from modules.config.ts, computed in the layout). */
+  modules?: Partial<Record<ModuleId, boolean>>
 } & React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const router = useRouter()
@@ -155,6 +158,11 @@ export function AppSidebar({
   async function switchTenant(id: string) {
     if (id === activeTenant?.id) return
     await authClient.organization.setActive({ organizationId: id })
+    // Land on the dashboard rather than refreshing the current URL: a record
+    // deep-link (e.g. /projects/<id>) belongs to the previous tenant and would
+    // 404 under the newly-active one. push() re-renders the layout with the new
+    // tenant; refresh() re-fetches server data for the destination.
+    router.push("/dashboard")
     router.refresh()
   }
 

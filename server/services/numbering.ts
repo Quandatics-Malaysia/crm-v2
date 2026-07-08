@@ -73,7 +73,9 @@ export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> 
  * Allocate the next project code in the format
  * `{YYYY}-{ENTITY}-{ACCOUNTCODE}-{PROJECTNATURE}-{NNN}` (e.g.
  * `2026-DEMO-ACME-WEB-001`):
- *   - YYYY        — the current LOCAL calendar year.
+ *   - YYYY        — the deal's CONTRACT/LICENSE start year when supplied
+ *                   (`opts.year`, from opportunity.projectYear / project start
+ *                   date); falls back to the current local calendar year.
  *   - ENTITY      — tenant_settings.entityCode (fallback "ENT").
  *   - ACCOUNTCODE — the account's short code (fallback "ACC").
  *   - PROJECTNATURE — the project's chosen project-nature code (fallback "GEN").
@@ -87,9 +89,17 @@ export async function nextSoNumber(tx: Tx, ctx: ServerContext): Promise<string> 
 export async function nextProjectCode(
   tx: Tx,
   ctx: ServerContext,
-  { accountCode, projectNatureCode }: { accountCode: string; projectNatureCode: string }
+  {
+    accountCode,
+    projectNatureCode,
+    year: contractYear,
+  }: { accountCode: string; projectNatureCode: string; year?: number | null }
 ): Promise<string> {
-  const year = Number(toDateString().slice(0, 4))
+  // Contract/license start year when known, else the current calendar year.
+  const year =
+    contractYear && contractYear > 0
+      ? Math.trunc(contractYear)
+      : Number(toDateString().slice(0, 4))
 
   // Atomically take-and-increment the per-year counter. next_number holds the
   // value to assign NEXT; on first use we seed it to 2 and assign 1, on every

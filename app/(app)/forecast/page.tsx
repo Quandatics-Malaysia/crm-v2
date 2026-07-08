@@ -1,5 +1,6 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
+import { requireModule } from "@/lib/module-guard"
 import { getForecast, getPipelineSummary, getForecastConfig } from "./actions"
 import { getBilledMargin } from "@/app/(app)/billing/actions"
 import { formatMoney } from "@/lib/format"
@@ -12,6 +13,7 @@ import {
 import { ForecastView } from "./forecast-client"
 
 export default async function ForecastPage() {
+  requireModule("forecast")
   const [rows, pipeline, config, billedMargin] = await Promise.all([
     getForecast(),
     getPipelineSummary(),
@@ -30,13 +32,13 @@ export default async function ForecastPage() {
           </h2>
           <p className="text-sm text-muted-foreground">
             Weighted by stage probability across forecast-eligible
-            funnels. Amounts are grouped by currency — figures in
+            pipelines. Amounts are grouped by currency — figures in
             different currencies are never summed together.
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
           Report — derived, read-only. Figures are computed from
-          forecast-eligible funnels and their primary quotation; nothing
+          forecast-eligible pipelines and their primary quotation; nothing
           here is editable. Stages included in the forecast are configured in
           Settings → Funnel Stages.
         </p>

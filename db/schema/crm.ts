@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   boolean,
+  date,
   jsonb,
   timestamp,
   unique,
@@ -39,6 +40,13 @@ export const accounts = pgTable(
     ),
     /** "client" (end user) or "reseller" (channel). */
     accountType: text("account_type"),
+    /**
+     * Customer lifecycle (Salesforce "Prospect → Customer"): false = prospect,
+     * flipped true automatically when a funnel on this account reaches Closed Won.
+     */
+    isCustomer: boolean("is_customer").notNull().default(false),
+    /** Budgeting date (Salesforce "Budgeting Date" — drives budget-expiry reminders). */
+    budgetingDate: date("budgeting_date"),
     /** For reseller accounts: the end-user client account. */
     endUserAccountId: uuid("end_user_account_id").references(
       (): AnyPgColumn => accounts.id,
@@ -80,6 +88,11 @@ export const persons = pgTable(
     title: text("title"),
     email: text("email"),
     phone: text("phone"),
+    /** Contact owner (Salesforce "Contact Owner"). */
+    ownerMemberId: text("owner_member_id").references(() => member.id, {
+      onDelete: "set null",
+    }),
+    country: text("country"),
     isPrimary: boolean("is_primary").notNull().default(false),
     // DEPRECATED / UNIMPLEMENTED: custom fields were never wired into the app
     // (no definitions UI, no read/validation path) and CUSTOM_FIELD_MANAGE was
@@ -108,14 +121,19 @@ export const leads = pgTable(
     .references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   companyName: text("company_name"),
+  // Link to the lead's Company record (Salesforce Company__c) — FK-less to avoid
+  // an import cycle with deferred-objects.ts; resolved in the app layer.
+  leadCompanyId: uuid("lead_company_id"),
   email: text("email"),
   phone: text("phone"),
+  mobile: text("mobile"),
+  country: text("country"),
   source: text("source"),
   status: leadStatus("status").notNull().default("new"),
   disqualifyReason: text("disqualify_reason"),
   // A lead can sit in a pipeline stage of its own (FK-less to avoid an
   // import cycle with pipeline.ts; resolved in the app layer).
-  funnelId: uuid("funnel_id"),
+  pipelineId: uuid("pipeline_id"),
   currentStageId: uuid("current_stage_id"),
   ownerMemberId: text("owner_member_id").references(() => member.id, {
     onDelete: "set null",
@@ -126,7 +144,7 @@ export const leads = pgTable(
   convertedPersonId: uuid("converted_person_id").references(() => persons.id, {
     onDelete: "set null",
   }),
-  // references opportunities (defined in pipeline.ts) — kept FK-less to avoid an import cycle
+  // references funnels (defined in pipeline.ts) — kept FK-less to avoid an import cycle
   convertedOpportunityId: uuid("converted_opportunity_id"),
   convertedAt: timestamp("converted_at", { withTimezone: true }),
   ...timestamps,

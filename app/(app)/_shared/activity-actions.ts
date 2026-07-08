@@ -12,7 +12,7 @@ import {
   member,
   user,
   persons,
-  opportunities,
+  funnels,
   projects,
 } from "@/db/schema"
 import { logActivity, type ActivityEntity, type ActivityKind } from "@/server/services/activity"
@@ -91,9 +91,9 @@ async function rollupPairs(
     ).map((r) => r.id)
     const oppIds = (
       await tx
-        .select({ id: opportunities.id })
-        .from(opportunities)
-        .where(eq(opportunities.accountId, rootId))
+        .select({ id: funnels.id })
+        .from(funnels)
+        .where(eq(funnels.accountId, rootId))
     ).map((r) => r.id)
     const projIds = (
       await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
@@ -108,9 +108,9 @@ async function rollupPairs(
   if (rootType === "person") {
     const oppIds = (
       await tx
-        .select({ id: opportunities.id })
-        .from(opportunities)
-        .where(eq(opportunities.primaryPersonId, rootId))
+        .select({ id: funnels.id })
+        .from(funnels)
+        .where(eq(funnels.primaryPersonId, rootId))
     ).map((r) => r.id)
     return [
       { type: "person", ids: [rootId] },
@@ -119,7 +119,7 @@ async function rollupPairs(
   }
   if (rootType === "project") {
     const [p] = await tx
-      .select({ oppId: projects.opportunityId })
+      .select({ oppId: projects.funnelId })
       .from(projects)
       .where(eq(projects.id, rootId))
       .limit(1)

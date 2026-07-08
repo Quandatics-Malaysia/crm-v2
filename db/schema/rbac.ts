@@ -62,8 +62,8 @@ export const tenantSettings = pgTable("tenant_settings", {
   /**
    * Tenant-defined custom funnel fields. Each is a stable `key` + display
    * `label`; salespeople fill them on the funnel (stored in
-   * opportunities.custom_fields), and admins can require them per stage
-   * (funnel_stages.required_fields references the key). See lib/stage-gate.ts.
+   * funnels.custom_fields), and admins can require them per stage
+   * (pipeline_stages.required_fields references the key). See lib/stage-gate.ts.
    */
   customFunnelFields: jsonb("custom_funnel_fields")
     .$type<
@@ -299,3 +299,28 @@ export const membershipProfiles = pgTable("membership_profiles", {
   status: memberStatus("status").notNull().default("active"),
   ...timestamps,
 })
+
+/**
+ * A member's roles (many-to-many). Effective permissions = the UNION of every
+ * assigned role's grants — a person can hold several roles for different areas
+ * (e.g. "Sales Rep" + "Quotation Approver"). membership_profiles keeps the
+ * lifecycle (status) + reporting line; membership_profiles.role_id is the
+ * legacy "primary" role kept in sync with the first assignment for display.
+ */
+export const memberRoles = pgTable(
+  "member_roles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => member.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+    ...timestamps,
+  },
+  (t) => [unique("member_roles_uq").on(t.memberId, t.roleId)]
+)

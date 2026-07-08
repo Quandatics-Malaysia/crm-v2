@@ -5,16 +5,15 @@ import {
   membershipProfiles,
   accounts,
   leads,
-  opportunities,
+  funnels,
   projects,
   persons,
   quotations,
   salesOrders,
   stageApprovalRequests,
-  tenantSettings,
 } from "@/db/schema"
 import { PERMISSIONS } from "@/lib/permissions"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import { type ServerContext } from "@/lib/server-context"
 
 /**
@@ -135,9 +134,9 @@ export async function attachableOwner(
     }
     case "opportunity": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
-        .from(opportunities)
-        .where(eq(opportunities.id, id))
+        .select({ o: funnels.ownerMemberId })
+        .from(funnels)
+        .where(eq(funnels.id, id))
         .limit(1)
       return r?.o ?? null
     }
@@ -160,11 +159,11 @@ export async function attachableOwner(
     }
     case "quotation": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
+        .select({ o: funnels.ownerMemberId })
         .from(quotations)
         .innerJoin(
-          opportunities,
-          eq(quotations.opportunityId, opportunities.id)
+          funnels,
+          eq(quotations.funnelId, funnels.id)
         )
         .where(eq(quotations.id, id))
         .limit(1)
@@ -181,11 +180,11 @@ export async function attachableOwner(
     }
     case "stage_approval_request": {
       const [r] = await tx
-        .select({ o: opportunities.ownerMemberId })
+        .select({ o: funnels.ownerMemberId })
         .from(stageApprovalRequests)
         .innerJoin(
-          opportunities,
-          eq(stageApprovalRequests.opportunityId, opportunities.id)
+          funnels,
+          eq(stageApprovalRequests.funnelId, funnels.id)
         )
         .where(eq(stageApprovalRequests.id, id))
         .limit(1)
@@ -213,13 +212,7 @@ export async function canAccessAttachable(
   // ATTACH_PERMS) within the RLS-scoped tenant. The module flag still
   // applies: with the add-on off, its attachments/activity are off too.
   if (type === "finance_doc") {
-    if (!FINANCE_MODULE) return false
-    const [s] = await tx
-      .select({ on: tenantSettings.financeModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    return s?.on ?? false
+    return isModuleEnabled("finance")
   }
   if (mode === "view" && canViewAllRecords(ctx)) return true
   if (mode === "manage" && canManageAllRecords(ctx)) return true

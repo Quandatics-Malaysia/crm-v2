@@ -17,7 +17,7 @@ import {
   quotations,
   stageApprovalRequests,
   persons,
-  opportunities,
+  funnels,
   projects,
   financeDocs,
 } from "@/db/schema"
@@ -79,26 +79,26 @@ export type FunnelDocument = AttachmentRow & {
  * signed quote/PO uploaded anywhere in the deal is visible on the funnel.
  */
 export async function listOpportunityDocuments(
-  opportunityId: string
+  funnelId: string
 ): Promise<FunnelDocument[]> {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.OPPORTUNITY_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
     if (
-      !(await canAccessAttachable(tx, ctx, "opportunity", opportunityId, "view"))
+      !(await canAccessAttachable(tx, ctx, "opportunity", funnelId, "view"))
     )
       return []
     const quoteIds = (
       await tx
         .select({ id: quotations.id })
         .from(quotations)
-        .where(eq(quotations.opportunityId, opportunityId))
+        .where(eq(quotations.funnelId, funnelId))
     ).map((q) => q.id)
     const reqIds = (
       await tx
         .select({ id: stageApprovalRequests.id })
         .from(stageApprovalRequests)
-        .where(eq(stageApprovalRequests.opportunityId, opportunityId))
+        .where(eq(stageApprovalRequests.funnelId, funnelId))
     ).map((r) => r.id)
 
     const rows = await tx
@@ -115,7 +115,7 @@ export async function listOpportunityDocuments(
         or(
           and(
             eq(attachments.attachableType, "opportunity"),
-            eq(attachments.attachableId, opportunityId)
+            eq(attachments.attachableId, funnelId)
           ),
           quoteIds.length
             ? and(
@@ -176,16 +176,16 @@ async function docPairs(
     ).map((r) => r.id)
     const oppIds = (
       await tx
-        .select({ id: opportunities.id })
-        .from(opportunities)
-        .where(eq(opportunities.accountId, rootId))
+        .select({ id: funnels.id })
+        .from(funnels)
+        .where(eq(funnels.accountId, rootId))
     ).map((r) => r.id)
     const quoteIds = oppIds.length
       ? (
           await tx
             .select({ id: quotations.id })
             .from(quotations)
-            .where(inArray(quotations.opportunityId, oppIds))
+            .where(inArray(quotations.funnelId, oppIds))
         ).map((r) => r.id)
       : []
     const projIds = (
@@ -204,7 +204,7 @@ async function docPairs(
   }
   if (rootType === "project") {
     const [p] = await tx
-      .select({ oppId: projects.opportunityId, quoteId: projects.quotationId })
+      .select({ oppId: projects.funnelId, quoteId: projects.quotationId })
       .from(projects)
       .where(eq(projects.id, rootId))
       .limit(1)
@@ -218,9 +218,9 @@ async function docPairs(
   // person
   const oppIds = (
     await tx
-      .select({ id: opportunities.id })
-      .from(opportunities)
-      .where(eq(opportunities.primaryPersonId, rootId))
+      .select({ id: funnels.id })
+      .from(funnels)
+      .where(eq(funnels.primaryPersonId, rootId))
   ).map((r) => r.id)
   return [
     { type: "person", ids: [rootId] },

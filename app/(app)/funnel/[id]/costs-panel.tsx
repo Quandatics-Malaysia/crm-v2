@@ -42,16 +42,20 @@ const partyLabel: Record<string, string> = {
  * Supplier" is the partner's own cost (informational).
  */
 export function CostsPanel({
-  opportunityId,
+  funnelId,
   costs,
   revenue,
+  revenueLabel = "Quoted revenue",
   currency,
   canManage,
 }: {
-  opportunityId: string
+  funnelId: string
   costs: DealCostRow[]
-  /** Quoted revenue (base currency) to compute margin against. */
+  /** Revenue (base currency) margin is computed against — the deal's recognized
+   *  cut for intercompany deals, else the quoted value. */
   revenue: number
+  /** Label for the revenue stat (e.g. "Recognized revenue" for interco deals). */
+  revenueLabel?: string
   currency: string
   canManage: boolean
 }) {
@@ -99,7 +103,7 @@ export function CostsPanel({
     }
     run(
       () =>
-        createDealCost(opportunityId, {
+        createDealCost(funnelId, {
           partyKind: partyKind as "supplier" | "partner" | "partner_supplier",
           supplierName: supplierName || null,
           poNumber: poNumber || null,
@@ -124,7 +128,7 @@ export function CostsPanel({
     <div className="grid gap-4">
       {/* Margin summary */}
       <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-4">
-        <Stat label="Quoted revenue" value={formatMoney(revenue, currency)} />
+        <Stat label={revenueLabel} value={formatMoney(revenue, currency)} />
         <Stat label="Our cost" value={formatMoney(ourCost, currency)} />
         <Stat
           label="Margin"

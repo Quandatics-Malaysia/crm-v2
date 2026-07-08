@@ -15,6 +15,7 @@ import {
 import {
   quotations,
   quotationLineItems,
+  funnels,
   opportunities,
   projects,
   taxSettings,
@@ -32,10 +33,7 @@ import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
 import { toDateString } from "@/lib/dates"
-import {
-  createProject,
-  prefillFromOpportunity,
-} from "@/app/(app)/projects/actions"
+import { isModuleEnabled } from "@/lib/modules"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -69,6 +67,8 @@ export type QuotationDetail = {
   quotation: QuotationRow
   lines: QuotationLineRow[]
   opportunityName: string | null
+  /** Parent Opportunity container of the quotation's funnel. */
+  container: { id: string; name: string } | null
   accountId: string | null
   accountName: string | null
 }
@@ -80,14 +80,14 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
     const rows = await tx
       .select({
         q: quotations,
-        opportunityName: opportunities.name,
+        opportunityName: funnels.name,
       })
       .from(quotations)
-      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
       .where(
         and(
           isNull(quotations.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
       .orderBy(desc(quotations.createdAt))
@@ -102,14 +102,17 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
     const [row] = await tx
       .select({
         q: quotations,
-        opportunityName: opportunities.name,
-        oppOwner: opportunities.ownerMemberId,
-        accountId: opportunities.accountId,
+        opportunityName: funnels.name,
+        oppOwner: funnels.ownerMemberId,
+        accountId: funnels.accountId,
         accountName: accounts.name,
+        containerId: opportunities.id,
+        containerName: opportunities.name,
       })
       .from(quotations)
-      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
-      .leftJoin(accounts, eq(opportunities.accountId, accounts.id))
+      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
+      .leftJoin(accounts, eq(funnels.accountId, accounts.id))
+      .leftJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!row) return null
@@ -123,6 +126,10 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
       quotation: row.q,
       lines,
       opportunityName: row.opportunityName,
+      container:
+        row.containerId && row.containerName
+          ? { id: row.containerId, name: row.containerName }
+          : null,
       accountId: row.accountId ?? null,
       accountName: row.accountName ?? null,
     }
@@ -173,11 +180,11 @@ export async function getQuotationDocument(
     const [row] = await tx
       .select({
         q: quotations,
-        oppOwner: opportunities.ownerMemberId,
-        accountId: opportunities.accountId,
+        oppOwner: funnels.ownerMemberId,
+        accountId: funnels.accountId,
       })
       .from(quotations)
-      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!row) return null
@@ -286,12 +293,13 @@ export async function getQuotationDocument(
 export async function getProjectForQuotation(
   quotationId: string
 ): Promise<{ id: string; projectCode: string; name: string } | null> {
+  if (!isModuleEnabled("projects")) return null
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     const [scope] = await tx
-      .select({ oppOwner: opportunities.ownerMemberId })
+      .select({ oppOwner: funnels.ownerMemberId })
       .from(quotations)
-      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
       .where(and(eq(quotations.id, quotationId), isNull(quotations.deletedAt)))
       .limit(1)
     if (!scope || !ownsOrManages(visible, scope.oppOwner)) return null
@@ -311,22 +319,22 @@ export async function getProjectForQuotation(
   })
 }
 
-/** Open opportunities for the "new quotation" picker. */
+/** Open funnels for the "new quotation" picker. */
 export async function listOpportunityOptions(): Promise<
   { id: string; name: string }[]
 > {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
-      .select({ id: opportunities.id, name: opportunities.name })
-      .from(opportunities)
+      .select({ id: funnels.id, name: funnels.name })
+      .from(funnels)
       .where(
         and(
-          isNull(opportunities.deletedAt),
-          ownerScope(opportunities.ownerMemberId, visible)
+          isNull(funnels.deletedAt),
+          ownerScope(funnels.ownerMemberId, visible)
         )
       )
-      .orderBy(asc(opportunities.name))
+      .orderBy(asc(funnels.name))
   })
 }
 
@@ -424,7 +432,7 @@ async function loadTaxInclusive(
 }
 
 export async function createQuotation(input: {
-  opportunityId: string
+  funnelId: string
   taxSettingId: string | null
   validUntil: string | null
   notes: string | null
@@ -438,14 +446,14 @@ export async function createQuotation(input: {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
-        id: opportunities.id,
-        currency: opportunities.currency,
-        primaryQuotationId: opportunities.primaryQuotationId,
-        ownerMemberId: opportunities.ownerMemberId,
-        projectNatureCode: opportunities.projectNatureCode,
+        id: funnels.id,
+        currency: funnels.currency,
+        primaryQuotationId: funnels.primaryQuotationId,
+        ownerMemberId: funnels.ownerMemberId,
+        projectNatureCode: funnels.projectNatureCode,
       })
-      .from(opportunities)
-      .where(and(eq(opportunities.id, input.opportunityId), isNull(opportunities.deletedAt)))
+      .from(funnels)
+      .where(and(eq(funnels.id, input.funnelId), isNull(funnels.deletedAt)))
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
@@ -481,7 +489,7 @@ export async function createQuotation(input: {
       .insert(quotations)
       .values({
         tenantId: ctx.tenantId,
-        opportunityId: input.opportunityId,
+        funnelId: input.funnelId,
         quoteNumber,
         status: "draft",
         currency: opp.currency,
@@ -508,15 +516,15 @@ export async function createQuotation(input: {
         .set({ isPrimary: true })
         .where(eq(quotations.id, created.id))
       await tx
-        .update(opportunities)
+        .update(funnels)
         .set({ primaryQuotationId: created.id, updatedAt: new Date() })
-        .where(eq(opportunities.id, input.opportunityId))
-      await syncOpportunityAmount(tx, ctx, input.opportunityId)
+        .where(eq(funnels.id, input.funnelId))
+      await syncOpportunityAmount(tx, ctx, input.funnelId)
     }
 
     await logActivity(tx, ctx, {
       entityType: "opportunity",
-      entityId: input.opportunityId,
+      entityId: input.funnelId,
       type: "system",
       subject: `Quotation ${created.quoteNumber} created`,
     })
@@ -548,9 +556,9 @@ export async function updateQuotation(
     if (!existing) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
-      .from(opportunities)
-      .where(eq(opportunities.id, existing.opportunityId))
+      .select({ ownerMemberId: funnels.ownerMemberId })
+      .from(funnels)
+      .where(eq(funnels.id, existing.funnelId))
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
@@ -600,7 +608,7 @@ export async function updateQuotation(
 
     // If this quote is the opportunity's primary, keep amount == its net.
     if (existing.isPrimary) {
-      await syncOpportunityAmount(tx, ctx, existing.opportunityId)
+      await syncOpportunityAmount(tx, ctx, existing.funnelId)
     }
 
     await writeAudit(tx, ctx, {
@@ -658,11 +666,11 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
-        ownerMemberId: opportunities.ownerMemberId,
-        status: opportunities.status,
+        ownerMemberId: funnels.ownerMemberId,
+        status: funnels.status,
       })
-      .from(opportunities)
-      .where(eq(opportunities.id, q.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, q.funnelId))
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
@@ -731,12 +739,12 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
 
     // Keep the opportunity amount aligned if this is the primary quote.
     if (q.isPrimary) {
-      await syncOpportunityAmount(tx, ctx, q.opportunityId)
+      await syncOpportunityAmount(tx, ctx, q.funnelId)
     }
 
     await logActivity(tx, ctx, {
       entityType: "opportunity",
-      entityId: q.opportunityId,
+      entityId: q.funnelId,
       type: "system",
       subject: `Quotation ${q.quoteNumber} sent`,
     })
@@ -752,7 +760,7 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
 }
 
 export type AcceptQuotationResult = {
-  opportunityId: string
+  funnelId: string
   accountId: string
   /** Non-fatal warning when accept committed but the auto-win move failed. */
   warning?: string
@@ -780,12 +788,12 @@ export async function acceptQuotation(
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
-        ownerMemberId: opportunities.ownerMemberId,
-        status: opportunities.status,
-        accountId: opportunities.accountId,
+        ownerMemberId: funnels.ownerMemberId,
+        status: funnels.status,
+        accountId: funnels.accountId,
       })
-      .from(opportunities)
-      .where(eq(opportunities.id, q.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, q.funnelId))
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
@@ -809,7 +817,7 @@ export async function acceptQuotation(
       .from(quotations)
       .where(
         and(
-          eq(quotations.opportunityId, q.opportunityId),
+          eq(quotations.funnelId, q.funnelId),
           ne(quotations.id, id),
           isNull(quotations.deletedAt),
           eq(quotations.status, "accepted")
@@ -831,7 +839,7 @@ export async function acceptQuotation(
       .update(quotations)
       .set({ isPrimary: false })
       .where(
-        and(eq(quotations.opportunityId, q.opportunityId), ne(quotations.id, id))
+        and(eq(quotations.funnelId, q.funnelId), ne(quotations.id, id))
       )
     await tx
       .update(quotations)
@@ -840,10 +848,10 @@ export async function acceptQuotation(
 
     // Set primary then derive amount from the primary quote's net.
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({ primaryQuotationId: id, updatedAt: new Date() })
-      .where(eq(opportunities.id, q.opportunityId))
-    await syncOpportunityAmount(tx, ctx, q.opportunityId)
+      .where(eq(funnels.id, q.funnelId))
+    await syncOpportunityAmount(tx, ctx, q.funnelId)
 
     const [settings] = await tx
       .select({
@@ -856,7 +864,7 @@ export async function acceptQuotation(
 
     await logActivity(tx, ctx, {
       entityType: "opportunity",
-      entityId: q.opportunityId,
+      entityId: q.funnelId,
       type: "system",
       subject: `Quotation ${q.quoteNumber} accepted`,
     })
@@ -865,11 +873,11 @@ export async function acceptQuotation(
       action: "quotation.accepted",
       entityType: "quotation",
       entityId: id,
-      after: { opportunityId: q.opportunityId, amount: quoteNet(q) },
+      after: { funnelId: q.funnelId, amount: quoteNet(q) },
     })
 
     return {
-      opportunityId: q.opportunityId,
+      funnelId: q.funnelId,
       accountId: opp.accountId,
       autoWin: settings?.autoWin ?? false,
       autoProject: settings?.autoProject ?? false,
@@ -890,7 +898,7 @@ export async function acceptQuotation(
       // cast bridges the additive contract while the stage service is updated
       // to return `{ moved, pendingApproval }`; older `void` returns read as
       // "not pending", preserving the prior behaviour.
-      const winResult = (await winOpportunity(ctx, result.opportunityId)) as
+      const winResult = (await winOpportunity(ctx, result.funnelId)) as
         | unknown
         | void
       pendingApproval = !!(
@@ -911,8 +919,14 @@ export async function acceptQuotation(
   // account code yet, missing permission, duplicate code race) surfaces as a
   // warning, never as a failed acceptance.
   let projectCreated: AcceptQuotationResult["projectCreated"]
-  if (result.autoProject) {
+  if (result.autoProject && isModuleEnabled("projects")) {
     try {
+      // Loaded lazily so core quotations carries no static dependency on the
+      // projects plugin (whose actions transitively import sales-orders +
+      // finance).
+      const { createProject, prefillFromOpportunity } = await import(
+        "@/app/(app)/projects/actions"
+      )
       const ctx = await requireContext()
       if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) {
         throw new Error("you don't have the Create projects permission")
@@ -935,12 +949,12 @@ export async function acceptQuotation(
         }
       )
       if (!existing) {
-        const prefill = await prefillFromOpportunity(result.opportunityId)
+        const prefill = await prefillFromOpportunity(result.funnelId)
         if (!prefill) throw new Error("the funnel could not be loaded")
         const created = await createProject({
           name: prefill.opportunityName,
           accountId: prefill.accountId,
-          opportunityId: result.opportunityId,
+          funnelId: result.funnelId,
           quotationId: prefill.quotationId ?? result.quotationId,
           value: prefill.value,
           currency: prefill.currency,
@@ -959,7 +973,7 @@ export async function acceptQuotation(
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
   return {
-    opportunityId: result.opportunityId,
+    funnelId: result.funnelId,
     accountId: result.accountId,
     warning,
     pendingApproval,
@@ -979,9 +993,9 @@ export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: opportunities.ownerMemberId })
-      .from(opportunities)
-      .where(eq(opportunities.id, q.opportunityId))
+      .select({ ownerMemberId: funnels.ownerMemberId })
+      .from(funnels)
+      .where(eq(funnels.id, q.funnelId))
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
@@ -993,7 +1007,7 @@ export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
       .where(eq(quotations.id, id))
     // A rejected quote must not keep driving the opportunity value: if it was
     // the primary, promote another live quote (or clear) and re-sync.
-    await reassignPrimaryAfterRemoval(tx, ctx, q.opportunityId, id)
+    await reassignPrimaryAfterRemoval(tx, ctx, q.funnelId, id)
     await writeAudit(tx, ctx, {
       action: "quotation.rejected",
       entityType: "quotation",
@@ -1014,13 +1028,13 @@ export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
 async function reassignPrimaryAfterRemoval(
   tx: Tx,
   ctx: Parameters<typeof syncOpportunityAmount>[1],
-  opportunityId: string,
+  funnelId: string,
   removedQuotationId: string
 ): Promise<void> {
   const [opp] = await tx
-    .select({ primaryQuotationId: opportunities.primaryQuotationId })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId))
+    .select({ primaryQuotationId: funnels.primaryQuotationId })
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
     .limit(1)
   if (opp?.primaryQuotationId !== removedQuotationId) return
 
@@ -1029,7 +1043,7 @@ async function reassignPrimaryAfterRemoval(
     .from(quotations)
     .where(
       and(
-        eq(quotations.opportunityId, opportunityId),
+        eq(quotations.funnelId, funnelId),
         ne(quotations.id, removedQuotationId),
         isNull(quotations.deletedAt),
         notInArray(quotations.status, ["rejected", "expired", "void"])
@@ -1044,7 +1058,7 @@ async function reassignPrimaryAfterRemoval(
       .set({ isPrimary: false })
       .where(
         and(
-          eq(quotations.opportunityId, opportunityId),
+          eq(quotations.funnelId, funnelId),
           ne(quotations.id, candidate.id)
         )
       )
@@ -1053,19 +1067,19 @@ async function reassignPrimaryAfterRemoval(
       .set({ isPrimary: true })
       .where(eq(quotations.id, candidate.id))
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({ primaryQuotationId: candidate.id, updatedAt: new Date() })
-      .where(eq(opportunities.id, opportunityId))
+      .where(eq(funnels.id, funnelId))
   } else {
     // No live quote remains: clear the pointer AND reset the amount. Without
     // this, syncOpportunityAmount short-circuits on the null pointer and the
     // opportunity keeps reporting the removed quote's net in the forecast.
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({ primaryQuotationId: null, amount: null, updatedAt: new Date() })
-      .where(eq(opportunities.id, opportunityId))
+      .where(eq(funnels.id, funnelId))
   }
-  await syncOpportunityAmount(tx, ctx, opportunityId)
+  await syncOpportunityAmount(tx, ctx, funnelId)
 }
 
 /** Result of {@link setPrimaryQuotation}: the prior primary quote id (if any),
@@ -1086,11 +1100,11 @@ export async function setPrimaryQuotation(
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
       .select({
-        ownerMemberId: opportunities.ownerMemberId,
-        primaryQuotationId: opportunities.primaryQuotationId,
+        ownerMemberId: funnels.ownerMemberId,
+        primaryQuotationId: funnels.primaryQuotationId,
       })
-      .from(opportunities)
-      .where(eq(opportunities.id, q.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, q.funnelId))
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
@@ -1104,17 +1118,17 @@ export async function setPrimaryQuotation(
       .update(quotations)
       .set({ isPrimary: false })
       .where(
-        and(eq(quotations.opportunityId, q.opportunityId), ne(quotations.id, id))
+        and(eq(quotations.funnelId, q.funnelId), ne(quotations.id, id))
       )
     await tx
       .update(quotations)
       .set({ isPrimary: true, updatedAt: new Date() })
       .where(eq(quotations.id, id))
     await tx
-      .update(opportunities)
+      .update(funnels)
       .set({ primaryQuotationId: id, updatedAt: new Date() })
-      .where(eq(opportunities.id, q.opportunityId))
-    await syncOpportunityAmount(tx, ctx, q.opportunityId)
+      .where(eq(funnels.id, q.funnelId))
+    await syncOpportunityAmount(tx, ctx, q.funnelId)
     await writeAudit(tx, ctx, {
       action: "quotation.set_primary",
       entityType: "quotation",
@@ -1133,12 +1147,12 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
   await withTenant(PERMISSIONS.QUOTATION_DELETE, async (tx, ctx) => {
     const [existing] = await tx
       .select({
-        opportunityId: quotations.opportunityId,
+        funnelId: quotations.funnelId,
         status: quotations.status,
-        oppOwner: opportunities.ownerMemberId,
+        oppOwner: funnels.ownerMemberId,
       })
       .from(quotations)
-      .leftJoin(opportunities, eq(quotations.opportunityId, opportunities.id))
+      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!existing) throw new Error("Quotation not found")
@@ -1152,16 +1166,19 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
       throw new Error(
         "An accepted quotation can't be deleted. Create a revision instead."
       )
-    // Refuse if a live project was built from this quotation.
-    const [linkedProject] = await tx
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
-      .limit(1)
-    if (linkedProject)
-      throw new Error(
-        "This quotation can't be deleted because a project references it."
-      )
+    // Refuse if a live project was built from this quotation. Only relevant
+    // when the projects plugin is on (no project rows can exist otherwise).
+    if (isModuleEnabled("projects")) {
+      const [linkedProject] = await tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
+        .limit(1)
+      if (linkedProject)
+        throw new Error(
+          "This quotation can't be deleted because a project references it."
+        )
+    }
     const [updated] = await tx
       .update(quotations)
       .set({ deletedAt: new Date(), isPrimary: false, updatedAt: new Date() })
@@ -1170,7 +1187,7 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
     if (!updated) throw new Error("Quotation not found")
     // If this was the opportunity's primary, promote another live quote (or
     // clear the pointer) and re-sync so a deleted quote stops driving value.
-    await reassignPrimaryAfterRemoval(tx, ctx, existing.opportunityId, id)
+    await reassignPrimaryAfterRemoval(tx, ctx, existing.funnelId, id)
     await writeAudit(tx, ctx, {
       action: "quotation.deleted",
       entityType: "quotation",

@@ -13,7 +13,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
-import { opportunities } from "./pipeline"
+import { funnels } from "./pipeline"
 import { timestamps } from "./_helpers"
 
 export const intercompanySharetype = pgEnum("intercompany_share_type", [
@@ -27,15 +27,15 @@ export const intercompanySharetype = pgEnum("intercompany_share_type", [
  * MAX_INTERCOMPANY_PARTIES, see lib/interco-share.ts) — each gets its own row,
  * its own share (independent, NOT a complement of the others'), and its own
  * invoicing currency/FX rate. The origin's own cut is the remainder after all
- * party shares (cached on opportunities.recognized_percent).
+ * party shares (cached on funnels.recognized_percent).
  */
 export const intercompanyDealParties = pgTable(
   "intercompany_deal_parties",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    opportunityId: uuid("opportunity_id")
+    funnelId: uuid("funnel_id")
       .notNull()
-      .references(() => opportunities.id, { onDelete: "cascade" }),
+      .references(() => funnels.id, { onDelete: "cascade" }),
     /** Handling partner entity — a sibling org that delivers part of the deal. */
     partnerEntityId: text("partner_entity_id")
       .notNull()
@@ -52,7 +52,7 @@ export const intercompanyDealParties = pgTable(
   },
   (t) => [
     uniqueIndex("intercompany_deal_parties_uq").on(
-      t.opportunityId,
+      t.funnelId,
       t.partnerEntityId
     ),
     index("intercompany_deal_parties_partner_idx").on(t.partnerEntityId),
@@ -80,9 +80,9 @@ export const intercompanyDeals = pgTable(
     tenantId: text("tenant_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    opportunityId: uuid("opportunity_id")
+    funnelId: uuid("funnel_id")
       .notNull()
-      .references(() => opportunities.id, { onDelete: "cascade" }),
+      .references(() => funnels.id, { onDelete: "cascade" }),
     /** Handling partner entity — the sibling org that delivers this slice. */
     partnerTenantId: text("partner_tenant_id")
       .notNull()
@@ -109,7 +109,7 @@ export const intercompanyDeals = pgTable(
     /**
      * Origin stage's probability + forecast eligibility, snapshotted so the
      * PARTNER's forecast can weight its share of the deal without reading the
-     * origin's RLS-protected funnel_stages.
+     * origin's RLS-protected pipeline_stages.
      */
     stageProbability: numeric("stage_probability", { precision: 5, scale: 2 }),
     includeInForecast: boolean("include_in_forecast").notNull().default(true),
@@ -119,7 +119,7 @@ export const intercompanyDeals = pgTable(
   },
   (t) => [
     uniqueIndex("intercompany_deals_opportunity_partner_uq").on(
-      t.opportunityId,
+      t.funnelId,
       t.partnerTenantId
     ),
     index("intercompany_deals_partner_idx").on(t.partnerTenantId),

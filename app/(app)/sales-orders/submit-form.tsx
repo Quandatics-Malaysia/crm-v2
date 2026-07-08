@@ -170,6 +170,13 @@ export function SubmitSalesOrderForm({
         </div>
       </div>
       <DialogFooter>
+        {/* Explain WHY Submit is disabled — a document is mandatory, and a
+            silently-inert button reads as a broken no-op otherwise. */}
+        {files.length < 1 ? (
+          <p className="mr-auto self-center text-sm text-muted-foreground">
+            Attach a document to submit.
+          </p>
+        ) : null}
         <Button
           type="button"
           variant="outline"

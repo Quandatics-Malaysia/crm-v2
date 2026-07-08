@@ -402,10 +402,10 @@ function GeneralForm({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Read-only — identifies this entity in backend operations, e.g.{" "}
-                <code className="font-mono">
-                  npm run module:finance -- {settings.organizationId} on
-                </code>
+                Read-only — identifies this entity in backend operations.
+                Optional modules are enabled deployment-wide in{" "}
+                <code className="font-mono">modules.config.ts</code> (then rebuild
+                / redeploy), not per entity.
               </p>
             </div>
             <FormField
@@ -2198,8 +2198,8 @@ function StageRowActions({
             <AlertDialogTitle>Delete stage?</AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes the “{stage.name}” stage from the funnel.
-              Stages that still have funnels in them can&apos;t be deleted —
-              move those funnels to another stage first.
+              Stages that still have pipelines in them can&apos;t be deleted —
+              move those pipelines to another stage first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

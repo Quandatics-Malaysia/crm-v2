@@ -55,7 +55,7 @@ const projectSchema = z
     // Optional: derived/prefilled from the source quotation or funnel and shown
     // as an editable override. When left blank the server defaults it to "GEN".
     projectNatureCode: z.string().trim().optional(),
-    opportunityId: z.string().optional(),
+    funnelId: z.string().optional(),
     value: z.string().trim().optional(),
     startDate: z.string().trim().optional(),
     status: z.enum(["planning", "active", "on_hold", "completed", "cancelled"]),
@@ -85,7 +85,7 @@ type ProjectNatureOption = { code: string; name: string }
 
 export function ProjectCreateForm({
   accounts,
-  opportunities,
+  funnels,
   projectNatures,
   entityCode,
   codeYear,
@@ -100,7 +100,7 @@ export function ProjectCreateForm({
   prefillQuoteNumber,
 }: {
   accounts: AccountOption[]
-  opportunities: OpportunityOption[]
+  funnels: OpportunityOption[]
   projectNatures: ProjectNatureOption[]
   /** ENTITY segment of the generated code (tenant entity code). */
   entityCode: string
@@ -151,7 +151,7 @@ export function ProjectCreateForm({
       name: defaultName ?? "",
       accountId: defaultAccountId ?? "",
       projectNatureCode: defaultProjectNatureCode ?? "",
-      opportunityId: defaultOpportunityId ?? NONE,
+      funnelId: defaultOpportunityId ?? NONE,
       value: defaultValue ?? "",
       startDate: "",
       status: "planning",
@@ -180,18 +180,18 @@ export function ProjectCreateForm({
 
   async function handleSubmit(values: ProjectFormValues) {
     setSubmitting(true)
-    const opportunityId =
-      values.opportunityId && values.opportunityId !== NONE
-        ? values.opportunityId
+    const funnelId =
+      values.funnelId && values.funnelId !== NONE
+        ? values.funnelId
         : undefined
     const res = await createProject({
       name: values.name,
       accountId: values.accountId,
       projectNatureCode: values.projectNatureCode || undefined,
-      opportunityId,
-      quotationId: opportunityId ? quotationId : undefined,
+      funnelId,
+      quotationId: funnelId ? quotationId : undefined,
       value: values.value || undefined,
-      currency: opportunityId ? currency : undefined,
+      currency: funnelId ? currency : undefined,
       startDate: values.startDate || undefined,
       status: values.status,
       codeNature: values.codeNature,
@@ -369,7 +369,7 @@ export function ProjectCreateForm({
 
             <FormField
               control={form.control}
-              name="opportunityId"
+              name="funnelId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Funnel (optional)</FormLabel>
@@ -388,7 +388,7 @@ export function ProjectCreateForm({
                         }
                         // Derive the account from the chosen funnel, then
                         // re-prefill value + linked quote + currency from its net.
-                        const opp = opportunities.find((o) => o.id === v)
+                        const opp = funnels.find((o) => o.id === v)
                         if (opp) form.setValue("accountId", opp.accountId)
                         void prefillFromOpportunity(v).then((p) => {
                           if (!p) return
@@ -410,14 +410,14 @@ export function ProjectCreateForm({
                       }}
                       options={[
                         { value: NONE, label: "None" },
-                        ...opportunities.map((o) => ({
+                        ...funnels.map((o) => ({
                           value: o.id,
                           label: o.name,
                         })),
                       ]}
                       placeholder="Link a funnel…"
-                      searchPlaceholder="Search funnels…"
-                      emptyMessage="No funnels found."
+                      searchPlaceholder="Search pipelines…"
+                      emptyMessage="No pipelines found."
                     />
                   </FormControl>
                   <FormMessage />

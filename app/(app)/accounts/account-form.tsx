@@ -650,7 +650,10 @@ export function AccountForm({
                         </Select>
                       ) : (
                         <FormControl>
-                          <Input placeholder="Malaysia" {...field} />
+                          {/* Free-text fallback when no country picklist is
+                              configured. The hint is prefixed "e.g." so it
+                              reads as guidance, never a pre-filled value. */}
+                          <Input placeholder="e.g. Malaysia" {...field} />
                         </FormControl>
                       )}
                       <FormMessage />

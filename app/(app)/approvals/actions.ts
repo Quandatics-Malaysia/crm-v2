@@ -6,8 +6,8 @@ import { revalidatePath } from "next/cache"
 import { runInTenant } from "@/db"
 import {
   stageApprovalRequests,
-  opportunities,
-  funnelStages,
+  funnels,
+  pipelineStages,
   member,
   user,
   tenantSettings,
@@ -19,7 +19,7 @@ import { decideApproval, type DecisionOutcome } from "@/server/services/stage"
 
 export type ApprovalRow = {
   id: string
-  opportunityId: string
+  funnelId: string
   opportunityName: string
   requesterName: string | null
   approverName: string | null
@@ -32,16 +32,16 @@ export type ApprovalRow = {
   decidedAt: string | null
 }
 
-const fromStage = alias(funnelStages, "from_stage")
-const targetStage = alias(funnelStages, "target_stage")
+const fromStage = alias(pipelineStages, "from_stage")
+const targetStage = alias(pipelineStages, "target_stage")
 
 /** Shared row shape builder — joins opportunity, stages, requester, approver. */
 function buildApprovalQuery(tx: Parameters<Parameters<typeof runInTenant>[1]>[0], where: SQL | undefined) {
   return tx
     .select({
       id: stageApprovalRequests.id,
-      opportunityId: stageApprovalRequests.opportunityId,
-      opportunityName: opportunities.name,
+      funnelId: stageApprovalRequests.funnelId,
+      opportunityName: funnels.name,
       requesterUserId: stageApprovalRequests.requesterMemberId,
       approverMemberId: stageApprovalRequests.approverMemberId,
       fromStageName: fromStage.name,
@@ -54,8 +54,8 @@ function buildApprovalQuery(tx: Parameters<Parameters<typeof runInTenant>[1]>[0]
     })
     .from(stageApprovalRequests)
     .innerJoin(
-      opportunities,
-      eq(stageApprovalRequests.opportunityId, opportunities.id)
+      funnels,
+      eq(stageApprovalRequests.funnelId, funnels.id)
     )
     .leftJoin(fromStage, eq(stageApprovalRequests.fromStageId, fromStage.id))
     .innerJoin(
@@ -144,7 +144,7 @@ export async function listMyApprovals(): Promise<ApprovalRow[]> {
 
 type RawRow = {
   id: string
-  opportunityId: string
+  funnelId: string
   opportunityName: string
   requesterUserId: string
   approverMemberId: string | null
@@ -160,7 +160,7 @@ type RawRow = {
 function shape(r: RawRow, names: Map<string, string>): ApprovalRow {
   return {
     id: r.id,
-    opportunityId: r.opportunityId,
+    funnelId: r.funnelId,
     opportunityName: r.opportunityName,
     requesterName: names.get(r.requesterUserId) ?? null,
     approverName: r.approverMemberId ? names.get(r.approverMemberId) ?? null : null,

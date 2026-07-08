@@ -150,7 +150,7 @@ function StageColumn({
         ))}
         {cards.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
-            No funnels
+            No pipelines
           </p>
         ) : null}
       </div>
@@ -160,14 +160,14 @@ function StageColumn({
 
 export function OpportunitiesBoard({
   data,
-  funnels,
+  pipelines,
   canAdvance,
   customFieldDefs = [],
 }: {
   data: OpportunityListRow[]
-  funnels: FunnelWithStages[]
+  pipelines: FunnelWithStages[]
   /** When false the board is read-only: cards aren't draggable and drops are
-   * ignored, so a user without stage-advance can't move funnels. */
+   * ignored, so a user without stage-advance can't move pipelines. */
   canAdvance: boolean
   /** Tenant custom-field definitions, so a gated drop can collect required fields. */
   customFieldDefs?: CustomFunnelField[]
@@ -183,7 +183,7 @@ export function OpportunitiesBoard({
   const [activeId, setActiveId] = React.useState<string | null>(null)
   // Controlled stage-advance dialog, opened when a drop targets a gated stage.
   const [gated, setGated] = React.useState<{
-    opportunityId: string
+    funnelId: string
     currentStageId: string
     targetStageId: string
   } | null>(null)
@@ -204,7 +204,7 @@ export function OpportunitiesBoard({
   )
 
   const defaultFunnel =
-    funnels.find((f) => f.isDefault) ?? funnels[0] ?? null
+    pipelines.find((f) => f.isDefault) ?? pipelines[0] ?? null
 
   const stages = React.useMemo(
     () =>
@@ -220,7 +220,7 @@ export function OpportunitiesBoard({
     for (const s of stages) map.set(s.id, [])
     if (defaultFunnel) {
       for (const o of optimisticData) {
-        if (o.funnelId !== defaultFunnel.id) continue
+        if (o.pipelineId !== defaultFunnel.id) continue
         const bucket = map.get(o.stageId)
         if (bucket) bucket.push(o)
       }
@@ -245,7 +245,7 @@ export function OpportunitiesBoard({
     const { active, over } = event
     if (!over) return
 
-    const opportunityId = String(active.id)
+    const funnelId = String(active.id)
     const targetStageId = String(over.id)
     const fromStageId = active.data.current?.stageId as string | undefined
 
@@ -266,7 +266,7 @@ export function OpportunitiesBoard({
     // (A high-tier bypass user still moves immediately once they submit.)
     if (toStage.requiresApprovalToEnter) {
       setGated({
-        opportunityId,
+        funnelId,
         currentStageId: fromStageId ?? "",
         targetStageId,
       })
@@ -277,8 +277,8 @@ export function OpportunitiesBoard({
     // we surface the error and the transition unwinds the optimistic move; on
     // success router.refresh() reconciles against the authoritative data.
     React.startTransition(async () => {
-      moveCard({ id: opportunityId, targetStageId })
-      const res = await advanceStageAction({ opportunityId, targetStageId })
+      moveCard({ id: funnelId, targetStageId })
+      const res = await advanceStageAction({ funnelId, targetStageId })
       if (!res.ok) {
         showActionError(res)
         return
@@ -328,14 +328,14 @@ export function OpportunitiesBoard({
 
       {gated ? (
         <StageAdvanceDialog
-          key={`${gated.opportunityId}-${gated.targetStageId}`}
-          opportunityId={gated.opportunityId}
+          key={`${gated.funnelId}-${gated.targetStageId}`}
+          funnelId={gated.funnelId}
           currentStageId={gated.currentStageId}
           stages={stages}
           initialTargetStageId={gated.targetStageId}
           customFieldDefs={customFieldDefs}
           customValues={
-            data.find((c) => c.id === gated.opportunityId)?.customFields ?? {}
+            data.find((c) => c.id === gated.funnelId)?.customFields ?? {}
           }
           open
           onOpenChange={(o) => {

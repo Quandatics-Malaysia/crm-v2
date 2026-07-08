@@ -22,7 +22,7 @@ export const overviewPage: DocPage = {
     <>
       <Lead>
         A multi-entity (multi-tenant) CRM covering the full lead-to-cash cycle:
-        leads → funnel (opportunities) → quotations → projects & payment
+        leads → funnel (funnels) → quotations → projects & payment
         milestones → sales orders → billing documents — with intercompany
         deal-sharing between sibling entities and a weighted revenue forecast
         on top.
@@ -38,7 +38,7 @@ flowchart LR
     PER[Contacts]
   end
   subgraph Sales
-    OPP[Funnel<br/>opportunities]
+    OPP[Funnel<br/>funnels]
     QUO[Quotations]
     PRJ[Projects]
     MIL[Payment milestones]
@@ -119,12 +119,12 @@ flowchart LR
         rows={[
           [
             <B key="1">Estimated amount</B>,
-            <Code key="2">opportunities.estimated_amount</Code>,
+            <Code key="2">funnels.estimated_amount</Code>,
             "The rep's manual estimate. Headline value on the funnel board and the basis of the weighted forecast.",
           ],
           [
             <B key="1">Quoted amount</B>,
-            <Code key="2">opportunities.amount</Code>,
+            <Code key="2">funnels.amount</Code>,
             "Synced from the primary quotation's net total. Display only; null until a quote exists.",
           ],
           [

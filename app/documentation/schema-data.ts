@@ -602,7 +602,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "funnel_id",
+        "name": "pipeline_id",
         "type": "uuid",
         "nullable": true,
         "def": null
@@ -848,7 +848,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": "gen_random_uuid()"
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -986,7 +986,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -1994,7 +1994,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -2072,7 +2072,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -2152,7 +2152,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ]
   },
   {
-    "name": "funnel_stages",
+    "name": "pipeline_stages",
     "module": "Sales",
     "columns": [
       {
@@ -2168,7 +2168,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "funnel_id",
+        "name": "pipeline_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -2236,7 +2236,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ]
   },
   {
-    "name": "funnels",
+    "name": "pipelines",
     "module": "Sales",
     "columns": [
       {
@@ -2284,7 +2284,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ]
   },
   {
-    "name": "opportunities",
+    "name": "funnels",
     "module": "Sales",
     "columns": [
       {
@@ -2318,7 +2318,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "funnel_id",
+        "name": "pipeline_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -2458,7 +2458,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ]
   },
   {
-    "name": "opportunity_stage_history",
+    "name": "funnel_stage_history",
     "module": "Sales",
     "columns": [
       {
@@ -2474,7 +2474,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -2726,7 +2726,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": true,
         "def": null
@@ -2936,7 +2936,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null
@@ -3182,7 +3182,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "opportunity_id",
+        "name": "funnel_id",
         "type": "uuid",
         "nullable": false,
         "def": null

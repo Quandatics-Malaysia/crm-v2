@@ -51,7 +51,7 @@ export const customFieldType = pgEnum("custom_field_type", [
  * without re-introducing the full feature.
  *
  * Per-tenant definitions that would drive dynamic forms + runtime validation
- * over the `custom_fields` jsonb columns on accounts/persons/opportunities.
+ * over the `custom_fields` jsonb columns on accounts/persons/funnels.
  */
 export const customFieldDefs = pgTable(
   "custom_field_defs",

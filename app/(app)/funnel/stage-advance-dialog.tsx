@@ -65,7 +65,7 @@ type Stage = {
 }
 
 export function StageAdvanceDialog({
-  opportunityId,
+  funnelId,
   currentStageId,
   stages,
   trigger,
@@ -76,7 +76,7 @@ export function StageAdvanceDialog({
   customFieldDefs = [],
   customValues = {},
 }: {
-  opportunityId: string
+  funnelId: string
   currentStageId: string
   stages: Stage[]
   trigger?: React.ReactElement
@@ -214,7 +214,7 @@ export function StageAdvanceDialog({
     setSubmitting(true)
     try {
       const res = await advanceStageAction({
-        opportunityId,
+        funnelId,
         targetStageId,
         reason: reason.trim() || undefined,
         customFields: Object.keys(values).length > 0 ? values : undefined,
@@ -238,7 +238,7 @@ export function StageAdvanceDialog({
           fd.set("file", file)
           fd.set("attachableType", "stage_approval_request")
           fd.set("attachableId", result.approvalRequestId)
-          fd.set("revalidate", `/funnel/${opportunityId}`)
+          fd.set("revalidate", `/funnel/${funnelId}`)
           const up = await uploadEntityAttachment(fd)
           if (up.ok) {
             toast.success("Supporting document attached")

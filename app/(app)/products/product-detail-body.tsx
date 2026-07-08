@@ -11,7 +11,7 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { StatusBadge } from "@/components/status-badge"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { formatMoney } from "@/lib/format"
-import type { ProductRow, ProductUsageRow } from "./actions"
+import type { ProductRow, ProductUsageRow, ProductDealRow } from "./actions"
 
 // Status pill: rendered by the app-wide <StatusBadge> tone map.
 
@@ -24,17 +24,65 @@ export function ProductDetailBody({
   product,
   codeName,
   usage,
+  deals,
 }: {
   product: ProductRow
   codeName: string | null
   usage: ProductUsageRow[]
+  deals: ProductDealRow[]
 }) {
   const [tab, setTab] = React.useState("details")
 
-  // Distinct funnels this product appears in (via its quotations).
-  const funnels = React.useMemo(() => {
+  const dealColumns = React.useMemo<ColumnDef<ProductDealRow>[]>(
+    () => [
+      {
+        accessorKey: "opportunityName",
+        header: ({ column }) => <SortableHeader column={column} title="Opportunity" />,
+        cell: ({ row }) =>
+          row.original.opportunityId ? (
+            <Link
+              href={`/opportunities/${row.original.opportunityId}`}
+              className="font-medium link"
+            >
+              {row.original.opportunityName ?? "—"}
+            </Link>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        accessorKey: "funnelName",
+        header: "Funnel",
+        cell: ({ row }) => (
+          <Link href={`/funnel/${row.original.funnelId}`} className="link">
+            {row.original.funnelName}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "quantity",
+        header: () => <div className="text-right">Qty</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">{Number(row.original.quantity)}</div>
+        ),
+      },
+      {
+        accessorKey: "unitPrice",
+        header: () => <div className="text-right">Unit price</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">
+            {formatMoney(row.original.unitPrice, row.original.currency)}
+          </div>
+        ),
+      },
+    ],
+    []
+  )
+
+  // Distinct pipelines this product appears in (via its quotations).
+  const pipelines = React.useMemo(() => {
     const map = new Map<string, string>()
-    for (const u of usage) map.set(u.opportunityId, u.funnelName)
+    for (const u of usage) map.set(u.funnelId, u.funnelName)
     return [...map.entries()].map(([id, name]) => ({ id, name }))
   }, [usage])
 
@@ -57,7 +105,7 @@ export function ProductDetailBody({
         header: "Funnel",
         cell: ({ row }) => (
           <Link
-            href={`/funnel/${row.original.opportunityId}`}
+            href={`/funnel/${row.original.funnelId}`}
             className="link"
           >
             {row.original.funnelName}
@@ -152,7 +200,7 @@ export function ProductDetailBody({
                 {
                   kind: "funnel",
                   label: "Funnels",
-                  count: funnels.length,
+                  count: pipelines.length,
                   onSelect: () => setTab("usage"),
                 },
               ]}
@@ -172,6 +220,12 @@ export function ProductDetailBody({
                   Used in quotes
                   <Badge variant="secondary" className="ml-1.5">
                     {usage.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="deals">
+                  On opportunities
+                  <Badge variant="secondary" className="ml-1.5">
+                    {deals.length}
                   </Badge>
                 </TabsTrigger>
               </TabsList>
@@ -232,6 +286,18 @@ export function ProductDetailBody({
                   searchColumn="quoteNumber"
                   searchPlaceholder="Search quotes…"
                   emptyMessage="This product isn't on any quotes yet."
+                  pageSize={5}
+                />
+              </TabsContent>
+
+              <TabsContent value="deals" className="mt-4">
+                <DataTable
+                  columns={dealColumns}
+                  data={deals}
+                  tableId="product-deals"
+                  searchColumn="opportunityName"
+                  searchPlaceholder="Search opportunities…"
+                  emptyMessage="This product isn't on any opportunities yet."
                   pageSize={5}
                 />
               </TabsContent>

@@ -30,7 +30,7 @@ type Stage = {
  * current stage sits off the ladder and shows as a coloured note.
  */
 export function StagePath({
-  opportunityId,
+  funnelId,
   currentStageId,
   stages,
   interactive,
@@ -38,7 +38,7 @@ export function StagePath({
   customFieldDefs = [],
   customValues = {},
 }: {
-  opportunityId: string
+  funnelId: string
   currentStageId: string
   stages: Stage[]
   /** When false, the path is read-only (terminal deal, pending approval, or no permission). */
@@ -100,7 +100,7 @@ export function StagePath({
         // Keyed by target so each click remounts the dialog with a fresh seed.
         <StageAdvanceDialog
           key={target ?? "none"}
-          opportunityId={opportunityId}
+          funnelId={funnelId}
           currentStageId={currentStageId}
           stages={stages}
           open={target !== null}

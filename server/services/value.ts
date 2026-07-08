@@ -1,9 +1,9 @@
 import "server-only"
 import { and, eq, isNull, notInArray } from "drizzle-orm"
 import type { Tx } from "@/db"
-import { quotations, opportunities } from "@/db/schema"
+import { quotations, funnels } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
-import { syncIntercompanyMirror } from "./intercompany"
+import { isModuleEnabled } from "@/lib/modules"
 
 /**
  * Quote statuses that must never drive an opportunity's value/forecast: a
@@ -28,7 +28,7 @@ export function quoteNet(q: {
 }
 
 /**
- * Sync opportunities.amount to its primary quotation's net value. Call after
+ * Sync funnels.amount to its primary quotation's net value. Call after
  * any change to which quote is primary, or to the primary quote's totals.
  * No-op when the opportunity has no primary quotation (the manual estimate
  * stays until a quote exists).
@@ -36,12 +36,12 @@ export function quoteNet(q: {
 export async function syncOpportunityAmount(
   tx: Tx,
   _ctx: ServerContext,
-  opportunityId: string
+  funnelId: string
 ): Promise<void> {
   const [opp] = await tx
-    .select({ primaryQuotationId: opportunities.primaryQuotationId })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId))
+    .select({ primaryQuotationId: funnels.primaryQuotationId })
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
     .limit(1)
   if (opp?.primaryQuotationId) {
     const [q] = await tx
@@ -60,29 +60,33 @@ export async function syncOpportunityAmount(
       .limit(1)
     if (q) {
       await tx
-        .update(opportunities)
+        .update(funnels)
         .set({ amount: quoteNet(q) })
-        .where(eq(opportunities.id, opportunityId))
+        .where(eq(funnels.id, funnelId))
     }
   }
-  // Every quote-driven value change funnels through here, so this is the one
+  // Every quote-driven value change pipelines through here, so this is the one
   // choke point that keeps the partner-facing intercompany mirror's quoted
-  // amount aligned. No-op for non-intercompany deals.
-  await syncIntercompanyMirror(tx, opportunityId)
+  // amount aligned. No-op for non-intercompany deals. Loaded lazily so this
+  // next-free service carries no static dependency on the finance plugin.
+  if (isModuleEnabled("finance")) {
+    const { syncIntercompanyMirror } = await import("./intercompany")
+    await syncIntercompanyMirror(tx, funnelId)
+  }
 }
 
 /** The current net value to use for an opportunity (primary quote net, else manual amount). */
 export async function opportunityNetValue(
   tx: Tx,
-  opportunityId: string
+  funnelId: string
 ): Promise<{ value: string; fromQuoteId: string | null; quoteNumber: string | null }> {
   const [opp] = await tx
     .select({
-      amount: opportunities.amount,
-      primaryQuotationId: opportunities.primaryQuotationId,
+      amount: funnels.amount,
+      primaryQuotationId: funnels.primaryQuotationId,
     })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId))
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
     .limit(1)
   if (opp?.primaryQuotationId) {
     const [q] = await tx

@@ -15,7 +15,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { organization } from "./auth"
-import { opportunities } from "./pipeline"
+import { funnels } from "./pipeline"
 import { products } from "./products"
 import { timestamps, softDelete } from "./_helpers"
 
@@ -57,9 +57,9 @@ export const quotations = pgTable(
     tenantId: text("tenant_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    opportunityId: uuid("opportunity_id")
+    funnelId: uuid("funnel_id")
       .notNull()
-      .references(() => opportunities.id, { onDelete: "cascade" }),
+      .references(() => funnels.id, { onDelete: "cascade" }),
     quoteNumber: text("quote_number").notNull(),
     version: integer("version").notNull().default(1),
     isPrimary: boolean("is_primary").notNull().default(false),
@@ -92,6 +92,8 @@ export const quotations = pgTable(
       .default("0"),
     taxTotal: numeric("tax_total", { precision: 14, scale: 2 }).notNull().default("0"),
     total: numeric("total", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Quote issue date (Salesforce "Quote Date"). */
+    quoteDate: date("quote_date"),
     validUntil: date("valid_until"),
     notes: text("notes"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
@@ -105,10 +107,10 @@ export const quotations = pgTable(
     // setPrimaryQuotation: at most ONE live accepted and ONE live primary
     // quotation per funnel, even under concurrent requests.
     uniqueIndex("quotations_accepted_uq")
-      .on(t.opportunityId)
+      .on(t.funnelId)
       .where(sql`${t.status} = 'accepted' AND ${t.deletedAt} IS NULL`),
     uniqueIndex("quotations_primary_uq")
-      .on(t.opportunityId)
+      .on(t.funnelId)
       .where(sql`${t.isPrimary} AND ${t.deletedAt} IS NULL`),
   ]
 )

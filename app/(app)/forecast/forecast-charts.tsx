@@ -118,7 +118,7 @@ export function ForecastCharts({
 
   // Chart 2 — pipeline weighted amount per stage, ordered by sort_order, kept
   // per currency. v_pipeline_summary already returns one row per (stage,
-  // currency); aggregate only within a currency across funnels sharing a stage.
+  // currency); aggregate only within a currency across pipelines sharing a stage.
   const stageByCurrency = React.useMemo(() => {
     const byCur = new Map<string, Map<string, StageDatum>>()
     for (const p of pipeline) {

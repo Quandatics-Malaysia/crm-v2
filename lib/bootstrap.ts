@@ -2,7 +2,13 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db"
-import { member, organization, membershipProfiles, roles } from "@/db/schema"
+import {
+  member,
+  organization,
+  membershipProfiles,
+  memberRoles,
+  roles,
+} from "@/db/schema"
 
 /**
  * First-login provisioning. If the (deterministically selected) default entity
@@ -74,6 +80,14 @@ export async function ensureBootstrap(
       tierLevel: 100,
       status: "active",
     })
+    // member_roles = effective-permission source (union of assigned roles).
+    if (ownerRole?.id) {
+      await tx.insert(memberRoles).values({
+        tenantId: org.id,
+        memberId,
+        roleId: ownerRole.id,
+      })
+    }
 
     return true
   })

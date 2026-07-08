@@ -8,7 +8,7 @@ import {
   index,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
-import { opportunities, funnelStages } from "./pipeline"
+import { funnels, pipelineStages } from "./pipeline"
 import { timestamps } from "./_helpers"
 
 export const approvalStatus = pgEnum("approval_status", [
@@ -36,18 +36,18 @@ export const stageApprovalRequests = pgTable("stage_approval_requests", {
   tenantId: text("tenant_id")
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" }),
-  opportunityId: uuid("opportunity_id")
+  funnelId: uuid("funnel_id")
     .notNull()
-    .references(() => opportunities.id, { onDelete: "cascade" }),
+    .references(() => funnels.id, { onDelete: "cascade" }),
   requesterMemberId: text("requester_member_id")
     .notNull()
     .references(() => member.id, { onDelete: "cascade" }),
-  fromStageId: uuid("from_stage_id").references(() => funnelStages.id, {
+  fromStageId: uuid("from_stage_id").references(() => pipelineStages.id, {
     onDelete: "set null",
   }),
   targetStageId: uuid("target_stage_id")
     .notNull()
-    .references(() => funnelStages.id, { onDelete: "restrict" }),
+    .references(() => pipelineStages.id, { onDelete: "restrict" }),
   reason: text("reason").notNull(),
   status: approvalStatus("status").notNull().default("pending"),
   approverMemberId: text("approver_member_id").references(() => member.id, {

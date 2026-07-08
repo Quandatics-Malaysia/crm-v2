@@ -8,7 +8,7 @@ import {
   index,
 } from "drizzle-orm/pg-core"
 import { organization } from "./auth"
-import { opportunities } from "./pipeline"
+import { funnels } from "./pipeline"
 import { timestamps } from "./_helpers"
 
 /**
@@ -26,9 +26,9 @@ export const dealCosts = pgTable(
     tenantId: text("tenant_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    opportunityId: uuid("opportunity_id")
+    funnelId: uuid("funnel_id")
       .notNull()
-      .references(() => opportunities.id, { onDelete: "cascade" }),
+      .references(() => funnels.id, { onDelete: "cascade" }),
     /** Optional category/product line (License / PS / AMS / Training …). */
     category: text("category"),
     /** Optional contract year this cost belongs to (multi-year contracts). */
@@ -57,5 +57,5 @@ export const dealCosts = pgTable(
     notes: text("notes"),
     ...timestamps,
   },
-  (t) => [index("deal_costs_opportunity_idx").on(t.tenantId, t.opportunityId)]
+  (t) => [index("deal_costs_opportunity_idx").on(t.tenantId, t.funnelId)]
 )

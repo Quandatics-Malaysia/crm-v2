@@ -2,9 +2,10 @@ import "server-only"
 import { and, eq, ne } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
 import {
-  opportunities,
-  funnelStages,
-  opportunityStageHistory,
+  funnels,
+  accounts,
+  pipelineStages,
+  funnelStageHistory,
   stageApprovalRequests,
   membershipProfiles,
   roles,
@@ -12,6 +13,7 @@ import {
   permissions,
   tenantSettings,
 } from "@/db/schema"
+import { recomputeOpportunityTotal } from "@/server/services/opportunity-container"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   buildStageGate,
@@ -24,7 +26,7 @@ import {
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
-import { syncIntercompanyMirror } from "@/server/services/intercompany"
+import { isModuleEnabled } from "@/lib/modules"
 import type { ServerContext } from "@/lib/server-context"
 // Shared LOCAL YYYY-MM-DD formatter. Deriving `actualCloseDate` from this (a
 // local-calendar slice) instead of a raw UTC `toISOString().slice(0,10)` keeps
@@ -33,8 +35,8 @@ import type { ServerContext } from "@/lib/server-context"
 // reporting layer remains the place to re-localize if needed.)
 import { toDateString } from "@/lib/dates"
 
-type StageRow = typeof funnelStages.$inferSelect
-type OppRow = typeof opportunities.$inferSelect
+type StageRow = typeof pipelineStages.$inferSelect
+type OppRow = typeof funnels.$inferSelect
 
 function kindToStatus(kind: string): "open" | "won" | "lost" | "on_hold" {
   switch (kind) {
@@ -89,14 +91,11 @@ function assertTransitionAllowed(from: StageRow, to: StageRow): void {
 /** Whether the actor may enter approval-gated stages without a request. */
 function canBypassApproval(
   ctx: ServerContext,
-  settings: typeof tenantSettings.$inferSelect | undefined
+  _settings: typeof tenantSettings.$inferSelect | undefined
 ): boolean {
-  const bypassTier = settings?.approvalBypassTier ?? 40
-  return (
-    ctx.isSuperadmin ||
-    ctx.tierLevel >= bypassTier ||
-    ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
-  )
+  // Tiers retired: you may self-advance an approval-gated stage iff you hold
+  // the stage-approval permission (otherwise it routes to the upline).
+  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 }
 
 /** Walk the upline chain for the first ancestor that can approve; else any approver. */
@@ -126,7 +125,7 @@ async function resolveApprover(
       // Only an active member can actually act on the request — a disabled or
       // still-invited approver would leave it stuck pending and invisible.
       mgrProf.status === "active" &&
-      (mgrProf.tierLevel ?? 0) >= requesterTier &&
+      // Tiers retired: the first upline who can approve is the approver.
       (await memberHasPermission(tx, mgr, PERMISSIONS.STAGE_ADVANCE_APPROVE))
     ) {
       return mgr
@@ -173,7 +172,7 @@ async function createApprovalRequest(
     .from(stageApprovalRequests)
     .where(
       and(
-        eq(stageApprovalRequests.opportunityId, opp.id),
+        eq(stageApprovalRequests.funnelId, opp.id),
         eq(stageApprovalRequests.targetStageId, target.id),
         eq(stageApprovalRequests.status, "pending")
       )
@@ -186,7 +185,7 @@ async function createApprovalRequest(
     .insert(stageApprovalRequests)
     .values({
       tenantId: ctx.tenantId,
-      opportunityId: opp.id,
+      funnelId: opp.id,
       requesterMemberId: ctx.memberId,
       fromStageId: opp.currentStageId,
       targetStageId: target.id,
@@ -199,7 +198,7 @@ async function createApprovalRequest(
     action: "approval.requested",
     entityType: "stage_approval_request",
     entityId: req.id,
-    after: { opportunityId: opp.id, targetStage: target.code },
+    after: { funnelId: opp.id, targetStage: target.code },
   })
   return { approvalRequestId: req.id }
 }
@@ -220,7 +219,7 @@ async function applyStageMove(
   // actualCloseDate from this same timestamp so the date and timestamptz agree.
   const closeTs = closing ? opp.closedAt ?? new Date() : null
   await tx
-    .update(opportunities)
+    .update(funnels)
     .set({
       currentStageId: toStage.id,
       status,
@@ -229,11 +228,30 @@ async function applyStageMove(
         ? opp.actualCloseDate ?? toDateString(closeTs)
         : null,
     })
-    .where(eq(opportunities.id, opp.id))
+    .where(eq(funnels.id, opp.id))
 
-  await tx.insert(opportunityStageHistory).values({
+  // ── Salesforce "Closed Won" automations (core) ─────────────────────────────
+  if (status === "won") {
+    const wonSet: Partial<typeof funnels.$inferInsert> = {}
+    // Award Date → Estimated Funnel Close Date.
+    if (opp.awardDate) wonSet.expectedCloseDate = opp.awardDate
+    // Quoted Amount → Estimated Funnel Amount (the won deal's value is the quote).
+    if (opp.amount != null && Number(opp.amount) > 0) wonSet.estimatedAmount = opp.amount
+    if (Object.keys(wonSet).length > 0) {
+      await tx.update(funnels).set(wonSet).where(eq(funnels.id, opp.id))
+    }
+    // Account type Prospect → Customer.
+    await tx
+      .update(accounts)
+      .set({ isCustomer: true })
+      .where(and(eq(accounts.id, opp.accountId), eq(accounts.isCustomer, false)))
+    // Estimated amount may have changed → refresh the container rollup.
+    await recomputeOpportunityTotal(tx, ctx.tenantId, opp.opportunityId)
+  }
+
+  await tx.insert(funnelStageHistory).values({
     tenantId: ctx.tenantId,
-    opportunityId: opp.id,
+    funnelId: opp.id,
     fromStageId: opp.currentStageId,
     toStageId: toStage.id,
     changedByMemberId: ctx.memberId,
@@ -257,8 +275,12 @@ async function applyStageMove(
     subject: `Stage → ${toStage.name}`,
   })
   // Stage + status feed the partner-facing intercompany mirror (no-op unless
-  // this deal is intercompany).
-  await syncIntercompanyMirror(tx, opp.id)
+  // this deal is intercompany). Loaded lazily so this next-free service carries
+  // no static dependency on the finance plugin.
+  if (isModuleEnabled("finance")) {
+    const { syncIntercompanyMirror } = await import("@/server/services/intercompany")
+    await syncIntercompanyMirror(tx, opp.id)
+  }
 }
 
 export type AdvanceOutcome = { moved: boolean; approvalRequestId?: string }
@@ -272,7 +294,7 @@ export type AdvanceOutcome = { moved: boolean; approvalRequestId?: string }
 export async function requestStageAdvance(
   ctx: ServerContext,
   input: {
-    opportunityId: string
+    funnelId: string
     targetStageId: string
     reason?: string
     /** Custom-field values captured in the advance dialog, merged onto the
@@ -283,8 +305,8 @@ export async function requestStageAdvance(
   return runInTenant(ctx.tenantId, async (tx) => {
     const [opp] = await tx
       .select()
-      .from(opportunities)
-      .where(eq(opportunities.id, input.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, input.funnelId))
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
 
@@ -292,15 +314,15 @@ export async function requestStageAdvance(
     // intermediate stages a multi-stage jump skips over.
     const allStages = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.funnelId, opp.funnelId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.pipelineId, opp.pipelineId))
 
     const from = allStages.find((s) => s.id === opp.currentStageId)
     if (!from) throw new Error("Current stage not found")
 
     const target = allStages.find((s) => s.id === input.targetStageId)
     if (!target) throw new Error("Stage not found")
-    if (target.funnelId !== opp.funnelId)
+    if (target.pipelineId !== opp.pipelineId)
       throw new Error("Stage does not belong to this funnel")
 
     // Enforce the stage state machine before anything else.
@@ -362,9 +384,9 @@ export async function requestStageAdvance(
     // an approval — the info is now on record for the approver).
     if (input.customFields && Object.keys(input.customFields).length > 0) {
       await tx
-        .update(opportunities)
+        .update(funnels)
         .set({ customFields: mergedCustom as Record<string, string> })
-        .where(eq(opportunities.id, opp.id))
+        .where(eq(funnels.id, opp.id))
     }
 
     const gated =
@@ -417,24 +439,24 @@ export type WinOutcome = { moved: boolean; pendingApproval: boolean }
 
 export async function winOpportunity(
   ctx: ServerContext,
-  opportunityId: string
+  funnelId: string
 ): Promise<WinOutcome> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const [opp] = await tx
       .select()
-      .from(opportunities)
-      .where(eq(opportunities.id, opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, funnelId))
       .limit(1)
       .for("update")
     if (!opp) return { moved: false, pendingApproval: false }
     // Status guard: only an OPEN funnel may auto-win. Won (already), Lost, and
-    // KIV/on-hold funnels are left untouched.
+    // KIV/on-hold pipelines are left untouched.
     if (opp.status !== "open") return { moved: false, pendingApproval: false }
 
     const [won] = await tx
       .select()
-      .from(funnelStages)
-      .where(and(eq(funnelStages.funnelId, opp.funnelId), eq(funnelStages.kind, "WON")))
+      .from(pipelineStages)
+      .where(and(eq(pipelineStages.pipelineId, opp.pipelineId), eq(pipelineStages.kind, "WON")))
       .limit(1)
     if (!won || opp.currentStageId === won.id)
       return { moved: false, pendingApproval: false }
@@ -472,13 +494,13 @@ export async function winOpportunity(
  */
 export async function reopenOpportunity(
   ctx: ServerContext,
-  input: { opportunityId: string; targetStageId: string; reason?: string }
+  input: { funnelId: string; targetStageId: string; reason?: string }
 ): Promise<void> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const [opp] = await tx
       .select()
-      .from(opportunities)
-      .where(eq(opportunities.id, input.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, input.funnelId))
       .limit(1)
       .for("update")
     if (!opp) throw new Error("Funnel not found")
@@ -486,20 +508,20 @@ export async function reopenOpportunity(
 
     const [from] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, opp.currentStageId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, opp.currentStageId))
       .limit(1)
     if (!from) throw new Error("Current stage not found")
     if (from.kind !== "PARKED" && from.kind !== "LOST")
-      throw new Error("Only parked or lost funnels can be reopened")
+      throw new Error("Only parked or lost pipelines can be reopened")
 
     const [target] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, input.targetStageId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, input.targetStageId))
       .limit(1)
     if (!target) throw new Error("Stage not found")
-    if (target.funnelId !== opp.funnelId)
+    if (target.pipelineId !== opp.pipelineId)
       throw new Error("Stage does not belong to this funnel")
     if (target.kind !== "OPEN")
       throw new Error("A reopened funnel must move to an open stage")
@@ -614,20 +636,20 @@ export async function decideApproval(
     // entirely, since the request was filed.
     const [opp] = await tx
       .select()
-      .from(opportunities)
-      .where(eq(opportunities.id, req.opportunityId))
+      .from(funnels)
+      .where(eq(funnels.id, req.funnelId))
       .limit(1)
       .for("update")
     if (!opp) throw new Error("Funnel or stage missing")
     const [from] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, opp.currentStageId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, opp.currentStageId))
       .limit(1)
     const [target] = await tx
       .select()
-      .from(funnelStages)
-      .where(eq(funnelStages.id, req.targetStageId))
+      .from(pipelineStages)
+      .where(eq(pipelineStages.id, req.targetStageId))
       .limit(1)
     if (!from || !target) throw new Error("Funnel or stage missing")
 

@@ -6,10 +6,12 @@ import {
   numeric,
   date,
   integer,
+  boolean,
   index,
 } from "drizzle-orm/pg-core"
 import { organization } from "./auth"
 import { projects } from "./projects"
+import { funnels } from "./pipeline"
 import { quotations } from "./quotations"
 import { timestamps } from "./_helpers"
 
@@ -35,9 +37,13 @@ export const paymentMilestones = pgTable(
   tenantId: text("tenant_id")
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" }),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
+  // Nullable: imported Salesforce milestones attach to a FUNNEL, not always a
+  // crm-v2 delivery project.
+  projectId: uuid("project_id").references(() => projects.id, {
+    onDelete: "cascade",
+  }),
+  /** Funnel this milestone belongs to (Salesforce Payment_Milestone.Funnels__c). */
+  funnelId: uuid("funnel_id").references(() => funnels.id, { onDelete: "cascade" }),
   /** The quotation this milestone bills against (the project's value source). */
   quotationId: uuid("quotation_id").references(() => quotations.id, {
     onDelete: "set null",
@@ -47,7 +53,20 @@ export const paymentMilestones = pgTable(
   dueDate: date("due_date"),
   status: paymentMilestoneStatus("status").notNull().default("pending"),
   sortOrder: integer("sort_order").notNull().default(0),
+  // Salesforce invoicing fields.
+  splitPercentage: numeric("split_percentage", { precision: 6, scale: 2 }),
+  invoiceNumber: text("invoice_number"),
+  invoiceDate: date("invoice_date"),
+  expectedInvoiceMonth: text("expected_invoice_month"),
+  expectedInvoiceYear: integer("expected_invoice_year"),
+  soNumber: text("so_number"),
+  productCategory: text("product_category"),
+  productSubcategory: text("product_subcategory"),
+  isDefault: boolean("is_default").notNull().default(false),
   ...timestamps,
   },
-  (t) => [index("payment_milestones_project_idx").on(t.projectId)]
+  (t) => [
+    index("payment_milestones_project_idx").on(t.projectId),
+    index("payment_milestones_funnel_idx").on(t.tenantId, t.funnelId),
+  ]
 )

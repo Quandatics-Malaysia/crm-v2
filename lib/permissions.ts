@@ -5,7 +5,7 @@
  * `roles`, and `role_permissions` per tenant.
  */
 
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled, type ModuleId } from "@/lib/modules"
 
 export const PERMISSIONS = {
   // leads
@@ -24,7 +24,7 @@ export const PERMISSIONS = {
   PERSON_CREATE: "person.create",
   PERSON_UPDATE: "person.update",
   PERSON_DELETE: "person.delete",
-  // opportunities + pipeline
+  // funnels + pipeline
   OPPORTUNITY_VIEW: "opportunity.view",
   OPPORTUNITY_CREATE: "opportunity.create",
   OPPORTUNITY_UPDATE: "opportunity.update",
@@ -136,8 +136,15 @@ const MANAGER: PermissionKey[] = [
 ]
 
 /** Grouped, human-labeled catalog for the role permission-matrix UI. */
-export const PERMISSION_GROUPS: {
+/**
+ * Full permission catalog for the role matrix. Groups tagged with a `module`
+ * are only offered in the UI while that plugin is enabled (modules.config.ts);
+ * the underlying keys always stay in ALL_PERMISSION_KEYS so grants survive a
+ * plugin being toggled off and back on.
+ */
+const ALL_GROUPS: {
   group: string
+  module?: ModuleId
   items: { key: PermissionKey; label: string }[]
 }[] = [
   {
@@ -171,13 +178,13 @@ export const PERMISSION_GROUPS: {
   {
     group: "Funnel",
     items: [
-      { key: PERMISSIONS.OPPORTUNITY_VIEW, label: "View funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_CREATE, label: "Create funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_UPDATE, label: "Edit funnels" },
-      { key: PERMISSIONS.OPPORTUNITY_DELETE, label: "Delete funnels" },
+      { key: PERMISSIONS.OPPORTUNITY_VIEW, label: "View pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_CREATE, label: "Create pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_UPDATE, label: "Edit pipelines" },
+      { key: PERMISSIONS.OPPORTUNITY_DELETE, label: "Delete pipelines" },
       { key: PERMISSIONS.STAGE_ADVANCE, label: "Advance stages" },
       { key: PERMISSIONS.STAGE_ADVANCE_APPROVE, label: "Approve stage advances" },
-      { key: PERMISSIONS.FUNNEL_MANAGE, label: "Manage funnels & stages" },
+      { key: PERMISSIONS.FUNNEL_MANAGE, label: "Manage pipelines & stages" },
     ],
   },
   {
@@ -204,6 +211,7 @@ export const PERMISSION_GROUPS: {
   },
   {
     group: "Projects",
+    module: "projects",
     items: [
       { key: PERMISSIONS.PROJECT_VIEW, label: "View projects" },
       { key: PERMISSIONS.PROJECT_CREATE, label: "Create projects" },
@@ -213,26 +221,44 @@ export const PERMISSION_GROUPS: {
   },
   {
     group: "Sales Orders",
+    module: "salesOrders",
     items: [
       { key: PERMISSIONS.SALES_ORDER_VIEW, label: "View sales orders" },
       { key: PERMISSIONS.SALES_ORDER_SUBMIT, label: "Submit sales orders" },
       { key: PERMISSIONS.SALES_ORDER_APPROVE, label: "Approve / reject sales orders" },
     ],
   },
-  // Finance add-on group appended below, gated by the module master switch.
   {
-    group: "Reporting",
+    group: "Billing & Purchasing",
+    module: "finance",
     items: [
-      { key: PERMISSIONS.FORECAST_VIEW, label: "View forecast" },
+      { key: PERMISSIONS.FINANCE_VIEW, label: "View billing & purchasing documents" },
+      { key: PERMISSIONS.FINANCE_MANAGE, label: "Create / issue / cancel documents" },
+    ],
+  },
+  {
+    group: "Forecast",
+    module: "forecast",
+    items: [{ key: PERMISSIONS.FORECAST_VIEW, label: "View forecast" }],
+  },
+  {
+    group: "Intercompany",
+    module: "finance",
+    items: [
       {
         key: PERMISSIONS.INTERCOMPANY_VIEW,
         label: "View inbound intercompany deals",
       },
-      { key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" },
     ],
   },
   {
+    group: "Audit",
+    module: "audit",
+    items: [{ key: PERMISSIONS.AUDIT_VIEW, label: "View audit log" }],
+  },
+  {
     group: "Documentation",
+    module: "documentation",
     items: [
       { key: PERMISSIONS.DOCS_VIEW, label: "View the in-app documentation" },
     ],
@@ -258,26 +284,23 @@ export const PERMISSION_GROUPS: {
       { key: PERMISSIONS.TENANT_SETTINGS, label: "Manage settings" },
     ],
   },
-  // Finance add-on: only offered in the role matrix while the module's
-  // master switch (lib/modules.ts) is on. The keys always stay in the
-  // catalog (ALL_PERMISSION_KEYS) so grants survive the module being
-  // toggled off and back on.
-  ...(FINANCE_MODULE
-    ? [
-        {
-          group: "Billing & Purchasing",
-          items: [
-            { key: PERMISSIONS.FINANCE_VIEW, label: "View billing & purchasing documents" },
-            { key: PERMISSIONS.FINANCE_MANAGE, label: "Create / issue / cancel documents" },
-          ],
-        },
-      ]
-    : []),
 ]
 
-/** Human label for a permission key, for friendly "withheld permission" errors. */
+/**
+ * Groups to render in the role matrix — only those whose plugin is enabled
+ * (untagged groups are core, always shown).
+ */
+export const PERMISSION_GROUPS = ALL_GROUPS.filter(
+  (g) => !g.module || isModuleEnabled(g.module)
+)
+
+/**
+ * Human label for a permission key, for friendly "withheld permission" errors.
+ * Built from the UNFILTERED catalog so a denial for a disabled-module
+ * permission still resolves a friendly label.
+ */
 export const PERMISSION_LABELS: Map<string, string> = new Map(
-  PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => [i.key as string, i.label]))
+  ALL_GROUPS.flatMap((g) => g.items.map((i) => [i.key as string, i.label]))
 )
 
 export function permLabel(key: string): string {

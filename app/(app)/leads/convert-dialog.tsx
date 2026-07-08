@@ -104,10 +104,10 @@ export function ConvertDialog({
       if (res.data.opportunityId) {
         const oppId = res.data.opportunityId
         toast.success("Lead converted", {
-          description: "A Funnel was created.",
+          description: "An Opportunity was created.",
           action: {
-            label: "View Funnel",
-            onClick: () => router.push(`/funnel/${oppId}`),
+            label: "View Opportunity",
+            onClick: () => router.push(`/opportunities/${oppId}`),
           },
         })
       } else {

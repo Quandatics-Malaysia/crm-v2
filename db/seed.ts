@@ -14,13 +14,14 @@ const {
   rolePermissions,
   organization,
   tenantSettings,
-  funnels,
-  funnelStages,
+  pipelines,
+  pipelineStages,
   taxSettings,
   user,
   account,
   member,
   membershipProfiles,
+  memberRoles,
 } = schema
 
 const TENANT_ID = "demo-entity"
@@ -126,24 +127,24 @@ async function main() {
   // 5. default funnel + canonical stages
   let [funnel] = await db
     .select()
-    .from(funnels)
-    .where(and(eq(funnels.tenantId, TENANT_ID), eq(funnels.name, "Sales Pipeline")))
+    .from(pipelines)
+    .where(and(eq(pipelines.tenantId, TENANT_ID), eq(pipelines.name, "Sales Pipeline")))
     .limit(1)
   if (!funnel) {
     ;[funnel] = await db
-      .insert(funnels)
+      .insert(pipelines)
       .values({ tenantId: TENANT_ID, name: "Sales Pipeline", isDefault: true, isActive: true })
       .returning()
   }
   const existingStages = await db
-    .select({ id: funnelStages.id })
-    .from(funnelStages)
-    .where(eq(funnelStages.funnelId, funnel.id))
+    .select({ id: pipelineStages.id })
+    .from(pipelineStages)
+    .where(eq(pipelineStages.pipelineId, funnel.id))
   if (existingStages.length === 0) {
-    await db.insert(funnelStages).values(
+    await db.insert(pipelineStages).values(
       CANONICAL_STAGES.map((s) => ({
         tenantId: TENANT_ID,
-        funnelId: funnel.id,
+        pipelineId: funnel.id,
         code: s.code,
         name: s.name,
         probability: String(s.probability),
@@ -241,6 +242,14 @@ async function main() {
       tierLevel: 100,
       status: "active",
     })
+    const ownerRoleId = roleId.get("Owner")
+    if (ownerRoleId) {
+      await db.insert(memberRoles).values({
+        tenantId: TENANT_ID,
+        memberId: mid,
+        roleId: ownerRoleId,
+      })
+    }
   }
 
   await sql.end()

@@ -16,6 +16,18 @@
 export async function register() {
   // Only the Node.js runtime can open a TCP Postgres connection (skip Edge).
   if (process.env.NEXT_RUNTIME !== "nodejs") return
+
+  // Module registry invariants — cheap, pure, and a bug in ANY environment, so
+  // this runs before the production-only early return below.
+  const { validateModuleConfig } = await import("@/lib/modules")
+  const moduleErrors = validateModuleConfig()
+  if (moduleErrors.length) {
+    throw new Error(
+      "Invalid module configuration (modules.config.ts):\n" +
+        moduleErrors.map((e) => `  - ${e}`).join("\n")
+    )
+  }
+
   // Production-only: never throw in development.
   if (process.env.NODE_ENV !== "production") return
 

@@ -4,25 +4,25 @@ import { requireContext } from "@/lib/server-context"
 import { db, runInTenant } from "@/db"
 import {
   stageApprovalRequests,
-  opportunities,
+  funnels,
   activities,
   leads,
   accounts,
   persons,
-  funnelStages,
+  pipelineStages,
   taxSettings,
   member,
   tenantSettings,
   financeDocs,
 } from "@/db/schema"
-import { FINANCE_MODULE } from "@/lib/modules"
+import { isModuleEnabled } from "@/lib/modules"
 import { DEFAULT_REMINDER_DAYS } from "@/lib/tenant-defaults"
 import { canViewAllRecords } from "@/lib/access-scope"
 import { PERMISSIONS } from "@/lib/permissions"
 
 export type PendingApproval = {
   id: string
-  opportunityId: string
+  funnelId: string
   opportunityName: string
   reason: string
   requestedAt: Date
@@ -88,7 +88,7 @@ export type DashboardData = {
    *  so the UI titles the card "Pending Approvals" rather than "Assigned to me". */
   canApproveAll: boolean
   followUpsDue: FollowUpDue[]
-  /** My open funnels with no activity for `staleDealDays` (empty when off). */
+  /** My open pipelines with no activity for `staleDealDays` (empty when off). */
   staleDeals: StaleDeal[]
   /** The configured nudge threshold (null = feature off). */
   staleDealDays: number | null
@@ -104,7 +104,7 @@ export type DashboardData = {
   orgOpenPipeline: OpenPipeline | null
   /** True when the user may see all records (drives the My/Team toggle). */
   canViewAll: boolean
-  /** True when the tenant has no leads/accounts/contacts/funnels yet — render
+  /** True when the tenant has no leads/accounts/contacts/pipelines yet — render
    *  the "Get started" hero instead of the "all caught up" dashboard. */
   isFirstRun: boolean
   gettingStarted: GettingStarted
@@ -143,21 +143,21 @@ export async function getDashboardData(): Promise<DashboardData> {
           await tx
             .select({
               id: stageApprovalRequests.id,
-              opportunityId: stageApprovalRequests.opportunityId,
-              opportunityName: opportunities.name,
+              funnelId: stageApprovalRequests.funnelId,
+              opportunityName: funnels.name,
               reason: stageApprovalRequests.reason,
               requestedAt: stageApprovalRequests.requestedAt,
             })
             .from(stageApprovalRequests)
             .innerJoin(
-              opportunities,
-              eq(opportunities.id, stageApprovalRequests.opportunityId)
+              funnels,
+              eq(funnels.id, stageApprovalRequests.funnelId)
             )
             .where(approvalWhere)
             .orderBy(asc(stageApprovalRequests.requestedAt))
         ).map((r) => ({
           id: r.id,
-          opportunityId: r.opportunityId,
+          funnelId: r.funnelId,
           opportunityName: r.opportunityName,
           reason: r.reason,
           requestedAt: r.requestedAt,
@@ -169,7 +169,6 @@ export async function getDashboardData(): Promise<DashboardData> {
       .select({
         followUpDueDays: tenantSettings.followUpDueDays,
         staleDealDays: tenantSettings.staleDealDays,
-        financeModule: tenantSettings.financeModule,
         invoiceReminderDays: tenantSettings.invoiceReminderDays,
       })
       .from(tenantSettings)
@@ -180,7 +179,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
     // Overdue customer invoices — finance add-on, capability-gated.
     const financeOn =
-      FINANCE_MODULE && (s?.financeModule ?? false) && ctx.can(PERMISSIONS.FINANCE_VIEW)
+      isModuleEnabled("finance") && ctx.can(PERMISSIONS.FINANCE_VIEW)
     const reminderSchedule = financeOn
       ? s?.invoiceReminderDays?.length
         ? s.invoiceReminderDays
@@ -249,31 +248,31 @@ export async function getDashboardData(): Promise<DashboardData> {
         ? (
             await tx
               .select({
-                id: opportunities.id,
-                name: opportunities.name,
-                lastTouchAt: sql<Date>`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt}))`,
+                id: funnels.id,
+                name: funnels.name,
+                lastTouchAt: sql<Date>`greatest(${funnels.updatedAt}, coalesce(max(${activities.occurredAt}), ${funnels.updatedAt}))`,
               })
-              .from(opportunities)
+              .from(funnels)
               .leftJoin(
                 activities,
                 and(
                   eq(activities.entityType, "opportunity"),
-                  eq(activities.entityId, opportunities.id)
+                  eq(activities.entityId, funnels.id)
                 )
               )
               .where(
                 and(
-                  eq(opportunities.status, "open"),
-                  isNull(opportunities.deletedAt),
-                  eq(opportunities.ownerMemberId, memberId)
+                  eq(funnels.status, "open"),
+                  isNull(funnels.deletedAt),
+                  eq(funnels.ownerMemberId, memberId)
                 )
               )
-              .groupBy(opportunities.id)
+              .groupBy(funnels.id)
               .having(
-                sql`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt})) < now() - make_interval(days => ${staleDealDays})`
+                sql`greatest(${funnels.updatedAt}, coalesce(max(${activities.occurredAt}), ${funnels.updatedAt})) < now() - make_interval(days => ${staleDealDays})`
               )
               .orderBy(
-                sql`greatest(${opportunities.updatedAt}, coalesce(max(${activities.occurredAt}), ${opportunities.updatedAt})) asc`
+                sql`greatest(${funnels.updatedAt}, coalesce(max(${activities.occurredAt}), ${funnels.updatedAt})) asc`
               )
               .limit(10)
           ).map((r) => ({
@@ -290,19 +289,19 @@ export async function getDashboardData(): Promise<DashboardData> {
     ): Promise<OpenPipeline> => {
       const rows = await tx
         .select({
-          currency: opportunities.currency,
+          currency: funnels.currency,
           count: sql<number>`count(*)::int`,
-          total: sql<string>`coalesce(sum(${opportunities.amount}), 0)`,
+          total: sql<string>`coalesce(sum(${funnels.amount}), 0)`,
         })
-        .from(opportunities)
+        .from(funnels)
         .where(
           and(
-            eq(opportunities.status, "open"),
-            isNull(opportunities.deletedAt),
+            eq(funnels.status, "open"),
+            isNull(funnels.deletedAt),
             ownerFilter
           )
         )
-        .groupBy(opportunities.currency)
+        .groupBy(funnels.currency)
 
       const count = rows.reduce((n, r) => n + Number(r.count), 0)
       const mixed = rows.length > 1
@@ -316,7 +315,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     }
 
     const myOpenPipeline: OpenPipeline = memberId
-      ? await pipelineFor(eq(opportunities.ownerMemberId, memberId))
+      ? await pipelineFor(eq(funnels.ownerMemberId, memberId))
       : { count: 0, total: "0", currency: null, mixed: false }
     // Tenant-wide rollup only for view-all roles; gives an Owner/Viewer who owns
     // nothing a useful landing page (the My/Team toggle defaults to this).
@@ -349,11 +348,11 @@ export async function getDashboardData(): Promise<DashboardData> {
     const oppCount = num(
       await tx
         .select({ n: sql<number>`count(*)::int` })
-        .from(opportunities)
-        .where(isNull(opportunities.deletedAt))
+        .from(funnels)
+        .where(isNull(funnels.deletedAt))
     )
     const stageCount = num(
-      await tx.select({ n: sql<number>`count(*)::int` }).from(funnelStages)
+      await tx.select({ n: sql<number>`count(*)::int` }).from(pipelineStages)
     )
     const taxCount = num(
       await tx.select({ n: sql<number>`count(*)::int` }).from(taxSettings)

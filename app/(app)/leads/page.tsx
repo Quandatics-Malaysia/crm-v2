@@ -16,7 +16,7 @@ export default async function LeadsPage() {
   const [
     rows,
     accountOptions,
-    funnels,
+    pipelines,
     members,
     countries,
     leadSources,
@@ -40,7 +40,7 @@ export default async function LeadsPage() {
         <LeadsTable
           data={rows}
           accountOptions={accountOptions}
-          funnels={funnels}
+          pipelines={pipelines}
           members={members}
           countries={countries}
           leadSources={leadSources}

@@ -69,7 +69,7 @@ import {
 export function LeadsTable({
   data,
   accountOptions,
-  funnels,
+  pipelines,
   members,
   countries = [],
   leadSources = [],
@@ -78,7 +78,7 @@ export function LeadsTable({
 }: {
   data: Lead[]
   accountOptions: Option[]
-  funnels: FunnelWithStages[]
+  pipelines: FunnelWithStages[]
   members: MemberOption[]
   countries?: CountryOption[]
   /** Tenant picklists (Settings); empty = free-text fallbacks. */
@@ -112,9 +112,9 @@ export function LeadsTable({
   // Resolve a stage id to its name for the Stage column.
   const stageNameById = React.useMemo(() => {
     const m = new Map<string, string>()
-    for (const f of funnels) for (const s of f.stages) m.set(s.id, s.name)
+    for (const f of pipelines) for (const s of f.stages) m.set(s.id, s.name)
     return m
-  }, [funnels])
+  }, [pipelines])
 
   async function handleCreate(values: LeadInput) {
     const res = await createLead(values)
@@ -243,7 +243,7 @@ export function LeadsTable({
             </Badge>
           )
           return lead.convertedOpportunityId ? (
-            <Link href={`/funnel/${lead.convertedOpportunityId}`}>{badge}</Link>
+            <Link href={`/opportunities/${lead.convertedOpportunityId}`}>{badge}</Link>
           ) : (
             badge
           )
@@ -281,7 +281,7 @@ export function LeadsTable({
               ) : null}
               {lead.convertedOpportunityId ? (
                 <Link
-                  href={`/funnel/${lead.convertedOpportunityId}`}
+                  href={`/opportunities/${lead.convertedOpportunityId}`}
                   className="link"
                 >
                   Funnel
@@ -400,7 +400,7 @@ export function LeadsTable({
                   <DialogTitle>New lead</DialogTitle>
                 </DialogHeader>
                 <LeadForm
-                  funnels={funnels}
+                  pipelines={pipelines}
                   sources={leadSources}
                   phonePrefix={phonePrefix}
                   onSubmit={handleCreate}
@@ -425,7 +425,7 @@ export function LeadsTable({
             <LeadForm
               key={editLead.id}
               lead={editLead}
-              funnels={funnels}
+              pipelines={pipelines}
               sources={leadSources}
               onSubmit={handleUpdate}
               submitLabel="Save changes"

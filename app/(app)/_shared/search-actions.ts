@@ -7,7 +7,7 @@ import {
   leads,
   accounts,
   persons,
-  opportunities,
+  funnels,
   quotations,
   projects,
 } from "@/db/schema"
@@ -146,13 +146,13 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
 
     if (ctx.can(PERMISSIONS.OPPORTUNITY_VIEW)) {
       const rows = await tx
-        .select({ id: opportunities.id, name: opportunities.name })
-        .from(opportunities)
+        .select({ id: funnels.id, name: funnels.name })
+        .from(funnels)
         .where(
           and(
-            isNull(opportunities.deletedAt),
-            ownerScope(opportunities.ownerMemberId, visible),
-            ilike(opportunities.name, like)
+            isNull(funnels.deletedAt),
+            ownerScope(funnels.ownerMemberId, visible),
+            ilike(funnels.name, like)
           )
         )
         .limit(PER_TYPE_LIMIT)
@@ -172,17 +172,17 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
         .select({
           id: quotations.id,
           quoteNumber: quotations.quoteNumber,
-          oppName: opportunities.name,
+          oppName: funnels.name,
         })
         .from(quotations)
         .innerJoin(
-          opportunities,
-          sql`${quotations.opportunityId} = ${opportunities.id}`
+          funnels,
+          sql`${quotations.funnelId} = ${funnels.id}`
         )
         .where(
           and(
             isNull(quotations.deletedAt),
-            ownerScope(opportunities.ownerMemberId, visible),
+            ownerScope(funnels.ownerMemberId, visible),
             ilike(quotations.quoteNumber, like)
           )
         )

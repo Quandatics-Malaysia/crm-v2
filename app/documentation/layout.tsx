@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation"
-import { eq } from "drizzle-orm"
-import { runInTenant } from "@/db"
-import { tenantSettings } from "@/db/schema"
 import { requireContext } from "@/lib/server-context"
+import { requireModule } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { DOC_GROUPS } from "./registry"
 import { extractText } from "./extract-text"
@@ -22,17 +20,9 @@ export default async function DocumentationLayout({
 }: {
   children: React.ReactNode
 }) {
+  requireModule("documentation")
   const ctx = await requireContext()
   if (!ctx.can(PERMISSIONS.DOCS_VIEW)) redirect("/dashboard")
-  const enabled = await runInTenant(ctx.tenantId, async (tx) => {
-    const [s] = await tx
-      .select({ on: tenantSettings.documentationModule })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    return s?.on ?? true
-  })
-  if (!enabled) redirect("/dashboard")
 
   // Full-text search index, built server-side from the page trees.
   const index: DocsSearchEntry[] = DOC_GROUPS.flatMap((g) =>

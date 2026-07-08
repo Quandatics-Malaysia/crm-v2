@@ -4,10 +4,10 @@
  * stage" gate in Salesforce). Shared by the client (checklist + disabled button)
  * and the server (authoritative enforcement).
  *
- * Required fields are CONFIGURABLE per `funnel_stages.requiredFields` (a list of
+ * Required fields are CONFIGURABLE per `pipeline_stages.requiredFields` (a list of
  * field keys). A key is either a PRESET system field (REQUIRABLE_FIELDS — backed
  * by a real funnel column) or a tenant-defined CUSTOM field (key from
- * tenant_settings.customFunnelFields; value stored in opportunities.customFields).
+ * tenant_settings.customFunnelFields; value stored in funnels.customFields).
  * `buildStageGate` resolves both into { satisfied, labels } so the gate logic
  * doesn't care which kind a key is.
  */

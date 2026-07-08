@@ -4,17 +4,18 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import { requireContext, assertCan } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import { assertModuleEnabled, isModuleEnabled } from "@/lib/modules"
 import { visibleMemberIds, canManageAllRecords } from "@/lib/access-scope"
 import { intercompanyDeals, organization, tenantSettings } from "@/db/schema"
 import { partyShare } from "@/lib/interco-share"
 
 /** One row of the weighted billing forecast (per OPEN opportunity). */
 export type ForecastRow = {
-  opportunityId: string
+  funnelId: string
   opportunityName: string
   accountId: string | null
   ownerMemberId: string | null
-  funnelId: string | null
+  pipelineId: string | null
   stageCode: string | null
   stageName: string | null
   probability: string | null
@@ -36,7 +37,7 @@ export type ForecastRow = {
 
 /** One row of the pipeline summary (per stage per funnel per currency). */
 export type PipelineSummaryRow = {
-  funnelId: string | null
+  pipelineId: string | null
   stageCode: string | null
   stageName: string | null
   stageKind: string | null
@@ -52,11 +53,12 @@ export type PipelineSummaryRow = {
  * Derived from `v_billing_forecast`; never an editable table.
  */
 export async function getForecast(): Promise<ForecastRow[]> {
+  assertModuleEnabled("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
     // Record-level owner scoping (mirrors listOpportunities): a Rep sees only
-    // funnels they own or manage; view-all / manage-all / superadmin see all.
+    // pipelines they own or manage; view-all / manage-all / superadmin see all.
     const visible = await visibleMemberIds(tx, ctx)
     const ownerFilter =
       visible === null || canManageAllRecords(ctx)
@@ -71,11 +73,11 @@ export async function getForecast(): Promise<ForecastRow[]> {
     )
     const rows = result as unknown as Record<string, unknown>[]
     const own: ForecastRow[] = rows.map((r) => ({
-      opportunityId: String(r.opportunity_id),
+      funnelId: String(r.funnel_id),
       opportunityName: String(r.opportunity_name ?? ""),
       accountId: r.account_id == null ? null : String(r.account_id),
       ownerMemberId: r.owner_member_id == null ? null : String(r.owner_member_id),
-      funnelId: r.funnel_id == null ? null : String(r.funnel_id),
+      pipelineId: r.pipeline_id == null ? null : String(r.pipeline_id),
       stageCode: r.stage_code == null ? null : String(r.stage_code),
       stageName: r.stage_name == null ? null : String(r.stage_name),
       probability: r.probability == null ? null : String(r.probability),
@@ -100,7 +102,9 @@ export async function getForecast(): Promise<ForecastRow[]> {
     // and belongs in its forecast, weighted by the origin's stage probability
     // (snapshotted on the mirror). Gated by the intercompany permission so
     // record-scoped reps don't see whole-entity numbers through the back door.
-    if (!ctx.can(PERMISSIONS.INTERCOMPANY_VIEW)) return own
+    // Also requires the finance plugin (intercompany billing lives there).
+    if (!isModuleEnabled("finance") || !ctx.can(PERMISSIONS.INTERCOMPANY_VIEW))
+      return own
 
     const inboundRows = await tx
       .select({
@@ -141,11 +145,11 @@ export async function getForecast(): Promise<ForecastRow[]> {
         : null
       return [
         {
-          opportunityId: d.id,
+          funnelId: d.id,
           opportunityName: d.name,
           accountId: null,
           ownerMemberId: null,
-          funnelId: null,
+          pipelineId: null,
           stageCode: null,
           stageName: d.stageName,
           probability: d.stageProbability,
@@ -172,6 +176,7 @@ export async function getForecast(): Promise<ForecastRow[]> {
 export async function getForecastConfig(): Promise<{
   fiscalYearStartMonth: number
 }> {
+  assertModuleEnabled("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -189,11 +194,12 @@ export async function getForecastConfig(): Promise<{
  * Derived from `v_pipeline_summary`.
  */
 export async function getPipelineSummary(): Promise<PipelineSummaryRow[]> {
+  assertModuleEnabled("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
     // Record-level owner scoping (mirrors listOpportunities): a Rep sees only
-    // funnels they own or manage; view-all / manage-all / superadmin see all.
+    // pipelines they own or manage; view-all / manage-all / superadmin see all.
     // The view carries owner_member_id at per-owner grain, so filter on it then
     // re-aggregate back to one row per (funnel, stage, currency).
     const visible = await visibleMemberIds(tx, ctx)
@@ -205,7 +211,7 @@ export async function getPipelineSummary(): Promise<PipelineSummaryRow[]> {
           : inArray(sql`owner_member_id`, visible)
     const result = await tx.execute(sql`
       select
-        funnel_id,
+        pipeline_id,
         stage_code,
         stage_name,
         stage_kind,
@@ -216,12 +222,12 @@ export async function getPipelineSummary(): Promise<PipelineSummaryRow[]> {
         currency
       from v_pipeline_summary
       ${ownerFilter ? sql`where ${ownerFilter}` : sql``}
-      group by funnel_id, stage_code, stage_name, stage_kind, sort_order, currency
+      group by pipeline_id, stage_code, stage_name, stage_kind, sort_order, currency
       order by sort_order asc
     `)
     const rows = result as unknown as Record<string, unknown>[]
     return rows.map((r) => ({
-      funnelId: r.funnel_id == null ? null : String(r.funnel_id),
+      pipelineId: r.pipeline_id == null ? null : String(r.pipeline_id),
       stageCode: r.stage_code == null ? null : String(r.stage_code),
       stageName: r.stage_name == null ? null : String(r.stage_name),
       stageKind: r.stage_kind == null ? null : String(r.stage_kind),

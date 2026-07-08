@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { PERMISSIONS } from "@/lib/permissions"
+import { isModuleEnabled, type ModuleId } from "@/lib/modules"
 import { globalSearch, type SearchHit } from "@/app/(app)/_shared/search-actions"
 
 /**
@@ -85,6 +86,7 @@ const QUICK_CREATE: {
   label: string
   href: string
   permission: string
+  module?: ModuleId
   icon: React.ComponentType<{ className?: string }>
 }[] = [
   { label: "Lead", href: "/leads?new=1", permission: PERMISSIONS.LEAD_CREATE, icon: TargetIcon },
@@ -104,6 +106,7 @@ const NAV_ITEMS: {
   label: string
   href: string
   permission?: string
+  module?: ModuleId
   icon: React.ComponentType<{ className?: string }>
 }[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboardIcon },
@@ -112,10 +115,10 @@ const NAV_ITEMS: {
   { label: "Contacts", href: "/persons", permission: PERMISSIONS.PERSON_VIEW, icon: UsersIcon },
   { label: "Funnel", href: "/funnel", permission: PERMISSIONS.OPPORTUNITY_VIEW, icon: FilterIcon },
   { label: "Quotations", href: "/quotations", permission: PERMISSIONS.QUOTATION_VIEW, icon: FileTextIcon },
-  { label: "Sales orders", href: "/sales-orders", permission: PERMISSIONS.SALES_ORDER_VIEW, icon: ReceiptIcon },
-  { label: "Projects", href: "/projects", permission: PERMISSIONS.PROJECT_VIEW, icon: FolderKanbanIcon },
-  { label: "Forecast", href: "/forecast", permission: PERMISSIONS.FORECAST_VIEW, icon: TrendingUpIcon },
-  { label: "Intercompany", href: "/intercompany", permission: PERMISSIONS.INTERCOMPANY_VIEW, icon: ArrowLeftRightIcon },
+  { label: "Sales orders", href: "/sales-orders", permission: PERMISSIONS.SALES_ORDER_VIEW, module: "salesOrders", icon: ReceiptIcon },
+  { label: "Projects", href: "/projects", permission: PERMISSIONS.PROJECT_VIEW, module: "projects", icon: FolderKanbanIcon },
+  { label: "Forecast", href: "/forecast", permission: PERMISSIONS.FORECAST_VIEW, module: "forecast", icon: TrendingUpIcon },
+  { label: "Intercompany", href: "/intercompany", permission: PERMISSIONS.INTERCOMPANY_VIEW, module: "finance", icon: ArrowLeftRightIcon },
   { label: "Team", href: "/team", permission: PERMISSIONS.TENANT_MANAGE_USERS, icon: ShieldCheckIcon },
   { label: "Settings", href: "/settings", permission: PERMISSIONS.TENANT_SETTINGS, icon: Settings2Icon },
 ]
@@ -130,9 +133,16 @@ export function HeaderActions() {
   const [pending, startTransition] = React.useTransition()
   const reqId = React.useRef(0)
 
-  const createItems = QUICK_CREATE.filter((i) => perms.has(i.permission))
+  const createItems = QUICK_CREATE.filter(
+    (i) => perms.has(i.permission) && (!i.module || isModuleEnabled(i.module))
+  )
   const navItems = React.useMemo(
-    () => NAV_ITEMS.filter((i) => !i.permission || perms.has(i.permission)),
+    () =>
+      NAV_ITEMS.filter(
+        (i) =>
+          (!i.permission || perms.has(i.permission)) &&
+          (!i.module || isModuleEnabled(i.module))
+      ),
     [perms]
   )
 

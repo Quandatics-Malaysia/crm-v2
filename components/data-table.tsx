@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   type Column,
   type ColumnDef,
@@ -19,10 +19,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
   ListFilter,
+  Search,
   SlidersHorizontal,
   X,
 } from "lucide-react"
@@ -31,6 +34,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { EmptyState } from "@/components/empty-state"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -89,6 +99,20 @@ const facetFilterFn = (
   value: string[]
 ) => !value?.length || value.includes(String(row.getValue(id)))
 
+// Global search: a row matches when ANY column's value contains the query
+// (case-insensitive substring). tanstack ORs this across every filterable
+// column, so one search box searches the whole table — the right behaviour as
+// the imported data set keeps growing.
+const globalFilterFn = (
+  row: { getValue: (id: string) => unknown },
+  columnId: string,
+  value: string
+) => {
+  const cell = row.getValue(columnId)
+  if (cell == null) return false
+  return String(cell).toLowerCase().includes(String(value).toLowerCase())
+}
+
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -99,7 +123,7 @@ export function DataTable<TData, TValue>({
   emptyIcon,
   emptyAction,
   toolbar,
-  pageSize = 10,
+  pageSize = 25,
   facets,
   tableId,
   cap,
@@ -123,7 +147,6 @@ export function DataTable<TData, TValue>({
 
   // --- URL-persisted table state (bookmarkable / shareable / survives nav) ---
   const searchParams = useSearchParams()
-  const router = useRouter()
   const pathname = usePathname()
   // Namespace params per table so multiple tables on one page don't collide.
   const key = React.useCallback(
@@ -143,14 +166,12 @@ export function DataTable<TData, TValue>({
     }
 
     const columnFilters: ColumnFiltersState = []
-    if (searchColumn) {
-      const q = searchParams.get(key("q"))
-      if (q) columnFilters.push({ id: searchColumn, value: q })
-    }
     for (const f of facets ?? []) {
       const v = searchParams.get(key(`f_${f.columnId}`))
       if (v) columnFilters.push({ id: f.columnId, value: v.split(",") })
     }
+
+    const globalFilter = searchParams.get(key("q")) ?? ""
 
     const columnVisibility: VisibilityState = {}
     const hidden = searchParams.get(key("hide"))
@@ -162,6 +183,7 @@ export function DataTable<TData, TValue>({
     return {
       sorting,
       columnFilters,
+      globalFilter,
       columnVisibility,
       pagination: { pageIndex, pageSize: size } as PaginationState,
     }
@@ -173,6 +195,9 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     initial.columnFilters
   )
+  const [globalFilter, setGlobalFilter] = React.useState<string>(
+    initial.globalFilter
+  )
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
     initial.columnVisibility
   )
@@ -181,9 +206,14 @@ export function DataTable<TData, TValue>({
   )
   const [rowSelection, setRowSelection] = React.useState({})
 
-  // Write state back to the URL whenever it changes (replace, no scroll/history churn).
+  // Write state back to the URL whenever it changes, using history.replaceState
+  // (NOT router.replace): a soft router navigation re-runs the server component,
+  // which hands us a fresh `data` array whose new reference trips tanstack's
+  // autoResetPageIndex and snaps pagination back — so Next/sort/filter would
+  // "jump back". history.replaceState keeps the URL bookmarkable while leaving
+  // `data` stable and avoiding a server round-trip (instant, smooth).
   React.useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString())
+    const params = new URLSearchParams(window.location.search)
 
     if (sorting.length)
       params.set(
@@ -192,11 +222,8 @@ export function DataTable<TData, TValue>({
       )
     else params.delete(key("sort"))
 
-    if (searchColumn) {
-      const sv = columnFilters.find((f) => f.id === searchColumn)?.value
-      if (sv) params.set(key("q"), String(sv))
-      else params.delete(key("q"))
-    }
+    if (globalFilter) params.set(key("q"), globalFilter)
+    else params.delete(key("q"))
 
     for (const f of facets ?? []) {
       const fv = columnFilters.find((c) => c.id === f.columnId)?.value as
@@ -220,29 +247,41 @@ export function DataTable<TData, TValue>({
     else params.delete(key("size"))
 
     const qs = params.toString()
-    if (qs !== searchParams.toString()) {
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    const current = window.location.search.replace(/^\?/, "")
+    if (qs !== current) {
+      window.history.replaceState(
+        null,
+        "",
+        qs ? `${pathname}?${qs}` : pathname
+      )
     }
   }, [
     sorting,
     columnFilters,
+    globalFilter,
     columnVisibility,
     pagination,
-    searchColumn,
     facets,
     pageSize,
     key,
     pathname,
-    router,
-    searchParams,
   ])
 
   const table = useReactTable({
     data,
     columns: tableColumns,
-    state: { sorting, columnFilters, columnVisibility, pagination, rowSelection },
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter,
+      columnVisibility,
+      pagination,
+      rowSelection,
+    },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn,
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: setPagination,
     onRowSelectionChange: setRowSelection,
@@ -254,20 +293,35 @@ export function DataTable<TData, TValue>({
     getFacetedUniqueValues: getFacetedUniqueValues(),
   })
 
-  const searchCol = searchColumn ? table.getColumn(searchColumn) : undefined
-  const hasActiveFilters = columnFilters.length > 0
+  // Search is shown whenever a caller opts in via `searchColumn` (kept as the
+  // enable flag) — but it now filters ACROSS ALL columns, not just that one.
+  const showSearch = !!searchColumn
+  const hasActiveFilters = columnFilters.length > 0 || globalFilter.length > 0
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {searchCol ? (
-          <Input
-            placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
-            value={(searchCol.getFilterValue() as string) ?? ""}
-            onChange={(e) => searchCol.setFilterValue(e.target.value)}
-            className="max-w-xs"
-          />
+        {showSearch ? (
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="px-8"
+            />
+            {globalFilter ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setGlobalFilter("")}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
         {(facets ?? []).map((f) => {
@@ -280,7 +334,10 @@ export function DataTable<TData, TValue>({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setColumnFilters([])}
+            onClick={() => {
+              setColumnFilters([])
+              setGlobalFilter("")
+            }}
             className="text-muted-foreground"
           >
             <X className="size-4" /> Reset
@@ -369,9 +426,27 @@ export function DataTable<TData, TValue>({
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} row(s)
+          {hasActiveFilters
+            ? `${table.getFilteredRowModel().rows.length} of ${data.length} row(s)`
+            : `${data.length} row(s)`}
         </span>
         <div className="flex items-center gap-2">
+          <span className="hidden text-sm text-muted-foreground sm:inline">Per page</span>
+          <Select
+            value={String(table.getState().pagination.pageSize)}
+            onValueChange={(v) => table.setPageSize(Number(v))}
+          >
+            <SelectTrigger className="h-8 w-[4.5rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[25, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"
@@ -482,15 +557,26 @@ export function SortableHeader({
   title: string
   className?: string
 }) {
+  const sorted = column.getIsSorted() as "asc" | "desc" | false
   return (
     <Button
       variant="ghost"
       size="sm"
-      className={cn("-ml-2 h-7 data-[state=open]:bg-accent", className)}
-      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      className={cn(
+        "-ml-2 h-7 data-[state=open]:bg-accent",
+        sorted && "text-foreground",
+        className
+      )}
+      onClick={() => column.toggleSorting(sorted === "asc")}
     >
       {title}
-      <ArrowUpDown className="ml-1 size-3.5" />
+      {sorted === "asc" ? (
+        <ArrowUp className="ml-1 size-3.5" />
+      ) : sorted === "desc" ? (
+        <ArrowDown className="ml-1 size-3.5" />
+      ) : (
+        <ArrowUpDown className="ml-1 size-3.5 text-muted-foreground/60" />
+      )}
     </Button>
   )
 }

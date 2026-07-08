@@ -142,7 +142,7 @@ export function QuotationForm({
   const isAccepted = quotation.status === "accepted"
   // A draft is only editable when the user also holds the update permission.
   const canEditDraft = isDraft && perms.canUpdate
-  const createProjectHref = `/projects/new?opportunityId=${quotation.opportunityId}`
+  const createProjectHref = `/projects/new?funnelId=${quotation.funnelId}`
   const [busy, setBusy] = React.useState(false)
   // "Build" = the editor; "Preview" = the finished quotation document (toggle
   // like the funnel board/list).
@@ -997,7 +997,7 @@ export function QuotationForm({
                 {
                   kind: "funnel",
                   label: opportunityName ?? "Funnel",
-                  href: `/funnel/${quotation.opportunityId}`,
+                  href: `/funnel/${quotation.funnelId}`,
                 },
                 ...(detail.accountId
                   ? [

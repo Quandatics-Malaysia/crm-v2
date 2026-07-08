@@ -42,11 +42,11 @@ type Stage = {
  * resets status to open.
  */
 export function StageReopenDialog({
-  opportunityId,
+  funnelId,
   stages,
   trigger,
 }: {
-  opportunityId: string
+  funnelId: string
   stages: Stage[]
   trigger?: React.ReactElement
 }) {
@@ -87,7 +87,7 @@ export function StageReopenDialog({
     setSubmitting(true)
     try {
       const res = await reopenStageAction({
-        opportunityId,
+        funnelId,
         targetStageId,
         reason: reason.trim() || undefined,
       })

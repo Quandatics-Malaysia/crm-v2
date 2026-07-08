@@ -41,7 +41,7 @@ const leadSchema = z.object({
   phone: z.string().trim().min(1, "Phone is required"),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
-  funnelId: z.string(),
+  pipelineId: z.string(),
   currentStageId: z.string(),
 })
 
@@ -49,14 +49,14 @@ export type LeadFormValues = z.infer<typeof leadSchema>
 
 export function LeadForm({
   lead,
-  funnels,
+  pipelines,
   sources = [],
   phonePrefix = "",
   onSubmit,
   submitLabel = "Save",
 }: {
   lead?: Lead
-  funnels: FunnelWithStages[]
+  pipelines: FunnelWithStages[]
   /** Tenant lead-source picklist (Settings); empty falls back to free text. */
   sources?: string[]
   /** Tenant dialing prefix prefilled into the phone field on create. */
@@ -84,23 +84,23 @@ export function LeadForm({
       phone: lead ? lead.phone ?? "" : phonePrefix,
       source: lead?.source ?? "",
       status: lead?.status ?? "new",
-      funnelId: lead?.funnelId ?? NONE,
+      pipelineId: lead?.pipelineId ?? NONE,
       currentStageId: lead?.currentStageId ?? NONE,
     },
   })
 
-  const funnelId = form.watch("funnelId")
+  const pipelineId = form.watch("pipelineId")
   const stages = React.useMemo(
-    () => funnels.find((f) => f.id === funnelId)?.stages ?? [],
-    [funnels, funnelId]
+    () => pipelines.find((f) => f.id === pipelineId)?.stages ?? [],
+    [pipelines, pipelineId]
   )
 
   const funnelItems = React.useMemo(
     () => [
       { value: NONE, label: "No funnel" },
-      ...funnels.map((f) => ({ value: f.id, label: f.name })),
+      ...pipelines.map((f) => ({ value: f.id, label: f.name })),
     ],
-    [funnels]
+    [pipelines]
   )
   const stageItems = React.useMemo(
     () => [
@@ -120,7 +120,7 @@ export function LeadForm({
         phone: values.phone || null,
         source: values.source || null,
         status: values.status,
-        funnelId: values.funnelId === NONE ? null : values.funnelId,
+        pipelineId: values.pipelineId === NONE ? null : values.pipelineId,
         currentStageId:
           values.currentStageId === NONE ? null : values.currentStageId,
       })
@@ -254,7 +254,7 @@ export function LeadForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
             control={form.control}
-            name="funnelId"
+            name="pipelineId"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Funnel</FormLabel>
@@ -295,7 +295,7 @@ export function LeadForm({
                   value={field.value}
                   onValueChange={(v) => field.onChange(v ?? NONE)}
                   items={stageItems}
-                  disabled={funnelId === NONE}
+                  disabled={pipelineId === NONE}
                 >
                   <FormControl>
                     <SelectTrigger className="w-full">

@@ -30,21 +30,11 @@ const columns: ColumnDef<OpportunityListRow>[] = [
     ),
   },
   {
-    accessorKey: "stageName",
-    id: "stageName",
-    header: "Stage",
-    cell: ({ row }) => (
-      <StageBadge
-        name={row.original.stageName}
-        kind={row.original.stageKind}
-        probability={row.original.stageProbability}
-      />
-    ),
-  },
-  {
     id: "amount",
     accessorFn: (row) => Number(row.estimatedAmount ?? row.amount ?? 0),
-    header: ({ column }) => <SortableHeader column={column} title="Est. amount" />,
+    header: ({ column }) => (
+      <SortableHeader column={column} title="Est. funnel amount" />
+    ),
     cell: ({ row }) => {
       const value = row.original.estimatedAmount ?? row.original.amount
       return (
@@ -58,6 +48,25 @@ const columns: ColumnDef<OpportunityListRow>[] = [
       Number(b.original.estimatedAmount ?? b.original.amount ?? 0),
   },
   {
+    accessorKey: "expectedCloseDate",
+    header: ({ column }) => (
+      <SortableHeader column={column} title="Est. close date" />
+    ),
+    cell: ({ row }) => formatDate(row.original.expectedCloseDate),
+  },
+  {
+    accessorKey: "stageName",
+    id: "stageName",
+    header: "Sales stage",
+    cell: ({ row }) => (
+      <StageBadge
+        name={row.original.stageName}
+        kind={row.original.stageKind}
+        probability={row.original.stageProbability}
+      />
+    ),
+  },
+  {
     id: "ownerName",
     accessorFn: (row) => row.ownerName ?? "Unassigned",
     header: "Owner",
@@ -66,13 +75,6 @@ const columns: ColumnDef<OpportunityListRow>[] = [
         {row.original.ownerName ?? "—"}
       </span>
     ),
-  },
-  {
-    accessorKey: "expectedCloseDate",
-    header: ({ column }) => (
-      <SortableHeader column={column} title="Expected close" />
-    ),
-    cell: ({ row }) => formatDate(row.original.expectedCloseDate),
   },
   {
     accessorKey: "status",

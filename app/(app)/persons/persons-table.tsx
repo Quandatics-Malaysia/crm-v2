@@ -221,11 +221,6 @@ export function PersonsTable({
           ),
       },
       {
-        accessorKey: "title",
-        header: "Title",
-        cell: ({ row }) => row.original.title ?? "—",
-      },
-      {
         accessorKey: "email",
         header: "Email",
         cell: ({ row }) =>
@@ -239,6 +234,11 @@ export function PersonsTable({
           ) : (
             "—"
           ),
+      },
+      {
+        accessorKey: "title",
+        header: "Title",
+        cell: ({ row }) => row.original.title ?? "—",
       },
       {
         accessorKey: "phone",

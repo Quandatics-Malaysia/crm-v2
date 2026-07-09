@@ -67,6 +67,18 @@ function RowLink({
   )
 }
 
+/** A Salesforce-style column banner header ("Salesperson's Activity" /
+ *  "Salesperson's Funnels") that titles each half of the home page. */
+function ColumnHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border bg-muted/40 px-4 py-2.5 text-center">
+      <h2 className="font-heading text-base font-semibold tracking-tight">
+        {children}
+      </h2>
+    </div>
+  )
+}
+
 function FirstRunHero({ name }: { name: string }) {
   return (
     <Card className="overflow-hidden">
@@ -155,6 +167,177 @@ export default async function DashboardPage() {
     },
   ]
 
+  // Follow-ups Due card — the "Salesperson's Activity / Today's Tasks" analogue.
+  const followUpsCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarClock className="size-4" />
+          Follow-ups Due
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {followUpsCount === 0 ? (
+          <EmptyState
+            icon={CalendarClock}
+            title="You are all caught up"
+            description="Follow-ups due in the next 7 days will show up here."
+          />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {data.followUpsDue.map((f) => {
+              const overdue = isBefore(f.dueAt, now)
+              return (
+                <RowLink key={f.id} href={followUpHref(f)}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{f.subject}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {ENTITY_LABEL[f.entityType] ?? f.entityType}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={overdue ? "destructive" : "secondary"}
+                    className="shrink-0"
+                  >
+                    {overdue ? "Overdue " : ""}
+                    {formatDate(f.dueAt)}
+                  </Badge>
+                </RowLink>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  // Pending approvals card — the "Salesperson's Funnels" workload analogue.
+  const approvalsCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ClipboardCheck className="size-4" />
+          {approvalsTitle}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {approvalsCount === 0 ? (
+          <EmptyState
+            icon={Inbox}
+            title="No approvals waiting on you"
+            description="Stage requests that need your decision will appear here."
+          />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {data.pendingApprovals.map((a) => (
+              <RowLink key={a.id} href={`/funnel/${a.funnelId}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {a.opportunityName}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {a.reason}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatDate(a.requestedAt)}
+                </span>
+              </RowLink>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  // Overdue invoices — finance add-on (only rendered when there are any).
+  const overdueInvoicesCard =
+    data.overdueInvoices.length > 0 ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ReceiptTextIcon className="size-4" />
+            Overdue Invoices
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col divide-y">
+            {data.overdueInvoices.map((inv) => {
+              const stageDue = data.reminderSchedule.filter(
+                (d) =>
+                  (now.getTime() - new Date(inv.dueDate).getTime()) /
+                    86_400_000 >=
+                  d
+              ).length
+              const reminderPending = stageDue > inv.reminderStage
+              return (
+                <RowLink key={inv.id} href={`/billing/${inv.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {inv.number}
+                      {inv.partyName ? ` · ${inv.partyName}` : ""}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Due {formatDate(inv.dueDate)}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={reminderPending ? "destructive" : "secondary"}
+                    className="shrink-0"
+                  >
+                    {reminderPending
+                      ? `Reminder ${inv.reminderStage + 1} due`
+                      : `${inv.reminderStage} reminder${inv.reminderStage === 1 ? "" : "s"} sent`}
+                  </Badge>
+                </RowLink>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    ) : null
+
+  // Stale pipelines — only rendered when the nudge is configured.
+  const staleFunnelsCard =
+    data.staleDealDays != null ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HourglassIcon className="size-4" />
+            Stale Funnels
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.staleDeals.length === 0 ? (
+            <EmptyState
+              icon={HourglassIcon}
+              title="Nothing going cold"
+              description={`Your open pipelines with no activity for ${data.staleDealDays} days will show here.`}
+            />
+          ) : (
+            <div className="flex flex-col divide-y">
+              {data.staleDeals.map((d) => (
+                <RowLink key={d.id} href={`/funnel/${d.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{d.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Last touched {formatDate(d.lastTouchAt)}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    {Math.floor(
+                      (now.getTime() - d.lastTouchAt.getTime()) / 86_400_000
+                    )}
+                    d idle
+                  </Badge>
+                </RowLink>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    ) : null
+
   return (
     <>
       <SiteHeader title="Dashboard" />
@@ -182,180 +365,22 @@ export default async function DashboardPage() {
               hasOverdue={hasOverdue}
             />
 
-            {/* Action lists */}
-            <div className="grid gap-4 lg:grid-cols-2">
-              {/* Pending approvals */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ClipboardCheck className="size-4" />
-                    {approvalsTitle}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {approvalsCount === 0 ? (
-                    <EmptyState
-                      icon={Inbox}
-                      title="No approvals waiting on you"
-                      description="Stage requests that need your decision will appear here."
-                    />
-                  ) : (
-                    <div className="flex flex-col divide-y">
-                      {data.pendingApprovals.map((a) => (
-                        <RowLink
-                          key={a.id}
-                          href={`/funnel/${a.funnelId}`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">
-                              {a.opportunityName}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {a.reason}
-                            </p>
-                          </div>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {formatDate(a.requestedAt)}
-                          </span>
-                        </RowLink>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            {/* Salesforce-style two-column home page:
+                left = Salesperson's Activity, right = Salesperson's Funnels. */}
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+              {/* LEFT — Salesperson's Activity */}
+              <div className="grid gap-4">
+                <ColumnHeading>Salesperson&apos;s Activity</ColumnHeading>
+                {followUpsCard}
+              </div>
 
-              {/* Follow-ups due */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CalendarClock className="size-4" />
-                    Follow-ups Due
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {followUpsCount === 0 ? (
-                    <EmptyState
-                      icon={CalendarClock}
-                      title="You are all caught up"
-                      description="Follow-ups due in the next 7 days will show up here."
-                    />
-                  ) : (
-                    <div className="flex flex-col divide-y">
-                      {data.followUpsDue.map((f) => {
-                        const overdue = isBefore(f.dueAt, now)
-                        return (
-                          <RowLink key={f.id} href={followUpHref(f)}>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {f.subject}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {ENTITY_LABEL[f.entityType] ?? f.entityType}
-                              </p>
-                            </div>
-                            <Badge
-                              variant={overdue ? "destructive" : "secondary"}
-                              className="shrink-0"
-                            >
-                              {overdue ? "Overdue " : ""}
-                              {formatDate(f.dueAt)}
-                            </Badge>
-                          </RowLink>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Overdue invoices — finance add-on */}
-              {data.overdueInvoices.length > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <ReceiptTextIcon className="size-4" />
-                      Overdue Invoices
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col divide-y">
-                      {data.overdueInvoices.map((inv) => {
-                        const stageDue = data.reminderSchedule.filter(
-                          (d) =>
-                            (now.getTime() - new Date(inv.dueDate).getTime()) /
-                              86_400_000 >=
-                            d
-                        ).length
-                        const reminderPending = stageDue > inv.reminderStage
-                        return (
-                          <RowLink key={inv.id} href={`/billing/${inv.id}`}>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {inv.number}
-                                {inv.partyName ? ` · ${inv.partyName}` : ""}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                Due {formatDate(inv.dueDate)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant={reminderPending ? "destructive" : "secondary"}
-                              className="shrink-0"
-                            >
-                              {reminderPending
-                                ? `Reminder ${inv.reminderStage + 1} due`
-                                : `${inv.reminderStage} reminder${inv.reminderStage === 1 ? "" : "s"} sent`}
-                            </Badge>
-                          </RowLink>
-                        )
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {/* Stale pipelines — only rendered when the nudge is configured */}
-              {data.staleDealDays != null ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <HourglassIcon className="size-4" />
-                      Stale Funnels
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {data.staleDeals.length === 0 ? (
-                      <EmptyState
-                        icon={HourglassIcon}
-                        title="Nothing going cold"
-                        description={`Your open pipelines with no activity for ${data.staleDealDays} days will show here.`}
-                      />
-                    ) : (
-                      <div className="flex flex-col divide-y">
-                        {data.staleDeals.map((d) => (
-                          <RowLink key={d.id} href={`/funnel/${d.id}`}>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {d.name}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                Last touched {formatDate(d.lastTouchAt)}
-                              </p>
-                            </div>
-                            <Badge variant="secondary" className="shrink-0">
-                              {Math.floor(
-                                (now.getTime() - d.lastTouchAt.getTime()) /
-                                  86_400_000
-                              )}
-                              d idle
-                            </Badge>
-                          </RowLink>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : null}
+              {/* RIGHT — Salesperson's Funnels */}
+              <div className="grid gap-4">
+                <ColumnHeading>Salesperson&apos;s Funnels</ColumnHeading>
+                {approvalsCard}
+                {overdueInvoicesCard}
+                {staleFunnelsCard}
+              </div>
             </div>
           </>
         )}

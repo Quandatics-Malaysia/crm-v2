@@ -176,6 +176,17 @@ export function LeadsTable({
         },
       },
       {
+        id: "mobile",
+        accessorKey: "phone",
+        header: "Mobile",
+        cell: ({ row }) =>
+          row.original.phone ? (
+            <span className="tabular-nums">{row.original.phone}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
         accessorKey: "email",
         header: "Email",
         cell: ({ row }) =>
@@ -198,18 +209,6 @@ export function LeadsTable({
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
-        accessorKey: "source",
-        header: ({ column }) => (
-          <SortableHeader column={column} title="Source" />
-        ),
-        cell: ({ row }) =>
-          row.original.source ? (
-            <span className="capitalize">{row.original.source}</span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-      },
-      {
         id: "ownerName",
         // Return the resolved owner name (raw string) so the faceted Owner
         // filter groups by person rather than by opaque member id.
@@ -226,6 +225,18 @@ export function LeadsTable({
             <span className="text-muted-foreground">—</span>
           )
         },
+      },
+      {
+        accessorKey: "source",
+        header: ({ column }) => (
+          <SortableHeader column={column} title="Source" />
+        ),
+        cell: ({ row }) =>
+          row.original.source ? (
+            <span className="capitalize">{row.original.source}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         id: "stage",

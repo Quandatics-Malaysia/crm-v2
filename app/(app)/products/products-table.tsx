@@ -176,6 +176,18 @@ export function ProductsTable({
         ),
       },
       {
+        accessorKey: "description",
+        header: "Description",
+        cell: ({ row }) =>
+          row.original.description ? (
+            <span className="text-muted-foreground line-clamp-1">
+              {row.original.description}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
         accessorKey: "productCode",
         header: "Product code",
         cell: ({ row }) =>

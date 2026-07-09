@@ -197,6 +197,14 @@ export function AccountsTable({
         ),
       },
       {
+        accessorKey: "ownerName",
+        header: "Owner",
+        cell: ({ row }) =>
+          row.original.ownerName ?? (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
         accessorKey: "code",
         header: ({ column }) => <SortableHeader column={column} title="Code" />,
         cell: ({ row }) =>
@@ -219,14 +227,6 @@ export function AccountsTable({
         accessorKey: "industry",
         header: "Industry",
         cell: ({ row }) => row.original.industry ?? "—",
-      },
-      {
-        accessorKey: "ownerName",
-        header: "Owner",
-        cell: ({ row }) =>
-          row.original.ownerName ?? (
-            <span className="text-muted-foreground">—</span>
-          ),
       },
       {
         accessorKey: "parentAccountName",

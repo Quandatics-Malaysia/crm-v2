@@ -231,14 +231,17 @@ export function ProductDetailBody({
               </TabsList>
 
               <TabsContent value="details" className="mt-4 grid gap-6">
+                {/* Salesforce "Product Information" section — field order mirrors
+                    the reference: Name / Category / Subcategory · UOM / Currency /
+                    Active. */}
                 <section>
                   <h3 className="mb-3 text-sm font-semibold">
-                    Product information
+                    Product Information
                   </h3>
                   <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
                     <Field label="Product name">{product.name}</Field>
                     <Field label="Unit (UOM)">{product.uom ?? "—"}</Field>
-                    <Field label="Product line">
+                    <Field label="Product category">
                       {product.productCode ? (
                         <span>
                           <span className="font-mono text-xs">
@@ -255,8 +258,15 @@ export function ProductDetailBody({
                       )}
                     </Field>
                     <Field label="Currency">{product.currency}</Field>
-                    <Field label="Subcategory">
+                    <Field label="Product subcategory">
                       {product.subcategory ?? "—"}
+                    </Field>
+                    <Field label="Active">
+                      {product.isActive ? (
+                        <Badge variant="secondary">Active</Badge>
+                      ) : (
+                        <Badge variant="outline">Inactive</Badge>
+                      )}
                     </Field>
                     <Field label="Standard price">
                       {formatMoney(product.standardPrice, product.currency)}
@@ -265,7 +275,9 @@ export function ProductDetailBody({
                 </section>
 
                 <section>
-                  <h3 className="mb-3 text-sm font-semibold">Description</h3>
+                  <h3 className="mb-3 text-sm font-semibold">
+                    Description Information
+                  </h3>
                   {product.description ? (
                     <p className="text-sm whitespace-pre-wrap text-muted-foreground">
                       {product.description}

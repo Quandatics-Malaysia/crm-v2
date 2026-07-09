@@ -47,9 +47,16 @@ export default async function LeadDetailPage({
     listEntityAttachments("lead", id),
   ])
 
-  const detail: { label: string; value: React.ReactNode }[] = [
-    { label: "Status", value: STATUS_LABEL[lead.status] ?? lead.status },
+  // Salesforce-named field sections (SPEC §2). Company Information groups the
+  // company/contact-channel fields; Lead Information groups the lead's own
+  // status/source/funnel data. Only fields already fetched are included.
+  const companyInformation: { label: string; value: React.ReactNode }[] = [
     { label: "Company", value: lead.companyName ?? "—" },
+    { label: "Phone", value: lead.phone ?? "—" },
+  ]
+
+  const leadInformation: { label: string; value: React.ReactNode }[] = [
+    { label: "Status", value: STATUS_LABEL[lead.status] ?? lead.status },
     {
       label: "Email",
       value: lead.email ? (
@@ -63,7 +70,6 @@ export default async function LeadDetailPage({
         "—"
       ),
     },
-    { label: "Phone", value: lead.phone ?? "—" },
     { label: "Source", value: lead.source ?? "—" },
     {
       label: "Funnel",
@@ -85,9 +91,17 @@ export default async function LeadDetailPage({
     { label: "Created", value: formatDate(lead.createdAt) },
   ]
 
-  if (lead.status === "disqualified" && lead.disqualifyReason) {
-    detail.push({ label: "Disqualify reason", value: lead.disqualifyReason })
-  }
+  // Remarks section: only when a disqualify reason is actually present.
+  const remarks: { label: string; value: React.ReactNode }[] =
+    lead.status === "disqualified" && lead.disqualifyReason
+      ? [{ label: "Disqualify reason", value: lead.disqualifyReason }]
+      : []
+
+  const sections: { title: string; fields: { label: string; value: React.ReactNode }[] }[] = [
+    { title: "Company Information", fields: companyInformation },
+    { title: "Lead Information", fields: leadInformation },
+    ...(remarks.length ? [{ title: "Remarks", fields: remarks }] : []),
+  ]
 
   const isConverted =
     !!lead.convertedAccountId ||
@@ -155,7 +169,7 @@ export default async function LeadDetailPage({
         <LeadDetailBody
           leadId={id}
           status={lead.status}
-          fields={detail}
+          sections={sections}
           leadSteps={leadProgress.steps}
           leadNote={leadProgress.note}
           funnelSteps={funnelProgress?.steps ?? null}

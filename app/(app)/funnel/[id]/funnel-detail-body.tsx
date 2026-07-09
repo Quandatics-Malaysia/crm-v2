@@ -36,6 +36,7 @@ import type {
 } from "../actions"
 import type { DealCostRow } from "../cost-actions"
 import type { ContractYearRow } from "../contract-actions"
+import type { PaymentMilestoneRow } from "@/app/(app)/payment-milestones/actions"
 
 /**
  * The Cost & margin tracker (external supplier / partner PO lines) is part of
@@ -114,6 +115,8 @@ export type FunnelDetailData = {
   customValues: Record<string, string>
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
+  /** Payment milestones attached to this funnel (core, funnel-scoped). */
+  milestones: PaymentMilestoneRow[]
 }
 
 /** Two-column detail: a rich details panel on the left, the clickable stage path
@@ -166,6 +169,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     customValues,
     activity,
     documents,
+    milestones,
   } = props
 
   const [tab, setTab] = React.useState("activity")
@@ -347,6 +351,48 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     []
   )
 
+  const milestoneColumns = React.useMemo<ColumnDef<PaymentMilestoneRow>[]>(
+    () => [
+      {
+        accessorKey: "title",
+        header: ({ column }) => <SortableHeader column={column} title="Name" />,
+        cell: ({ row }) => (
+          <Link
+            href={`/payment-milestones/${row.original.id}`}
+            className="font-medium link"
+          >
+            {row.original.title}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "amount",
+        header: () => <div className="text-right">Amount</div>,
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums">
+            {formatMoney(row.original.amount, currency)}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        accessorKey: "invoiceNumber",
+        header: "Invoice number",
+        cell: ({ row }) => row.original.invoiceNumber ?? "—",
+      },
+      {
+        accessorKey: "invoiceDate",
+        header: "Invoice date",
+        cell: ({ row }) => formatDate(row.original.invoiceDate),
+      },
+    ],
+    [currency]
+  )
+
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       {/* Left column — funnel highlights + related quick links */}
@@ -360,6 +406,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             </div>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm">
+            {/* Salesforce "Opportunity Information" section (SPEC §4). */}
+            <h3 className="text-sm font-semibold">Opportunity Information</h3>
             <Field label="Account">
               {accountName ? (
                 <Link
@@ -381,6 +429,38 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 "—"
               )}
             </Field>
+            <Field label="Owner">{ownerName ?? "—"}</Field>
+            <Field label="Contact">
+              {personId && personName ? (
+                <Link
+                  href={`/persons/${personId}`}
+                  className="link"
+                >
+                  {personName}
+                </Link>
+              ) : (
+                personName ?? "—"
+              )}
+            </Field>
+            <Field label="Project nature(s)">
+              {projectNatureNames.length > 0 ? (
+                <span className="flex flex-wrap gap-1">
+                  {projectNatureNames.map((n) => (
+                    <Badge key={n} variant="outline">
+                      {n}
+                    </Badge>
+                  ))}
+                </span>
+              ) : (
+                projectNatureName ?? "—"
+              )}
+            </Field>
+
+            <Separator />
+
+            {/* Salesforce "Funnel Info" section (SPEC §4). */}
+            <h3 className="text-sm font-semibold">Funnel Info</h3>
+            <Field label="Funnel">{funnelName ?? "—"}</Field>
             <Field label="Stage">
               <StageBadge
                 name={stageName}
@@ -391,8 +471,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             <Field label="Status">
               <StatusBadge status={status} />
             </Field>
-
-            <Separator />
 
             {/* Value breakdown: estimated (forecast) vs quoted vs recognized. */}
             <Field label="Estimated funnel amount">
@@ -479,35 +557,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               </Field>
             ) : null}
 
-            <Separator />
-
-            <Field label="Owner">{ownerName ?? "—"}</Field>
-            <Field label="Contact">
-              {personId && personName ? (
-                <Link
-                  href={`/persons/${personId}`}
-                  className="link"
-                >
-                  {personName}
-                </Link>
-              ) : (
-                personName ?? "—"
-              )}
-            </Field>
-            <Field label="Project nature(s)">
-              {projectNatureNames.length > 0 ? (
-                <span className="flex flex-wrap gap-1">
-                  {projectNatureNames.map((n) => (
-                    <Badge key={n} variant="outline">
-                      {n}
-                    </Badge>
-                  ))}
-                </span>
-              ) : (
-                projectNatureName ?? "—"
-              )}
-            </Field>
-            <Field label="Funnel">{funnelName ?? "—"}</Field>
             <Field label="Project / license year">{projectYear ?? "—"}</Field>
             <Field label="Expected close">{formatDate(expectedCloseDate)}</Field>
             <Field label="Created">{formatDate(createdAt)}</Field>
@@ -551,6 +600,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   : []),
                 { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
                 { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
+                { kind: "milestone", label: "Payment Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
                 ...(projectsEnabled
                   ? [{ kind: "project" as const, label: "Projects", count: projects.length, onSelect: () => setTab("projects") }]
                   : []),
@@ -601,6 +651,12 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   Products
                   <Badge variant="secondary" className="ml-1.5">
                     {products.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="milestones">
+                  Payment Milestones
+                  <Badge variant="secondary" className="ml-1.5">
+                    {milestones.length}
                   </Badge>
                 </TabsTrigger>
                 {projectsEnabled ? (
@@ -679,6 +735,18 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   searchColumn="name"
                   searchPlaceholder="Search products…"
                   emptyMessage="No products offered yet — add products to a quotation."
+                  pageSize={5}
+                />
+              </TabsContent>
+
+              <TabsContent value="milestones" className="mt-4">
+                <DataTable
+                  columns={milestoneColumns}
+                  data={milestones}
+                  tableId="funnel-milestones"
+                  searchColumn="title"
+                  searchPlaceholder="Search payment milestones…"
+                  emptyMessage="No payment milestones on this funnel yet."
                   pageSize={5}
                 />
               </TabsContent>

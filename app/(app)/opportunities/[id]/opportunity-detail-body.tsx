@@ -18,11 +18,11 @@ type QuoteRow = OpportunityContainerDetail["quotations"][number]
 type ProductRow = OpportunityContainerDetail["products"][number]
 
 const PPVVC: { key: "pain" | "power" | "vision" | "value" | "control"; label: string }[] = [
-  { key: "pain", label: "Pain" },
-  { key: "power", label: "Power" },
-  { key: "vision", label: "Vision" },
-  { key: "value", label: "Value" },
-  { key: "control", label: "Control" },
+  { key: "power", label: "1-P: Power Sponsor" },
+  { key: "pain", label: "2-P: Pain" },
+  { key: "vision", label: "3-V: Vision" },
+  { key: "value", label: "4-V: Value" },
+  { key: "control", label: "5-C: Control" },
 ]
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

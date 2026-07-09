@@ -12,8 +12,10 @@ import {
   pipelineStages,
   taxSettings,
   member,
+  user,
   tenantSettings,
   financeDocs,
+  opportunityProducts,
 } from "@/db/schema"
 import { isModuleEnabled } from "@/lib/modules"
 import { DEFAULT_REMINDER_DAYS } from "@/lib/tenant-defaults"
@@ -63,6 +65,34 @@ export type OpenPipeline = {
 }
 
 /**
+ * One stacked-bar segment for the "QM Sales Report by Salesperson" chart:
+ * a single (Funnel Owner × Sales Stage) cell, measured by the summed
+ * estimated funnel amount. Amounts are summed regardless of currency — the
+ * Salesforce source is single-currency (MYR), matching this tenant's default.
+ */
+export type SalesByOwnerStage = {
+  ownerMemberId: string
+  ownerName: string
+  stageId: string
+  stageName: string
+  /** Stage ladder position, so the client can order/stack segments. */
+  stageSort: number
+  /** Σ estimated funnel amount for this owner×stage cell. */
+  amount: number
+}
+
+/**
+ * One bar for the "Quandatics Closed Deals by Products" chart: the summed
+ * line-item amount of CLOSED-WON funnels grouped by product category.
+ * Sourced from opportunity_products (the SF OpportunityLineItem import),
+ * which carries the productCategory + line totalPrice.
+ */
+export type ClosedDealsByProduct = {
+  category: string
+  amount: number
+}
+
+/**
  * Derived completion for the getting-started checklist. Seeded items (funnel
  * stages + SST tax/currency) start checked so progress shows on day one.
  */
@@ -108,6 +138,10 @@ export type DashboardData = {
    *  the "Get started" hero instead of the "all caught up" dashboard. */
   isFirstRun: boolean
   gettingStarted: GettingStarted
+  /** SF "QM Sales Report by Salesperson" — Σ estimated amount by owner×stage. */
+  salesByOwnerStage: SalesByOwnerStage[]
+  /** SF "Quandatics Closed Deals by Products" — Σ line amount by product category. */
+  closedDealsByProduct: ClosedDealsByProduct[]
 }
 
 /**
@@ -323,6 +357,65 @@ export async function getDashboardData(): Promise<DashboardData> {
       ? await pipelineFor(undefined)
       : null
 
+    // ── SF home charts (right column, "Salesperson's Funnels") ──────────────
+    // Chart 1 — "QM Sales Report by Salesperson": Σ estimated funnel amount by
+    // Funnel Owner × Sales Stage. Tenant-wide (RLS scopes to the tenant); the
+    // owner name comes from the auth schema (member → user), joined the same
+    // way listOpportunities() does. Excludes soft-deleted funnels.
+    const salesByOwnerStage: SalesByOwnerStage[] = (
+      await tx
+        .select({
+          ownerMemberId: funnels.ownerMemberId,
+          ownerName: user.name,
+          stageId: pipelineStages.id,
+          stageName: pipelineStages.name,
+          stageSort: pipelineStages.sortOrder,
+          amount: sql<string>`coalesce(sum(${funnels.estimatedAmount}), 0)`,
+        })
+        .from(funnels)
+        .innerJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
+        .leftJoin(member, eq(funnels.ownerMemberId, member.id))
+        .leftJoin(user, eq(member.userId, user.id))
+        .where(isNull(funnels.deletedAt))
+        .groupBy(
+          funnels.ownerMemberId,
+          user.name,
+          pipelineStages.id,
+          pipelineStages.name,
+          pipelineStages.sortOrder
+        )
+    ).map((r) => ({
+      ownerMemberId: r.ownerMemberId,
+      ownerName: r.ownerName ?? "Unassigned",
+      stageId: r.stageId,
+      stageName: r.stageName,
+      stageSort: r.stageSort,
+      amount: Number(r.amount),
+    }))
+
+    // Chart 2 — "Quandatics Closed Deals by Products": Σ line amount by product
+    // category for CLOSED-WON funnels. Sourced from opportunity_products (the SF
+    // OpportunityLineItem import), which is the only table carrying both a
+    // product category and a per-line amount. Reading it is RLS-scoped and does
+    // not require enabling any module (deferral is UI/automation only). Lines
+    // with no category fall under "Uncategorized".
+    const closedDealsByProduct: ClosedDealsByProduct[] = (
+      await tx
+        .select({
+          category: sql<string>`coalesce(nullif(${opportunityProducts.productCategory}, ''), 'Uncategorized')`,
+          amount: sql<string>`coalesce(sum(coalesce(${opportunityProducts.totalPrice}, 0)), 0)`,
+        })
+        .from(opportunityProducts)
+        .innerJoin(funnels, eq(opportunityProducts.funnelId, funnels.id))
+        .where(and(eq(funnels.status, "won"), isNull(funnels.deletedAt)))
+        .groupBy(
+          sql`coalesce(nullif(${opportunityProducts.productCategory}, ''), 'Uncategorized')`
+        )
+    ).map((r) => ({
+      category: r.category,
+      amount: Number(r.amount),
+    }))
+
     // Tenant-wide existence checks for first-run detection + the getting-started
     // checklist. RLS scopes each count to the active tenant. Run sequentially —
     // they share the transaction's single connection.
@@ -394,6 +487,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       canViewAll,
       isFirstRun,
       gettingStarted,
+      salesByOwnerStage,
+      closedDealsByProduct,
     }
   })
 }

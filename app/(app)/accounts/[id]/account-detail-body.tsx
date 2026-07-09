@@ -45,9 +45,14 @@ export type AccountChild = {
   accountType: string | null
 }
 
+export type AccountDetailSection = {
+  title: string
+  fields: { label: string; value: React.ReactNode }[]
+}
+
 export type AccountDetailData = {
   accountId: string
-  fields: { label: string; value: React.ReactNode }[]
+  sections: AccountDetailSection[]
   contacts: PersonRow[]
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
@@ -63,7 +68,7 @@ export type AccountDetailData = {
 export function AccountDetailBody(props: AccountDetailData) {
   const {
     accountId,
-    fields,
+    sections,
     contacts,
     opportunities,
     pipelines,
@@ -261,11 +266,16 @@ export function AccountDetailBody(props: AccountDetailData) {
               <CardTitle className="text-base">Details</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            {fields.map((d) => (
-              <Field key={d.label} label={d.label}>
-                {d.value}
-              </Field>
+          <CardContent className="grid gap-5 text-sm">
+            {sections.map((section) => (
+              <section key={section.title} className="grid gap-3">
+                <h3 className="text-sm font-semibold">{section.title}</h3>
+                {section.fields.map((d) => (
+                  <Field key={d.label} label={d.label}>
+                    {d.value}
+                  </Field>
+                ))}
+              </section>
             ))}
           </CardContent>
         </Card>

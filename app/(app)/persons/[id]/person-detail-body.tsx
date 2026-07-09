@@ -31,9 +31,14 @@ function stageKindClasses(kind: string | null): string {
   }
 }
 
+export type PersonDetailSection = {
+  title: string
+  fields: { label: string; value: React.ReactNode }[]
+}
+
 export type PersonDetailData = {
   personId: string
-  fields: { label: string; value: React.ReactNode }[]
+  sections: PersonDetailSection[]
   funnels: PersonOpportunity[]
   projects: PersonProject[]
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
@@ -44,7 +49,7 @@ export type PersonDetailData = {
  *  Funnels / Projects / Activity / Documents on the right (each top-5 + search). */
 export function PersonDetailBody({
   personId,
-  fields,
+  sections,
   funnels,
   projects,
   activity,
@@ -138,12 +143,19 @@ export function PersonDetailBody({
               <CardTitle className="text-base">Details</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            {fields.map((d) => (
-              <div key={d.label} className="grid gap-1">
-                <span className="text-xs text-muted-foreground">{d.label}</span>
-                <span className="text-sm">{d.value}</span>
-              </div>
+          <CardContent className="grid gap-5 text-sm">
+            {sections.map((section) => (
+              <section key={section.title} className="grid gap-3">
+                <h3 className="text-sm font-semibold">{section.title}</h3>
+                {section.fields.map((d) => (
+                  <div key={d.label} className="grid gap-1">
+                    <span className="text-xs text-muted-foreground">
+                      {d.label}
+                    </span>
+                    <span className="text-sm">{d.value}</span>
+                  </div>
+                ))}
+              </section>
             ))}
           </CardContent>
         </Card>

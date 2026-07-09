@@ -69,7 +69,10 @@ export default async function AccountDetailPage({
 
   const address = formatAddress(account.billingAddress as BillingAddress | null)
 
-  const detail: { label: string; value: React.ReactNode }[] = [
+  // Salesforce-named field sections (SPEC §6). Account Information groups the
+  // company/registration/owner fields; Address Information holds the billing
+  // address. Only fields already fetched are included.
+  const accountInformation: { label: string; value: React.ReactNode }[] = [
     { label: "Code", value: account.code ?? "—" },
     {
       label: "Type",
@@ -97,7 +100,7 @@ export default async function AccountDetailPage({
         ]
       : []),
     { label: "Industry", value: account.industry ?? "—" },
-    { label: "Office phone", value: account.phone ?? "—" },
+    { label: "Phone", value: account.phone ?? "—" },
     { label: "Account manager", value: ownerName ?? "—" },
     {
       label: "Registration number",
@@ -131,8 +134,16 @@ export default async function AccountDetailPage({
         "—"
       ),
     },
-    { label: "Billing address", value: address ?? "—" },
     { label: "Created", value: formatDate(account.createdAt) },
+  ]
+
+  const addressInformation: { label: string; value: React.ReactNode }[] = [
+    { label: "Billing address", value: address ?? "—" },
+  ]
+
+  const sections: { title: string; fields: { label: string; value: React.ReactNode }[] }[] = [
+    { title: "Account Information", fields: accountInformation },
+    { title: "Address Information", fields: addressInformation },
   ]
 
   return (
@@ -180,7 +191,7 @@ export default async function AccountDetailPage({
 
         <AccountDetailBody
           accountId={account.id}
-          fields={detail}
+          sections={sections}
           contacts={contacts}
           opportunities={accountOpportunities}
           pipelines={pipelines}

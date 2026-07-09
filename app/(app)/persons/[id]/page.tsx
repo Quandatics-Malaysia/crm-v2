@@ -37,20 +37,10 @@ export default async function PersonDetailPage({
     listEntityDocuments("person", id),
   ])
 
-  const detail: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Account",
-      value: person.accountId ? (
-        <Link
-          href={`/accounts/${person.accountId}`}
-          className="link"
-        >
-          {accountName ?? "—"}
-        </Link>
-      ) : (
-        "—"
-      ),
-    },
+  // Salesforce-named field section (SPEC §7): a single "Contact Information"
+  // section grouping the contact's own fields. Only fields already fetched are
+  // included.
+  const contactInformation: { label: string; value: React.ReactNode }[] = [
     { label: "Title", value: person.title ?? "—" },
     {
       label: "Email",
@@ -67,6 +57,19 @@ export default async function PersonDetailPage({
     },
     { label: "Phone", value: person.phone ?? "—" },
     {
+      label: "Account",
+      value: person.accountId ? (
+        <Link
+          href={`/accounts/${person.accountId}`}
+          className="link"
+        >
+          {accountName ?? "—"}
+        </Link>
+      ) : (
+        "—"
+      ),
+    },
+    {
       label: "Primary",
       value: person.isPrimary ? (
         <Badge variant="secondary">Primary</Badge>
@@ -75,6 +78,10 @@ export default async function PersonDetailPage({
       ),
     },
     { label: "Created", value: formatDate(person.createdAt) },
+  ]
+
+  const sections: { title: string; fields: { label: string; value: React.ReactNode }[] }[] = [
+    { title: "Contact Information", fields: contactInformation },
   ]
 
   return (
@@ -98,7 +105,7 @@ export default async function PersonDetailPage({
 
         <PersonDetailBody
           personId={id}
-          fields={detail}
+          sections={sections}
           funnels={funnels}
           projects={projects}
           activity={activity}

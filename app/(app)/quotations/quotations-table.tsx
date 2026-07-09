@@ -38,20 +38,46 @@ export function QuotationsTable({
       ),
       cell: ({ row }) => row.original.opportunityName ?? "—",
     },
+    // Salesforce Quote list surfaces the Total Excluding Tax / Tax Amount /
+    // Total Including Tax trio; we mirror it with the columns we already store
+    // (subtotal / taxTotal / total). Ref No, Synced and Line-item count have no
+    // column in our schema, so they're omitted (no schema changes).
+    {
+      accessorKey: "subtotal",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Total excl. tax" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.subtotal, row.original.currency)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "taxTotal",
+      header: ({ column }) => <SortableHeader column={column} title="Tax amount" />,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.taxTotal, row.original.currency)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "total",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Total incl. tax" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.total, row.original.currency)}
+        </span>
+      ),
+    },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => (
         <StatusBadge status={row.original.status} className="capitalize" />
-      ),
-    },
-    {
-      accessorKey: "total",
-      header: ({ column }) => <SortableHeader column={column} title="Total" />,
-      cell: ({ row }) => (
-        <span className="tabular-nums">
-          {formatMoney(row.original.total, row.original.currency)}
-        </span>
       ),
     },
     {

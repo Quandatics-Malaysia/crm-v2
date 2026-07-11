@@ -24,13 +24,11 @@ import {
   listOpportunityProjects,
   listOpportunityProducts,
   listPersonsWithAccount,
-  type OpportunityListRow,
 } from "../actions"
 import { listFunnelMilestones } from "@/app/(app)/payment-milestones/actions"
 import { buildStageGate } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "../stage-advance-dialog"
 import { StageReopenDialog } from "../stage-reopen-dialog"
-import { OpportunityForm } from "../opportunity-form"
 import { isTerminalKind, selectableTargets } from "../stage-transitions"
 import { listDealCosts } from "../cost-actions"
 import { listContractYears } from "../contract-actions"
@@ -106,6 +104,23 @@ export default async function OpportunityDetailPage({
       hasContact: !!opp.primaryPersonId,
       hasNature: projectNatureNames.length > 0,
       hasQuote: !!opp.primaryQuotationId,
+      hasVision: !!container?.vision?.trim(),
+      hasPain: !!container?.pain?.trim(),
+      hasOwnerContact: !!container?.ownerContactId,
+      hasOwnerBudgetLimit:
+        container?.ownerBudgetLimit != null && Number(container.ownerBudgetLimit) > 0,
+      hasOppEstimatedBudget:
+        container?.estimatedBudget != null && Number(container.estimatedBudget) > 0,
+      hasOppEstimatedCloseDate: !!container?.estimatedCloseDate,
+      hasValue: !!container?.value?.trim(),
+      hasPowerSponsorContact: !!container?.powerSponsorContactId,
+      hasPowerSponsorBudgetLimit:
+        container?.powerSponsorBudgetLimit != null &&
+        Number(container.powerSponsorBudgetLimit) > 0,
+      hasProcurementStage: !!opp.procurementStage?.trim(),
+      hasNegotiationDone: !!opp.negotiationDone,
+      hasNegotiationDate: !!opp.negotiationDate,
+      hasExpectedInvoice: !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
     },
     (opp.customFields ?? {}) as Record<string, unknown>,
     customFunnelFields
@@ -131,40 +146,9 @@ export default async function OpportunityDetailPage({
   const canUpdate = ctx.can(PERMISSIONS.OPPORTUNITY_UPDATE)
   const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
   const canCreateQuote = ctx.can(PERMISSIONS.QUOTATION_CREATE)
+  const canManageMilestones = ctx.can(PERMISSIONS.PAYMENT_MILESTONE_MANAGE)
   const canCreateProject =
     isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE)
-
-  // Build the list-shaped row the edit form expects from the detail payload.
-  const editRow: OpportunityListRow = {
-    id: opp.id,
-    name: opp.name,
-    accountId: opp.accountId,
-    accountName,
-    amount: opp.amount,
-    estimatedAmount: opp.estimatedAmount,
-    recognizedPercent: opp.recognizedPercent,
-    description: opp.description,
-    projectYear: opp.projectYear,
-    isIntercompany: opp.isIntercompany,
-    parties: detail.parties,
-    currency: opp.currency,
-    status: opp.status,
-    expectedCloseDate: opp.expectedCloseDate,
-    ownerMemberId: opp.ownerMemberId,
-    ownerName,
-    stageId: stage.id,
-    stageName: stage.name,
-    stageKind: stage.kind,
-    stageProbability: stage.probability,
-    stageSortOrder: stage.sortOrder,
-    pipelineId: opp.pipelineId,
-    pipelineIsDefault:
-      pipelines.find((f) => f.id === opp.pipelineId)?.isDefault ?? false,
-    primaryQuotationId: opp.primaryQuotationId,
-    projectNatureCode: opp.projectNatureCode,
-    projectNatures: opp.projectNatures,
-    customFields: opp.customFields ?? {},
-  }
 
   return (
     <>
@@ -207,23 +191,6 @@ export default async function OpportunityDetailPage({
                 Create project
               </Button>
             ) : null}
-            {canUpdate ? (
-              <OpportunityForm
-                mode="edit"
-                accounts={accounts}
-                persons={persons}
-                members={members}
-                pipelines={pipelines}
-                projectNatures={projectNatures}
-                customFieldDefs={customFunnelFields}
-                entityOptions={entities}
-                financeEnabled={isModuleEnabled("finance")}
-                currencies={currencies}
-                defaultOwnerMemberId={ctx.memberId}
-                opportunity={editRow}
-                trigger={<Button variant="outline">Edit</Button>}
-              />
-            ) : null}
             {pendingApproval ? (
               <Button
                 variant="outline"
@@ -252,6 +219,8 @@ export default async function OpportunityDetailPage({
                 gate={gate}
                 customFieldDefs={customFunnelFields}
                 customValues={(opp.customFields ?? {}) as Record<string, string>}
+                opportunityId={container?.id}
+                opportunityName={container?.name}
               />
             )}
           </div>
@@ -279,26 +248,41 @@ export default async function OpportunityDetailPage({
           currentStageId={opp.currentStageId}
           stages={detail.funnelStagesList}
           interactive={canAdvance && !terminal && !pendingApproval}
+          name={opp.name}
           accountId={opp.accountId}
           accountName={accountName}
+          accountOptions={accounts}
           container={container}
+          ownerMemberId={opp.ownerMemberId}
           ownerName={ownerName}
+          members={members}
           personId={opp.primaryPersonId}
           personName={personName}
+          persons={persons}
           quotedAmount={opp.amount}
           estimatedAmount={opp.estimatedAmount}
           recognizedPercent={opp.recognizedPercent}
           currency={opp.currency}
+          currencies={currencies}
+          primaryQuotationId={opp.primaryQuotationId}
           quoteNumber={detail.quoteNumber}
           status={opp.status}
           projectNatureName={projectNatureName}
+          projectNatureCodes={opp.projectNatures ?? (opp.projectNatureCode ? [opp.projectNatureCode] : [])}
+          projectNatureCatalog={projectNatures}
           funnelName={pipelines.find((f) => f.id === opp.pipelineId)?.name ?? null}
           description={opp.description}
           projectYear={opp.projectYear}
           isIntercompany={opp.isIntercompany}
           parties={detail.parties}
           partnerResponses={detail.partnerResponses}
+          entityOptions={entities}
           expectedCloseDate={opp.expectedCloseDate}
+          procurementStage={opp.procurementStage}
+          negotiationDone={opp.negotiationDone}
+          negotiationDate={opp.negotiationDate}
+          expectedInvoiceMonth={opp.expectedInvoiceMonth}
+          expectedInvoiceYear={opp.expectedInvoiceYear}
           createdAt={opp.createdAt}
           stageName={stage.name}
           stageKind={stage.kind}
@@ -312,6 +296,7 @@ export default async function OpportunityDetailPage({
           canManageCosts={canUpdate}
           canCreateQuote={canCreateQuote}
           canCreateProject={canCreateProject}
+          canEdit={canUpdate}
           financeEnabled={isModuleEnabled("finance")}
           projectsEnabled={isModuleEnabled("projects")}
           contractYears={contractYears}
@@ -322,6 +307,7 @@ export default async function OpportunityDetailPage({
           activity={activity}
           documents={documents}
           milestones={milestones}
+          canManageMilestones={canManageMilestones}
         />
 
         <div>

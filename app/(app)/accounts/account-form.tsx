@@ -226,46 +226,42 @@ export function AccountForm({
   )
 
   async function onSubmit(values: FormValues) {
-    try {
-      const billingAddress: BillingAddress = {
-        line1: values.line1 || null,
-        line2: values.line2 || null,
-        city: values.city || null,
-        state: values.state || null,
-        postcode: values.postcode || null,
-        country: values.country || null,
-      }
-      const payload = {
-        name: values.name,
-        code: values.code || null,
-        registrationNumber: values.registrationNumber || null,
-        parentAccountId:
-          values.parentAccountId && values.parentAccountId !== NONE
-            ? values.parentAccountId
-            : null,
-        accountType: values.accountType,
-        endUserAccountId:
-          values.accountType === "reseller"
-            ? values.endUserAccountId || null
-            : null,
-        industry: values.industry || null,
-        website: values.website || null,
-        phone: values.phone || null,
-        billingAddress,
-      }
-      const res = editing
-        ? await updateAccount(account!.id, payload)
-        : await createAccount(payload)
-      if (!res.ok) {
-        showActionError(res)
-        return
-      }
-      toast.success(editing ? "Account updated" : "Account created")
-      setOpen(false)
-      onSaved?.()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong")
+    const billingAddress: BillingAddress = {
+      line1: values.line1 || null,
+      line2: values.line2 || null,
+      city: values.city || null,
+      state: values.state || null,
+      postcode: values.postcode || null,
+      country: values.country || null,
     }
+    const payload = {
+      name: values.name,
+      code: values.code || null,
+      registrationNumber: values.registrationNumber || null,
+      parentAccountId:
+        values.parentAccountId && values.parentAccountId !== NONE
+          ? values.parentAccountId
+          : null,
+      accountType: values.accountType,
+      endUserAccountId:
+        values.accountType === "reseller"
+          ? values.endUserAccountId || null
+          : null,
+      industry: values.industry || null,
+      website: values.website || null,
+      phone: values.phone || null,
+      billingAddress,
+    }
+    const res = editing
+      ? await updateAccount(account!.id, payload)
+      : await createAccount(payload)
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    toast.success(editing ? "Account updated" : "Account created")
+    setOpen(false)
+    onSaved?.()
   }
 
   return (

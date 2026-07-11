@@ -253,7 +253,7 @@ export function RolesManager({
             </div>
           ) : null}
           <Tabs value={area} onValueChange={setArea}>
-            <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
+            <TabsList>
               {VISIBLE_AREAS.map((a) => (
                 <TabsTrigger key={a.id} value={a.id}>
                   {a.label}

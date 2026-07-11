@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,30 +13,21 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
-import { cn } from "@/lib/utils"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
+import { showActionError } from "@/lib/show-action-error"
+import { StageBadge } from "@/app/(app)/funnel/stage-badge"
 import { formatMoney } from "@/lib/format"
 import { AccountContacts } from "./account-contacts"
-import type {
-  AccountFunnelItem,
-  AccountOpportunityItem,
-  AccountProjectItem,
-  AccountQuotationItem,
-  PersonRow,
+import {
+  updateAccount,
+  type AccountFunnelItem,
+  type AccountInput,
+  type AccountOpportunityItem,
+  type AccountProjectItem,
+  type AccountQuotationItem,
+  type PersonRow,
 } from "../actions"
-
-/** Tailwind class set per stage kind. Kind drives semantics, never the label. */
-function stageKindClasses(kind: string): string {
-  switch (kind) {
-    case "WON":
-      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-    case "LOST":
-      return "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
-    case "PARKED":
-      return "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-    default:
-      return "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
-  }
-}
 
 // Status pills render via the app-wide <StatusBadge> tone map.
 
@@ -45,14 +37,23 @@ export type AccountChild = {
   accountType: string | null
 }
 
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type AccountEditKey = "name" | "industry" | "phone" | "website"
+
 export type AccountDetailSection = {
   title: string
-  fields: { label: string; value: React.ReactNode }[]
+  fields: { label: string; value: React.ReactNode; editKey?: AccountEditKey }[]
 }
 
 export type AccountDetailData = {
   accountId: string
   sections: AccountDetailSection[]
+  /** Raw field values — updateAccount is full-replace, so each inline save
+   *  merges the one edited field into this snapshot. */
+  record: AccountInput
+  /** Gates every inline editor (ACCOUNT_UPDATE, resolved server-side). */
+  canEdit: boolean
+  industries: string[]
   contacts: PersonRow[]
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
@@ -69,6 +70,9 @@ export function AccountDetailBody(props: AccountDetailData) {
   const {
     accountId,
     sections,
+    record,
+    canEdit,
+    industries,
     contacts,
     opportunities,
     pipelines,
@@ -80,7 +84,22 @@ export function AccountDetailBody(props: AccountDetailData) {
   } = props
 
   const [tab, setTab] = React.useState("contacts")
+  const router = useRouter()
   const revalidate = `/accounts/${accountId}`
+
+  async function saveField(patch: Partial<AccountInput>) {
+    const res = await updateAccount(accountId, { ...record, ...patch })
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    router.refresh()
+  }
+
+  const industryOptions = React.useMemo(
+    () => industries.map((i) => ({ value: i, label: i })),
+    [industries]
+  )
 
   const opportunityColumns = React.useMemo<ColumnDef<AccountOpportunityItem>[]>(
     () => [
@@ -142,12 +161,11 @@ export function AccountDetailBody(props: AccountDetailData) {
         id: "stage",
         header: "Stage",
         cell: ({ row }) => (
-          <Badge className={cn(stageKindClasses(row.original.stageKind))}>
-            <span className="font-mono uppercase opacity-70">
-              {row.original.stageCode}
-            </span>
-            <span>{row.original.stageName}</span>
-          </Badge>
+          <StageBadge
+            kind={row.original.stageKind}
+            code={row.original.stageCode}
+            name={row.original.stageName}
+          />
         ),
       },
       {
@@ -255,7 +273,7 @@ export function AccountDetailBody(props: AccountDetailData) {
   )
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — account highlights + related quick links */}
       <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
         <Card>
@@ -270,11 +288,40 @@ export function AccountDetailBody(props: AccountDetailData) {
             {sections.map((section) => (
               <section key={section.title} className="grid gap-3">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
-                {section.fields.map((d) => (
-                  <Field key={d.label} label={d.label}>
-                    {d.value}
-                  </Field>
-                ))}
+                {section.fields.map((d) => {
+                  const key = canEdit ? d.editKey : undefined
+                  return (
+                    <Field key={d.label} label={d.label}>
+                      {!key ? (
+                        d.value
+                      ) : key === "industry" ? (
+                        <InlineCombobox
+                          value={record.industry ?? ""}
+                          display={record.industry || "—"}
+                          options={industryOptions}
+                          onSave={(next) => saveField({ industry: next || null })}
+                          searchPlaceholder="Search industries…"
+                          emptyMessage="No industries configured."
+                          title="Click to change industry"
+                        />
+                      ) : (
+                        <InlineValue
+                          value={record[key] ?? ""}
+                          display={record[key] || "—"}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          onSave={(next) => {
+                            // Name is required — ignore an emptied draft.
+                            if (key === "name") {
+                              if (!next.trim()) return
+                              return saveField({ name: next })
+                            }
+                            return saveField({ [key]: next || null })
+                          }}
+                        />
+                      )}
+                    </Field>
+                  )
+                })}
               </section>
             ))}
           </CardContent>
@@ -304,7 +351,7 @@ export function AccountDetailBody(props: AccountDetailData) {
         <Card>
           <CardContent className="min-h-[26rem] pt-6">
             <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
+              <TabsList>
                 <TabsTrigger value="contacts">
                   Contacts
                   <Badge variant="secondary" className="ml-1.5">

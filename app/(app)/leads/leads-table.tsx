@@ -42,17 +42,11 @@ import { formatDate } from "@/lib/format"
 import { useOpenOnNewParam } from "@/hooks/use-open-on-new-param"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type {
-  Option,
-  FunnelWithStages,
-  MemberOption,
-  CountryOption,
-} from "@/lib/lookups"
+import type { FunnelWithStages, MemberOption } from "@/lib/lookups"
 
 import { Combobox } from "@/components/ui/combobox"
 import { StatusBadge } from "@/components/status-badge"
 import { LeadForm } from "./lead-form"
-import { ConvertDialog } from "./convert-dialog"
 import {
   createLead,
   updateLead,
@@ -68,19 +62,15 @@ import {
 
 export function LeadsTable({
   data,
-  accountOptions,
   pipelines,
   members,
-  countries = [],
   leadSources = [],
   lossReasons = [],
   phonePrefix = "",
 }: {
   data: Lead[]
-  accountOptions: Option[]
   pipelines: FunnelWithStages[]
   members: MemberOption[]
-  countries?: CountryOption[]
   /** Tenant picklists (Settings); empty = free-text fallbacks. */
   leadSources?: string[]
   lossReasons?: string[]
@@ -105,7 +95,6 @@ export function LeadsTable({
   // Auto-open from the header "+ New" quick-create deep link (/leads?new=1).
   useOpenOnNewParam(() => setNewOpen(true))
   const [editLead, setEditLead] = React.useState<Lead | null>(null)
-  const [convertLead, setConvertLead] = React.useState<Lead | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<Lead | null>(null)
   const [disqualifyTarget, setDisqualifyTarget] = React.useState<Lead | null>(null)
 
@@ -344,7 +333,8 @@ export function LeadsTable({
                   {canConvert ? (
                     <DropdownMenuItem
                       disabled={isConverted}
-                      onClick={() => setConvertLead(lead)}
+                      nativeButton={false}
+                      render={<Link href={`/leads/${lead.id}/convert`} />}
                     >
                       Convert
                     </DropdownMenuItem>
@@ -444,17 +434,6 @@ export function LeadsTable({
           ) : null}
         </DialogContent>
       </Dialog>
-
-      {/* Convert dialog */}
-      {convertLead ? (
-        <ConvertDialog
-          lead={convertLead}
-          open={!!convertLead}
-          onOpenChange={(o) => !o && setConvertLead(null)}
-          accountOptions={accountOptions}
-          countries={countries}
-        />
-      ) : null}
 
       {/* Disqualify dialog */}
       {disqualifyTarget ? (

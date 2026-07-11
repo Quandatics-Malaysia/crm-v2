@@ -48,6 +48,14 @@ async function main() {
     .insert(organization)
     .values({ id: TENANT_ID, name: TENANT_NAME, slug: "demo", createdAt: new Date() })
     .onConflictDoNothing()
+  // ponytail: onConflictDoNothing means these picklist defaults only ever
+  // apply to a brand-new tenant row — an existing row's projectNatures/
+  // productCodes/industries never get backfilled on re-seed (same shape as
+  // the pipeline_stages.required_fields bug fixed above). Not fixed here
+  // since these are meant to be tenant-editable via Settings and there's no
+  // safe "still at default" signal to backfill against. If a future change
+  // to these defaults needs to reach existing tenants, add a targeted
+  // UPDATE ... WHERE <column> = <old literal default> here.
   await db
     .insert(tenantSettings)
     .values({
@@ -55,12 +63,11 @@ async function main() {
       allowPasswordLogin: true,
       entityCode: "DEMO",
       projectNatures: [
-        { code: "CONSULT", name: "Consulting" },
-        { code: "IMPL", name: "Implementation" },
-        { code: "MSP", name: "Managed Services" },
-        { code: "WEB", name: "Web" },
-        { code: "INFRA", name: "Infrastructure" },
-        { code: "SUPP", name: "Support" },
+        { code: "L", name: "License" },
+        { code: "H", name: "Hardware" },
+        { code: "PS", name: "Professional Services" },
+        { code: "T", name: "Training" },
+        { code: "M", name: "Mixed" },
       ],
       productCodes: [
         { code: "COACHING", name: "Coaching" },
@@ -136,8 +143,37 @@ async function main() {
       .values({ tenantId: TENANT_ID, name: "Sales Pipeline", isDefault: true, isActive: true })
       .returning()
   }
+  // Entry requirements matching the ACTIVE Salesforce validation rules only
+  // (Sales_Stage_to_3B and Sales_Stage_to_Closed_Won are "Not Checked" —
+  // inactive — in the live org, so they stay unrequired here too).
+  const STAGE_REQUIRED_FIELDS: Partial<Record<string, string[]>> = {
+    "0e": ["vision"],
+    "1d": [
+      "vision",
+      "objective",
+      "ownerBudgetLimit",
+      "oppEstimatedBudget",
+      "oppEstimatedCloseDate",
+      "ownerContact",
+    ],
+    "4a": [
+      "vision",
+      "objective",
+      "ownerBudgetLimit",
+      "oppEstimatedBudget",
+      "oppEstimatedCloseDate",
+      "ownerContact",
+      "value",
+      "procurementStage",
+      "powerSponsorContact",
+      "powerSponsorBudgetLimit",
+      "negotiationDone",
+      "negotiationDate",
+      "expectedInvoice",
+    ],
+  }
   const existingStages = await db
-    .select({ id: pipelineStages.id })
+    .select({ id: pipelineStages.id, code: pipelineStages.code, requiredFields: pipelineStages.requiredFields })
     .from(pipelineStages)
     .where(eq(pipelineStages.pipelineId, funnel.id))
   if (existingStages.length === 0) {
@@ -152,9 +188,23 @@ async function main() {
         sortOrder: s.sortOrder,
         requiresApprovalToEnter: s.requiresApprovalToEnter,
         includeInForecast: s.includeInForecast,
-        requiredFields: [],
+        requiredFields: STAGE_REQUIRED_FIELDS[s.code] ?? [],
       }))
     )
+  } else {
+    // Backfill only — stages seeded before this field existed are stuck at
+    // its column default ([]), silently disabling the gate. Never touch a
+    // stage whose requiredFields is non-empty: that's a tenant customization
+    // made in Settings, and re-running seed must not clobber it.
+    for (const stage of existingStages) {
+      const defaults = STAGE_REQUIRED_FIELDS[stage.code]
+      if (defaults && (stage.requiredFields?.length ?? 0) === 0) {
+        await db
+          .update(pipelineStages)
+          .set({ requiredFields: defaults })
+          .where(eq(pipelineStages.id, stage.id))
+      }
+    }
   }
 
   // 6. default tax setting

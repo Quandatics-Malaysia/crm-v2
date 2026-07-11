@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select"
 import { StatusBadge } from "@/components/status-badge"
 import { formatMoney } from "@/lib/format"
+import { showActionError } from "@/lib/show-action-error"
+import type { ActionResult } from "@/lib/action-result"
 import {
   createContractYear,
   deleteContractYear,
@@ -61,11 +63,11 @@ export function ContractPanel({
     .filter((y) => y.status === "invoiced")
     .reduce((s, y) => s + Number(y.amount), 0)
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) {
+  function run(fn: () => Promise<ActionResult<unknown>>, ok?: string) {
     startTransition(async () => {
       const res = await fn()
       if (!res.ok) {
-        toast.error(res.error ?? "Something went wrong")
+        showActionError(res)
         return
       }
       if (ok) toast.success(ok)

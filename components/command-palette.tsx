@@ -146,23 +146,34 @@ export function HeaderActions() {
     [perms]
   )
 
+  // Resets the query on close so the next open starts clean.
+  function changeOpen(o: boolean) {
+    if (!o) {
+      setQuery("")
+      setHits([])
+    }
+    setOpen(o)
+  }
+
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()
-        setOpen((o) => !o)
+        changeOpen(!open)
       }
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [])
+  })
+
+  function changeQuery(v: string) {
+    setQuery(v)
+    if (v.trim().length < 2) setHits([])
+  }
 
   React.useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) {
-      setHits([])
-      return
-    }
+    if (q.length < 2) return
     const id = ++reqId.current
     const t = setTimeout(() => {
       startTransition(async () => {
@@ -174,16 +185,8 @@ export function HeaderActions() {
     return () => clearTimeout(t)
   }, [query])
 
-  // Reset the query when the dialog closes so the next open starts clean.
-  React.useEffect(() => {
-    if (!open) {
-      setQuery("")
-      setHits([])
-    }
-  }, [open])
-
   function go(href: string) {
-    setOpen(false)
+    changeOpen(false)
     router.push(href)
   }
 
@@ -253,12 +256,12 @@ export function HeaderActions() {
         </DropdownMenu>
       ) : null}
 
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog open={open} onOpenChange={changeOpen}>
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search leads, accounts, contacts, Funnels…"
             value={query}
-            onValueChange={setQuery}
+            onValueChange={changeQuery}
             aria-label="Search records and pages"
           />
           {/* Off-screen status so screen readers hear search progress/results. */}

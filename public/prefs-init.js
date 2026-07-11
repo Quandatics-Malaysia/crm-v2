@@ -13,5 +13,5 @@
     if (s === "large") document.documentElement.classList.add("text-scale-lg")
     else if (s === "xlarge")
       document.documentElement.classList.add("text-scale-xl")
-  } catch (e) {}
+  } catch {}
 })()

@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatMoney } from "@/lib/format"
+import { showActionError } from "@/lib/show-action-error"
+import type { ActionResult } from "@/lib/action-result"
 import { cn } from "@/lib/utils"
 import {
   createDealCost,
@@ -83,11 +85,11 @@ export function CostsPanel({
   const margin = revenue - ourCost
   const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) {
+  function run(fn: () => Promise<ActionResult<unknown>>, ok?: string) {
     startTransition(async () => {
       const res = await fn()
       if (!res.ok) {
-        toast.error(res.error ?? "Something went wrong")
+        showActionError(res)
         return
       }
       if (ok) toast.success(ok)

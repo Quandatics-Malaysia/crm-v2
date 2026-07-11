@@ -100,11 +100,12 @@ export function DocDetailBody({
     (k) => FINANCE_KINDS[k].parents.includes(doc.kind as FinanceDocKind)
   )
   const [childKind, setChildKind] = React.useState<FinanceDocKind | null>(null)
+  const [tab, setTab] = React.useState("documents")
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_1fr]">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left: facts + actions */}
-      <div className="grid h-fit gap-6">
+      <div className="grid h-fit gap-4">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="font-mono">{doc.number}</CardTitle>
@@ -304,30 +305,36 @@ export function DocDetailBody({
       </div>
 
       {/* Right: documents + activity */}
-      <Tabs defaultValue="documents" className="min-w-0">
-        <TabsList>
-          <TabsTrigger value="documents">
-            Documents{doc.attachCount ? ` (${doc.attachCount})` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
-        </TabsList>
-        <TabsContent value="documents" className="mt-4">
-          <DocumentsSection
-            uploadType="finance_doc"
-            uploadId={doc.id}
-            documents={documents}
-            revalidate={revalidate}
-          />
-        </TabsContent>
-        <TabsContent value="activity" className="mt-4">
-          <ActivityTimeline
-            entityType="finance_doc"
-            entityId={doc.id}
-            items={activity}
-            revalidate={revalidate}
-          />
-        </TabsContent>
-      </Tabs>
+      <div className="lg:col-span-2">
+        <Card>
+          <CardContent className="min-h-[26rem] pt-6">
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList>
+                <TabsTrigger value="documents">
+                  Documents{doc.attachCount ? ` (${doc.attachCount})` : ""}
+                </TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+              <TabsContent value="documents" className="mt-4">
+                <DocumentsSection
+                  uploadType="finance_doc"
+                  uploadId={doc.id}
+                  documents={documents}
+                  revalidate={revalidate}
+                />
+              </TabsContent>
+              <TabsContent value="activity" className="mt-4">
+                <ActivityTimeline
+                  entityType="finance_doc"
+                  entityId={doc.id}
+                  items={activity}
+                  revalidate={revalidate}
+                />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

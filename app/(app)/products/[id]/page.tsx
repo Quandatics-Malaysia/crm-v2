@@ -64,6 +64,8 @@ export default async function ProductDetailPage({
           codeName={codeName}
           usage={usage}
           deals={deals}
+          productCodes={productCodes}
+          canEdit={canUpdate}
         />
       </PageBody>
     </>

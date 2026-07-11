@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -17,28 +18,17 @@ import {
 } from "@/components/ui/dialog"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { Option, CountryOption } from "@/lib/lookups"
-import { ConvertDialog } from "../convert-dialog"
 import { disqualifyLead, type Lead } from "../actions"
 
 /**
  * Primary Convert / Disqualify actions for the lead detail header. The decision
  * is usually made on this page, so the affordances live here (not only in the
- * list kebab). Convert reuses the shared ConvertDialog.
+ * list kebab). Convert navigates to the full-page conversion flow.
  */
-export function LeadDetailActions({
-  lead,
-  accountOptions,
-  countries = [],
-}: {
-  lead: Lead
-  accountOptions: Option[]
-  countries?: CountryOption[]
-}) {
+export function LeadDetailActions({ lead }: { lead: Lead }) {
   const perms = usePermissions()
   const canConvert = perms.has(PERMISSIONS.LEAD_CONVERT)
   const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
-  const [convertOpen, setConvertOpen] = React.useState(false)
   const [disqualifyOpen, setDisqualifyOpen] = React.useState(false)
 
   const isConverted = lead.status === "converted"
@@ -50,7 +40,8 @@ export function LeadDetailActions({
         <Button
           size="sm"
           disabled={isConverted}
-          onClick={() => setConvertOpen(true)}
+          nativeButton={false}
+          render={<Link href={`/leads/${lead.id}/convert`} />}
         >
           Convert
         </Button>
@@ -64,16 +55,6 @@ export function LeadDetailActions({
         >
           Disqualify
         </Button>
-      ) : null}
-
-      {convertOpen ? (
-        <ConvertDialog
-          lead={lead}
-          open={convertOpen}
-          onOpenChange={setConvertOpen}
-          accountOptions={accountOptions}
-          countries={countries}
-        />
       ) : null}
 
       {disqualifyOpen ? (

@@ -1,10 +1,8 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import {
-  listAccountOptions,
   listFunnelsWithStages,
   listMembers,
-  listCountries,
   listLeadSources,
   listLossReasons,
   getFormPresets,
@@ -13,25 +11,15 @@ import { listLeads } from "./actions"
 import { LeadsTable } from "./leads-table"
 
 export default async function LeadsPage() {
-  const [
-    rows,
-    accountOptions,
-    pipelines,
-    members,
-    countries,
-    leadSources,
-    lossReasons,
-    presets,
-  ] = await Promise.all([
-    listLeads(),
-    listAccountOptions(),
-    listFunnelsWithStages(),
-    listMembers(),
-    listCountries(),
-    listLeadSources(),
-    listLossReasons(),
-    getFormPresets(),
-  ])
+  const [rows, pipelines, members, leadSources, lossReasons, presets] =
+    await Promise.all([
+      listLeads(),
+      listFunnelsWithStages(),
+      listMembers(),
+      listLeadSources(),
+      listLossReasons(),
+      getFormPresets(),
+    ])
 
   return (
     <>
@@ -39,10 +27,8 @@ export default async function LeadsPage() {
       <PageBody>
         <LeadsTable
           data={rows}
-          accountOptions={accountOptions}
           pipelines={pipelines}
           members={members}
-          countries={countries}
           leadSources={leadSources}
           lossReasons={lossReasons}
           phonePrefix={presets.phonePrefix}

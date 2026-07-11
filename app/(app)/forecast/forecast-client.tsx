@@ -18,20 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { formatMoney, formatDate, formatPercent } from "@/lib/format"
+import { formatMoney, formatDate, formatMonth, formatPercent } from "@/lib/format"
 import { ForecastCharts } from "./forecast-charts"
 import type { ForecastRow, PipelineSummaryRow } from "./actions"
 
-const MONTH_FMT = new Intl.DateTimeFormat("en-MY", {
-  month: "short",
-  year: "numeric",
-})
-
 function monthLabel(value: string | null): string {
-  if (!value) return "Unscheduled"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "Unscheduled"
-  return MONTH_FMT.format(d)
+  const label = formatMonth(value)
+  return label === "—" ? "Unscheduled" : label
 }
 
 const columns: ColumnDef<ForecastRow>[] = [

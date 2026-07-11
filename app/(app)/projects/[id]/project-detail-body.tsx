@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,14 +9,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import { InlineValue } from "@/components/inline-value"
+import { showActionError } from "@/lib/show-action-error"
+import { formatDate } from "@/lib/format"
 import { ProjectSalesOrders } from "@/app/(app)/sales-orders/project-sales-orders"
+import { updateProject, type ProjectUpdateInput } from "../actions"
 import { MilestonesPanel } from "./milestones-panel"
 import { BillingPanel } from "./billing-panel"
 import type { ProjectBillingSummary } from "@/app/(app)/billing/actions"
 
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type ProjectEditKey = "name" | "startDate"
+
 export type ProjectDetailData = {
   projectId: string
-  fields: { label: string; value: React.ReactNode }[]
+  fields: { label: string; value: React.ReactNode; editKey?: ProjectEditKey }[]
+  /** Raw values behind the inline-editable fields (updateProject is patch-style). */
+  record: { name: string; startDate: string | null }
   notes: string | null
   milestones: React.ComponentProps<typeof MilestonesPanel>["milestones"]
   projectValue: string | null
@@ -38,6 +48,7 @@ export type ProjectDetailData = {
 export function ProjectDetailBody({
   projectId,
   fields,
+  record,
   notes,
   milestones,
   projectValue,
@@ -53,10 +64,20 @@ export function ProjectDetailBody({
   canManageFinance = false,
 }: ProjectDetailData) {
   const [tab, setTab] = React.useState("milestones")
+  const router = useRouter()
   const revalidate = `/projects/${projectId}`
 
+  async function saveField(patch: ProjectUpdateInput) {
+    const res = await updateProject(projectId, patch)
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    router.refresh()
+  }
+
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — project details */}
       <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
         <Card>
@@ -68,12 +89,38 @@ export function ProjectDetailBody({
             </div>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm">
-            {fields.map((d) => (
-              <div key={d.label} className="grid gap-1">
-                <span className="text-xs text-muted-foreground">{d.label}</span>
-                <span className="text-sm">{d.value}</span>
-              </div>
-            ))}
+            {fields.map((d) => {
+              const key = canManage ? d.editKey : undefined
+              return (
+                <div key={d.label} className="grid gap-1">
+                  <span className="text-xs text-muted-foreground">{d.label}</span>
+                  <span className="text-sm">
+                    {!key ? (
+                      d.value
+                    ) : key === "startDate" ? (
+                      <InlineValue
+                        value={record.startDate ?? ""}
+                        display={formatDate(record.startDate)}
+                        formatDraft={(v) => (v ? formatDate(v) : "—")}
+                        type="date"
+                        title="Click to edit start date"
+                        onSave={(next) => saveField({ startDate: next || null })}
+                      />
+                    ) : (
+                      <InlineValue
+                        value={record.name}
+                        display={record.name}
+                        title="Click to edit name"
+                        onSave={(next) => {
+                          if (!next.trim()) return
+                          return saveField({ name: next })
+                        }}
+                      />
+                    )}
+                  </span>
+                </div>
+              )
+            })}
           </CardContent>
         </Card>
 
@@ -113,7 +160,7 @@ export function ProjectDetailBody({
         <Card>
           <CardContent className="min-h-[26rem] pt-6">
             <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="flex-wrap">
+              <TabsList>
                 <TabsTrigger value="milestones">
                   Milestones
                   <Badge variant="secondary" className="ml-1.5">{milestones.length}</Badge>

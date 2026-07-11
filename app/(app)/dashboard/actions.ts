@@ -93,6 +93,16 @@ export type ClosedDealsByProduct = {
 }
 
 /**
+ * One bar for the "Sales Activity This Year" chart: count of activities
+ * logged per calendar month (Jan…current month), tenant-wide.
+ */
+export type SalesActivityMonth = {
+  /** 1–12 */
+  month: number
+  count: number
+}
+
+/**
  * Derived completion for the getting-started checklist. Seeded items (funnel
  * stages + SST tax/currency) start checked so progress shows on day one.
  */
@@ -142,6 +152,8 @@ export type DashboardData = {
   salesByOwnerStage: SalesByOwnerStage[]
   /** SF "Quandatics Closed Deals by Products" — Σ line amount by product category. */
   closedDealsByProduct: ClosedDealsByProduct[]
+  /** SF "Sales Activity This Year" — activity count by month. */
+  salesActivityByMonth: SalesActivityMonth[]
 }
 
 /**
@@ -416,6 +428,25 @@ export async function getDashboardData(): Promise<DashboardData> {
       amount: Number(r.amount),
     }))
 
+    // Chart 3 — "Sales Activity This Year": count of activities logged per
+    // calendar month, tenant-wide (RLS scopes to the tenant). Left column
+    // ("Salesperson's Activity") counterpart to the two funnel charts above.
+    const salesActivityByMonth: SalesActivityMonth[] = (
+      await tx
+        .select({
+          month: sql<number>`extract(month from ${activities.occurredAt})`,
+          count: sql<string>`count(*)`,
+        })
+        .from(activities)
+        .where(
+          sql`extract(year from ${activities.occurredAt}) = extract(year from now())`
+        )
+        .groupBy(sql`extract(month from ${activities.occurredAt})`)
+    ).map((r) => ({
+      month: Number(r.month),
+      count: Number(r.count),
+    }))
+
     // Tenant-wide existence checks for first-run detection + the getting-started
     // checklist. RLS scopes each count to the active tenant. Run sequentially —
     // they share the transaction's single connection.
@@ -489,6 +520,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       gettingStarted,
       salesByOwnerStage,
       closedDealsByProduct,
+      salesActivityByMonth,
     }
   })
 }

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { formatMoney } from "@/lib/format"
+import { listMilestoneFinanceDocs } from "@/app/(app)/billing/actions"
 import { getPaymentMilestone } from "../actions"
 import { PaymentMilestoneDetailBody } from "../payment-milestone-detail-body"
 
@@ -12,7 +13,11 @@ export default async function PaymentMilestoneDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const milestone = await getPaymentMilestone(id)
+  const [milestone, financeDocs] = await Promise.all([
+    getPaymentMilestone(id),
+    // Empty when the finance module is off (or user lacks finance.view).
+    listMilestoneFinanceDocs(id).catch(() => []),
+  ])
   if (!milestone) notFound()
 
   return (
@@ -36,7 +41,10 @@ export default async function PaymentMilestoneDetailPage({
           </div>
         </div>
 
-        <PaymentMilestoneDetailBody milestone={milestone} />
+        <PaymentMilestoneDetailBody
+          milestone={milestone}
+          financeDocs={financeDocs}
+        />
       </PageBody>
     </>
   )

@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
@@ -40,13 +40,13 @@ import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import {
   deriveOriginRecognizedPercent,
   validatePartyShares,
-  type PartyShare,
 } from "@/lib/interco-share"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
 import { isModuleEnabled } from "@/lib/modules"
 import {
   createOpportunityContainer,
   recomputeOpportunityTotal,
+  pickNature,
 } from "@/server/services/opportunity-container"
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
 import { runAction, type ActionResult } from "@/lib/action-result"
@@ -225,6 +225,12 @@ export type OpportunityInput = {
   projectNatures?: string[] | null
   /** Tenant custom field values, keyed by the field key (cf_…). */
   customFields?: Record<string, string> | null
+  /** Commit (4A) gate fields — see the SF Sales_Stage_to_4A validation rule. */
+  procurementStage?: string | null
+  negotiationDone?: boolean
+  negotiationDate?: string | null
+  expectedInvoiceMonth?: string | null
+  expectedInvoiceYear?: number | null
 }
 
 /**
@@ -338,8 +344,8 @@ export type OpportunityDetail = {
   }[]
   opportunity: typeof funnels.$inferSelect
   accountName: string
-  /** Parent Opportunity container. */
-  container: { id: string; code: string; name: string } | null
+  /** Parent Opportunity container (full row — SF-parity gate fields included). */
+  container: typeof opportunities.$inferSelect | null
   personName: string | null
   ownerName: string | null
   stage: typeof pipelineStages.$inferSelect
@@ -391,8 +397,10 @@ export async function getOpportunity(
       .limit(1)
 
     // Parent Opportunity container (Salesforce-style — funnel belongs to one).
+    // Full row: the SF-parity stage gate reads the container's live Vision /
+    // Pain / Value / Owner+Power-Sponsor Contact/Budget fields client-side too.
     const [container] = await tx
-      .select({ id: opportunities.id, code: opportunities.code, name: opportunities.name })
+      .select()
       .from(opportunities)
       .where(eq(opportunities.id, opp.opportunityId))
       .limit(1)
@@ -575,6 +583,20 @@ export async function createOpportunity(
       if (stage.pipelineId !== input.pipelineId)
         throw new Error("Stage does not belong to the selected funnel")
 
+      // SF "Only_0E_During_Funnel_Creation": a new funnel must start at its
+      // pipeline's first OPEN-kind stage — can't be created directly at a
+      // later stage (or a terminal one).
+      const [firstOpenStage] = await tx
+        .select({ id: pipelineStages.id })
+        .from(pipelineStages)
+        .where(
+          and(eq(pipelineStages.pipelineId, input.pipelineId), eq(pipelineStages.kind, "OPEN"))
+        )
+        .orderBy(asc(pipelineStages.sortOrder))
+        .limit(1)
+      if (!firstOpenStage || firstOpenStage.id !== stage.id)
+        throw new Error("A new Funnel must start at its pipeline's first stage.")
+
       // owner_member_id is NOT NULL — default to the creator when unspecified.
       const ownerMemberId = input.ownerMemberId || ctx.memberId
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
@@ -623,6 +645,7 @@ export async function createOpportunity(
       let containerId: string
       let containerAccountId: string
       let ppvvc: Ppvvc
+      let nature: { projectNatureCode: string | null; projectNatures: string[] | null }
       if (input.opportunityId) {
         const [c] = await tx
           .select()
@@ -638,6 +661,7 @@ export async function createOpportunity(
         containerId = c.id
         containerAccountId = c.accountId
         ppvvc = pickPpvvc(c)
+        nature = pickNature(c)
       } else {
         const c = await createOpportunityContainer(tx, ctx, {
           accountId: input.accountId,
@@ -648,10 +672,13 @@ export async function createOpportunity(
           description: input.description,
           ppvvc: pickPpvvc(input),
           primaryPersonId: input.primaryPersonId,
+          projectNatureCode: input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
+          projectNatures: input.projectNatures ?? null,
         })
         containerId = c.id
         containerAccountId = c.accountId
         ppvvc = c.ppvvc
+        nature = c.nature
       }
 
       const [row] = await tx
@@ -673,13 +700,8 @@ export async function createOpportunity(
           projectYear: input.projectYear ?? null,
           isIntercompany: wantsInterco,
           currency,
-          // Primary nature = first of the set (falls back to the single field).
-          projectNatureCode:
-            input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
-          projectNatures:
-            input.projectNatures && input.projectNatures.length
-              ? input.projectNatures
-              : null,
+          // Cascaded from the container (source of truth) — same pattern as PPVVC.
+          ...nature,
           customFields: input.customFields ?? {},
           expectedCloseDate: input.expectedCloseDate || null,
         })
@@ -864,6 +886,23 @@ export async function updateOpportunity(
           input.expectedCloseDate === undefined
             ? existing.expectedCloseDate
             : input.expectedCloseDate || null,
+        procurementStage:
+          input.procurementStage === undefined
+            ? existing.procurementStage
+            : input.procurementStage || null,
+        negotiationDone: input.negotiationDone ?? existing.negotiationDone,
+        negotiationDate:
+          input.negotiationDate === undefined
+            ? existing.negotiationDate
+            : input.negotiationDate || null,
+        expectedInvoiceMonth:
+          input.expectedInvoiceMonth === undefined
+            ? existing.expectedInvoiceMonth
+            : input.expectedInvoiceMonth || null,
+        expectedInvoiceYear:
+          input.expectedInvoiceYear === undefined
+            ? existing.expectedInvoiceYear
+            : input.expectedInvoiceYear ?? null,
         updatedAt: new Date(),
       })
       .where(eq(funnels.id, id))

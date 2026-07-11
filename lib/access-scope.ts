@@ -6,6 +6,7 @@ import {
   accounts,
   leads,
   funnels,
+  opportunities,
   projects,
   persons,
   quotations,
@@ -137,6 +138,14 @@ export async function attachableOwner(
         .select({ o: funnels.ownerMemberId })
         .from(funnels)
         .where(eq(funnels.id, id))
+        .limit(1)
+      return r?.o ?? null
+    }
+    case "opportunity_container": {
+      const [r] = await tx
+        .select({ o: opportunities.ownerMemberId })
+        .from(opportunities)
+        .where(eq(opportunities.id, id))
         .limit(1)
       return r?.o ?? null
     }

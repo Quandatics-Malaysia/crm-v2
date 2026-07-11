@@ -22,29 +22,12 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { formatMoney } from "@/lib/format"
+import { formatMoney, formatMoneyCompact, formatMonth } from "@/lib/format"
 import type { ForecastRow, PipelineSummaryRow } from "./actions"
 
-const MONTH_FMT = new Intl.DateTimeFormat("en-MY", {
-  month: "short",
-  year: "numeric",
-})
-
 function monthLabel(value: string | null): string {
-  if (!value) return "Unscheduled"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "Unscheduled"
-  return MONTH_FMT.format(d)
-}
-
-/** Compact currency label for chart axes (e.g. RM 12.5K, $1.2M). */
-function compactMoney(value: number, currency: string): string {
-  return new Intl.NumberFormat("en-MY", {
-    style: "currency",
-    currency: currency || "MYR",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number.isFinite(value) ? value : 0)
+  const label = formatMonth(value)
+  return label === "—" ? "Unscheduled" : label
 }
 
 const weightedConfig = {
@@ -218,7 +201,7 @@ export function ForecastCharts({
                         tickLine={false}
                         axisLine={false}
                         width={64}
-                        tickFormatter={(v) => compactMoney(Number(v), currency)}
+                        tickFormatter={(v) => formatMoneyCompact(Number(v), currency)}
                       />
                       <ChartTooltip
                         cursor={false}
@@ -280,7 +263,7 @@ export function ForecastCharts({
                         tickLine={false}
                         axisLine={false}
                         width={64}
-                        tickFormatter={(v) => compactMoney(Number(v), currency)}
+                        tickFormatter={(v) => formatMoneyCompact(Number(v), currency)}
                       />
                       <ChartTooltip
                         cursor={false}

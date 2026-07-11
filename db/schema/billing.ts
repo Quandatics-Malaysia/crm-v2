@@ -49,6 +49,12 @@ export const paymentMilestones = pgTable(
     onDelete: "set null",
   }),
   title: text("title").notNull(),
+  /** User-facing optional notes, distinct from `title`. */
+  description: text("description"),
+  /** Hidden internal identifier (`{projectCode}-{slugified title}`) — never
+   *  rendered in the UI; reporting/reference only. Null for milestones
+   *  created before this field existed or with no resolvable project code. */
+  name: text("name"),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
   dueDate: date("due_date"),
   status: paymentMilestoneStatus("status").notNull().default("pending"),

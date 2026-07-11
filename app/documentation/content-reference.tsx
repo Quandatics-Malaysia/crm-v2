@@ -558,14 +558,14 @@ export const changelogPage: DocPage = {
           a deal can now split across multiple sibling entities (capped at
           10) instead of exactly one.{" "}
           <Code>intercompany_deals</Code> becomes one mirror row per{" "}
-          <Code>(opportunity, partner)</Code> pair, carrying that party's own{" "}
+          <Code>(opportunity, partner)</Code> pair, carrying that party&apos;s own{" "}
           <Code>share_type / share_value / partner_currency /
           manual_fx_rate</Code> instead of a single origin-side{" "}
           <Code>recognized_percent</Code> complement.{" "}
           <Code>funnels.recognized_percent</Code> stays, now a cache of
-          the origin's remainder after every party's share. This is the one
-          deliberately destructive migration in the project's history — the
-          usual additive/no-rename practice below didn't fit a genuine 2-to-N
+          the origin&apos;s remainder after every party&apos;s share. This is the one
+          deliberately destructive migration in the project&apos;s history — the
+          usual additive/no-rename practice below didn&apos;t fit a genuine 2-to-N
           shape change; the migration backfills existing 1-partner deals into
           the new table before dropping the old columns.
         </Li>
@@ -577,7 +577,7 @@ export const changelogPage: DocPage = {
           loops over parties minting one document pair per party; the funnel
           form gained a repeatable party editor; permission-denial toasts
           (<Code>runAction</Code>) now resolve and name a contact — the
-          user's manager or an Owner/Admin — instead of surfacing a raw{" "}
+          user&apos;s manager or an Owner/Admin — instead of surfacing a raw{" "}
           <Code>FORBIDDEN: ...</Code> string.
         </Li>
       </Ul>

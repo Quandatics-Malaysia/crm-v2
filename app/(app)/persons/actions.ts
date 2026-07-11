@@ -324,6 +324,7 @@ export async function updatePerson(
       return updated
     })
     revalidatePath("/persons")
+    revalidatePath(`/persons/${id}`)
     revalidatePath(`/accounts/${input.accountId}`)
     return row
   })

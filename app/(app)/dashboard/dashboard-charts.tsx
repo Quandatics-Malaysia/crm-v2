@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { BarChart3, PackageIcon } from "lucide-react"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { BarChart3, PackageIcon, CalendarDaysIcon } from "lucide-react"
+import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts"
 
 import {
   Card,
@@ -19,21 +19,17 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { EmptyState } from "@/components/empty-state"
-import { formatMoney } from "@/lib/format"
+import { formatMoney, formatMoneyCompact } from "@/lib/format"
 import type {
   SalesByOwnerStage,
   ClosedDealsByProduct,
+  SalesActivityMonth,
 } from "./actions"
 
-/** Compact currency label for chart axes (e.g. RM 12.5K). Mirrors forecast-charts. */
-function compactMoney(value: number): string {
-  return new Intl.NumberFormat("en-MY", {
-    style: "currency",
-    currency: "MYR",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number.isFinite(value) ? value : 0)
-}
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const
 
 // Recharts needs a stable palette per stage. Cycle the theme chart vars.
 const STAGE_COLORS = [
@@ -54,7 +50,7 @@ type OwnerRow = { owner: string } & Record<string, number | string>
  * pipeline order.
  */
 function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
-  const { rows, config, stageKeys } = React.useMemo(() => {
+  const { rows, config, stageKeys, stageLabels } = React.useMemo(() => {
     // Distinct stages, ordered by ladder position → drives stack + legend.
     const stageOrder = new Map<string, { name: string; sort: number }>()
     for (const d of data) {
@@ -65,24 +61,27 @@ function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
     const stages = [...stageOrder.entries()].sort(
       (a, b) => a[1].sort - b[1].sort
     )
-    // Use the stage NAME as the recharts dataKey (unique per ladder); build a
-    // color config keyed by that name.
+    // Stage names can contain spaces/em-dashes (e.g. "1d — Qualified"), which
+    // breaks a `var(--color-<name>)` reference — use the stage id (already a
+    // safe token) as the recharts dataKey / CSS var key, name stays the label.
     const config: ChartConfig = {}
     const stageKeys: string[] = []
-    stages.forEach(([, s], i) => {
-      config[s.name] = {
+    const stageLabels = new Map<string, string>()
+    stages.forEach(([stageId, s], i) => {
+      config[stageId] = {
         label: s.name,
         color: STAGE_COLORS[i % STAGE_COLORS.length],
       }
-      stageKeys.push(s.name)
+      stageKeys.push(stageId)
+      stageLabels.set(stageId, s.name)
     })
 
     // One row per owner, each stage summed into its own key.
     const byOwner = new Map<string, OwnerRow>()
     for (const d of data) {
       const row = byOwner.get(d.ownerMemberId) ?? { owner: d.ownerName }
-      const prev = Number(row[d.stageName] ?? 0)
-      row[d.stageName] = prev + d.amount
+      const prev = Number(row[d.stageId] ?? 0)
+      row[d.stageId] = prev + d.amount
       byOwner.set(d.ownerMemberId, row)
     }
     // Sort owners by their total, biggest first (Salesforce-style ranking).
@@ -91,7 +90,7 @@ function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
         stageKeys.reduce((n, k) => n + Number(r[k] ?? 0), 0)
       return sum(b) - sum(a)
     })
-    return { rows, config, stageKeys }
+    return { rows, config, stageKeys, stageLabels }
   }, [data])
 
   const hasData = rows.length > 0 && stageKeys.length > 0
@@ -124,7 +123,7 @@ function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
                 type="number"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => compactMoney(Number(v))}
+                tickFormatter={(v) => formatMoneyCompact(Number(v))}
               />
               <YAxis
                 type="category"
@@ -154,6 +153,7 @@ function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
                 <Bar
                   key={key}
                   dataKey={key}
+                  name={stageLabels.get(key)}
                   stackId="stage"
                   fill={`var(--color-${key})`}
                 />
@@ -175,7 +175,7 @@ function SalesByOwnerStageChart({ data }: { data: SalesByOwnerStage[] }) {
 const productConfig = {
   amount: {
     label: "Amount",
-    color: "var(--chart-2)",
+    color: "var(--primary)",
   },
 } satisfies ChartConfig
 
@@ -217,7 +217,7 @@ function ClosedDealsByProductChart({ data }: { data: ClosedDealsByProduct[] }) {
                 type="number"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => compactMoney(Number(v))}
+                tickFormatter={(v) => formatMoneyCompact(Number(v))}
               />
               <YAxis
                 type="category"
@@ -252,6 +252,90 @@ function ClosedDealsByProductChart({ data }: { data: ClosedDealsByProduct[] }) {
             icon={PackageIcon}
             title="No closed deals to chart"
             description="Closed-won deal amounts by product category will appear here."
+          />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const activityConfig = {
+  count: {
+    label: "Record Count",
+    color: "var(--primary)",
+  },
+} satisfies ChartConfig
+
+/**
+ * Chart C — "Sales Activity This Year": count of activities logged per
+ * calendar month (Jan…current month), solid SF-blue bars with the value
+ * printed on top of each bar (matches the Salesforce home page chart).
+ */
+export function SalesActivityChart({ data }: { data: SalesActivityMonth[] }) {
+  const rows = React.useMemo(() => {
+    const currentMonth = data.length
+      ? Math.max(...data.map((d) => d.month))
+      : new Date().getMonth() + 1
+    const byMonth = new Map(data.map((d) => [d.month, d.count]))
+    return Array.from({ length: currentMonth }, (_, i) => ({
+      month: MONTH_LABELS[i],
+      count: byMonth.get(i + 1) ?? 0,
+    }))
+  }, [data])
+
+  const hasData = rows.some((r) => r.count > 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarDaysIcon className="size-4" />
+          Sales Activity This Year
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-2 pt-2 sm:px-6">
+        {hasData ? (
+          <ChartContainer
+            config={activityConfig}
+            className="aspect-auto w-full"
+            style={{ height: 260 }}
+          >
+            <BarChart accessibilityLayer data={rows} margin={{ top: 20 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickLine={false}
+                axisLine={false}
+                label={{ value: "Month", position: "insideBottom", offset: -8 }}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                label={{
+                  value: "Record Count",
+                  angle: -90,
+                  position: "insideLeft",
+                  style: { textAnchor: "middle" },
+                }}
+              />
+              <ChartTooltip
+                cursor={false}
+                content={<ChartTooltipContent hideLabel />}
+              />
+              <Bar dataKey="count" fill="var(--color-count)" radius={[4, 4, 0, 0]}>
+                <LabelList
+                  dataKey="count"
+                  position="top"
+                  className="fill-foreground text-xs"
+                />
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        ) : (
+          <EmptyState
+            icon={CalendarDaysIcon}
+            title="No activity logged this year"
+            description="Logged activities by month will appear here."
           />
         )}
       </CardContent>

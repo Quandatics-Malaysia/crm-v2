@@ -21,6 +21,9 @@ export const approvalStatus = pgEnum("approval_status", [
 export const attachableType = pgEnum("attachable_type", [
   "stage_approval_request",
   "quotation",
+  // Legacy name: attaches to the FUNNEL (deal) table, not the newer
+  // "opportunities" container — kept as-is since it's internal plumbing
+  // never rendered to users. See "opportunity_container" for the container.
   "opportunity",
   "account",
   "lead",
@@ -28,6 +31,7 @@ export const attachableType = pgEnum("attachable_type", [
   "project",
   "sales_order",
   "finance_doc",
+  "opportunity_container",
 ])
 
 /** A low-tier owner's request for upline sign-off to advance a gated stage. */

@@ -19,11 +19,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -98,6 +101,8 @@ export function ProjectCreateForm({
   defaultCurrency,
   defaultQuotationId,
   prefillQuoteNumber,
+  trigger,
+  defaultOpen,
 }: {
   accounts: AccountOption[]
   funnels: OpportunityOption[]
@@ -117,8 +122,13 @@ export function ProjectCreateForm({
   defaultCurrency?: string
   defaultQuotationId?: string
   prefillQuoteNumber?: string
+  /** Render-prop trigger for the dialog. */
+  trigger?: React.ReactNode
+  /** Open the dialog on mount (deep-linked ?new=1 prefills). */
+  defaultOpen?: boolean
 }) {
   const router = useRouter()
+  const [open, setOpen] = React.useState(defaultOpen ?? false)
   const [submitting, setSubmitting] = React.useState(false)
 
   // Account options become local state so inline "+ Create" can append the new
@@ -159,6 +169,16 @@ export function ProjectCreateForm({
       projectCode: "",
     },
   })
+
+  // Fresh form on every open — a cancelled draft shouldn't linger.
+  React.useEffect(() => {
+    if (!open) return
+    form.reset()
+    setQuotationId(defaultQuotationId)
+    setCurrency(defaultCurrency)
+    setQuoteNote(prefillQuoteNumber)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const codeNature = form.watch("codeNature")
   const watchedAccountId = form.watch("accountId")
@@ -209,13 +229,21 @@ export function ProjectCreateForm({
 
   return (
     <>
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Project details</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger ? (
+        <DialogTrigger render={trigger as React.ReactElement} />
+      ) : null}
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New project</DialogTitle>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="grid max-h-[70vh] gap-4 overflow-y-auto px-1"
+            id="project-form"
+          >
             <FormField
               control={form.control}
               name="name"
@@ -494,23 +522,19 @@ export function ProjectCreateForm({
                 </FormItem>
               )}
             />
-          </CardContent>
-        </Card>
+          </form>
+        </Form>
 
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.push("/projects")}
-          >
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>
             Cancel
-          </Button>
-          <Button type="submit" disabled={submitting}>
+          </DialogClose>
+          <Button type="submit" form="project-form" disabled={submitting}>
             {submitting ? "Creating…" : "Create project"}
           </Button>
-        </div>
-      </form>
-    </Form>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
       <AccountQuickCreate
         open={accountCreate.open}

@@ -541,7 +541,7 @@ function MembersTab({
       searchPlaceholder="Search members…"
       emptyMessage="No members yet."
       facets={[
-        { columnId: "role", title: "Role" },
+        { columnId: "roles", title: "Role" },
         { columnId: "manager", title: "Manager" },
       ]}
       toolbar={<AddMemberDialog roles={roles} />}

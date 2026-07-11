@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection, type SectionDocument } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import { InlineValue } from "@/components/inline-value"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { type ProgressStep } from "@/components/stage-progress"
@@ -20,7 +21,7 @@ import {
   type PathStepState,
   type PathNote,
 } from "@/components/stage-path-view"
-import { setLeadStatus, setLeadStage } from "../actions"
+import { setLeadStatus, setLeadStage, updateLead, type LeadInput } from "../actions"
 
 /** Map the dot-stepper steps onto the shared chevron-path steps, marking which
  *  segments are clickable via the supplied predicate. */
@@ -49,15 +50,21 @@ export type LeadConverted = {
   funnelName: string | null
 }
 
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type LeadEditKey = "companyName" | "email" | "phone" | "source"
+
 export type LeadDetailSection = {
   title: string
-  fields: { label: string; value: React.ReactNode }[]
+  fields: { label: string; value: React.ReactNode; editKey?: LeadEditKey }[]
 }
 
 export type LeadDetailData = {
   leadId: string
   status: string
   sections: LeadDetailSection[]
+  /** Raw field values — updateLead is full-replace, so each inline save
+   *  merges the one edited field into this snapshot. */
+  record: LeadInput
   leadSteps: ProgressStep[]
   leadNote: PathNote
   funnelSteps: ProgressStep[] | null
@@ -73,6 +80,7 @@ export function LeadDetailBody({
   leadId,
   status,
   sections,
+  record,
   leadSteps,
   leadNote,
   funnelSteps,
@@ -104,6 +112,15 @@ export function LeadDetailBody({
     router.refresh()
   }
 
+  async function saveField(patch: Partial<LeadInput>) {
+    const res = await updateLead(leadId, { ...record, ...patch })
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    router.refresh()
+  }
+
   async function changeFunnelStage(stageId: string) {
     const res = await setLeadStage(leadId, stageId)
     if (!res.ok) {
@@ -124,7 +141,7 @@ export function LeadDetailBody({
     : null
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — details + conversion links */}
       <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
         <Card>
@@ -139,14 +156,37 @@ export function LeadDetailBody({
             {sections.map((section) => (
               <section key={section.title} className="grid gap-3">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
-                {section.fields.map((d) => (
-                  <div key={d.label} className="grid gap-1">
-                    <span className="text-xs text-muted-foreground">
-                      {d.label}
-                    </span>
-                    <span className="text-sm">{d.value}</span>
-                  </div>
-                ))}
+                {section.fields.map((d) => {
+                  // Terminal (converted/disqualified) leads are locked, like
+                  // the status path above.
+                  const key = interactive ? d.editKey : undefined
+                  return (
+                    <div key={d.label} className="grid gap-1">
+                      <span className="text-xs text-muted-foreground">
+                        {d.label}
+                      </span>
+                      <span className="text-sm">
+                        {!key ? (
+                          d.value
+                        ) : (
+                          <InlineValue
+                            value={record[key] ?? ""}
+                            display={record[key] || "—"}
+                            title={`Click to edit ${d.label.toLowerCase()}`}
+                            onSave={(next) => {
+                              // Email is required on leads — ignore an emptied draft.
+                              if (key === "email") {
+                                if (!next.trim()) return
+                                return saveField({ email: next })
+                              }
+                              return saveField({ [key]: next || null })
+                            }}
+                          />
+                        )}
+                      </span>
+                    </div>
+                  )
+                })}
               </section>
             ))}
           </CardContent>

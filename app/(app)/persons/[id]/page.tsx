@@ -5,12 +5,14 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { formatDate } from "@/lib/format"
+import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import { listAccountOptions } from "@/lib/lookups"
 import { listEntityTimeline } from "../../_shared/activity-actions"
 import { listEntityDocuments } from "../../_shared/attachment-actions"
 import { getPerson } from "../actions"
 import { PersonEditButton } from "./person-edit-button"
-import { PersonDetailBody } from "./person-detail-body"
+import { PersonDetailBody, type PersonDetailSection } from "./person-detail-body"
 
 function fullName(p: { firstName: string; lastName: string | null }) {
   return [p.firstName, p.lastName].filter(Boolean).join(" ")
@@ -22,9 +24,10 @@ export default async function PersonDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, accounts] = await Promise.all([
+  const [data, accounts, ctx] = await Promise.all([
     getPerson(id),
     listAccountOptions(),
+    requireContext(),
   ])
 
   if (!data) notFound()
@@ -40,10 +43,13 @@ export default async function PersonDetailPage({
   // Salesforce-named field section (SPEC §7): a single "Contact Information"
   // section grouping the contact's own fields. Only fields already fetched are
   // included.
-  const contactInformation: { label: string; value: React.ReactNode }[] = [
-    { label: "Title", value: person.title ?? "—" },
+  const contactInformation: PersonDetailSection["fields"] = [
+    { label: "First name", value: person.firstName, editKey: "firstName" },
+    { label: "Last name", value: person.lastName ?? "—", editKey: "lastName" },
+    { label: "Title", value: person.title ?? "—", editKey: "title" },
     {
       label: "Email",
+      editKey: "email",
       value: person.email ? (
         <a
           href={`mailto:${person.email}`}
@@ -55,9 +61,10 @@ export default async function PersonDetailPage({
         "—"
       ),
     },
-    { label: "Phone", value: person.phone ?? "—" },
+    { label: "Phone", value: person.phone ?? "—", editKey: "phone" },
     {
       label: "Account",
+      editKey: "accountId",
       value: person.accountId ? (
         <Link
           href={`/accounts/${person.accountId}`}
@@ -80,9 +87,21 @@ export default async function PersonDetailPage({
     { label: "Created", value: formatDate(person.createdAt) },
   ]
 
-  const sections: { title: string; fields: { label: string; value: React.ReactNode }[] }[] = [
+  const sections: PersonDetailSection[] = [
     { title: "Contact Information", fields: contactInformation },
   ]
+
+  // Raw snapshot for the inline editors — updatePerson is full-replace, so
+  // the client merges the one edited field into this.
+  const record = {
+    accountId: person.accountId,
+    firstName: person.firstName,
+    lastName: person.lastName,
+    title: person.title,
+    email: person.email,
+    phone: person.phone,
+    isPrimary: person.isPrimary,
+  }
 
   return (
     <>
@@ -106,6 +125,9 @@ export default async function PersonDetailPage({
         <PersonDetailBody
           personId={id}
           sections={sections}
+          record={record}
+          canEdit={ctx.can(PERMISSIONS.PERSON_UPDATE)}
+          accounts={accounts}
           funnels={funnels}
           projects={projects}
           activity={activity}

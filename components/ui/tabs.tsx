@@ -24,7 +24,9 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  // ponytail: wrap-friendly by default (h-auto + flex-wrap + flex-none triggers)
+  // so long tab rows behave the same on every record page.
+  "group/tabs-list inline-flex w-fit items-center justify-start gap-1 rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-auto group-data-horizontal/tabs:flex-wrap group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none *:flex-none",
   {
     variants: {
       variant: {

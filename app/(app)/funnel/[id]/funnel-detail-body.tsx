@@ -2,12 +2,14 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Plus } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Plus, PencilIcon } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
 import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
 import { Separator } from "@/components/ui/separator"
@@ -17,8 +19,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
+import { showActionError } from "@/lib/show-action-error"
 import { formatDate, formatMoney } from "@/lib/format"
 import { partyShare, deriveOriginRecognizedAmount } from "@/lib/interco-share"
+import type { Option, MemberOption } from "@/lib/lookups"
 import {
   formatCustomFieldValue,
   groupCustomFields,
@@ -29,14 +35,28 @@ import { StagePath } from "../stage-path"
 import { StageBadge } from "../stage-badge"
 import { CostsPanel } from "./costs-panel"
 import { ContractPanel } from "./contract-panel"
+import { IntercompanyDialog } from "../intercompany-dialog"
+import {
+  MilestonesPanel,
+  type MilestoneItemBase,
+} from "@/components/milestones-panel"
+import { updateOpportunity } from "../actions"
 import type {
   OpportunityDetail,
   OpportunityProjectRow,
   OpportunityProductRow,
+  OpportunityInput,
 } from "../actions"
 import type { DealCostRow } from "../cost-actions"
 import type { ContractYearRow } from "../contract-actions"
-import type { PaymentMilestoneRow } from "@/app/(app)/payment-milestones/actions"
+import {
+  createFunnelMilestone,
+  updateFunnelMilestone,
+  deleteFunnelMilestone,
+  reorderFunnelMilestones,
+  splitFunnelMilestones,
+  type PaymentMilestoneRow,
+} from "@/app/(app)/payment-milestones/actions"
 
 /**
  * The Cost & margin tracker (external supplier / partner PO lines) is part of
@@ -53,6 +73,11 @@ import type { PaymentMilestoneRow } from "@/app/(app)/payment-milestones/actions
  */
 const SHOW_CONTRACT = false
 
+const INVOICE_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+].map((m) => ({ value: m, label: m }))
+
 // Status pills render via the app-wide <StatusBadge> tone map; the stage-change
 // source labels come from the shared status-meta module.
 
@@ -63,21 +88,38 @@ export type FunnelDetailData = {
   currentStageId: string
   stages: StageLite[]
   interactive: boolean
+  /** The Funnel's own name (Salesforce "Funnel Name") — distinct from `funnelName` below (the pipeline template). */
+  name: string
   accountId: string
   accountName: string | null
+  /** Every account, for the inline Account picker. */
+  accountOptions: Option[]
   container: { id: string; code: string; name: string } | null
+  ownerMemberId: string
   ownerName: string | null
+  /** Every tenant member, for the inline Owner picker. */
+  members: MemberOption[]
   personId: string | null
   personName: string | null
+  /** Every person (with account), for the inline Contact picker — filtered client-side to `accountId`. */
+  persons: { id: string; name: string; accountId: string }[]
   /** Quoted amount (from the primary quotation). */
   quotedAmount: string | null
   /** Estimated Funnel Amount (manual) — drives the forecast. */
   estimatedAmount: string | null
   recognizedPercent: string | null
   currency: string
+  /** Tenant currency picklist, for the inline Currency picker. */
+  currencies: string[]
+  /** A primary quotation locks the currency (its currency is frozen at send). */
+  primaryQuotationId: string | null
   quoteNumber: string | null
   status: string
   projectNatureName: string | null
+  /** Selected project-nature codes (raw, for the inline toggle editor). */
+  projectNatureCodes: string[]
+  /** The tenant's full project-nature picklist. */
+  projectNatureCatalog: { code: string; name: string }[]
   funnelName: string | null
   description: string | null
   projectYear: number | null
@@ -86,7 +128,15 @@ export type FunnelDetailData = {
   parties: OpportunityDetail["parties"]
   /** Each party's accept/decline on their slice (origin view). */
   partnerResponses: OpportunityDetail["partnerResponses"]
+  /** Other entities the user belongs to — the only valid intercompany partners. */
+  entityOptions: Option[]
   expectedCloseDate: string | null
+  /** Commit (4A) gate fields — required to advance into 4A. */
+  procurementStage: string | null
+  negotiationDone: boolean
+  negotiationDate: string | null
+  expectedInvoiceMonth: string | null
+  expectedInvoiceYear: number | null
   createdAt: Date
   stageName: string
   stageKind: string
@@ -102,6 +152,8 @@ export type FunnelDetailData = {
   /** Gates the per-tab "New quotation" / "New project" related-list actions. */
   canCreateQuote: boolean
   canCreateProject: boolean
+  /** Whether the caller can edit this Funnel (OPPORTUNITY_UPDATE) — gates every inline editor. */
+  canEdit: boolean
   /** Whether the finance plugin (intercompany billing) is enabled. */
   financeEnabled: boolean
   /** Whether the projects plugin is enabled (gates the Projects related-list tab). */
@@ -117,6 +169,8 @@ export type FunnelDetailData = {
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
   /** Payment milestones attached to this funnel (core, funnel-scoped). */
   milestones: PaymentMilestoneRow[]
+  /** Gates the milestones panel's add/edit/reorder/delete affordances. */
+  canManageMilestones: boolean
 }
 
 /** Two-column detail: a rich details panel on the left, the clickable stage path
@@ -127,26 +181,41 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     currentStageId,
     stages,
     interactive,
+    name,
     accountId,
     accountName,
+    accountOptions,
     container,
+    ownerMemberId,
     ownerName,
+    members,
     personId,
     personName,
+    persons,
     quotedAmount,
     estimatedAmount,
     recognizedPercent,
     currency,
+    currencies,
+    primaryQuotationId,
     quoteNumber,
     status,
     projectNatureName,
+    projectNatureCodes,
+    projectNatureCatalog,
     funnelName,
     description,
     projectYear,
     isIntercompany,
     parties,
     partnerResponses,
+    entityOptions,
     expectedCloseDate,
+    procurementStage,
+    negotiationDone,
+    negotiationDate,
+    expectedInvoiceMonth,
+    expectedInvoiceYear,
     createdAt,
     stageName,
     stageKind,
@@ -160,6 +229,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     canManageCosts,
     canCreateQuote,
     canCreateProject,
+    canEdit,
     financeEnabled,
     projectsEnabled,
     contractYears,
@@ -170,7 +240,40 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     activity,
     documents,
     milestones,
+    canManageMilestones,
   } = props
+
+  const router = useRouter()
+
+  async function saveField(patch: Partial<OpportunityInput>) {
+    const res = await updateOpportunity(funnelId, patch)
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    router.refresh()
+  }
+
+  const contactOptions = React.useMemo(
+    () =>
+      persons.filter((p) => p.accountId === accountId).map((p) => ({ value: p.id, label: p.name })),
+    [persons, accountId]
+  )
+  const memberOptions = React.useMemo(
+    () => members.map((m) => ({ value: m.memberId, label: m.name })),
+    [members]
+  )
+  const currencyLocked = !!primaryQuotationId
+  const currencyOptions = React.useMemo(
+    () => currencies.map((c) => ({ value: c, label: c })),
+    [currencies]
+  )
+
+  // Single-select (radio-style): picking a pill replaces the selection;
+  // clicking the selected pill clears it.
+  function toggleNature(code: string) {
+    saveField({ projectNatures: projectNatureCodes.includes(code) ? [] : [code] })
+  }
 
   const [tab, setTab] = React.useState("activity")
   const revalidate = `/funnel/${funnelId}`
@@ -351,50 +454,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     []
   )
 
-  const milestoneColumns = React.useMemo<ColumnDef<PaymentMilestoneRow>[]>(
-    () => [
-      {
-        accessorKey: "title",
-        header: ({ column }) => <SortableHeader column={column} title="Name" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/payment-milestones/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.title}
-          </Link>
-        ),
-      },
-      {
-        accessorKey: "amount",
-        header: () => <div className="text-right">Amount</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.amount, currency)}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
-      },
-      {
-        accessorKey: "invoiceNumber",
-        header: "Invoice number",
-        cell: ({ row }) => row.original.invoiceNumber ?? "—",
-      },
-      {
-        accessorKey: "invoiceDate",
-        header: "Invoice date",
-        cell: ({ row }) => formatDate(row.original.invoiceDate),
-      },
-    ],
-    [currency]
-  )
+  const milestoneValueCeiling = quotedAmount ?? estimatedAmount ?? null
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — funnel highlights + related quick links */}
       <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
         <Card>
@@ -409,7 +472,17 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             {/* Salesforce "Opportunity Information" section (SPEC §4). */}
             <h3 className="text-sm font-semibold">Opportunity Information</h3>
             <Field label="Account">
-              {accountName ? (
+              {canEdit ? (
+                <InlineCombobox
+                  value={accountId}
+                  display={accountName ?? "—"}
+                  options={accountOptions.map((a) => ({ value: a.id, label: a.name }))}
+                  onSave={(next) => saveField({ accountId: next, primaryPersonId: null })}
+                  searchPlaceholder="Search accounts…"
+                  emptyMessage="No accounts found."
+                  title="Click to change account"
+                />
+              ) : accountName ? (
                 <Link
                   href={`/accounts/${accountId}`}
                   className="font-medium link"
@@ -429,9 +502,34 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 "—"
               )}
             </Field>
-            <Field label="Owner">{ownerName ?? "—"}</Field>
+            <Field label="Owner">
+              {canEdit ? (
+                <InlineCombobox
+                  value={ownerMemberId}
+                  display={ownerName ?? "—"}
+                  options={memberOptions}
+                  onSave={(next) => saveField({ ownerMemberId: next })}
+                  searchPlaceholder="Search members…"
+                  emptyMessage="No members found."
+                  title="Click to change owner"
+                />
+              ) : (
+                ownerName ?? "—"
+              )}
+            </Field>
             <Field label="Contact">
-              {personId && personName ? (
+              {canEdit ? (
+                <InlineCombobox
+                  value={personId ?? ""}
+                  display={personName ?? "—"}
+                  options={contactOptions}
+                  onSave={(next) => saveField({ primaryPersonId: next || null })}
+                  placeholder="Optional"
+                  searchPlaceholder="Search contacts…"
+                  emptyMessage="No contacts for this account."
+                  title="Click to change contact"
+                />
+              ) : personId && personName ? (
                 <Link
                   href={`/persons/${personId}`}
                   className="link"
@@ -443,7 +541,34 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               )}
             </Field>
             <Field label="Project nature(s)">
-              {projectNatureNames.length > 0 ? (
+              {canEdit ? (
+                projectNatureCatalog.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No project natures configured. Add them in Settings.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {projectNatureCatalog.map((p) => {
+                      const on = projectNatureCodes.includes(p.code)
+                      return (
+                        <button
+                          key={p.code}
+                          type="button"
+                          onClick={() => toggleNature(p.code)}
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-xs font-medium transition-colors",
+                            on
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input bg-background text-muted-foreground hover:bg-accent"
+                          )}
+                        >
+                          ({p.code}) - {p.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              ) : projectNatureNames.length > 0 ? (
                 <span className="flex flex-wrap gap-1">
                   {projectNatureNames.map((n) => (
                     <Badge key={n} variant="outline">
@@ -460,6 +585,22 @@ export function FunnelDetailBody(props: FunnelDetailData) {
 
             {/* Salesforce "Funnel Info" section (SPEC §4). */}
             <h3 className="text-sm font-semibold">Funnel Info</h3>
+            <Field label="Funnel Name">
+              {canEdit ? (
+                <InlineValue
+                  value={name}
+                  display={name}
+                  title="Click to edit name"
+                  onSave={(next) => {
+                    if (!next.trim()) return
+                    return saveField({ name: next })
+                  }}
+                  className="font-medium"
+                />
+              ) : (
+                <span className="font-medium">{name}</span>
+              )}
+            </Field>
             <Field label="Funnel">{funnelName ?? "—"}</Field>
             <Field label="Stage">
               <StageBadge
@@ -471,12 +612,40 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             <Field label="Status">
               <StatusBadge status={status} />
             </Field>
+            <Field label="Currency">
+              {canEdit && !currencyLocked ? (
+                <InlineCombobox
+                  value={currency}
+                  display={currency}
+                  options={currencyOptions}
+                  onSave={(next) => saveField({ currency: next })}
+                  searchPlaceholder="Search currencies…"
+                  title="Click to change currency"
+                />
+              ) : (
+                <span title={currencyLocked ? "Locked to the primary quotation's currency." : undefined}>
+                  {currency}
+                </span>
+              )}
+            </Field>
 
             {/* Value breakdown: estimated (forecast) vs quoted vs recognized. */}
             <Field label="Estimated funnel amount">
-              <span className="font-semibold tabular-nums">
-                {estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
-              </span>
+              {canEdit ? (
+                <InlineValue
+                  value={estimatedAmount ?? ""}
+                  display={estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
+                  formatDraft={(v) => formatMoney(v || "0", currency)}
+                  type="number"
+                  title="Click to edit estimated amount"
+                  onSave={(next) => saveField({ estimatedAmount: next || null })}
+                  className="font-semibold tabular-nums"
+                />
+              ) : (
+                <span className="font-semibold tabular-nums">
+                  {estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
+                </span>
+              )}
             </Field>
             <Field label="Quoted amount">
               {quotedAmount ? (
@@ -507,13 +676,13 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               </Field>
             ) : null}
 
-            {financeEnabled && isIntercompany ? (
+            {financeEnabled ? (
               <Field label={`Handling partner${parties.length !== 1 ? "s" : ""}`}>
-                {parties.length === 0 ? (
-                  <span className="text-muted-foreground">—</span>
-                ) : (
-                  <div className="grid gap-1.5">
-                    {parties.map((p) => {
+                <div className="grid gap-1.5">
+                  {!isIntercompany || parties.length === 0 ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    parties.map((p) => {
                       const resp = partnerResponses.find(
                         (r) => r.partnerEntityId === p.partnerEntityId
                       )
@@ -551,20 +720,153 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                           )}
                         </span>
                       )
-                    })}
-                  </div>
-                )}
+                    })
+                  )}
+                  {canEdit ? (
+                    <IntercompanyDialog
+                      funnelId={funnelId}
+                      isIntercompany={isIntercompany}
+                      parties={parties}
+                      entityOptions={entityOptions}
+                      currency={currency}
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 justify-self-start px-1.5 text-xs text-muted-foreground"
+                        >
+                          <PencilIcon className="size-3" />
+                          Edit
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                </div>
               </Field>
             ) : null}
 
-            <Field label="Project / license year">{projectYear ?? "—"}</Field>
-            <Field label="Expected close">{formatDate(expectedCloseDate)}</Field>
+            <Field label="Project / license year">
+              {canEdit ? (
+                <InlineValue
+                  value={projectYear != null ? String(projectYear) : ""}
+                  display={projectYear ?? "—"}
+                  type="number"
+                  title="Click to edit project year"
+                  onSave={(next) =>
+                    saveField({ projectYear: next ? Number(next) : null })
+                  }
+                />
+              ) : (
+                (projectYear ?? "—")
+              )}
+            </Field>
+            <Field label="Expected close">
+              {canEdit ? (
+                <InlineValue
+                  value={expectedCloseDate ?? ""}
+                  display={formatDate(expectedCloseDate)}
+                  formatDraft={(v) => (v ? formatDate(v) : "—")}
+                  type="date"
+                  title="Click to edit close date"
+                  onSave={(next) => saveField({ expectedCloseDate: next || null })}
+                />
+              ) : (
+                formatDate(expectedCloseDate)
+              )}
+            </Field>
             <Field label="Created">{formatDate(createdAt)}</Field>
-            {description ? (
-              <Field label="Description">
-                <span className="whitespace-pre-wrap">{description}</span>
-              </Field>
-            ) : null}
+            <Field label="Description">
+              {canEdit ? (
+                <InlineValue
+                  value={description ?? ""}
+                  display={description || "Add description"}
+                  title="Click to edit description"
+                  onSave={(next) => saveField({ description: next || null })}
+                />
+              ) : (
+                description || "—"
+              )}
+            </Field>
+
+            <Separator />
+
+            {/* Commit (4A) gate fields — the stage-advance checklist points here. */}
+            <h3 id="procurement" className="text-sm font-semibold">
+              Procurement &amp; Commit
+            </h3>
+            <Field label="Procurement Process Stage">
+              {canEdit ? (
+                <InlineValue
+                  value={procurementStage ?? ""}
+                  display={procurementStage || "—"}
+                  title="Click to edit procurement stage"
+                  onSave={(next) => saveField({ procurementStage: next || null })}
+                />
+              ) : (
+                procurementStage || "—"
+              )}
+            </Field>
+            <Field label="Negotiation Done?">
+              {canEdit ? (
+                <Switch
+                  checked={negotiationDone}
+                  onCheckedChange={(v) => saveField({ negotiationDone: v })}
+                />
+              ) : negotiationDone ? (
+                "Yes"
+              ) : (
+                "No"
+              )}
+            </Field>
+            <Field label="Negotiation Date">
+              {canEdit ? (
+                <InlineValue
+                  value={negotiationDate ?? ""}
+                  display={formatDate(negotiationDate)}
+                  formatDraft={(v) => (v ? formatDate(v) : "—")}
+                  type="date"
+                  title="Click to edit negotiation date"
+                  onSave={(next) => saveField({ negotiationDate: next || null })}
+                />
+              ) : (
+                formatDate(negotiationDate)
+              )}
+            </Field>
+            <Field label="Expected Invoice">
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {canEdit ? (
+                  <>
+                    <InlineCombobox
+                      value={expectedInvoiceMonth ?? ""}
+                      display={expectedInvoiceMonth || "Month"}
+                      options={INVOICE_MONTHS}
+                      onSave={(next) =>
+                        saveField({ expectedInvoiceMonth: next || null })
+                      }
+                      placeholder="Month"
+                      searchPlaceholder="Search months…"
+                      title="Click to set expected invoice month"
+                    />
+                    <InlineValue
+                      value={expectedInvoiceYear != null ? String(expectedInvoiceYear) : ""}
+                      display={expectedInvoiceYear ?? "Year"}
+                      type="number"
+                      title="Click to set expected invoice year"
+                      onSave={(next) =>
+                        saveField({ expectedInvoiceYear: next ? Number(next) : null })
+                      }
+                    />
+                  </>
+                ) : (
+                  <span>
+                    {expectedInvoiceMonth && expectedInvoiceYear
+                      ? `${expectedInvoiceMonth} ${expectedInvoiceYear}`
+                      : "—"}
+                  </span>
+                )}
+              </span>
+            </Field>
 
             {customFieldDefs.length > 0 ? (
               <>
@@ -578,7 +880,16 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     ) : null}
                     {group.fields.map((def) => (
                       <Field key={def.key} label={def.label}>
-                        {formatCustomFieldValue(def, customValues[def.key])}
+                        <CustomFieldValue
+                          def={def}
+                          value={customValues[def.key] ?? ""}
+                          canEdit={canEdit}
+                          onSave={(next) =>
+                            saveField({
+                              customFields: { ...customValues, [def.key]: next },
+                            })
+                          }
+                        />
                       </Field>
                     ))}
                   </React.Fragment>
@@ -638,7 +949,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
         <Card>
           <CardContent className="min-h-[26rem] pt-6">
             <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
+              <TabsList>
 
                 <TabsTrigger value="activity">Activity</TabsTrigger>
                 <TabsTrigger value="quotations">
@@ -740,14 +1051,19 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               </TabsContent>
 
               <TabsContent value="milestones" className="mt-4">
-                <DataTable
-                  columns={milestoneColumns}
-                  data={milestones}
-                  tableId="funnel-milestones"
-                  searchColumn="title"
-                  searchPlaceholder="Search payment milestones…"
-                  emptyMessage="No payment milestones on this funnel yet."
-                  pageSize={5}
+                <MilestonesPanel
+                  milestones={milestones as MilestoneItemBase[]}
+                  valueCeiling={milestoneValueCeiling}
+                  valueCeilingLabel="net funnel value, ex-tax"
+                  currency={currency}
+                  canManage={canManageMilestones}
+                  onCreate={(values) =>
+                    createFunnelMilestone({ funnelId, ...values })
+                  }
+                  onUpdate={(id, values) => updateFunnelMilestone(id, values)}
+                  onDelete={(id) => deleteFunnelMilestone(id)}
+                  onReorder={(order) => reorderFunnelMilestones(funnelId, order)}
+                  onSplit={(parts) => splitFunnelMilestones(funnelId, parts)}
                 />
               </TabsContent>
 
@@ -843,9 +1159,54 @@ function Field({
   className?: string
 }) {
   return (
-    <div className={cn("grid gap-1", className)}>
+    <div className={cn("grid min-w-0 gap-1", className)}>
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{children}</span>
+      <span className="min-w-0 text-sm">{children}</span>
     </div>
+  )
+}
+
+/** A tenant custom field's value, inline-editable per its configured type. */
+function CustomFieldValue({
+  def,
+  value,
+  canEdit,
+  onSave,
+}: {
+  def: CustomFunnelField
+  value: string
+  canEdit: boolean
+  onSave: (next: string) => Promise<void> | void
+}) {
+  if (!canEdit) return formatCustomFieldValue(def, value)
+
+  if (def.type === "checkbox") {
+    return (
+      <Switch
+        checked={value === "true"}
+        onCheckedChange={(c) => onSave(c ? "true" : "false")}
+      />
+    )
+  }
+  if (def.type === "select") {
+    return (
+      <InlineCombobox
+        value={value}
+        display={value || "—"}
+        options={(def.options ?? []).map((o) => ({ value: o, label: o }))}
+        onSave={onSave}
+        placeholder="Select…"
+        title={`Click to edit ${def.label}`}
+      />
+    )
+  }
+  return (
+    <InlineValue
+      value={value}
+      display={formatCustomFieldValue(def, value)}
+      type={def.type === "number" ? "number" : def.type === "date" ? "date" : "text"}
+      title={`Click to edit ${def.label}`}
+      onSave={onSave}
+    />
   )
 }

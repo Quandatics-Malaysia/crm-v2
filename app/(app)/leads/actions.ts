@@ -616,6 +616,8 @@ export type ConvertLeadInput = {
   leadId: string
   createOpportunity?: boolean
   opportunityName?: string | null
+  /** Funnel's own name — defaults to opportunityName when omitted. */
+  funnelName?: string | null
   expectedCloseDate?: string | null
   existingAccountId?: string | null
   /** Used only when no existingAccountId is given (creating a new account). */
@@ -646,6 +648,7 @@ export async function convertLeadAction(input: ConvertLeadInput) {
       leadId: input.leadId,
       createOpportunity: input.createOpportunity,
       opportunityName: clean(input.opportunityName) ?? undefined,
+      funnelName: clean(input.funnelName) ?? undefined,
       expectedCloseDate: clean(input.expectedCloseDate),
       existingAccountId: clean(input.existingAccountId),
       newAccount: input.existingAccountId ? null : input.newAccount ?? null,

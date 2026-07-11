@@ -372,6 +372,48 @@
 			"when": 1783214430643,
 			"tag": "0052_member_roles",
 			"breakpoints": true
+		},
+		{
+			"idx": 53,
+			"version": "7",
+			"when": 1783214431643,
+			"tag": "0053_opportunity_container_attachments",
+			"breakpoints": true
+		},
+		{
+			"idx": 54,
+			"version": "7",
+			"when": 1783214432643,
+			"tag": "0054_project_nature_and_milestone_naming",
+			"breakpoints": true
+		},
+		{
+			"idx": 55,
+			"version": "7",
+			"when": 1783214433643,
+			"tag": "0055_opportunity_sf_fields",
+			"breakpoints": true
+		},
+		{
+			"idx": 56,
+			"version": "7",
+			"when": 1783214434643,
+			"tag": "0056_funnel_kiv_reason",
+			"breakpoints": true
+		},
+		{
+			"idx": 57,
+			"version": "7",
+			"when": 1783214435643,
+			"tag": "0057_fix_leads_converted_opportunity_fk",
+			"breakpoints": true
+		},
+		{
+			"idx": 58,
+			"version": "7",
+			"when": 1783214436643,
+			"tag": "0058_drop_opportunity_new_business",
+			"breakpoints": true
 		}
 	]
 }

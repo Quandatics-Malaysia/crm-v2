@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,33 +13,44 @@ import { DataTable, SortableHeader } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
-import { cn } from "@/lib/utils"
-import { formatMoney, formatPercent } from "@/lib/format"
-import type { PersonOpportunity, PersonProject } from "../actions"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
+import { showActionError } from "@/lib/show-action-error"
+import { StageBadge } from "@/app/(app)/funnel/stage-badge"
+import { formatMoney } from "@/lib/format"
+import {
+  updatePerson,
+  type PersonInput,
+  type PersonOpportunity,
+  type PersonProject,
+} from "../actions"
 
 // Status pills render via the app-wide <StatusBadge> tone map.
 
-function stageKindClasses(kind: string | null): string {
-  switch (kind) {
-    case "WON":
-      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-    case "LOST":
-      return "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
-    case "PARKED":
-      return "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-    default:
-      return "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
-  }
-}
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type PersonEditKey =
+  | "firstName"
+  | "lastName"
+  | "title"
+  | "email"
+  | "phone"
+  | "accountId"
 
 export type PersonDetailSection = {
   title: string
-  fields: { label: string; value: React.ReactNode }[]
+  fields: { label: string; value: React.ReactNode; editKey?: PersonEditKey }[]
 }
 
 export type PersonDetailData = {
   personId: string
   sections: PersonDetailSection[]
+  /** Raw field values — updatePerson is full-replace, so each inline save
+   *  merges the one edited field into this snapshot. */
+  record: PersonInput
+  /** Gates every inline editor (PERSON_UPDATE, resolved server-side). */
+  canEdit: boolean
+  /** Account picker options for the linked-account inline combobox. */
+  accounts: { id: string; name: string }[]
   funnels: PersonOpportunity[]
   projects: PersonProject[]
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
@@ -50,13 +62,31 @@ export type PersonDetailData = {
 export function PersonDetailBody({
   personId,
   sections,
+  record,
+  canEdit,
+  accounts,
   funnels,
   projects,
   activity,
   documents,
 }: PersonDetailData) {
   const [tab, setTab] = React.useState("pipelines")
+  const router = useRouter()
   const revalidate = `/persons/${personId}`
+
+  async function saveField(patch: Partial<PersonInput>) {
+    const res = await updatePerson(personId, { ...record, ...patch })
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    router.refresh()
+  }
+
+  const accountOptions = React.useMemo(
+    () => accounts.map((a) => ({ value: a.id, label: a.name })),
+    [accounts]
+  )
 
   const funnelColumns = React.useMemo<ColumnDef<PersonOpportunity>[]>(
     () => [
@@ -77,14 +107,11 @@ export function PersonDetailBody({
         header: "Stage",
         cell: ({ row }) =>
           row.original.stageName ? (
-            <Badge className={cn(stageKindClasses(row.original.stageKind))}>
-              <span>{row.original.stageName}</span>
-              {row.original.stageProbability != null ? (
-                <span className="opacity-70">
-                  · {formatPercent(row.original.stageProbability)}
-                </span>
-              ) : null}
-            </Badge>
+            <StageBadge
+              kind={row.original.stageKind}
+              name={row.original.stageName}
+              probability={row.original.stageProbability}
+            />
           ) : (
             "—"
           ),
@@ -132,7 +159,7 @@ export function PersonDetailBody({
   )
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — contact highlights + related quick links */}
       <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
         <Card>
@@ -147,14 +174,48 @@ export function PersonDetailBody({
             {sections.map((section) => (
               <section key={section.title} className="grid gap-3">
                 <h3 className="text-sm font-semibold">{section.title}</h3>
-                {section.fields.map((d) => (
-                  <div key={d.label} className="grid gap-1">
-                    <span className="text-xs text-muted-foreground">
-                      {d.label}
-                    </span>
-                    <span className="text-sm">{d.value}</span>
-                  </div>
-                ))}
+                {section.fields.map((d) => {
+                  const key = canEdit ? d.editKey : undefined
+                  return (
+                    <div key={d.label} className="grid gap-1">
+                      <span className="text-xs text-muted-foreground">
+                        {d.label}
+                      </span>
+                      <span className="text-sm">
+                        {!key ? (
+                          d.value
+                        ) : key === "accountId" ? (
+                          <InlineCombobox
+                            value={record.accountId}
+                            display={
+                              accountOptions.find((o) => o.value === record.accountId)
+                                ?.label ?? "—"
+                            }
+                            options={accountOptions}
+                            onSave={(next) => saveField({ accountId: next })}
+                            searchPlaceholder="Search accounts…"
+                            emptyMessage="No accounts found."
+                            title="Click to change account"
+                          />
+                        ) : (
+                          <InlineValue
+                            value={record[key] ?? ""}
+                            display={record[key] || "—"}
+                            title={`Click to edit ${d.label.toLowerCase()}`}
+                            onSave={(next) => {
+                              // First name is required — ignore an emptied draft.
+                              if (key === "firstName") {
+                                if (!next.trim()) return
+                                return saveField({ firstName: next })
+                              }
+                              return saveField({ [key]: next || null })
+                            }}
+                          />
+                        )}
+                      </span>
+                    </div>
+                  )
+                })}
               </section>
             ))}
           </CardContent>
@@ -180,7 +241,7 @@ export function PersonDetailBody({
         <Card>
           <CardContent className="min-h-[26rem] pt-6">
             <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
+              <TabsList>
                 <TabsTrigger value="pipelines">
                   Funnels
                   <Badge variant="secondary" className="ml-1.5">

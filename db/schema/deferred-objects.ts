@@ -10,7 +10,6 @@ import {
   numeric,
   date,
   integer,
-  boolean,
   index,
 } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"

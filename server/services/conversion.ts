@@ -42,6 +42,8 @@ export async function convertLead(
     leadId: string
     createOpportunity?: boolean
     opportunityName?: string
+    /** Funnel's own name — defaults to opportunityName when omitted. */
+    funnelName?: string
     expectedCloseDate?: string | null
     existingAccountId?: string | null
     /** Details for the account created on the new-account path (optional). */
@@ -195,6 +197,7 @@ export async function convertLead(
         if (stage) {
           const dealName =
             input.opportunityName || `${lead.companyName || lead.name} opportunity`
+          const funnelName = input.funnelName || dealName
           const currency = await tenantDefaultCurrency(tx, ctx.tenantId)
           const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""
           // Lead → Opportunity CONTAINER, with a first funnel under it.
@@ -214,7 +217,7 @@ export async function convertLead(
             .values({
               tenantId: ctx.tenantId,
               opportunityId: container.id,
-              name: dealName,
+              name: funnelName,
               accountId,
               primaryPersonId: person.id,
               pipelineId: funnel.id,

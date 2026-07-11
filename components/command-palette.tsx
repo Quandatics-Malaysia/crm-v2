@@ -13,6 +13,7 @@ import {
   FileTextIcon,
   FolderKanbanIcon,
   LayoutDashboardIcon,
+  PackageIcon,
   ReceiptIcon,
   TrendingUpIcon,
   ArrowLeftRightIcon,
@@ -94,6 +95,8 @@ const QUICK_CREATE: {
   { label: "Contact", href: "/persons?new=1", permission: PERMISSIONS.PERSON_CREATE, icon: UsersIcon },
   { label: "Funnel", href: "/funnel?new=1", permission: PERMISSIONS.OPPORTUNITY_CREATE, icon: FilterIcon },
   { label: "Quotation", href: "/quotations/new", permission: PERMISSIONS.QUOTATION_CREATE, icon: FileTextIcon },
+  { label: "Product", href: "/products?new=1", permission: PERMISSIONS.PRODUCT_CREATE, icon: PackageIcon },
+  { label: "Project", href: "/projects?new=1", permission: PERMISSIONS.PROJECT_CREATE, module: "projects", icon: FolderKanbanIcon },
 ]
 
 /**

@@ -1,14 +1,29 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import { Plus } from "lucide-react"
+
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 
 import { formatDate } from "@/lib/format"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { listIndustries, listCountries } from "@/lib/lookups"
+import { isModuleEnabled } from "@/lib/modules"
+import {
+  listIndustries,
+  listCountries,
+  listAccountOptions,
+  listMembers,
+  listFunnelsWithStages,
+  listCustomFunnelFields,
+  listEntities,
+  listCurrencies,
+} from "@/lib/lookups"
+import { listPersonsWithAccount } from "@/app/(app)/funnel/actions"
+import { OpportunityForm } from "@/app/(app)/funnel/opportunity-form"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
@@ -61,6 +76,44 @@ export default async function AccountDetailPage({
     listAccountProjects(id),
     listAccountQuotations(id),
   ])
+
+  // "New funnel" in the Funnels tab (account preset). The form's lookup data
+  // is only fetched when the user can actually create one.
+  const canCreateFunnel = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
+  let newFunnelButton: React.ReactNode
+  if (canCreateFunnel) {
+    const [accounts, persons, members, funnelDefs, customFunnelFields, entities, currencies] =
+      await Promise.all([
+        listAccountOptions(),
+        listPersonsWithAccount(),
+        listMembers(),
+        listFunnelsWithStages(),
+        listCustomFunnelFields(),
+        listEntities(),
+        listCurrencies(),
+      ])
+    newFunnelButton = (
+      <OpportunityForm
+        mode="create"
+        presetAccountId={account.id}
+        accounts={accounts}
+        persons={persons}
+        members={members}
+        pipelines={funnelDefs}
+        customFieldDefs={customFunnelFields}
+        entityOptions={entities}
+        financeEnabled={isModuleEnabled("finance")}
+        currencies={currencies}
+        defaultOwnerMemberId={ctx.memberId}
+        trigger={
+          <Button size="sm">
+            <Plus className="size-4" />
+            New funnel
+          </Button>
+        }
+      />
+    )
+  }
 
 // Salesforce-named field sections (SPEC §6). Account Information groups the
   // company/registration/owner fields; Address Information holds the billing
@@ -223,6 +276,11 @@ export default async function AccountDetailPage({
           childAccounts={children}
           activity={activity}
           documents={documents}
+          newFunnelButton={newFunnelButton}
+          canCreateQuotation={ctx.can(PERMISSIONS.QUOTATION_CREATE)}
+          canCreateProject={
+            isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE)
+          }
         />
       </PageBody>
     </>

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -93,6 +94,14 @@ export function PersonDetailBody({
     () => accounts.map((a) => ({ value: a.id, label: a.name })),
     [accounts]
   )
+
+  // Contacts don't own funnels/projects — those live on the linked account, so
+  // the empty states point there.
+  const accountLink = record.accountId ? (
+    <Link href={`/accounts/${record.accountId}`} className="link text-sm">
+      Go to account
+    </Link>
+  ) : undefined
 
   const funnelColumns = React.useMemo<ColumnDef<PersonOpportunity>[]>(
     () => [
@@ -238,6 +247,8 @@ export function PersonDetailBody({
             searchColumn="name"
             searchPlaceholder="Search pipelines…"
             emptyMessage="No pipelines for this contact yet."
+            emptyDescription="Funnels are created on the contact's account."
+            emptyAction={accountLink}
             pageSize={5}
           />
         </TabsContent>
@@ -250,6 +261,8 @@ export function PersonDetailBody({
             searchColumn="name"
             searchPlaceholder="Search projects…"
             emptyMessage="No projects for this contact yet."
+            emptyDescription="Projects are created from a funnel on the contact's account."
+            emptyAction={accountLink}
             pageSize={5}
           />
         </TabsContent>

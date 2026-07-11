@@ -62,13 +62,18 @@ export function ConvertForm({
     if (!funnelNameTouched) setFunnelName(next)
   }
 
-  const blocked =
-    submitting ||
-    missingEmail ||
-    !accountId ||
-    (creatingNew && (!codeValid || !addr.country.trim())) ||
-    !opportunityName.trim() ||
-    !funnelName.trim()
+  // Names every unmet requirement so the disabled Convert button is never a
+  // silent dead end — the list renders next to it.
+  const missing = [
+    missingEmail ? "a lead email" : null,
+    !accountId ? "Account" : null,
+    creatingNew && !codeValid ? "a valid account code (2–6 letters/digits)" : null,
+    creatingNew && !addr.country.trim() ? "Country" : null,
+    !opportunityName.trim() ? "Opportunity name" : null,
+    !funnelName.trim() ? "Funnel name" : null,
+  ].filter((m): m is string => m !== null)
+
+  const blocked = submitting || missing.length > 0
 
   async function handleConvert() {
     setSubmitting(true)
@@ -375,6 +380,11 @@ export function ConvertForm({
           {submitting ? "Converting…" : "Convert lead"}
         </Button>
       </div>
+      {missing.length > 0 && !submitting ? (
+        <p className="text-right text-xs text-destructive" role="status">
+          To convert, fill in: {missing.join(" · ")}
+        </p>
+      ) : null}
       <p className="text-right text-xs text-muted-foreground">
         Converting creates the Account, Contact, Opportunity and Funnel together.
         This can&apos;t be undone.

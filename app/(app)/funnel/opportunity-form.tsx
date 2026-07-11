@@ -107,6 +107,7 @@ export function OpportunityForm({
   defaultOwnerMemberId,
   opportunity,
   opportunityId,
+  presetAccountId,
   trigger,
 }: {
   mode: "create" | "edit"
@@ -132,6 +133,9 @@ export function OpportunityForm({
    * so those fields are locked to it instead of being entered here.
    */
   opportunityId?: string
+  /** Default the Account picker (create mode) — e.g. "New funnel" from an
+   *  account's detail page. Unlike opportunityId, the picker stays editable. */
+  presetAccountId?: string
   trigger?: React.ReactElement
 }) {
   const router = useRouter()
@@ -191,7 +195,9 @@ export function OpportunityForm({
         }
       : {
           name: "",
-          accountId: opportunityId ? (accounts[0]?.id ?? "") : "",
+          accountId: opportunityId
+            ? (accounts[0]?.id ?? "")
+            : (presetAccountId ?? ""),
           primaryPersonId: "",
           pipelineId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",

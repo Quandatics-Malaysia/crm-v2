@@ -1,10 +1,13 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import { Plus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import {
@@ -85,6 +88,12 @@ export type AccountDetailData = {
   childAccounts: AccountChild[]
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
+  /** "New funnel" toolbar button (OPPORTUNITY_CREATE, resolved server-side). */
+  newFunnelButton?: React.ReactNode
+  /** QUOTATION_CREATE, resolved server-side — gates the empty-state CTA. */
+  canCreateQuotation: boolean
+  /** projects module + PROJECT_CREATE, resolved server-side. */
+  canCreateProject: boolean
 }
 
 /** Salesforce-style account detail: highlights + related quick-links on the
@@ -105,7 +114,14 @@ export function AccountDetailBody(props: AccountDetailData) {
     childAccounts,
     activity,
     documents,
+    newFunnelButton,
+    canCreateQuotation,
+    canCreateProject,
   } = props
+
+  // Quotations and projects are raised on a funnel, so their empty-state CTAs
+  // deep-link the account's first funnel as the prefill.
+  const firstFunnelId = pipelines[0]?.funnelId
 
   const [tab, setTab] = React.useState("contacts")
   const revalidate = `/accounts/${accountId}`
@@ -392,6 +408,7 @@ export function AccountDetailBody(props: AccountDetailData) {
             searchColumn="name"
             searchPlaceholder="Search opportunities…"
             emptyMessage="No opportunities for this account yet."
+            emptyDescription="An opportunity is created automatically when you add a funnel or convert a lead."
             pageSize={5}
           />
         </TabsContent>
@@ -405,6 +422,7 @@ export function AccountDetailBody(props: AccountDetailData) {
             searchPlaceholder="Search pipelines…"
             emptyMessage="No pipelines for this account yet."
             pageSize={5}
+            toolbar={newFunnelButton}
           />
         </TabsContent>
 
@@ -416,6 +434,27 @@ export function AccountDetailBody(props: AccountDetailData) {
             searchColumn="name"
             searchPlaceholder="Search projects…"
             emptyMessage="No projects for this account yet."
+            emptyDescription={
+              firstFunnelId
+                ? "Projects are created from a funnel."
+                : "Projects are created from a funnel — create a funnel for this account first."
+            }
+            emptyAction={
+              canCreateProject && firstFunnelId ? (
+                <Button
+                  size="sm"
+                  nativeButton={false}
+                  render={
+                    <Link
+                      href={`/projects?new=1&funnelId=${firstFunnelId}&accountId=${accountId}`}
+                    />
+                  }
+                >
+                  <Plus className="size-4" />
+                  New project
+                </Button>
+              ) : undefined
+            }
             pageSize={5}
           />
         </TabsContent>
@@ -428,6 +467,25 @@ export function AccountDetailBody(props: AccountDetailData) {
             searchColumn="quoteNumber"
             searchPlaceholder="Search quotations…"
             emptyMessage="No quotations for this account yet."
+            emptyDescription={
+              firstFunnelId
+                ? "Quotations are raised on a funnel."
+                : "Quotations are raised on a funnel — create a funnel for this account first."
+            }
+            emptyAction={
+              canCreateQuotation && firstFunnelId ? (
+                <Button
+                  size="sm"
+                  nativeButton={false}
+                  render={
+                    <Link href={`/quotations/new?funnelId=${firstFunnelId}`} />
+                  }
+                >
+                  <Plus className="size-4" />
+                  New quotation
+                </Button>
+              ) : undefined
+            }
             pageSize={5}
           />
         </TabsContent>

@@ -6,12 +6,36 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { Switch } from "@/components/ui/switch"
+import { TabsContent, TabsList } from "@/components/ui/tabs"
+import {
+  DataTable,
+  SortableHeader,
+  rightHeader,
+  moneyCell,
+  linkCell,
+} from "@/components/data-table"
 import { StatusBadge } from "@/components/status-badge"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import {
+  DetailAside,
+  DetailCardHeader,
+  DetailTabs,
+  RelatedCard,
+  CountTab,
+  FieldRow,
+  FieldSection,
+  useSaveField,
+} from "@/components/detail-page"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
 import { formatMoney } from "@/lib/format"
-import type { ProductRow, ProductUsageRow, ProductDealRow } from "./actions"
+import {
+  updateProduct,
+  type ProductInput,
+  type ProductRow,
+  type ProductUsageRow,
+  type ProductDealRow,
+} from "./actions"
 
 // Status pill: rendered by the app-wide <StatusBadge> tone map.
 
@@ -25,13 +49,29 @@ export function ProductDetailBody({
   codeName,
   usage,
   deals,
+  productCodes,
+  canEdit,
 }: {
   product: ProductRow
   codeName: string | null
   usage: ProductUsageRow[]
   deals: ProductDealRow[]
+  /** Product-line picker options for the inline category combobox. */
+  productCodes: { code: string; name: string }[]
+  /** Gates every inline editor (PRODUCT_UPDATE, resolved server-side). */
+  canEdit: boolean
 }) {
   const [tab, setTab] = React.useState("details")
+
+  // updateProduct is full-replace; the product row carries every input field.
+  const saveField = useSaveField((patch: Partial<ProductInput>) =>
+    updateProduct(product.id, { ...product, ...patch })
+  )
+
+  const codeOptions = React.useMemo(
+    () => productCodes.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` })),
+    [productCodes]
+  )
 
   const dealColumns = React.useMemo<ColumnDef<ProductDealRow>[]>(
     () => [
@@ -61,18 +101,17 @@ export function ProductDetailBody({
       },
       {
         accessorKey: "quantity",
-        header: () => <div className="text-right">Qty</div>,
+        header: rightHeader("Qty"),
         cell: ({ row }) => (
           <div className="text-right tabular-nums">{Number(row.original.quantity)}</div>
         ),
       },
       {
         accessorKey: "unitPrice",
-        header: () => <div className="text-right">Unit price</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.unitPrice, row.original.currency)}
-          </div>
+        header: rightHeader("Unit price"),
+        cell: moneyCell<ProductDealRow>(
+          (r) => r.unitPrice,
+          (r) => r.currency
         ),
       },
     ],
@@ -91,13 +130,9 @@ export function ProductDetailBody({
       {
         accessorKey: "quoteNumber",
         header: ({ column }) => <SortableHeader column={column} title="Quote" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/quotations/${row.original.quotationId}`}
-            className="font-medium link"
-          >
-            {row.original.quoteNumber}
-          </Link>
+        cell: linkCell<ProductUsageRow>(
+          (r) => `/quotations/${r.quotationId}`,
+          (r) => r.quoteNumber
         ),
       },
       {
@@ -119,11 +154,10 @@ export function ProductDetailBody({
       },
       {
         accessorKey: "total",
-        header: () => <div className="text-right">Total</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.total, row.original.currency)}
-          </div>
+        header: rightHeader("Total"),
+        cell: moneyCell<ProductUsageRow>(
+          (r) => r.total,
+          (r) => r.currency
         ),
       },
     ],
@@ -131,28 +165,48 @@ export function ProductDetailBody({
   )
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — the price + key facts, in plain language */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="product" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Product</span>
-              <CardTitle className="text-base">Price</CardTitle>
-            </div>
-          </CardHeader>
+          <DetailCardHeader kind="product" eyebrow="Product" title="Price" />
           <CardContent className="grid gap-3">
             <div>
-              <div className="text-2xl font-semibold tabular-nums">
-                {formatMoney(product.standardPrice, product.currency)}
-              </div>
+              {canEdit ? (
+                <InlineValue
+                  value={product.standardPrice}
+                  display={
+                    <span className="text-2xl font-semibold tabular-nums">
+                      {formatMoney(product.standardPrice, product.currency)}
+                    </span>
+                  }
+                  formatDraft={(v) => (
+                    <span className="text-2xl font-semibold tabular-nums">
+                      {formatMoney(v || "0", product.currency)}
+                    </span>
+                  )}
+                  type="number"
+                  title="Click to edit standard price"
+                  onSave={(next) => saveField({ standardPrice: next || null })}
+                />
+              ) : (
+                <div className="text-2xl font-semibold tabular-nums">
+                  {formatMoney(product.standardPrice, product.currency)}
+                </div>
+              )}
               <div className="text-xs text-muted-foreground">
                 {product.uom ? `per ${product.uom}` : "Standard price"} ·{" "}
                 {product.currency}
               </div>
             </div>
-            <div>
+            <div className="flex items-center gap-2">
+              {canEdit ? (
+                <Switch
+                  checked={product.isActive}
+                  onCheckedChange={(v) => saveField({ isActive: v })}
+                  aria-label="Active"
+                />
+              ) : null}
               {product.isActive ? (
                 <Badge variant="secondary">Active — available to quote</Badge>
               ) : (
@@ -167,8 +221,29 @@ export function ProductDetailBody({
             <CardTitle className="text-base">At a glance</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm">
-            <Field label="Product line">
-              {product.productCode ? (
+            <FieldRow label="Product line">
+              {canEdit ? (
+                <InlineCombobox
+                  value={product.productCode ?? ""}
+                  display={
+                    product.productCode ? (
+                      <span>
+                        <span className="font-mono text-xs">{product.productCode}</span>
+                        {codeName ? (
+                          <span className="text-muted-foreground"> · {codeName}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      "—"
+                    )
+                  }
+                  options={codeOptions}
+                  onSave={(next) => saveField({ productCode: next || null })}
+                  searchPlaceholder="Search product lines…"
+                  emptyMessage="No product lines configured."
+                  title="Click to change product line"
+                />
+              ) : product.productCode ? (
                 <span>
                   <span className="font-mono text-xs">{product.productCode}</span>
                   {codeName ? (
@@ -178,160 +253,134 @@ export function ProductDetailBody({
               ) : (
                 "—"
               )}
-            </Field>
-            <Field label="Subcategory">{product.subcategory ?? "—"}</Field>
-            <Field label="Unit (UOM)">{product.uom ?? "—"}</Field>
+            </FieldRow>
+            <FieldRow label="Subcategory">{product.subcategory ?? "—"}</FieldRow>
+            <FieldRow label="Unit (UOM)">{product.uom ?? "—"}</FieldRow>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                {
-                  kind: "quotation",
-                  label: "Used in quotes",
-                  count: usage.length,
-                  onSelect: () => setTab("usage"),
-                },
-                {
-                  kind: "funnel",
-                  label: "Funnels",
-                  count: pipelines.length,
-                  onSelect: () => setTab("usage"),
-                },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
+        <RelatedCard
+          items={[
+            {
+              kind: "quotation",
+              label: "Used in quotes",
+              count: usage.length,
+              onSelect: () => setTab("usage"),
+            },
+            {
+              kind: "funnel",
+              label: "Funnels",
+              count: pipelines.length,
+              onSelect: () => setTab("usage"),
+            },
+          ]}
+        />
+      </DetailAside>
 
       {/* Right column — tabbed full details */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="details">Details</TabsTrigger>
-                <TabsTrigger value="usage">
-                  Used in quotes
-                  <Badge variant="secondary" className="ml-1.5">
-                    {usage.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="deals">
-                  On opportunities
-                  <Badge variant="secondary" className="ml-1.5">
-                    {deals.length}
-                  </Badge>
-                </TabsTrigger>
-              </TabsList>
+      <DetailTabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <CountTab value="details">Details</CountTab>
+          <CountTab value="usage" count={usage.length}>
+            Used in quotes
+          </CountTab>
+          <CountTab value="deals" count={deals.length}>
+            On opportunities
+          </CountTab>
+        </TabsList>
 
-              <TabsContent value="details" className="mt-4 grid gap-6">
-                {/* Salesforce "Product Information" section — field order mirrors
-                    the reference: Name / Category / Subcategory · UOM / Currency /
-                    Active. */}
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Product Information
-                  </h3>
-                  <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                    <Field label="Product name">{product.name}</Field>
-                    <Field label="Unit (UOM)">{product.uom ?? "—"}</Field>
-                    <Field label="Product category">
-                      {product.productCode ? (
-                        <span>
-                          <span className="font-mono text-xs">
-                            {product.productCode}
-                          </span>
-                          {codeName ? (
-                            <span className="text-muted-foreground">
-                              {" "}· {codeName}
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </Field>
-                    <Field label="Currency">{product.currency}</Field>
-                    <Field label="Product subcategory">
-                      {product.subcategory ?? "—"}
-                    </Field>
-                    <Field label="Active">
-                      {product.isActive ? (
-                        <Badge variant="secondary">Active</Badge>
-                      ) : (
-                        <Badge variant="outline">Inactive</Badge>
-                      )}
-                    </Field>
-                    <Field label="Standard price">
-                      {formatMoney(product.standardPrice, product.currency)}
-                    </Field>
-                  </div>
-                </section>
+        <TabsContent value="details" className="mt-4 grid gap-6">
+          {/* Salesforce "Product Information" section — field order mirrors
+              the reference: Name / Category / Subcategory · UOM / Currency /
+              Active. */}
+          <FieldSection title="Product Information">
+            <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+              <FieldRow label="Product name">
+                {canEdit ? (
+                  <InlineValue
+                    value={product.name}
+                    display={product.name}
+                    title="Click to edit name"
+                    onSave={(next) => {
+                      if (!next.trim()) return
+                      return saveField({ name: next })
+                    }}
+                  />
+                ) : (
+                  product.name
+                )}
+              </FieldRow>
+              <FieldRow label="Unit (UOM)">{product.uom ?? "—"}</FieldRow>
+              <FieldRow label="Product category">
+                {product.productCode ? (
+                  <span>
+                    <span className="font-mono text-xs">
+                      {product.productCode}
+                    </span>
+                    {codeName ? (
+                      <span className="text-muted-foreground">
+                        {" "}· {codeName}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </FieldRow>
+              <FieldRow label="Currency">{product.currency}</FieldRow>
+              <FieldRow label="Product subcategory">
+                {product.subcategory ?? "—"}
+              </FieldRow>
+              <FieldRow label="Active">
+                {product.isActive ? (
+                  <Badge variant="secondary">Active</Badge>
+                ) : (
+                  <Badge variant="outline">Inactive</Badge>
+                )}
+              </FieldRow>
+              <FieldRow label="Standard price">
+                {formatMoney(product.standardPrice, product.currency)}
+              </FieldRow>
+            </div>
+          </FieldSection>
 
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold">
-                    Description Information
-                  </h3>
-                  {product.description ? (
-                    <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                      {product.description}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No description added.
-                    </p>
-                  )}
-                </section>
-              </TabsContent>
+          <FieldSection title="Description Information">
+            {product.description ? (
+              <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                {product.description}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No description added.
+              </p>
+            )}
+          </FieldSection>
+        </TabsContent>
 
-              <TabsContent value="usage" className="mt-4">
-                <DataTable
-                  columns={usageColumns}
-                  data={usage}
-                  tableId="product-usage"
-                  searchColumn="quoteNumber"
-                  searchPlaceholder="Search quotes…"
-                  emptyMessage="This product isn't on any quotes yet."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="usage" className="mt-4">
+          <DataTable
+            columns={usageColumns}
+            data={usage}
+            tableId="product-usage"
+            searchColumn="quoteNumber"
+            searchPlaceholder="Search quotes…"
+            emptyMessage="This product isn't on any quotes yet."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="deals" className="mt-4">
-                <DataTable
-                  columns={dealColumns}
-                  data={deals}
-                  tableId="product-deals"
-                  searchColumn="opportunityName"
-                  searchPlaceholder="Search opportunities…"
-                  emptyMessage="This product isn't on any opportunities yet."
-                  pageSize={5}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="grid gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{children}</span>
+        <TabsContent value="deals" className="mt-4">
+          <DataTable
+            columns={dealColumns}
+            data={deals}
+            tableId="product-deals"
+            searchColumn="opportunityName"
+            searchPlaceholder="Search opportunities…"
+            emptyMessage="This product isn't on any opportunities yet."
+            pageSize={5}
+          />
+        </TabsContent>
+      </DetailTabs>
     </div>
   )
 }

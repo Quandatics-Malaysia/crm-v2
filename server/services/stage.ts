@@ -3,6 +3,7 @@ import { and, eq, ne } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
 import {
   funnels,
+  opportunities,
   accounts,
   pipelineStages,
   funnelStageHistory,
@@ -22,6 +23,10 @@ import {
   closeRemarksLabel,
   stagesEnteredBy,
   requiredKeysForStages,
+  isPresetFieldKey,
+  isTerminalKind,
+  assertTransitionAllowed,
+  canBypassApproval,
   type StageGateState,
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
@@ -67,42 +72,10 @@ async function memberHasPermission(
   return rows.length > 0
 }
 
-/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
-function isTerminalKind(kind: string): boolean {
-  return kind !== "OPEN"
-}
-
-/**
- * Enforce the stage state machine for a single move:
- *  - the deal can't move to the stage it's already in,
- *  - a closed/parked (terminal) deal can't move at all without an explicit,
- *    separately-handled reopen (none is wired today, so it's simply rejected),
- *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
- * OPEN → terminal (win / lose / park) is always allowed from an open stage.
- */
-function assertTransitionAllowed(from: StageRow, to: StageRow): void {
-  if (from.id === to.id) throw new Error("This funnel is already in this stage")
-  if (isTerminalKind(from.kind))
-    throw new Error("This funnel is closed. Reopen it before changing its stage.")
-  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
-    throw new Error("Stage moves must advance forward in the funnel")
-}
-
-/** Whether the actor may enter approval-gated stages without a request. */
-function canBypassApproval(
-  ctx: ServerContext,
-  _settings: typeof tenantSettings.$inferSelect | undefined
-): boolean {
-  // Tiers retired: you may self-advance an approval-gated stage iff you hold
-  // the stage-approval permission (otherwise it routes to the upline).
-  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
-}
-
 /** Walk the upline chain for the first ancestor that can approve; else any approver. */
 async function resolveApprover(
   tx: Tx,
-  requesterMemberId: string,
-  requesterTier: number
+  requesterMemberId: string
 ): Promise<string> {
   let cursor = requesterMemberId
   const seen = new Set<string>([requesterMemberId])
@@ -180,7 +153,7 @@ async function createApprovalRequest(
     .limit(1)
   if (existing) return { approvalRequestId: existing.id }
 
-  const approver = await resolveApprover(tx, ctx.memberId, ctx.tierLevel)
+  const approver = await resolveApprover(tx, ctx.memberId)
   const [req] = await tx
     .insert(stageApprovalRequests)
     .values({
@@ -218,6 +191,14 @@ async function applyStageMove(
   // only stamp a new one when a still-open deal is being closed. Derive
   // actualCloseDate from this same timestamp so the date and timestamptz agree.
   const closeTs = closing ? opp.closedAt ?? new Date() : null
+  // SF "Closed Remarks" persists to the dedicated per-kind text field (not
+  // just funnel_stage_history.reason), so a report reading the funnel row
+  // directly sees it too.
+  const remarksSet: Partial<typeof funnels.$inferInsert> = {}
+  if (reason?.trim()) {
+    if (toStage.kind === "LOST") remarksSet.lostReason = reason.trim()
+    else if (toStage.kind === "PARKED") remarksSet.kivReason = reason.trim()
+  }
   await tx
     .update(funnels)
     .set({
@@ -227,6 +208,7 @@ async function applyStageMove(
       actualCloseDate: closeTs
         ? opp.actualCloseDate ?? toDateString(closeTs)
         : null,
+      ...remarksSet,
     })
     .where(eq(funnels.id, opp.id))
 
@@ -310,6 +292,16 @@ export async function requestStageAdvance(
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
 
+    // The SF-parity validation rules read the parent Opportunity CONTAINER's
+    // live fields (e.g. `Opportunity__r.Vision__c`), not the funnel's cascaded
+    // copy, which can drift after a container edit.
+    const [container] = await tx
+      .select()
+      .from(opportunities)
+      .where(eq(opportunities.id, opp.opportunityId))
+      .limit(1)
+    if (!container) throw new Error("Opportunity not found")
+
     // Every stage of this funnel — needed to resolve the requirements of any
     // intermediate stages a multi-stage jump skips over.
     const allStages = await tx
@@ -354,20 +346,38 @@ export async function requestStageAdvance(
       hasNature:
         Array.isArray(opp.projectNatures) && opp.projectNatures.length > 0,
       hasQuote: !!opp.primaryQuotationId,
+      hasVision: !!container.vision?.trim(),
+      hasPain: !!container.pain?.trim(),
+      hasOwnerContact: !!container.ownerContactId,
+      hasOwnerBudgetLimit:
+        container.ownerBudgetLimit != null && Number(container.ownerBudgetLimit) > 0,
+      hasOppEstimatedBudget:
+        container.estimatedBudget != null && Number(container.estimatedBudget) > 0,
+      hasOppEstimatedCloseDate: !!container.estimatedCloseDate,
+      hasValue: !!container.value?.trim(),
+      hasPowerSponsorContact: !!container.powerSponsorContactId,
+      hasPowerSponsorBudgetLimit:
+        container.powerSponsorBudgetLimit != null &&
+        Number(container.powerSponsorBudgetLimit) > 0,
+      hasProcurementStage: !!opp.procurementStage?.trim(),
+      hasNegotiationDone: !!opp.negotiationDone,
+      hasNegotiationDate: !!opp.negotiationDate,
+      hasExpectedInvoice: !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
     }
     const stageGate = buildStageGate(
       presets,
       mergedCustom,
       settings?.customFunnelFields ?? []
     )
-    // Requirements are tenant custom fields only; any legacy preset key left on
-    // a stage is ignored (never enforced) so it can't silently block a move.
+    // Requirements are either a tenant custom field OR a current preset key —
+    // anything else is a stale/orphaned key (e.g. left over from a renamed
+    // preset) and is dropped so it can't silently block a move.
     const customKeys = new Set(
       (settings?.customFunnelFields ?? []).map((f) => f.key)
     )
     const requiredKeys = requiredKeysForStages(
       stagesEnteredBy(allStages, from.id, target.id)
-    ).filter((k) => customKeys.has(k))
+    ).filter((k) => customKeys.has(k) || isPresetFieldKey(k))
     const missing = missingFromKeys(requiredKeys, stageGate)
     if (missing.length > 0) {
       throw new Error(
@@ -390,7 +400,7 @@ export async function requestStageAdvance(
     }
 
     const gated =
-      target.requiresApprovalToEnter && !canBypassApproval(ctx, settings)
+      target.requiresApprovalToEnter && !canBypassApproval(ctx)
 
     if (!gated) {
       await applyStageMove(
@@ -462,12 +472,7 @@ export async function winOpportunity(
       return { moved: false, pendingApproval: false }
 
     // Respect the Won stage's approval gate instead of bypassing it.
-    const [settings] = await tx
-      .select()
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (won.requiresApprovalToEnter && !canBypassApproval(ctx, settings)) {
+    if (won.requiresApprovalToEnter && !canBypassApproval(ctx)) {
       await createApprovalRequest(
         tx,
         ctx,

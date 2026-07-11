@@ -15,6 +15,7 @@ export type AttachableType =
   | "project"
   | "sales_order"
   | "finance_doc"
+  | "opportunity_container"
 
 /**
  * Attachment authority is derived from the parent record: you may view a file
@@ -30,6 +31,10 @@ export const ATTACH_PERMS: Record<
   person: { view: PERMISSIONS.PERSON_VIEW, write: PERMISSIONS.PERSON_UPDATE },
   lead: { view: PERMISSIONS.LEAD_VIEW, write: PERMISSIONS.LEAD_UPDATE },
   opportunity: {
+    view: PERMISSIONS.OPPORTUNITY_VIEW,
+    write: PERMISSIONS.OPPORTUNITY_UPDATE,
+  },
+  opportunity_container: {
     view: PERMISSIONS.OPPORTUNITY_VIEW,
     write: PERMISSIONS.OPPORTUNITY_UPDATE,
   },

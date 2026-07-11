@@ -16,7 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DetailTabs, FieldRow } from "@/components/detail-page"
 import { StatusBadge } from "@/components/status-badge"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
@@ -32,21 +33,6 @@ import {
 import { CreateDocDialog } from "../finance-docs-table"
 
 const EMPTY_SOURCES = { salesOrders: [], docs: [], milestones: [] }
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="grid grid-cols-[9rem_1fr] items-baseline gap-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0">{children}</span>
-    </div>
-  )
-}
 
 export function DocDetailBody({
   detail,
@@ -100,30 +86,31 @@ export function DocDetailBody({
     (k) => FINANCE_KINDS[k].parents.includes(doc.kind as FinanceDocKind)
   )
   const [childKind, setChildKind] = React.useState<FinanceDocKind | null>(null)
+  const [tab, setTab] = React.useState("documents")
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_1fr]">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left: facts + actions */}
-      <div className="grid h-fit gap-6">
+      <div className="grid h-fit gap-4">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="font-mono">{doc.number}</CardTitle>
             <StatusBadge status={doc.status} />
           </CardHeader>
           <CardContent className="grid gap-2.5">
-            <Field label="Type">
+            <FieldRow inline label="Type">
               <Badge variant="outline">{meta.label}</Badge>
-            </Field>
-            <Field label="Amount">
+            </FieldRow>
+            <FieldRow inline label="Amount">
               <span className="font-semibold tabular-nums">
                 {formatMoney(doc.amount, doc.currency)}
               </span>
-            </Field>
-            <Field label={meta.direction === "sale" ? "Customer" : "Supplier"}>
+            </FieldRow>
+            <FieldRow inline label={meta.direction === "sale" ? "Customer" : "Supplier"}>
               {doc.partyName ?? "—"}
-            </Field>
-            <Field label="Date">{doc.docDate ? formatDate(doc.docDate) : "—"}</Field>
-            <Field label="Due">
+            </FieldRow>
+            <FieldRow inline label="Date">{doc.docDate ? formatDate(doc.docDate) : "—"}</FieldRow>
+            <FieldRow inline label="Due">
               {doc.dueDate ? (
                 <span className="inline-flex items-center gap-2">
                   {formatDate(doc.dueDate)}
@@ -134,9 +121,9 @@ export function DocDetailBody({
               ) : (
                 "—"
               )}
-            </Field>
+            </FieldRow>
             {doc.status === "issued" || doc.reminderStage > 0 ? (
-              <Field label="Reminders">
+              <FieldRow inline label="Reminders">
                 <span className="inline-flex items-center gap-2">
                   {doc.reminderStage > 0
                     ? `${doc.reminderStage} logged${doc.lastReminderAt ? ` · last ${formatDate(doc.lastReminderAt)}` : ""}`
@@ -147,12 +134,12 @@ export function DocDetailBody({
                     </Badge>
                   ) : null}
                 </span>
-              </Field>
+              </FieldRow>
             ) : null}
 
             <Separator />
 
-            <Field label="Project">
+            <FieldRow inline label="Project">
               {doc.projectId ? (
                 <Link href={`/projects/${doc.projectId}`} className="link">
                   {detail.projectName ?? doc.projectCode ?? "Project"}
@@ -160,16 +147,16 @@ export function DocDetailBody({
               ) : (
                 "—"
               )}
-            </Field>
-            <Field label="Sales order">{doc.soNumber ?? "—"}</Field>
+            </FieldRow>
+            <FieldRow inline label="Sales order">{doc.soNumber ?? "—"}</FieldRow>
             {detail.quoteNumber ? (
-              <Field label="Quotation">{detail.quoteNumber}</Field>
+              <FieldRow inline label="Quotation">{detail.quoteNumber}</FieldRow>
             ) : null}
             {detail.milestoneTitle ? (
-              <Field label="Milestone">{detail.milestoneTitle}</Field>
+              <FieldRow inline label="Milestone">{detail.milestoneTitle}</FieldRow>
             ) : null}
             {doc.intercompanyDealId ? (
-              <Field label="Intercompany">
+              <FieldRow inline label="Intercompany">
                 <span className="inline-flex items-center gap-1.5">
                   <Badge variant="outline">Auto-mirrored</Badge>
                   {detail.counterpartNumber ? (
@@ -178,7 +165,7 @@ export function DocDetailBody({
                     </span>
                   ) : null}
                 </span>
-              </Field>
+              </FieldRow>
             ) : null}
             {doc.notes ? (
               <>
@@ -304,7 +291,7 @@ export function DocDetailBody({
       </div>
 
       {/* Right: documents + activity */}
-      <Tabs defaultValue="documents" className="min-w-0">
+      <DetailTabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="documents">
             Documents{doc.attachCount ? ` (${doc.attachCount})` : ""}
@@ -327,7 +314,7 @@ export function DocDetailBody({
             revalidate={revalidate}
           />
         </TabsContent>
-      </Tabs>
+      </DetailTabs>
     </div>
   )
 }

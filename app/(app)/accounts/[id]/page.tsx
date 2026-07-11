@@ -6,6 +6,8 @@ import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 
 import { formatDate } from "@/lib/format"
+import { requireContext } from "@/lib/server-context"
+import { PERMISSIONS } from "@/lib/permissions"
 import { listIndustries, listCountries } from "@/lib/lookups"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
@@ -18,7 +20,7 @@ import {
   type BillingAddress,
 } from "../actions"
 import { AccountEditButton } from "./account-edit-button"
-import { AccountDetailBody } from "./account-detail-body"
+import { AccountDetailBody, type AccountDetailSection } from "./account-detail-body"
 
 function formatAddress(a: BillingAddress | null | undefined): string | null {
   if (!a) return null
@@ -34,11 +36,12 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, parentOptions, industries, countries] = await Promise.all([
+  const [data, parentOptions, industries, countries, ctx] = await Promise.all([
     getAccount(id),
     listParentOptions(id),
     listIndustries(),
     listCountries(),
+    requireContext(),
   ])
 
   if (!data) notFound()
@@ -69,7 +72,11 @@ export default async function AccountDetailPage({
 
   const address = formatAddress(account.billingAddress as BillingAddress | null)
 
-  const detail: { label: string; value: React.ReactNode }[] = [
+  // Salesforce-named field sections (SPEC §6). Account Information groups the
+  // company/registration/owner fields; Address Information holds the billing
+  // address. Only fields already fetched are included.
+  const accountInformation: AccountDetailSection["fields"] = [
+    { label: "Name", value: account.name, editKey: "name" },
     { label: "Code", value: account.code ?? "—" },
     {
       label: "Type",
@@ -96,8 +103,8 @@ export default async function AccountDetailPage({
           },
         ]
       : []),
-    { label: "Industry", value: account.industry ?? "—" },
-    { label: "Office phone", value: account.phone ?? "—" },
+    { label: "Industry", value: account.industry ?? "—", editKey: "industry" },
+    { label: "Phone", value: account.phone ?? "—", editKey: "phone" },
     { label: "Account manager", value: ownerName ?? "—" },
     {
       label: "Registration number",
@@ -105,6 +112,7 @@ export default async function AccountDetailPage({
     },
     {
       label: "Website",
+      editKey: "website",
       value: account.website ? (
         <a
           href={account.website}
@@ -131,9 +139,32 @@ export default async function AccountDetailPage({
         "—"
       ),
     },
-    { label: "Billing address", value: address ?? "—" },
     { label: "Created", value: formatDate(account.createdAt) },
   ]
+
+  const addressInformation: AccountDetailSection["fields"] = [
+    { label: "Billing address", value: address ?? "—" },
+  ]
+
+  const sections: AccountDetailSection[] = [
+    { title: "Account Information", fields: accountInformation },
+    { title: "Address Information", fields: addressInformation },
+  ]
+
+  // Raw snapshot for the inline editors — updateAccount is full-replace, so
+  // the client merges the one edited field into this.
+  const record = {
+    name: account.name,
+    code: account.code,
+    parentAccountId: account.parentAccountId,
+    accountType: account.accountType,
+    endUserAccountId: account.endUserAccountId,
+    industry: account.industry,
+    website: account.website,
+    phone: account.phone,
+    registrationNumber: account.registrationNumber,
+    billingAddress: account.billingAddress as BillingAddress | null,
+  }
 
   return (
     <>
@@ -180,7 +211,10 @@ export default async function AccountDetailPage({
 
         <AccountDetailBody
           accountId={account.id}
-          fields={detail}
+          sections={sections}
+          record={record}
+          canEdit={ctx.can(PERMISSIONS.ACCOUNT_UPDATE)}
+          industries={industries}
           contacts={contacts}
           opportunities={accountOpportunities}
           pipelines={pipelines}

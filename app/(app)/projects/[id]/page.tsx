@@ -16,7 +16,7 @@ import { getProject, listMilestones, listQuotationLinkOptions } from "../actions
 import { listProjectSalesOrders } from "@/app/(app)/sales-orders/actions"
 import { getProjectBillingSummary } from "@/app/(app)/billing/actions"
 import { ProjectEditButton } from "./project-edit-button"
-import { ProjectDetailBody } from "./project-detail-body"
+import { ProjectDetailBody, type ProjectDetailData } from "./project-detail-body"
 
 export default async function ProjectDetailPage({
   params,
@@ -56,7 +56,8 @@ export default async function ProjectDetailPage({
       ? await listQuotationLinkOptions(project.funnelId)
       : []
 
-  const fields: { label: string; value: React.ReactNode }[] = [
+  const fields: ProjectDetailData["fields"] = [
+    { label: "Name", value: project.name, editKey: "name" },
     {
       label: "Status",
       value: <StatusBadge status={project.status} />,
@@ -69,7 +70,7 @@ export default async function ProjectDetailPage({
         </span>
       ),
     },
-    { label: "Start date", value: formatDate(project.startDate) },
+    { label: "Start date", value: formatDate(project.startDate), editKey: "startDate" },
     {
       label: "Account",
       value: accountName ? (
@@ -147,6 +148,7 @@ export default async function ProjectDetailPage({
         <ProjectDetailBody
           projectId={id}
           fields={fields}
+          record={{ name: project.name, startDate: project.startDate }}
           notes={project.notes}
           milestones={milestones}
           projectValue={project.value}

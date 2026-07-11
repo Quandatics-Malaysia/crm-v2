@@ -8,16 +8,12 @@ import { Button } from "@/components/ui/button"
 import { buildFunnelSteps, buildLeadSteps } from "@/components/stage-progress"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
-import {
-  listAccountOptions,
-  listFunnelsWithStages,
-  listCountries,
-} from "@/lib/lookups"
+import { listFunnelsWithStages } from "@/lib/lookups"
 import { formatDate } from "@/lib/format"
 import { getLead } from "../actions"
 import { LeadEditButton } from "./lead-edit-button"
 import { LeadDetailActions } from "./lead-detail-actions"
-import { LeadDetailBody } from "./lead-detail-body"
+import { LeadDetailBody, type LeadDetailSection } from "./lead-detail-body"
 
 const STATUS_LABEL: Record<string, string> = {
   new: "New",
@@ -33,11 +29,9 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, pipelines, accountOptions, countries] = await Promise.all([
+  const [data, pipelines] = await Promise.all([
     getLead(id),
     listFunnelsWithStages(),
-    listAccountOptions(),
-    listCountries(),
   ])
   if (!data) notFound()
 
@@ -47,11 +41,19 @@ export default async function LeadDetailPage({
     listEntityAttachments("lead", id),
   ])
 
-  const detail: { label: string; value: React.ReactNode }[] = [
+  // Salesforce-named field sections (SPEC §2). Company Information groups the
+  // company/contact-channel fields; Lead Information groups the lead's own
+  // status/source/funnel data. Only fields already fetched are included.
+  const companyInformation: LeadDetailSection["fields"] = [
+    { label: "Company", value: lead.companyName ?? "—", editKey: "companyName" },
+    { label: "Phone", value: lead.phone ?? "—", editKey: "phone" },
+  ]
+
+  const leadInformation: LeadDetailSection["fields"] = [
     { label: "Status", value: STATUS_LABEL[lead.status] ?? lead.status },
-    { label: "Company", value: lead.companyName ?? "—" },
     {
       label: "Email",
+      editKey: "email",
       value: lead.email ? (
         <a
           href={`mailto:${lead.email}`}
@@ -63,8 +65,7 @@ export default async function LeadDetailPage({
         "—"
       ),
     },
-    { label: "Phone", value: lead.phone ?? "—" },
-    { label: "Source", value: lead.source ?? "—" },
+    { label: "Source", value: lead.source ?? "—", editKey: "source" },
     {
       label: "Funnel",
       value: funnelName ? (
@@ -85,8 +86,29 @@ export default async function LeadDetailPage({
     { label: "Created", value: formatDate(lead.createdAt) },
   ]
 
-  if (lead.status === "disqualified" && lead.disqualifyReason) {
-    detail.push({ label: "Disqualify reason", value: lead.disqualifyReason })
+  // Remarks section: only when a disqualify reason is actually present.
+  const remarks: { label: string; value: React.ReactNode }[] =
+    lead.status === "disqualified" && lead.disqualifyReason
+      ? [{ label: "Disqualify reason", value: lead.disqualifyReason }]
+      : []
+
+  const sections: LeadDetailSection[] = [
+    { title: "Company Information", fields: companyInformation },
+    { title: "Lead Information", fields: leadInformation },
+    ...(remarks.length ? [{ title: "Remarks", fields: remarks }] : []),
+  ]
+
+  // Raw snapshot for the inline editors — updateLead is full-replace, so the
+  // client merges the one edited field into this.
+  const record = {
+    name: lead.name,
+    companyName: lead.companyName,
+    email: lead.email,
+    phone: lead.phone,
+    source: lead.source,
+    status: lead.status,
+    pipelineId: lead.pipelineId,
+    currentStageId: lead.currentStageId,
   }
 
   const isConverted =
@@ -134,13 +156,7 @@ export default async function LeadDetailPage({
                 {stageName}
               </Badge>
             ) : null}
-            {!isConverted ? (
-              <LeadDetailActions
-                lead={lead}
-                accountOptions={accountOptions}
-                countries={countries}
-              />
-            ) : null}
+            {!isConverted ? <LeadDetailActions lead={lead} /> : null}
             <LeadEditButton lead={lead} pipelines={pipelines} />
             <Button
               variant="outline"
@@ -155,7 +171,8 @@ export default async function LeadDetailPage({
         <LeadDetailBody
           leadId={id}
           status={lead.status}
-          fields={detail}
+          sections={sections}
+          record={record}
           leadSteps={leadProgress.steps}
           leadNote={leadProgress.note}
           funnelSteps={funnelProgress?.steps ?? null}

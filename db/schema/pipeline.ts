@@ -153,6 +153,15 @@ export const opportunities = pgTable(
     vision: text("vision"),
     value: text("value"),
     control: text("control"),
+    /** Primary project nature (tenant picklist) — source of truth, cascaded to
+     *  each child funnel, same pattern as PPVVC above. */
+    projectNatureCode: text("project_nature_code"),
+    /** Full set of project natures (first = primary). */
+    projectNatures: jsonb("project_natures").$type<string[]>(),
+    /** Internal delivery code (`YYYY-ENTITY-ACCOUNT-NATURE-NNN`, via
+     *  nextProjectCode) generated once at container creation. Never shown in
+     *  the UI — used only to prefix payment milestones' hidden `name` field. */
+    projectCode: text("project_code"),
     /** Rollup = Σ child funnels' estimatedAmount. Recomputed on funnel change. */
     totalEstimatedFunnelAmount: numeric("total_estimated_funnel_amount", {
       precision: 14,
@@ -160,6 +169,32 @@ export const opportunities = pgTable(
     }),
     description: text("description"),
     currency: char("currency", { length: 3 }).notNull().default("MYR"),
+    /** Salesforce "Opportunity Owner Contact" — the budget-holding contact.
+     *  "Opportunity Owner Designation" is derived from this contact's
+     *  `persons.title`, not stored. */
+    ownerContactId: uuid("owner_contact_id").references(() => persons.id, {
+      onDelete: "set null",
+    }),
+    ownerBudgetLimit: numeric("owner_budget_limit", { precision: 14, scale: 2 }),
+    /** Salesforce "Power Sponsor Contact". Designation likewise derived. */
+    powerSponsorContactId: uuid("power_sponsor_contact_id").references(
+      () => persons.id,
+      { onDelete: "set null" }
+    ),
+    powerSponsorBudgetLimit: numeric("power_sponsor_budget_limit", {
+      precision: 14,
+      scale: 2,
+    }),
+    /** Budget ceiling the deal must fit under — distinct from
+     *  `totalEstimatedFunnelAmount` (a rollup of actual child-funnel estimates). */
+    estimatedBudget: numeric("estimated_budget", { precision: 14, scale: 2 }),
+    estimatedCloseDate: date("estimated_close_date"),
+    /** Container-level renewal flag — distinct from `funnels.isRenewal`, which
+     *  is per-deal. */
+    isRenewal: boolean("is_renewal").notNull().default(false),
+    showDashboards: boolean("show_dashboards").notNull().default(false),
+    assignedPresales: text("assigned_presales"),
+    competitor: text("competitor"),
     customFields: jsonb("custom_fields")
       .$type<Record<string, string>>()
       .notNull()
@@ -264,8 +299,20 @@ export const funnels = pgTable(
     projectNatures: jsonb("project_natures").$type<string[]>(),
     expectedCloseDate: date("expected_close_date"),
     actualCloseDate: date("actual_close_date"),
+    /** Salesforce "PP_Stage__c" (Procurement Process Stage) — free tenant text,
+     *  same modeling as projectNatureCode (no hardcoded enum). */
+    procurementStage: text("procurement_stage"),
+    negotiationDone: boolean("negotiation_done").notNull().default(false),
+    negotiationDate: date("negotiation_date"),
+    /** Mirrors payment_milestones' identically-named/shaped columns, but for
+     *  the funnel's own expected-invoice gate at stage 4A. */
+    expectedInvoiceMonth: text("expected_invoice_month"),
+    expectedInvoiceYear: integer("expected_invoice_year"),
     status: opportunityStatus("status").notNull().default("open"),
     kivReviewDate: date("kiv_review_date"),
+    /** SF "Closed Remarks" for a KIV move — a text reason, distinct from
+     *  kivReviewDate (a follow-up-by date). */
+    kivReason: text("kiv_reason"),
     lostReason: text("lost_reason"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     customFields: jsonb("custom_fields")

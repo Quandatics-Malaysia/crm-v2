@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, isNull, ne, notInArray } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -32,6 +32,7 @@ import { winOpportunity } from "@/server/services/stage"
 import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
+import { seedDefaultFunnelMilestone } from "@/app/(app)/payment-milestones/actions"
 import { toDateString } from "@/lib/dates"
 import { isModuleEnabled } from "@/lib/modules"
 
@@ -40,6 +41,7 @@ export type QuotationLineRow = typeof quotationLineItems.$inferSelect
 
 export type QuotationListItem = QuotationRow & {
   opportunityName: string | null
+  lineItemCount: number
 }
 
 export type LineInput = {
@@ -81,6 +83,10 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
       .select({
         q: quotations,
         opportunityName: funnels.name,
+        lineItemCount: sql<number>`(
+          select count(*) from ${quotationLineItems}
+          where ${quotationLineItems.quotationId} = ${quotations.id}
+        )`.mapWith(Number),
       })
       .from(quotations)
       .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
@@ -92,7 +98,11 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
       )
       .orderBy(desc(quotations.createdAt))
       .limit(500)
-    return rows.map((r) => ({ ...r.q, opportunityName: r.opportunityName }))
+    return rows.map((r) => ({
+      ...r.q,
+      opportunityName: r.opportunityName,
+      lineItemCount: r.lineItemCount,
+    }))
   })
 }
 
@@ -520,6 +530,9 @@ export async function createQuotation(input: {
         .set({ primaryQuotationId: created.id, updatedAt: new Date() })
         .where(eq(funnels.id, input.funnelId))
       await syncOpportunityAmount(tx, ctx, input.funnelId)
+      // Itemised into the quotation by default: a synced quote seeds exactly
+      // one "Full Payment" milestone, no-op once any milestone exists.
+      await seedDefaultFunnelMilestone(tx, ctx, input.funnelId)
     }
 
     await logActivity(tx, ctx, {
@@ -609,6 +622,10 @@ export async function updateQuotation(
     // If this quote is the opportunity's primary, keep amount == its net.
     if (existing.isPrimary) {
       await syncOpportunityAmount(tx, ctx, existing.funnelId)
+      // Covers the common case of a quote auto-promoted to primary while
+      // still $0 (a brand-new draft), then given real value here — the
+      // "becomes primary" seed call already fired at net value 0 and no-op'd.
+      await seedDefaultFunnelMilestone(tx, ctx, existing.funnelId)
     }
 
     await writeAudit(tx, ctx, {
@@ -852,6 +869,9 @@ export async function acceptQuotation(
       .set({ primaryQuotationId: id, updatedAt: new Date() })
       .where(eq(funnels.id, q.funnelId))
     await syncOpportunityAmount(tx, ctx, q.funnelId)
+    // Itemised into the quotation by default: a synced quote seeds exactly
+    // one "Full Payment" milestone, no-op once any milestone exists.
+    await seedDefaultFunnelMilestone(tx, ctx, q.funnelId)
 
     const [settings] = await tx
       .select({
@@ -1070,6 +1090,7 @@ async function reassignPrimaryAfterRemoval(
       .update(funnels)
       .set({ primaryQuotationId: candidate.id, updatedAt: new Date() })
       .where(eq(funnels.id, funnelId))
+    await seedDefaultFunnelMilestone(tx, ctx, funnelId)
   } else {
     // No live quote remains: clear the pointer AND reset the amount. Without
     // this, syncOpportunityAmount short-circuits on the null pointer and the
@@ -1129,6 +1150,9 @@ export async function setPrimaryQuotation(
       .set({ primaryQuotationId: id, updatedAt: new Date() })
       .where(eq(funnels.id, q.funnelId))
     await syncOpportunityAmount(tx, ctx, q.funnelId)
+    // Itemised into the quotation by default: a synced quote seeds exactly
+    // one "Full Payment" milestone, no-op once any milestone exists.
+    await seedDefaultFunnelMilestone(tx, ctx, q.funnelId)
     await writeAudit(tx, ctx, {
       action: "quotation.set_primary",
       entityType: "quotation",

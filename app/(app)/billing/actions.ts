@@ -73,7 +73,7 @@ export type FinanceDocRow = {
 
 /** The module is an add-on gated globally by the plugin registry
  *  (lib/modules.ts). */
-async function assertFinanceEnabled(tx: Tx, tenantId: string): Promise<void> {
+async function assertFinanceEnabled(_tx: Tx, _tenantId: string): Promise<void> {
   assertModuleEnabled("finance")
 }
 
@@ -149,6 +149,7 @@ async function financeSettings(tx: Tx, tenantId: string) {
 /** Reminder schedule for the docs pages (client computes which stage is due). */
 export async function getReminderSchedule(): Promise<number[]> {
   return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
+    await assertFinanceEnabled(tx, ctx.tenantId)
     return (await financeSettings(tx, ctx.tenantId)).reminderDays
   })
 }
@@ -1209,7 +1210,7 @@ export type ProjectBillingSummary = {
 export async function getProjectBillingSummary(
   projectId: string
 ): Promise<ProjectBillingSummary | null> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
+  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx) => {
     if (!isModuleEnabled("finance")) return null
 
     const [proj] = await tx
@@ -1271,6 +1272,49 @@ export async function getProjectBillingSummary(
       margin: (invoiced - creditNotes - purchaseCost).toFixed(2),
       docs,
     }
+  })
+}
+
+/** Finance documents raised against one payment milestone (milestone detail
+ *  Invoices tab). Empty when the finance module is off. */
+export async function listMilestoneFinanceDocs(
+  milestoneId: string
+): Promise<FinanceDocRow[]> {
+  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx) => {
+    if (!isModuleEnabled("finance")) return []
+    const parent = alias(financeDocs, "parent_doc")
+    return (await tx
+      .select({
+        id: financeDocs.id,
+        kind: financeDocs.kind,
+        number: financeDocs.number,
+        status: financeDocs.status,
+        partyName: financeDocs.partyName,
+        amount: financeDocs.amount,
+        currency: financeDocs.currency,
+        docDate: financeDocs.docDate,
+        dueDate: financeDocs.dueDate,
+        notes: financeDocs.notes,
+        parentId: financeDocs.parentId,
+        parentNumber: parent.number,
+        salesOrderId: financeDocs.salesOrderId,
+        soNumber: salesOrders.soNumber,
+        projectId: financeDocs.projectId,
+        projectCode: projects.projectCode,
+        milestoneId: financeDocs.milestoneId,
+        reminderStage: financeDocs.reminderStage,
+        lastReminderAt: financeDocs.lastReminderAt,
+        intercompanyDealId: financeDocs.intercompanyDealId,
+        counterpartDocId: financeDocs.counterpartDocId,
+        attachCount: sql<number>`(select count(*)::int from ${attachments} a where a.attachable_type = 'finance_doc' and a.attachable_id = ${financeDocs.id})`,
+        createdAt: financeDocs.createdAt,
+      })
+      .from(financeDocs)
+      .leftJoin(parent, eq(financeDocs.parentId, parent.id))
+      .leftJoin(salesOrders, eq(financeDocs.salesOrderId, salesOrders.id))
+      .leftJoin(projects, eq(financeDocs.projectId, projects.id))
+      .where(eq(financeDocs.milestoneId, milestoneId))
+      .orderBy(desc(financeDocs.createdAt))) as FinanceDocRow[]
   })
 }
 

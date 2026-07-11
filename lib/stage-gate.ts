@@ -12,13 +12,32 @@
  * doesn't care which kind a key is.
  */
 
-/** Completeness of the preset system fields (derived from real funnel columns). */
+import { PERMISSIONS } from "@/lib/permissions"
+
+/** Completeness of the preset system fields (derived from real funnel /
+ *  opportunity-container columns — see {@link REQUIRABLE_FIELDS} for which). */
 export type StageGateState = {
   hasEstimate: boolean
   hasCloseDate: boolean
   hasContact: boolean
   hasNature: boolean
   hasQuote: boolean
+  // Salesforce parity fields — read from the parent Opportunity CONTAINER
+  // (not the funnel's cascaded copy), per the validation-rule formulas.
+  hasVision: boolean
+  hasPain: boolean
+  hasOwnerContact: boolean
+  hasOwnerBudgetLimit: boolean
+  hasOppEstimatedBudget: boolean
+  hasOppEstimatedCloseDate: boolean
+  hasValue: boolean
+  hasPowerSponsorContact: boolean
+  hasPowerSponsorBudgetLimit: boolean
+  // 4A fields — read from the funnel itself.
+  hasProcurementStage: boolean
+  hasNegotiationDone: boolean
+  hasNegotiationDate: boolean
+  hasExpectedInvoice: boolean
 }
 
 /** Input type for a tenant-defined custom funnel field. */
@@ -83,13 +102,27 @@ export function formatCustomFieldValue(
   return s
 }
 
-/** The preset fields an admin can require (each backed by a funnel column). */
+/** The preset fields an admin can require (each backed by a real column on
+ *  the funnel or its parent Opportunity container). */
 export type PresetFieldKey =
   | "estimate"
   | "closeDate"
   | "contact"
   | "nature"
   | "quote"
+  | "vision"
+  | "objective"
+  | "ownerContact"
+  | "ownerBudgetLimit"
+  | "oppEstimatedBudget"
+  | "oppEstimatedCloseDate"
+  | "value"
+  | "powerSponsorContact"
+  | "powerSponsorBudgetLimit"
+  | "procurementStage"
+  | "negotiationDone"
+  | "negotiationDate"
+  | "expectedInvoice"
 
 /** Catalog of preset fields → (the completeness flag it reads, human label). */
 export const REQUIRABLE_FIELDS: Record<
@@ -101,6 +134,34 @@ export const REQUIRABLE_FIELDS: Record<
   contact: { stateKey: "hasContact", label: "Primary contact" },
   nature: { stateKey: "hasNature", label: "Project nature(s)" },
   quote: { stateKey: "hasQuote", label: "A quotation" },
+  vision: { stateKey: "hasVision", label: "Vision" },
+  objective: { stateKey: "hasPain", label: "Pain (Objective)" },
+  ownerContact: { stateKey: "hasOwnerContact", label: "Opportunity Owner Contact" },
+  ownerBudgetLimit: {
+    stateKey: "hasOwnerBudgetLimit",
+    label: "Opportunity Owner Budget Limit",
+  },
+  oppEstimatedBudget: { stateKey: "hasOppEstimatedBudget", label: "Estimated Budget" },
+  oppEstimatedCloseDate: {
+    stateKey: "hasOppEstimatedCloseDate",
+    label: "Estimated Close Date",
+  },
+  value: { stateKey: "hasValue", label: "Value" },
+  powerSponsorContact: {
+    stateKey: "hasPowerSponsorContact",
+    label: "Power Sponsor Contact",
+  },
+  powerSponsorBudgetLimit: {
+    stateKey: "hasPowerSponsorBudgetLimit",
+    label: "Power Sponsor Budget Limit",
+  },
+  procurementStage: { stateKey: "hasProcurementStage", label: "Procurement Process Stage" },
+  negotiationDone: { stateKey: "hasNegotiationDone", label: "Negotiation Done?" },
+  negotiationDate: { stateKey: "hasNegotiationDate", label: "Negotiation Date" },
+  expectedInvoice: {
+    stateKey: "hasExpectedInvoice",
+    label: "Expected Invoice Month/Year",
+  },
 }
 
 export const REQUIRABLE_FIELD_KEYS = Object.keys(
@@ -126,15 +187,12 @@ export function buildStageGate(
   customValues: Record<string, unknown> | null | undefined,
   customFields: CustomFunnelField[]
 ): StageGate {
-  const satisfied: Record<string, boolean> = {
-    estimate: presets.hasEstimate,
-    closeDate: presets.hasCloseDate,
-    contact: presets.hasContact,
-    nature: presets.hasNature,
-    quote: presets.hasQuote,
-  }
+  const satisfied: Record<string, boolean> = {}
   const labels: Record<string, string> = {}
-  for (const k of REQUIRABLE_FIELD_KEYS) labels[k] = REQUIRABLE_FIELDS[k].label
+  for (const k of REQUIRABLE_FIELD_KEYS) {
+    satisfied[k] = !!presets[REQUIRABLE_FIELDS[k].stateKey]
+    labels[k] = REQUIRABLE_FIELDS[k].label
+  }
   for (const f of customFields ?? []) {
     const v = customValues?.[f.key]
     const s = v == null ? "" : String(v).trim()
@@ -207,6 +265,39 @@ export function requiredKeysForStages<
         out.push(k)
       }
   return out
+}
+
+/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
+export function isTerminalKind(kind: string): boolean {
+  return kind !== "OPEN"
+}
+
+/**
+ * Enforce the stage state machine for a single move:
+ *  - the deal can't move to the stage it's already in,
+ *  - a closed/parked (terminal) deal can't move at all without an explicit,
+ *    separately-handled reopen,
+ *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
+ * OPEN → terminal (win / lose / park) is always allowed from an open stage.
+ */
+export function assertTransitionAllowed(
+  from: { id: string; kind: string; sortOrder: number },
+  to: { id: string; kind: string; sortOrder: number }
+): void {
+  if (from.id === to.id) throw new Error("This funnel is already in this stage")
+  if (isTerminalKind(from.kind))
+    throw new Error("This funnel is closed. Reopen it before changing its stage.")
+  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
+    throw new Error("Stage moves must advance forward in the funnel")
+}
+
+/** Whether the actor may enter approval-gated stages without a request:
+ *  superadmin, or a holder of the stage-approval permission. */
+export function canBypassApproval(ctx: {
+  isSuperadmin: boolean
+  can: (key: string) => boolean
+}): boolean {
+  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 }
 
 /** Terminal stages (Lost / KIV) need a written close reason ("close remarks"). */

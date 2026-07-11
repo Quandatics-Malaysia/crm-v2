@@ -4,7 +4,7 @@ import * as React from "react"
 import { Paperclip, Download, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { FileDropzone } from "@/components/file-dropzone"
 import { showActionError } from "@/lib/show-action-error"
 import {
   uploadEntityAttachment,
@@ -29,7 +29,6 @@ export function AttachmentUpload({
 }) {
   const [file, setFile] = React.useState<File | null>(null)
   const [pending, startTransition] = React.useTransition()
-  const inputRef = React.useRef<HTMLInputElement>(null)
 
   function handleUpload() {
     if (!file) {
@@ -45,7 +44,6 @@ export function AttachmentUpload({
       if (res.ok) {
         toast.success("File uploaded")
         setFile(null)
-        if (inputRef.current) inputRef.current.value = ""
         onUploaded?.()
       } else {
         showActionError(res)
@@ -54,18 +52,19 @@ export function AttachmentUpload({
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        ref={inputRef}
-        type="file"
-        className="max-w-xs"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        disabled={pending}
+    <div className="grid gap-2">
+      <FileDropzone
+        files={file ? [file] : []}
+        onFiles={(fs) => setFile(fs[0] ?? null)}
+        multiple={false}
+        compact
+        busy={pending}
       />
       <Button
         type="button"
         size="sm"
         variant="outline"
+        className="justify-self-start"
         onClick={handleUpload}
         disabled={pending || !file}
       >

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
@@ -22,13 +22,9 @@ export function QuotationsTable({
     {
       accessorKey: "quoteNumber",
       header: ({ column }) => <SortableHeader column={column} title="Number" />,
-      cell: ({ row }) => (
-        <Link
-          href={`/quotations/${row.original.id}`}
-          className="font-medium link"
-        >
-          {row.original.quoteNumber}
-        </Link>
+      cell: linkCell(
+        (r) => `/quotations/${r.id}`,
+        (r) => r.quoteNumber
       ),
     },
     {
@@ -38,20 +34,55 @@ export function QuotationsTable({
       ),
       cell: ({ row }) => row.original.opportunityName ?? "—",
     },
+    // Salesforce Quote list order: Quote Name · Funnel · Synced · Line Items ·
+    // Ref No · Total Excl Tax · Tax · Total Incl Tax. We mirror it with the
+    // data we already store; Synced and Ref No have no column in our schema,
+    // so they're omitted (no schema changes).
+    {
+      accessorKey: "lineItemCount",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Line items" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">{row.original.lineItemCount}</span>
+      ),
+    },
+    {
+      accessorKey: "subtotal",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Total excl. tax" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.subtotal, row.original.currency)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "taxTotal",
+      header: ({ column }) => <SortableHeader column={column} title="Tax amount" />,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.taxTotal, row.original.currency)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "total",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Total incl. tax" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.total, row.original.currency)}
+        </span>
+      ),
+    },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => (
         <StatusBadge status={row.original.status} className="capitalize" />
-      ),
-    },
-    {
-      accessorKey: "total",
-      header: ({ column }) => <SortableHeader column={column} title="Total" />,
-      cell: ({ row }) => (
-        <span className="tabular-nums">
-          {formatMoney(row.original.total, row.original.currency)}
-        </span>
       ),
     },
     {

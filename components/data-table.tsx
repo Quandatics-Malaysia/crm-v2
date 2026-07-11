@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
+import { formatMoney } from "@/lib/format"
 import {
   type Column,
   type ColumnDef,
@@ -579,4 +581,47 @@ export function SortableHeader({
       )}
     </Button>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* Column-def factories for the cell shapes repeated across every      */
+/* table: right-aligned money, and the primary-name record link.       */
+/* ------------------------------------------------------------------ */
+
+/** Right-aligned column header (pairs with moneyCell). */
+export function rightHeader(title: string) {
+  return function RightHeader() {
+    return <div className="text-right">{title}</div>
+  }
+}
+
+/** Right-aligned tabular money cell; em-dash when the amount is empty. */
+export function moneyCell<TData>(
+  amount: (row: TData) => string | number | null | undefined,
+  currency: (row: TData) => string | null | undefined
+) {
+  return function MoneyCell({ row }: { row: { original: TData } }) {
+    const value = amount(row.original)
+    return (
+      <div className="text-right tabular-nums">
+        {value != null && value !== ""
+          ? formatMoney(String(value), currency(row.original) ?? undefined)
+          : "—"}
+      </div>
+    )
+  }
+}
+
+/** Primary-name cell linking to the record's detail page. */
+export function linkCell<TData>(
+  href: (row: TData) => string,
+  label: (row: TData) => React.ReactNode
+) {
+  return function LinkCell({ row }: { row: { original: TData } }) {
+    return (
+      <Link href={href(row.original)} className="font-medium link">
+        {label(row.original)}
+      </Link>
+    )
+  }
 }

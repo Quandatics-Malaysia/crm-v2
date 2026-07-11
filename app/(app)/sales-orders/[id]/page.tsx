@@ -6,7 +6,10 @@ import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { requireContext } from "@/lib/server-context"
 import { requireModule } from "@/lib/module-guard"
+import { isModuleEnabled } from "@/lib/modules"
 import { PERMISSIONS } from "@/lib/permissions"
+import { listMilestones } from "@/app/(app)/projects/actions"
+import { getProjectBillingSummary } from "@/app/(app)/billing/actions"
 import { getSalesOrder } from "../actions"
 import { SalesOrderDetailBody } from "./sales-order-detail-body"
 
@@ -19,6 +22,15 @@ export default async function SalesOrderDetailPage({
   const { id } = await params
   const [order, ctx] = await Promise.all([getSalesOrder(id), requireContext()])
   if (!order) notFound()
+
+  const [milestones, billing] = await Promise.all([
+    // Empty when the projects module is off or the parent project isn't visible.
+    isModuleEnabled("projects")
+      ? listMilestones(order.projectId).catch(() => [])
+      : Promise.resolve([]),
+    // Null when the finance module is off (or user lacks finance.view).
+    getProjectBillingSummary(order.projectId).catch(() => null),
+  ])
 
   const canApprove = ctx.can(PERMISSIONS.SALES_ORDER_APPROVE)
   const canSubmit = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)
@@ -52,6 +64,8 @@ export default async function SalesOrderDetailPage({
 
         <SalesOrderDetailBody
           order={order}
+          milestones={milestones}
+          billing={billing}
           canApprove={canApprove}
           canSubmit={canSubmit}
         />

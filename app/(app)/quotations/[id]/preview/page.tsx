@@ -171,11 +171,11 @@ export default async function QuotationPreviewPage({
             <tr className="border-y bg-zinc-50 text-left text-xs text-zinc-500 print:bg-zinc-50">
               <th className="py-2 pr-2 pl-2 font-medium">#</th>
               <th className="py-2 pr-2 font-medium">Description</th>
-              <th className="py-2 pr-2 text-right font-medium">Qty</th>
               <th className="py-2 pr-2 font-medium">UOM</th>
-              <th className="py-2 pr-2 text-right font-medium">Unit price</th>
-              <th className="py-2 pr-2 text-right font-medium">Discount</th>
-              <th className="py-2 pr-2 text-right font-medium">Amount</th>
+              <th className="py-2 pr-2 text-right font-medium">Quantity</th>
+              <th className="py-2 pr-2 text-right font-medium">Unit Price</th>
+              <th className="py-2 pr-2 text-right font-medium">Item Discount</th>
+              <th className="py-2 pr-2 text-right font-medium">Sub-total</th>
             </tr>
           </thead>
           <tbody>
@@ -183,10 +183,10 @@ export default async function QuotationPreviewPage({
               <tr key={l.id} className="border-b align-top">
                 <td className="py-2 pr-2 pl-2 text-zinc-500">{i + 1}</td>
                 <td className="py-2 pr-2">{l.description}</td>
+                <td className="py-2 pr-2">{l.uom ?? "—"}</td>
                 <td className="py-2 pr-2 text-right tabular-nums">
                   {Number(l.quantity)}
                 </td>
-                <td className="py-2 pr-2">{l.uom ?? "—"}</td>
                 <td className="py-2 pr-2 text-right tabular-nums">
                   {formatMoney(l.unitPrice, currency)}
                 </td>

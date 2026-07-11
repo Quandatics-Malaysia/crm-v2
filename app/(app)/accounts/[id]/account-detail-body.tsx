@@ -1,41 +1,44 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { TabsContent, TabsList } from "@/components/ui/tabs"
+import {
+  DataTable,
+  SortableHeader,
+  linkCell,
+  moneyCell,
+  rightHeader,
+} from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
-import { cn } from "@/lib/utils"
-import { formatMoney } from "@/lib/format"
+import {
+  CountTab,
+  DetailAside,
+  DetailCardHeader,
+  DetailTabs,
+  FieldRow,
+  FieldSection,
+  RelatedCard,
+  useSaveField,
+} from "@/components/detail-page"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
+import { StageBadge } from "@/app/(app)/funnel/stage-badge"
 import { AccountContacts } from "./account-contacts"
-import type {
-  AccountFunnelItem,
-  AccountOpportunityItem,
-  AccountProjectItem,
-  AccountQuotationItem,
-  PersonRow,
+import {
+  updateAccount,
+  type AccountFunnelItem,
+  type AccountInput,
+  type AccountOpportunityItem,
+  type AccountProjectItem,
+  type AccountQuotationItem,
+  type PersonRow,
 } from "../actions"
-
-/** Tailwind class set per stage kind. Kind drives semantics, never the label. */
-function stageKindClasses(kind: string): string {
-  switch (kind) {
-    case "WON":
-      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
-    case "LOST":
-      return "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"
-    case "PARKED":
-      return "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-    default:
-      return "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300"
-  }
-}
 
 // Status pills render via the app-wide <StatusBadge> tone map.
 
@@ -45,9 +48,23 @@ export type AccountChild = {
   accountType: string | null
 }
 
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type AccountEditKey = "name" | "industry" | "phone" | "website"
+
+export type AccountDetailSection = {
+  title: string
+  fields: { label: string; value: React.ReactNode; editKey?: AccountEditKey }[]
+}
+
 export type AccountDetailData = {
   accountId: string
-  fields: { label: string; value: React.ReactNode }[]
+  sections: AccountDetailSection[]
+  /** Raw field values — updateAccount is full-replace, so each inline save
+   *  merges the one edited field into this snapshot. */
+  record: AccountInput
+  /** Gates every inline editor (ACCOUNT_UPDATE, resolved server-side). */
+  canEdit: boolean
+  industries: string[]
   contacts: PersonRow[]
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
@@ -63,7 +80,10 @@ export type AccountDetailData = {
 export function AccountDetailBody(props: AccountDetailData) {
   const {
     accountId,
-    fields,
+    sections,
+    record,
+    canEdit,
+    industries,
     contacts,
     opportunities,
     pipelines,
@@ -77,16 +97,21 @@ export function AccountDetailBody(props: AccountDetailData) {
   const [tab, setTab] = React.useState("contacts")
   const revalidate = `/accounts/${accountId}`
 
+  const saveField = useSaveField((patch: Partial<AccountInput>) =>
+    updateAccount(accountId, { ...record, ...patch })
+  )
+
+  const industryOptions = React.useMemo(
+    () => industries.map((i) => ({ value: i, label: i })),
+    [industries]
+  )
+
   const opportunityColumns = React.useMemo<ColumnDef<AccountOpportunityItem>[]>(
     () => [
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Opportunity" />,
-        cell: ({ row }) => (
-          <Link href={`/opportunities/${row.original.id}`} className="font-medium link">
-            {row.original.name}
-          </Link>
-        ),
+        cell: linkCell((r) => `/opportunities/${r.id}`, (r) => r.name),
       },
       {
         accessorKey: "code",
@@ -108,11 +133,10 @@ export function AccountDetailBody(props: AccountDetailData) {
       },
       {
         accessorKey: "totalEstimatedFunnelAmount",
-        header: () => <div className="text-right">Value</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.totalEstimatedFunnelAmount, row.original.currency)}
-          </div>
+        header: rightHeader("Value"),
+        cell: moneyCell(
+          (r) => r.totalEstimatedFunnelAmount,
+          (r) => r.currency
         ),
       },
     ],
@@ -124,36 +148,25 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Funnel" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/funnel/${row.original.funnelId}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
-        ),
+        cell: linkCell((r) => `/funnel/${r.funnelId}`, (r) => r.name),
       },
       {
         id: "stage",
         header: "Stage",
         cell: ({ row }) => (
-          <Badge className={cn(stageKindClasses(row.original.stageKind))}>
-            <span className="font-mono uppercase opacity-70">
-              {row.original.stageCode}
-            </span>
-            <span>{row.original.stageName}</span>
-          </Badge>
+          <StageBadge
+            kind={row.original.stageKind}
+            code={row.original.stageCode}
+            name={row.original.stageName}
+          />
         ),
       },
       {
         accessorKey: "amount",
-        header: () => <div className="text-right">Value</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {row.original.amount
-              ? formatMoney(row.original.amount, row.original.currency)
-              : "—"}
-          </div>
+        header: rightHeader("Value"),
+        cell: moneyCell(
+          (r) => r.amount,
+          (r) => r.currency
         ),
       },
     ],
@@ -165,14 +178,7 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Name" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/projects/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
-        ),
+        cell: linkCell((r) => `/projects/${r.id}`, (r) => r.name),
       },
       {
         accessorKey: "projectCode",
@@ -195,14 +201,7 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "quoteNumber",
         header: ({ column }) => <SortableHeader column={column} title="Quote" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/quotations/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.quoteNumber}
-          </Link>
-        ),
+        cell: linkCell((r) => `/quotations/${r.id}`, (r) => r.quoteNumber),
       },
       {
         accessorKey: "status",
@@ -211,11 +210,10 @@ export function AccountDetailBody(props: AccountDetailData) {
       },
       {
         accessorKey: "total",
-        header: () => <div className="text-right">Total</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.total, row.original.currency)}
-          </div>
+        header: rightHeader("Total"),
+        cell: moneyCell(
+          (r) => r.total,
+          (r) => r.currency
         ),
       },
     ],
@@ -227,14 +225,7 @@ export function AccountDetailBody(props: AccountDetailData) {
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Name" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/accounts/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
-        ),
+        cell: linkCell((r) => `/accounts/${r.id}`, (r) => r.name),
       },
       {
         accessorKey: "accountType",
@@ -250,196 +241,174 @@ export function AccountDetailBody(props: AccountDetailData) {
   )
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — account highlights + related quick links */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="account" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Account</span>
-              <CardTitle className="text-base">Details</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            {fields.map((d) => (
-              <Field key={d.label} label={d.label}>
-                {d.value}
-              </Field>
+          <DetailCardHeader kind="account" eyebrow="Account" />
+          <CardContent className="grid gap-5 text-sm">
+            {sections.map((section) => (
+              <FieldSection key={section.title} title={section.title}>
+                {section.fields.map((d) => {
+                  const key = canEdit ? d.editKey : undefined
+                  return (
+                    <FieldRow key={d.label} label={d.label}>
+                      {!key ? (
+                        d.value
+                      ) : key === "industry" ? (
+                        <InlineCombobox
+                          value={record.industry ?? ""}
+                          display={record.industry || "—"}
+                          options={industryOptions}
+                          onSave={(next) => saveField({ industry: next || null })}
+                          searchPlaceholder="Search industries…"
+                          emptyMessage="No industries configured."
+                          title="Click to change industry"
+                        />
+                      ) : (
+                        <InlineValue
+                          value={record[key] ?? ""}
+                          display={record[key] || "—"}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          onSave={(next) => {
+                            // Name is required — ignore an emptied draft.
+                            if (key === "name") {
+                              if (!next.trim()) return
+                              return saveField({ name: next })
+                            }
+                            return saveField({ [key]: next || null })
+                          }}
+                        />
+                      )}
+                    </FieldRow>
+                  )
+                })}
+              </FieldSection>
             ))}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                { kind: "contact", label: "Contacts", count: contacts.length, onSelect: () => setTab("contacts") },
-                { kind: "opportunity", label: "Opportunities", count: opportunities.length, onSelect: () => setTab("opportunities") },
-                { kind: "funnel", label: "Funnels", count: pipelines.length, onSelect: () => setTab("pipelines") },
-                { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
-                { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
-                { kind: "account", label: "Child accounts", count: childAccounts.length, onSelect: () => setTab("children") },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
+        <RelatedCard
+          items={[
+            { kind: "contact", label: "Contacts", count: contacts.length, onSelect: () => setTab("contacts") },
+            { kind: "opportunity", label: "Opportunities", count: opportunities.length, onSelect: () => setTab("opportunities") },
+            { kind: "funnel", label: "Funnels", count: pipelines.length, onSelect: () => setTab("pipelines") },
+            { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
+            { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
+            { kind: "account", label: "Child accounts", count: childAccounts.length, onSelect: () => setTab("children") },
+          ]}
+        />
+      </DetailAside>
 
       {/* Right column — tabbed related lists */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="h-auto flex-wrap justify-start gap-1 *:flex-none">
-                <TabsTrigger value="contacts">
-                  Contacts
-                  <Badge variant="secondary" className="ml-1.5">
-                    {contacts.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="opportunities">
-                  Opportunities
-                  <Badge variant="secondary" className="ml-1.5">
-                    {opportunities.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="pipelines">
-                  Funnels
-                  <Badge variant="secondary" className="ml-1.5">
-                    {pipelines.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="projects">
-                  Projects
-                  <Badge variant="secondary" className="ml-1.5">
-                    {projects.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="quotations">
-                  Quotations
-                  <Badge variant="secondary" className="ml-1.5">
-                    {quotations.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="children">
-                  Child accounts
-                  <Badge variant="secondary" className="ml-1.5">
-                    {childAccounts.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-                <TabsTrigger value="documents">
-                  Documents
-                  <Badge variant="secondary" className="ml-1.5">
-                    {documents.length}
-                  </Badge>
-                </TabsTrigger>
-              </TabsList>
+      <DetailTabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <CountTab value="contacts" count={contacts.length}>
+            Contacts
+          </CountTab>
+          <CountTab value="opportunities" count={opportunities.length}>
+            Opportunities
+          </CountTab>
+          <CountTab value="pipelines" count={pipelines.length}>
+            Funnels
+          </CountTab>
+          <CountTab value="projects" count={projects.length}>
+            Projects
+          </CountTab>
+          <CountTab value="quotations" count={quotations.length}>
+            Quotations
+          </CountTab>
+          <CountTab value="children" count={childAccounts.length}>
+            Child accounts
+          </CountTab>
+          <CountTab value="activity">Activity</CountTab>
+          <CountTab value="documents" count={documents.length}>
+            Documents
+          </CountTab>
+        </TabsList>
 
-              <TabsContent value="contacts" className="mt-4">
-                <AccountContacts accountId={accountId} contacts={contacts} />
-              </TabsContent>
+        <TabsContent value="contacts" className="mt-4">
+          <AccountContacts accountId={accountId} contacts={contacts} />
+        </TabsContent>
 
-              <TabsContent value="opportunities" className="mt-4">
-                <DataTable
-                  columns={opportunityColumns}
-                  data={opportunities}
-                  tableId="account-opportunities"
-                  searchColumn="name"
-                  searchPlaceholder="Search opportunities…"
-                  emptyMessage="No opportunities for this account yet."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="opportunities" className="mt-4">
+          <DataTable
+            columns={opportunityColumns}
+            data={opportunities}
+            tableId="account-opportunities"
+            searchColumn="name"
+            searchPlaceholder="Search opportunities…"
+            emptyMessage="No opportunities for this account yet."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="pipelines" className="mt-4">
-                <DataTable
-                  columns={funnelColumns}
-                  data={pipelines}
-                  tableId="account-pipelines"
-                  searchColumn="name"
-                  searchPlaceholder="Search pipelines…"
-                  emptyMessage="No pipelines for this account yet."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="pipelines" className="mt-4">
+          <DataTable
+            columns={funnelColumns}
+            data={pipelines}
+            tableId="account-pipelines"
+            searchColumn="name"
+            searchPlaceholder="Search pipelines…"
+            emptyMessage="No pipelines for this account yet."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="projects" className="mt-4">
-                <DataTable
-                  columns={projectColumns}
-                  data={projects}
-                  tableId="account-projects"
-                  searchColumn="name"
-                  searchPlaceholder="Search projects…"
-                  emptyMessage="No projects for this account yet."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="projects" className="mt-4">
+          <DataTable
+            columns={projectColumns}
+            data={projects}
+            tableId="account-projects"
+            searchColumn="name"
+            searchPlaceholder="Search projects…"
+            emptyMessage="No projects for this account yet."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="quotations" className="mt-4">
-                <DataTable
-                  columns={quotationColumns}
-                  data={quotations}
-                  tableId="account-quotations"
-                  searchColumn="quoteNumber"
-                  searchPlaceholder="Search quotations…"
-                  emptyMessage="No quotations for this account yet."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="quotations" className="mt-4">
+          <DataTable
+            columns={quotationColumns}
+            data={quotations}
+            tableId="account-quotations"
+            searchColumn="quoteNumber"
+            searchPlaceholder="Search quotations…"
+            emptyMessage="No quotations for this account yet."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="children" className="mt-4">
-                <DataTable
-                  columns={childColumns}
-                  data={childAccounts}
-                  tableId="account-children"
-                  searchColumn="name"
-                  searchPlaceholder="Search child accounts…"
-                  emptyMessage="No child accounts."
-                  pageSize={5}
-                />
-              </TabsContent>
+        <TabsContent value="children" className="mt-4">
+          <DataTable
+            columns={childColumns}
+            data={childAccounts}
+            tableId="account-children"
+            searchColumn="name"
+            searchPlaceholder="Search child accounts…"
+            emptyMessage="No child accounts."
+            pageSize={5}
+          />
+        </TabsContent>
 
-              <TabsContent value="activity" className="mt-4">
-                <ActivityTimeline
-                  entityType="account"
-                  entityId={accountId}
-                  items={activity}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
+        <TabsContent value="activity" className="mt-4">
+          <ActivityTimeline
+            entityType="account"
+            entityId={accountId}
+            items={activity}
+            revalidate={revalidate}
+          />
+        </TabsContent>
 
-              <TabsContent value="documents" className="mt-4">
-                <DocumentsSection
-                  uploadType="account"
-                  uploadId={accountId}
-                  documents={documents}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="grid gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{children}</span>
+        <TabsContent value="documents" className="mt-4">
+          <DocumentsSection
+            uploadType="account"
+            uploadId={accountId}
+            documents={documents}
+            revalidate={revalidate}
+          />
+        </TabsContent>
+      </DetailTabs>
     </div>
   )
 }

@@ -3,10 +3,12 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { PaperclipIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { FileDropzone } from "@/components/file-dropzone"
+import { formatDate } from "@/lib/format"
 import { showActionError } from "@/lib/show-action-error"
 import {
   DocumentViewerButton,
@@ -36,16 +38,6 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ""
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
-}
-
 /**
  * One unified documents block: shows every file related to the record (with a
  * source label), lets you attach new files to THIS record, and view/rename/
@@ -64,27 +56,25 @@ export function DocumentsSection({
   revalidate?: string
 }) {
   const router = useRouter()
-  const fileRef = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
 
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function onUpload(files: File[]) {
     setBusy(true)
-    const fd = new FormData()
-    fd.append("file", file)
-    fd.append("attachableType", uploadType)
-    fd.append("attachableId", uploadId)
-    if (revalidate) fd.append("revalidate", revalidate)
-    const res = await uploadEntityAttachment(fd)
-    if (res.ok) {
-      toast.success("File attached")
-      router.refresh()
-    } else {
-      showActionError(res)
+    for (const file of files) {
+      const fd = new FormData()
+      fd.append("file", file)
+      fd.append("attachableType", uploadType)
+      fd.append("attachableId", uploadId)
+      if (revalidate) fd.append("revalidate", revalidate)
+      const res = await uploadEntityAttachment(fd)
+      if (res.ok) {
+        toast.success(`${file.name} attached`)
+      } else {
+        showActionError(res)
+      }
     }
+    router.refresh()
     setBusy(false)
-    if (fileRef.current) fileRef.current.value = ""
   }
 
   async function onRename(id: string, next: string) {
@@ -109,18 +99,7 @@ export function DocumentsSection({
 
   return (
     <div className="grid gap-3">
-      <div>
-        <input ref={fileRef} type="file" className="hidden" onChange={onUpload} />
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() => fileRef.current?.click()}
-        >
-          <PaperclipIcon className="size-4" />
-          {busy ? "Uploading…" : "Attach file"}
-        </Button>
-      </div>
+      <FileDropzone files={[]} onFiles={onUpload} compact busy={busy} />
       {documents.length === 0 ? (
         <p className="text-sm text-muted-foreground">No documents yet.</p>
       ) : (
@@ -146,12 +125,8 @@ export function DocumentsSection({
                 )}
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span>{fmtBytes(d.byteSize)}</span>
-                  {fmtDate(d.createdAt) ? (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>{fmtDate(d.createdAt)}</span>
-                    </>
-                  ) : null}
+                  <span aria-hidden>·</span>
+                  <span>{formatDate(d.createdAt)}</span>
                 </span>
               </div>
               <Badge variant="secondary" className="shrink-0 text-[10px]">

@@ -299,6 +299,7 @@ export function OpportunitiesBoard({
   return (
     <>
       <DndContext
+        id="funnel-board"
         sensors={sensors}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}

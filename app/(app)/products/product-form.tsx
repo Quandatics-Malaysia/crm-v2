@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { showActionError } from "@/lib/show-action-error"
+import { useDialogOpen } from "@/components/use-dialog-open"
 
 import {
   Dialog,
@@ -80,16 +81,7 @@ export function ProductForm({
   onOpenChange?: (open: boolean) => void
   onSaved?: () => void
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
-  const isControlled = controlledOpen !== undefined
-  const open = isControlled ? controlledOpen : uncontrolledOpen
-  const setOpen = React.useCallback(
-    (next: boolean) => {
-      if (isControlled) onOpenChange?.(next)
-      else setUncontrolledOpen(next)
-    },
-    [isControlled, onOpenChange]
-  )
+  const [open, setOpen] = useDialogOpen(controlledOpen, onOpenChange)
   const editing = !!product
 
   const form = useForm<FormValues>({
@@ -116,33 +108,29 @@ export function ProductForm({
   }, [productCodes, product?.productCode])
 
   async function onSubmit(values: FormValues) {
-    try {
-      const payload = {
-        name: values.name,
-        productCode:
-          values.productCode && values.productCode !== NONE
-            ? values.productCode
-            : null,
-        subcategory: values.subcategory || null,
-        uom: values.uom || null,
-        currency: values.currency.toUpperCase(),
-        standardPrice: values.standardPrice || "0",
-        description: values.description || null,
-        isActive: values.isActive,
-      }
-      const res = editing
-        ? await updateProduct(product!.id, payload)
-        : await createProduct(payload)
-      if (!res.ok) {
-        showActionError(res)
-        return
-      }
-      toast.success(editing ? "Product updated" : "Product created")
-      setOpen(false)
-      onSaved?.()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong")
+    const payload = {
+      name: values.name,
+      productCode:
+        values.productCode && values.productCode !== NONE
+          ? values.productCode
+          : null,
+      subcategory: values.subcategory || null,
+      uom: values.uom || null,
+      currency: values.currency.toUpperCase(),
+      standardPrice: values.standardPrice || "0",
+      description: values.description || null,
+      isActive: values.isActive,
     }
+    const res = editing
+      ? await updateProduct(product!.id, payload)
+      : await createProduct(payload)
+    if (!res.ok) {
+      showActionError(res)
+      return
+    }
+    toast.success(editing ? "Product updated" : "Product created")
+    setOpen(false)
+    onSaved?.()
   }
 
   return (

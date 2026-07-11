@@ -41,6 +41,9 @@ export const PERMISSIONS = {
   QUOTATION_ACCEPT: "quotation.accept",
   TAX_VIEW: "tax.view",
   TAX_CONFIGURE: "tax.configure",
+  // payment milestones (core, funnel-attached)
+  PAYMENT_MILESTONE_VIEW: "payment_milestone.view",
+  PAYMENT_MILESTONE_MANAGE: "payment_milestone.manage",
   // products (standardised catalog)
   PRODUCT_VIEW: "product.view",
   PRODUCT_CREATE: "product.create",
@@ -86,6 +89,7 @@ const VIEW_ONLY: PermissionKey[] = [
   PERMISSIONS.PERSON_VIEW,
   PERMISSIONS.OPPORTUNITY_VIEW,
   PERMISSIONS.QUOTATION_VIEW,
+  PERMISSIONS.PAYMENT_MILESTONE_VIEW,
   PERMISSIONS.TAX_VIEW,
   PERMISSIONS.FORECAST_VIEW,
   PERMISSIONS.PRODUCT_VIEW,
@@ -108,6 +112,7 @@ const REP_BASE: PermissionKey[] = [
   PERMISSIONS.STAGE_ADVANCE,
   PERMISSIONS.QUOTATION_CREATE,
   PERMISSIONS.QUOTATION_UPDATE,
+  PERMISSIONS.PAYMENT_MILESTONE_MANAGE,
   PERMISSIONS.PROJECT_CREATE,
   PERMISSIONS.PROJECT_UPDATE,
   PERMISSIONS.SALES_ORDER_SUBMIT,
@@ -198,6 +203,19 @@ const ALL_GROUPS: {
       { key: PERMISSIONS.QUOTATION_ACCEPT, label: "Accept quotations" },
       { key: PERMISSIONS.TAX_VIEW, label: "View tax settings" },
       { key: PERMISSIONS.TAX_CONFIGURE, label: "Configure tax" },
+    ],
+  },
+  {
+    group: "Payment Milestones",
+    items: [
+      {
+        key: PERMISSIONS.PAYMENT_MILESTONE_VIEW,
+        label: "View payment milestones",
+      },
+      {
+        key: PERMISSIONS.PAYMENT_MILESTONE_MANAGE,
+        label: "Add / edit / delete payment milestones",
+      },
     ],
   },
   {

@@ -17,7 +17,9 @@
  * services, and the DB seed scripts alike.
  */
 export const MODULE_CONFIG = {
-  /** Delivery projects + payment milestones (Release 3). */
+  /** Delivery projects (Release 3). Payment Milestones is a core feature and
+   *  is NOT gated by this flag — it lives directly under a Funnel and has no
+   *  Project dependency (see components/app-sidebar.tsx). */
   projects: false,
   /** Sales orders: accepted-quote → SO, per-tenant numbering, approval (Release 2). */
   salesOrders: false,

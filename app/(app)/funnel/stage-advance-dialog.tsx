@@ -14,6 +14,7 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   groupCustomFields,
+  isPresetFieldKey,
   type StageGate,
   type CustomFunnelField,
 } from "@/lib/stage-gate"
@@ -44,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
+import { FileDropzone } from "@/components/file-dropzone"
 import { Checkbox } from "@/components/ui/checkbox"
 import { AttachmentUpload } from "@/components/attachments/attachment-upload"
 import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
@@ -51,6 +53,20 @@ import { formatPercent } from "@/lib/format"
 import { StageBadge } from "./stage-badge"
 import { advanceStageAction } from "./actions"
 import { selectableTargets } from "./stage-transitions"
+
+// Where each Opportunity-level preset gate field is edited, so a blocked move
+// can deep-link straight to it. Keys absent here live on the Funnel's own
+// Details panel (procurementStage, negotiationDate, estimate, contact, …).
+const OPP_ANALYSIS_KEYS = new Set([
+  "vision",
+  "objective",
+  "value",
+  "powerSponsorContact",
+  "powerSponsorBudgetLimit",
+  "oppEstimatedBudget",
+  "oppEstimatedCloseDate",
+])
+const OPP_DETAILS_KEYS = new Set(["ownerContact", "ownerBudgetLimit"])
 
 type Stage = {
   id: string
@@ -75,6 +91,8 @@ export function StageAdvanceDialog({
   gate,
   customFieldDefs = [],
   customValues = {},
+  opportunityId,
+  opportunityName,
 }: {
   funnelId: string
   currentStageId: string
@@ -92,6 +110,10 @@ export function StageAdvanceDialog({
   customFieldDefs?: CustomFunnelField[]
   /** The funnel's current custom-field values (prefill the inputs). */
   customValues?: Record<string, string>
+  /** Parent Opportunity container — preset fields (Vision, Owner Contact, …)
+   * live there, not on this Funnel, so a blocked move needs a way there. */
+  opportunityId?: string
+  opportunityName?: string
 }) {
   const router = useRouter()
   const [openState, setOpenState] = React.useState(false)
@@ -118,7 +140,6 @@ export function StageAdvanceDialog({
   // Live edits to the required custom fields, merged over the funnel's stored
   // values when the gate is evaluated and sent with the advance.
   const [values, setValues] = React.useState<Record<string, string>>({})
-  const fileRef = React.useRef<HTMLInputElement>(null)
 
   const ordered = React.useMemo(
     () => [...stages].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -162,16 +183,21 @@ export function StageAdvanceDialog({
     () => new Map(customFieldDefs.map((f) => [f.key, f])),
     [customFieldDefs]
   )
-  // Requirements are tenant custom fields only. Any legacy preset key (estimate,
-  // close date, contact, …) left on a stage is ignored — never shown, never
-  // enforced — so the dialog collects exactly the custom fields it can fill.
+  // Tenant custom-field requirements get an inline fill-in-here input; preset
+  // requirements (Vision, Opportunity Owner Contact, …) are edited on the
+  // Opportunity/Funnel record itself, not in this dialog — so they're excluded
+  // from `collectFields` (what's rendered) but NOT from `missing` (what blocks
+  // the Advance button) — otherwise the button would look clear while the
+  // server still rejects the move.
   const collectFields = requiredKeys
     .map((k) => defByKey.get(k))
     .filter((f): f is CustomFunnelField => !!f)
-  const missing = missingFromKeys(
-    collectFields.map((f) => f.key),
-    liveGate
-  )
+  const missing = missingFromKeys(requiredKeys, liveGate)
+  // Preset fields can't be filled in this dialog (unlike tenant custom fields,
+  // which get inline inputs above) — the checklist points at where each lives:
+  // the parent Opportunity's Analysis tab / Details card, or this Funnel's own
+  // Details panel.
+  const missingPresets = missing.filter((m) => isPresetFieldKey(m.key))
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
   // A written reason is required for approval-gated AND terminal (Lost/KIV) moves.
   const needsReason = needsApproval || isTerminal
@@ -193,7 +219,6 @@ export function StageAdvanceDialog({
     setValues({})
     setApprovalRequestId(null)
     setSubmitting(false)
-    if (fileRef.current) fileRef.current.value = ""
   }
 
   async function onSubmit() {
@@ -202,7 +227,9 @@ export function StageAdvanceDialog({
       return
     }
     if (missing.length > 0) {
-      toast.error(`Add ${missing.map((m) => m.label).join(", ")} first`)
+      toast.error(`${missing.length} required field${missing.length > 1 ? "s" : ""} still missing`, {
+        description: "See the checklist in this dialog for where to fill each one in.",
+      })
       return
     }
     if (needsReason && !reason.trim()) {
@@ -395,6 +422,47 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
+            {target && missingPresets.length > 0 ? (
+              <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+                <p className="font-medium">Still needed for {target.name}</p>
+                <ul className="mt-2 grid gap-1.5">
+                  {missingPresets.map((m) => {
+                    const onAnalysis = OPP_ANALYSIS_KEYS.has(m.key)
+                    const onDetails = OPP_DETAILS_KEYS.has(m.key)
+                    const href =
+                      opportunityId && (onAnalysis || onDetails)
+                        ? `/opportunities/${opportunityId}${onAnalysis ? "?tab=analysis" : ""}`
+                        : null
+                    return (
+                      <li key={m.key} className="flex flex-wrap items-baseline gap-x-1.5">
+                        <span
+                          aria-hidden
+                          className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-amber-500"
+                        />
+                        <span>{m.label}</span>
+                        {href ? (
+                          <Link
+                            href={href}
+                            target="_blank"
+                            className="text-xs font-medium underline"
+                          >
+                            fill in on {opportunityName ?? "the Opportunity"} ↗
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            — on this Funnel&apos;s Details panel
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Fill these in, then come back and advance.
+                </p>
+              </div>
+            ) : null}
+
             {needsReason ? (
               <div className="grid gap-2">
                 <Label htmlFor="advance-reason">
@@ -426,12 +494,12 @@ export function StageAdvanceDialog({
               <Label htmlFor="advance-file">
                 Attach supporting document (optional)
               </Label>
-              <Input
-                id="advance-file"
-                ref={fileRef}
-                type="file"
-                disabled={submitting}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              <FileDropzone
+                files={file ? [file] : []}
+                onFiles={(fs) => setFile(fs[0] ?? null)}
+                multiple={false}
+                compact
+                busy={submitting}
               />
               <p className="text-xs text-muted-foreground">
                 If approval is required, this file is attached to the request.

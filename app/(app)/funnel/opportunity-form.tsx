@@ -106,6 +106,7 @@ export function OpportunityForm({
   currencies = DEFAULT_CURRENCIES,
   defaultOwnerMemberId,
   opportunity,
+  opportunityId,
   trigger,
 }: {
   mode: "create" | "edit"
@@ -125,6 +126,12 @@ export function OpportunityForm({
   currencies?: string[]
   defaultOwnerMemberId: string | null
   opportunity?: OpportunityListRow
+  /**
+   * Creating a Funnel under an existing Opportunity container (e.g. from its
+   * Funnels tab) — account/PPVVC/nature all cascade down from the container,
+   * so those fields are locked to it instead of being entered here.
+   */
+  opportunityId?: string
   trigger?: React.ReactElement
 }) {
   const router = useRouter()
@@ -184,7 +191,7 @@ export function OpportunityForm({
         }
       : {
           name: "",
-          accountId: "",
+          accountId: opportunityId ? (accounts[0]?.id ?? "") : "",
           primaryPersonId: "",
           pipelineId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",
@@ -228,12 +235,21 @@ export function OpportunityForm({
   )
   const stageOptions = React.useMemo(() => {
     const f = pipelines.find((x) => x.id === selectedFunnelId)
-    return f ? [...f.stages].sort((a, b) => a.sortOrder - b.sortOrder) : []
-  }, [pipelines, selectedFunnelId])
+    if (!f) return []
+    const sorted = [...f.stages].sort((a, b) => a.sortOrder - b.sortOrder)
+    // SF "Only_0E_During_Funnel_Creation": a new Funnel can only start at its
+    // pipeline's first OPEN stage — don't offer a choice the server will reject.
+    if (mode === "create") {
+      const first = sorted.find((s) => s.kind === "OPEN")
+      return first ? [first] : sorted
+    }
+    return sorted
+  }, [pipelines, selectedFunnelId, mode])
 
   async function onSubmit(values: FormValues) {
     if (mode === "create") {
       const res = await createOpportunity({
+        opportunityId,
         name: values.name,
         accountId: values.accountId,
         primaryPersonId: values.primaryPersonId || null,
@@ -336,6 +352,7 @@ export function OpportunityForm({
                           field.onChange(v)
                           form.setValue("primaryPersonId", "")
                         }}
+                        disabled={!!opportunityId}
                         options={accountOptions.map((a) => ({
                           value: a.id,
                           label: a.name,
@@ -348,6 +365,11 @@ export function OpportunityForm({
                         }
                       />
                     </FormControl>
+                    {opportunityId ? (
+                      <FormDescription>
+                        Inherited from the parent Opportunity.
+                      </FormDescription>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -386,7 +408,28 @@ export function OpportunityForm({
               />
             </div>
 
-            {mode === "create" ? (
+            {/* With a single pipeline there is nothing to choose — the funnel
+                and its first stage are already defaulted, so just say so
+                instead of showing a one-option picker + a locked stage. */}
+            {mode === "create" && pipelines.length === 1 ? (
+              <p className="text-sm text-muted-foreground">
+                Starts in{" "}
+                <span className="font-medium text-foreground">
+                  {defaultFunnel?.name}
+                </span>
+                {firstOpenStage ? (
+                  <>
+                    {" "}at{" "}
+                    <span className="font-medium text-foreground">
+                      {firstOpenStage.name}
+                    </span>
+                  </>
+                ) : null}
+                .
+              </p>
+            ) : null}
+
+            {mode === "create" && pipelines.length > 1 ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -521,16 +564,14 @@ export function OpportunityForm({
               control={form.control}
               name="natureCodes"
               render={({ field }) => {
+                if (opportunityId) return <></>
                 const selected = field.value ?? []
+                // Single-select: picking replaces; re-clicking clears.
                 const toggle = (code: string) =>
-                  field.onChange(
-                    selected.includes(code)
-                      ? selected.filter((c) => c !== code)
-                      : [...selected, code]
-                  )
+                  field.onChange(selected.includes(code) ? [] : [code])
                 return (
                   <FormItem>
-                    <FormLabel>Project nature(s)</FormLabel>
+                    <FormLabel>Opportunity Nature</FormLabel>
                     {projectNatures.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         No project natures configured. Add them in Settings.
@@ -558,8 +599,7 @@ export function OpportunityForm({
                       </div>
                     )}
                     <FormDescription>
-                      A deal can span several (e.g. License + PS + AMS). The first
-                      selected is the primary nature used for the project code.
+                      Drives the nature segment of the project code.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -855,6 +895,7 @@ export function OpportunityForm({
                           type="button"
                           variant="ghost"
                           size="icon"
+                          aria-label="Remove party"
                           onClick={() => partyFields.remove(index)}
                         >
                           <Trash2 className="size-4" />

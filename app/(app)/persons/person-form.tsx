@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { showActionError } from "@/lib/show-action-error"
+import { useDialogOpen } from "@/components/use-dialog-open"
 import {
   Dialog,
   DialogClose,
@@ -69,16 +70,7 @@ export function PersonForm({
   onOpenChange?: (open: boolean) => void
   onSaved?: () => void
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
-  const isControlled = controlledOpen !== undefined
-  const open = isControlled ? controlledOpen : uncontrolledOpen
-  const setOpen = React.useCallback(
-    (next: boolean) => {
-      if (isControlled) onOpenChange?.(next)
-      else setUncontrolledOpen(next)
-    },
-    [isControlled, onOpenChange]
-  )
+  const [open, setOpen] = useDialogOpen(controlledOpen, onOpenChange)
   const editing = !!person
 
   const form = useForm<FormValues>({

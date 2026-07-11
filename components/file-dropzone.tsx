@@ -1,14 +1,36 @@
 "use client"
 
 import * as React from "react"
+import { useDropzone, type Accept } from "react-dropzone"
 import { UploadCloudIcon, XIcon, FileIcon, Loader2Icon } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+/** Convert an `<input accept>`-style string into react-dropzone's Accept map. */
+function toAccept(accept?: string): Accept | undefined {
+  if (!accept) return undefined
+  const out: Accept = {}
+  for (const part of accept.split(",")) {
+    const s = part.trim()
+    if (!s) continue
+    if (s.startsWith(".")) {
+      // ponytail: bare extensions grouped under a catch-all key; attr-accept
+      // matches on the extension list, the MIME key is just a bucket.
+      out["application/octet-stream"] = [
+        ...(out["application/octet-stream"] ?? []),
+        s,
+      ]
+    } else {
+      out[s] = out[s] ?? []
+    }
+  }
+  return out
+}
+
 /**
- * Drag-and-drop (or click-to-browse) file picker. Supports multiple files and
- * shows the selected list with per-file remove. Used everywhere a document is
- * uploaded. For immediate-upload callers, pass files={[]} and upload inside
- * onFiles; pass busy to show progress.
+ * Drag-and-drop (or click-to-browse) file picker built on react-dropzone.
+ * Supports multiple files and shows the selected list with per-file remove.
+ * Used everywhere a document is uploaded. For immediate-upload callers, pass
+ * files={[]} and upload inside onFiles; pass busy to show progress.
  */
 export function FileDropzone({
   files,
@@ -17,6 +39,7 @@ export function FileDropzone({
   accept,
   hint,
   busy = false,
+  compact = false,
 }: {
   files: File[]
   onFiles: (files: File[]) => void
@@ -24,39 +47,33 @@ export function FileDropzone({
   accept?: string
   hint?: string
   busy?: boolean
+  /** Tighter padding for dialogs / inline forms. */
+  compact?: boolean
 }) {
-  const inputRef = React.useRef<HTMLInputElement>(null)
-  const [dragging, setDragging] = React.useState(false)
-
-  function addFiles(list: FileList | null) {
-    if (!list || list.length === 0) return
-    const incoming = Array.from(list)
-    onFiles(multiple ? [...files, ...incoming] : incoming.slice(0, 1))
-  }
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    multiple,
+    accept: toAccept(accept),
+    disabled: busy,
+    onDrop: (accepted) => {
+      if (accepted.length === 0) return
+      onFiles(multiple ? [...files, ...accepted] : accepted.slice(0, 1))
+    },
+  })
 
   return (
     <div className="grid w-full min-w-0 gap-2">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDragging(true)
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragging(false)
-          if (!busy) addFiles(e.dataTransfer.files)
-        }}
+      <div
+        {...getRootProps()}
         className={cn(
-          "flex w-full flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors disabled:opacity-60",
-          dragging
-            ? "border-primary bg-primary/5"
+          "flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 text-center transition-colors",
+          compact ? "py-3" : "py-6",
+          busy && "cursor-default opacity-60",
+          isDragActive
+            ? "border-primary bg-muted/50 ring-2 ring-primary/30"
             : "border-muted-foreground/25 hover:border-muted-foreground/40 hover:bg-muted/40"
         )}
       >
+        <input {...getInputProps()} />
         {busy ? (
           <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
         ) : (
@@ -72,18 +89,7 @@ export function FileDropzone({
             or click to browse{hint ? ` · ${hint}` : ""}
           </span>
         ) : null}
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple={multiple}
-        accept={accept}
-        className="hidden"
-        onChange={(e) => {
-          addFiles(e.target.files)
-          if (inputRef.current) inputRef.current.value = ""
-        }}
-      />
+      </div>
       {files.length > 0 ? (
         <ul className="grid gap-1">
           {files.map((f, i) => (
@@ -98,6 +104,7 @@ export function FileDropzone({
                 onClick={() => onFiles(files.filter((_, idx) => idx !== i))}
                 className="shrink-0 text-muted-foreground hover:text-destructive"
                 title="Remove"
+                aria-label={`Remove ${f.name}`}
               >
                 <XIcon className="size-4" />
               </button>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { CheckIcon, MoreHorizontal, XIcon } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -57,13 +57,9 @@ export function SalesOrdersTable({
         header: ({ column }) => (
           <SortableHeader column={column} title="Project" />
         ),
-        cell: ({ row }) => (
-          <Link
-            href={`/projects/${row.original.projectId}`}
-            className="font-medium link"
-          >
-            {row.original.projectName}
-          </Link>
+        cell: linkCell(
+          (r) => `/projects/${r.projectId}`,
+          (r) => r.projectName
         ),
       },
       {

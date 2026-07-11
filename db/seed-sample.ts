@@ -268,22 +268,22 @@ async function main() {
 
   // ── 4. funnels (pipelines) across stages ──────────────────────────────
   const oppId = (k: string) => det(`opportunity:${k}`)
-  // projectNature codes below come from the tenant's product_types picklist
-  // seeded in seed.ts (CONSULT/IMPL/MSP/WEB/INFRA/SUPP). The funnel's
-  // product_type_code is inherited by its quotations (see section 5).
+  // projectNature codes below come from the tenant's project-nature picklist
+  // seeded in seed.ts (L/H/PS/T/M). The funnel's project_nature_code is
+  // inherited by its quotations (see section 5).
   const oppValues = [
-    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31", projectNature: "IMPL" },
-    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30", projectNature: "INFRA" },
+    { k: "acme-erp", name: "Acme ERP Implementation", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "0e", status: "open", amount: "120000.00", expected: "2026-10-31", projectNature: "L" },
+    { k: "globex-cloud", name: "Globex Cloud Migration", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "1d", status: "open", amount: "85000.00", expected: "2026-09-30", projectNature: "H" },
     // sales1-owned, currently at gated 2c → the pending approval below advances it to 3b
-    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15", projectNature: "CONSULT" },
-    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31", projectNature: "WEB" },
-    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31", projectNature: "IMPL" },
+    { k: "initech-audit", name: "Initech Security Audit", account: "initech", person: "initech-david", owner: MEM_S1, stage: "2c", status: "open", amount: "22260.00", expected: "2026-08-15", projectNature: "PS" },
+    { k: "umbrella-crm", name: "Umbrella CRM Rollout", account: "umbrella", person: "umbrella-eva", owner: MEM_S2, stage: "3b", status: "open", amount: "47700.00", expected: "2026-08-31", projectNature: "PS" },
+    { k: "acme-data", name: "Acme Data Platform", account: "acme", person: "acme-alice", owner: MEM_S1, stage: "4a", status: "open", amount: "210000.00", expected: "2026-07-31", projectNature: "M" },
     // Won — carries the accepted primary quote + project + milestones + SO
-    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true, projectNature: "MSP" },
+    { k: "stark-msp", name: "Stark Managed Services", account: "stark", person: null, owner: MEM_S2, stage: "won", status: "won", amount: "40280.00", closed: true, projectNature: "PS" },
     // Lost
-    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", projectNature: "INFRA" },
+    { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", projectNature: "H" },
     // KIV / parked
-    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", projectNature: "CONSULT" },
+    { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", projectNature: "T" },
   ]
   const oppProjectNature = new Map(oppValues.map((o) => [o.k, o.projectNature]))
 
@@ -363,9 +363,9 @@ async function main() {
         projectYear: o.expected ? Number(o.expected.slice(0, 4)) : null,
         currency: "MYR",
         projectNatureCode: o.projectNature,
-        // Demo a multi-nature deal (License + Consulting + Managed Services).
+        // Demo a multi-nature deal (Professional Services + License + Mixed).
         projectNatures:
-          o.k === "umbrella-crm" ? ["WEB", "CONSULT", "MSP"] : null,
+          o.k === "umbrella-crm" ? ["PS", "L", "M"] : null,
         status: o.status as "open" | "won" | "lost" | "on_hold",
         expectedCloseDate: o.expected ?? null,
         actualCloseDate: closeTs ? "2026-06-01" : null,
@@ -494,9 +494,9 @@ async function main() {
       .values({
         id: PROJECT_ID,
         tenantId: TENANT_ID,
-        projectCode: "2026-DEMO-STARKR-MSP-001",
+        projectCode: "2026-DEMO-STARKR-PS-001",
         codeNature: "manual",
-        projectNatureCode: "MSP",
+        projectNatureCode: "PS",
         name: "Stark Managed Services — Year 1",
         accountId: accId("stark"),
         funnelId: oppId("stark-msp"),

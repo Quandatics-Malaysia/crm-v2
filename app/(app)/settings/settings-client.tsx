@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { showActionError } from "@/lib/show-action-error"
+import type { ActionResult } from "@/lib/action-result"
 import {
   ArrowRight,
   ArrowUp,
@@ -29,6 +30,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { FileDropzone } from "@/components/file-dropzone"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -2742,7 +2744,6 @@ function CompanyProfileCard({
   const [logoBusy, setLogoBusy] = React.useState(false)
   // Bust the browser cache after an upload so the preview refreshes.
   const [logoVersion, setLogoVersion] = React.useState(0)
-  const fileRef = React.useRef<HTMLInputElement>(null)
 
   const dirty = JSON.stringify(values) !== JSON.stringify(profile)
   const set =
@@ -2764,8 +2765,8 @@ function CompanyProfileCard({
     })
   }
 
-  async function onLogoPicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  async function onLogoPicked(files: File[]) {
+    const file = files[0]
     if (!file) return
     setLogoBusy(true)
     try {
@@ -2781,7 +2782,6 @@ function CompanyProfileCard({
       router.refresh()
     } finally {
       setLogoBusy(false)
-      if (fileRef.current) fileRef.current.value = ""
     }
   }
 
@@ -2810,34 +2810,18 @@ function CompanyProfileCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
-        <div className="flex flex-wrap items-center gap-4">
-          {hasLogo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={`/api/tenant-logo?v=${logoVersion}`}
-              alt="Company logo"
-              className="h-12 max-w-40 rounded border bg-white object-contain p-1"
-            />
-          ) : (
-            <span className="text-sm text-muted-foreground">No logo yet.</span>
-          )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-            className="hidden"
-            onChange={onLogoPicked}
-          />
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={logoBusy}
-              onClick={() => fileRef.current?.click()}
-            >
-              {logoBusy ? "Working…" : hasLogo ? "Replace logo" : "Upload logo"}
-            </Button>
+        <div className="grid gap-3">
+          <div className="flex flex-wrap items-center gap-4">
+            {hasLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/tenant-logo?v=${logoVersion}`}
+                alt="Company logo"
+                className="h-12 max-w-40 rounded border bg-white object-contain p-1"
+              />
+            ) : (
+              <span className="text-sm text-muted-foreground">No logo yet.</span>
+            )}
             {hasLogo ? (
               <Button
                 type="button"
@@ -2850,6 +2834,15 @@ function CompanyProfileCard({
               </Button>
             ) : null}
           </div>
+          <FileDropzone
+            files={[]}
+            onFiles={onLogoPicked}
+            multiple={false}
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            hint="PNG, JPEG, WebP or SVG"
+            compact
+            busy={logoBusy}
+          />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -2951,7 +2944,7 @@ function PicklistCard({
   placeholder: string
   normalize?: (s: string) => string
   validate?: (s: string) => string | null
-  save: (items: string[]) => Promise<{ ok: boolean; error?: string }>
+  save: (items: string[]) => Promise<ActionResult<unknown>>
 }) {
   const [items, setItems] = React.useState<string[]>(saved)
   // Local baseline so the Save button re-disables after a successful save
@@ -2982,7 +2975,7 @@ function PicklistCard({
     startTransition(async () => {
       const res = await saveAction(items)
       if (!res.ok) {
-        toast.error(res.error ?? "Save failed")
+        showActionError(res)
         return
       }
       setBaseline(items)

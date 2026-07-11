@@ -3,19 +3,34 @@
 import * as React from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent, TabsList } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
+import {
+  DetailAside,
+  DetailCardHeader,
+  DetailTabs,
+  RelatedCard,
+  CountTab,
+  FieldRow,
+  useSaveField,
+} from "@/components/detail-page"
+import { InlineValue } from "@/components/inline-value"
+import { formatDate } from "@/lib/format"
 import { ProjectSalesOrders } from "@/app/(app)/sales-orders/project-sales-orders"
+import { updateProject, type ProjectUpdateInput } from "../actions"
 import { MilestonesPanel } from "./milestones-panel"
 import { BillingPanel } from "./billing-panel"
 import type { ProjectBillingSummary } from "@/app/(app)/billing/actions"
 
+/** Raw scalar fields the page marks inline-editable (Salesforce-style). */
+export type ProjectEditKey = "name" | "startDate"
+
 export type ProjectDetailData = {
   projectId: string
-  fields: { label: string; value: React.ReactNode }[]
+  fields: { label: string; value: React.ReactNode; editKey?: ProjectEditKey }[]
+  /** Raw values behind the inline-editable fields (updateProject is patch-style). */
+  record: { name: string; startDate: string | null }
   notes: string | null
   milestones: React.ComponentProps<typeof MilestonesPanel>["milestones"]
   projectValue: string | null
@@ -38,6 +53,7 @@ export type ProjectDetailData = {
 export function ProjectDetailBody({
   projectId,
   fields,
+  record,
   notes,
   milestones,
   projectValue,
@@ -55,44 +71,59 @@ export function ProjectDetailBody({
   const [tab, setTab] = React.useState("milestones")
   const revalidate = `/projects/${projectId}`
 
+  // updateProject is patch-style: send only the changed field.
+  const saveField = useSaveField((patch: ProjectUpdateInput) =>
+    updateProject(projectId, patch)
+  )
+
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — project details */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="project" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Project</span>
-              <CardTitle className="text-base">Details</CardTitle>
-            </div>
-          </CardHeader>
+          <DetailCardHeader kind="project" eyebrow="Project" />
           <CardContent className="grid gap-3 text-sm">
-            {fields.map((d) => (
-              <div key={d.label} className="grid gap-1">
-                <span className="text-xs text-muted-foreground">{d.label}</span>
-                <span className="text-sm">{d.value}</span>
-              </div>
-            ))}
+            {fields.map((d) => {
+              const key = canManage ? d.editKey : undefined
+              return (
+                <FieldRow key={d.label} label={d.label}>
+                  {!key ? (
+                    d.value
+                  ) : key === "startDate" ? (
+                    <InlineValue
+                      value={record.startDate ?? ""}
+                      display={formatDate(record.startDate)}
+                      formatDraft={(v) => (v ? formatDate(v) : "—")}
+                      type="date"
+                      title="Click to edit start date"
+                      onSave={(next) => saveField({ startDate: next || null })}
+                    />
+                  ) : (
+                    <InlineValue
+                      value={record.name}
+                      display={record.name}
+                      title="Click to edit name"
+                      onSave={(next) => {
+                        if (!next.trim()) return
+                        return saveField({ name: next })
+                      }}
+                    />
+                  )}
+                </FieldRow>
+              )
+            })}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                { kind: "milestone", label: "Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
-                ...(salesOrdersEnabled
-                  ? [{ kind: "salesOrder" as const, label: "Sales orders", count: salesOrders.length, onSelect: () => setTab("orders") }]
-                  : []),
-                { kind: "document", label: "Documents", count: documents.length, onSelect: () => setTab("documents") },
-              ]}
-            />
-          </CardContent>
-        </Card>
+        <RelatedCard
+          items={[
+            { kind: "milestone", label: "Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
+            ...(salesOrdersEnabled
+              ? [{ kind: "salesOrder" as const, label: "Sales orders", count: salesOrders.length, onSelect: () => setTab("orders") }]
+              : []),
+            { kind: "document", label: "Documents", count: documents.length, onSelect: () => setTab("documents") },
+          ]}
+        />
 
         {notes ? (
           <Card>
@@ -106,89 +137,79 @@ export function ProjectDetailBody({
             </CardContent>
           </Card>
         ) : null}
-      </div>
+      </DetailAside>
 
       {/* Right column — tabbed related lists */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="flex-wrap">
-                <TabsTrigger value="milestones">
-                  Milestones
-                  <Badge variant="secondary" className="ml-1.5">{milestones.length}</Badge>
-                </TabsTrigger>
-                {salesOrdersEnabled ? (
-                  <TabsTrigger value="orders">
-                    Sales orders
-                    <Badge variant="secondary" className="ml-1.5">{salesOrders.length}</Badge>
-                  </TabsTrigger>
-                ) : null}
-                {billing ? (
-                  <TabsTrigger value="billing">
-                    Billing
-                    <Badge variant="secondary" className="ml-1.5">{billing.docs.length}</Badge>
-                  </TabsTrigger>
-                ) : null}
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-                <TabsTrigger value="documents">
-                  Documents
-                  <Badge variant="secondary" className="ml-1.5">{documents.length}</Badge>
-                </TabsTrigger>
-              </TabsList>
+      <DetailTabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <CountTab value="milestones" count={milestones.length}>
+            Milestones
+          </CountTab>
+          {salesOrdersEnabled ? (
+            <CountTab value="orders" count={salesOrders.length}>
+              Sales orders
+            </CountTab>
+          ) : null}
+          {billing ? (
+            <CountTab value="billing" count={billing.docs.length}>
+              Billing
+            </CountTab>
+          ) : null}
+          <CountTab value="activity">Activity</CountTab>
+          <CountTab value="documents" count={documents.length}>
+            Documents
+          </CountTab>
+        </TabsList>
 
-              <TabsContent value="milestones" className="mt-4">
-                <MilestonesPanel
-                  projectId={projectId}
-                  milestones={milestones}
-                  projectValue={projectValue}
-                  currency={currency}
-                  canManage={canManage}
-                />
-              </TabsContent>
+        <TabsContent value="milestones" className="mt-4">
+          <MilestonesPanel
+            projectId={projectId}
+            milestones={milestones}
+            projectValue={projectValue}
+            currency={currency}
+            canManage={canManage}
+          />
+        </TabsContent>
 
-              {salesOrdersEnabled ? (
-                <TabsContent value="orders" className="mt-4">
-                  <ProjectSalesOrders
-                    projectId={projectId}
-                    orders={salesOrders}
-                    canSubmit={canSubmit}
-                    canApprove={canApprove}
-                  />
-                </TabsContent>
-              ) : null}
+        {salesOrdersEnabled ? (
+          <TabsContent value="orders" className="mt-4">
+            <ProjectSalesOrders
+              projectId={projectId}
+              orders={salesOrders}
+              canSubmit={canSubmit}
+              canApprove={canApprove}
+            />
+          </TabsContent>
+        ) : null}
 
-              {billing ? (
-                <TabsContent value="billing" className="mt-4">
-                  <BillingPanel
-                    summary={billing}
-                    milestones={milestones}
-                    canManage={canManageFinance}
-                  />
-                </TabsContent>
-              ) : null}
+        {billing ? (
+          <TabsContent value="billing" className="mt-4">
+            <BillingPanel
+              summary={billing}
+              milestones={milestones}
+              canManage={canManageFinance}
+            />
+          </TabsContent>
+        ) : null}
 
-              <TabsContent value="activity" className="mt-4">
-                <ActivityTimeline
-                  entityType="project"
-                  entityId={projectId}
-                  items={activity}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
+        <TabsContent value="activity" className="mt-4">
+          <ActivityTimeline
+            entityType="project"
+            entityId={projectId}
+            items={activity}
+            revalidate={revalidate}
+          />
+        </TabsContent>
 
-              <TabsContent value="documents" className="mt-4">
-                <DocumentsSection
-                  uploadType="project"
-                  uploadId={projectId}
-                  documents={documents}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+        <TabsContent value="documents" className="mt-4">
+          <DocumentsSection
+            uploadType="project"
+            uploadId={projectId}
+            documents={documents}
+            revalidate={revalidate}
+          />
+        </TabsContent>
+      </DetailTabs>
     </div>
   )
 }

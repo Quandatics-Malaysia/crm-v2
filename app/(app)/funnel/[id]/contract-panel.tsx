@@ -4,7 +4,9 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Plus, Trash2 } from "lucide-react"
+import type { ColumnDef } from "@tanstack/react-table"
 
+import { DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -16,6 +18,8 @@ import {
 } from "@/components/ui/select"
 import { StatusBadge } from "@/components/status-badge"
 import { formatMoney } from "@/lib/format"
+import { showActionError } from "@/lib/show-action-error"
+import type { ActionResult } from "@/lib/action-result"
 import {
   createContractYear,
   deleteContractYear,
@@ -61,11 +65,11 @@ export function ContractPanel({
     .filter((y) => y.status === "invoiced")
     .reduce((s, y) => s + Number(y.amount), 0)
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok?: string) {
+  function run(fn: () => Promise<ActionResult<unknown>>, ok?: string) {
     startTransition(async () => {
       const res = await fn()
       if (!res.ok) {
-        toast.error(res.error ?? "Something went wrong")
+        showActionError(res)
         return
       }
       if (ok) toast.success(ok)
@@ -93,6 +97,109 @@ export function ContractPanel({
     setAmount("")
   }
 
+  const columns: ColumnDef<ContractYearRow>[] = [
+    {
+      accessorKey: "year",
+      header: "Year",
+      cell: ({ row }) => (
+        <span className="font-medium tabular-nums">{row.original.year}</span>
+      ),
+    },
+    {
+      accessorKey: "title",
+      header: "Title",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">{row.original.title ?? "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: `Amount (${currency})`,
+      cell: ({ row }) => {
+        const y = row.original
+        return canManage ? (
+          <Input
+            key={y.id}
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={Number(y.amount).toString()}
+            disabled={pending || y.status === "cancelled"}
+            onBlur={(e) => {
+              const next = e.target.value
+              if (Number(next) === Number(y.amount)) return
+              run(
+                () => updateContractYear(y.id, { amount: next || "0" }),
+                "Amount updated"
+              )
+            }}
+            className="h-8 w-32 text-right tabular-nums"
+          />
+        ) : (
+          <span className="tabular-nums">{formatMoney(y.amount, y.currency)}</span>
+        )
+      },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const y = row.original
+        return canManage ? (
+          <Select
+            value={y.status}
+            onValueChange={(v) =>
+              run(
+                () =>
+                  updateContractYear(y.id, {
+                    status: String(v) as "planned" | "invoiced" | "cancelled",
+                  }),
+                "Status updated"
+              )
+            }
+            items={STATUS.map((s) => ({ value: s.value, label: s.label }))}
+          >
+            <SelectTrigger size="sm" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <StatusBadge status={y.status} />
+        )
+      },
+    },
+    ...(canManage
+      ? ([
+          {
+            id: "actions",
+            cell: ({ row }) => (
+              <div className="text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={pending}
+                  aria-label="Delete year"
+                  onClick={() =>
+                    run(() => deleteContractYear(row.original.id), "Year removed")
+                  }
+                >
+                  <Trash2 className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ),
+          },
+        ] satisfies ColumnDef<ContractYearRow>[])
+      : []),
+  ]
+
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
@@ -101,109 +208,14 @@ export function ContractPanel({
         <Stat label="Invoiced so far" value={formatMoney(invoiced, currency)} />
       </div>
 
-      {years.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No contract years yet. Add one per billing year — prices stay editable
-          and a year can be cancelled.
-        </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-1.5 pr-2 font-medium">Year</th>
-                <th className="py-1.5 pr-2 font-medium">Title</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Amount ({currency})</th>
-                <th className="py-1.5 pr-2 font-medium">Status</th>
-                {canManage ? <th className="py-1.5" /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {years.map((y) => (
-                <tr key={y.id} className="border-b align-middle">
-                  <td className="py-1.5 pr-2 font-medium tabular-nums">{y.year}</td>
-                  <td className="py-1.5 pr-2 text-muted-foreground">
-                    {y.title ?? "—"}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">
-                    {canManage ? (
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        defaultValue={Number(y.amount).toString()}
-                        disabled={pending || y.status === "cancelled"}
-                        onBlur={(e) => {
-                          const next = e.target.value
-                          if (Number(next) === Number(y.amount)) return
-                          run(
-                            () => updateContractYear(y.id, { amount: next || "0" }),
-                            "Amount updated"
-                          )
-                        }}
-                        className="h-8 w-32 text-right tabular-nums"
-                      />
-                    ) : (
-                      <span className="tabular-nums">
-                        {formatMoney(y.amount, y.currency)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {canManage ? (
-                      <Select
-                        value={y.status}
-                        onValueChange={(v) =>
-                          run(
-                            () =>
-                              updateContractYear(y.id, {
-                                status: String(v) as
-                                  | "planned"
-                                  | "invoiced"
-                                  | "cancelled",
-                              }),
-                            "Status updated"
-                          )
-                        }
-                        items={STATUS.map((s) => ({ value: s.value, label: s.label }))}
-                      >
-                        <SelectTrigger size="sm" className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS.map((s) => (
-                            <SelectItem key={s.value} value={s.value}>
-                              {s.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <StatusBadge status={y.status} />
-                    )}
-                  </td>
-                  {canManage ? (
-                    <td className="py-1.5 text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={pending}
-                        aria-label="Delete year"
-                        onClick={() =>
-                          run(() => deleteContractYear(y.id), "Year removed")
-                        }
-                      >
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={years}
+        tableId="funnel-contract"
+        emptyMessage="No contract years yet."
+        emptyDescription="Add one per billing year — prices stay editable and a year can be cancelled."
+        pageSize={5}
+      />
 
       {canManage ? (
         <form

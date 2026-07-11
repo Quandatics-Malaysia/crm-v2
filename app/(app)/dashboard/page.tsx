@@ -27,6 +27,7 @@ import { formatDate } from "@/lib/format"
 import { getDashboardData, type FollowUpDue } from "./actions"
 import { GettingStarted, type ChecklistItem } from "./getting-started"
 import { KpiSection } from "./kpi-section"
+import { DashboardCharts, SalesActivityChart } from "./dashboard-charts"
 
 const ENTITY_HREF: Record<string, string> = {
   account: "/accounts",
@@ -372,6 +373,7 @@ export default async function DashboardPage() {
               <div className="grid gap-4">
                 <ColumnHeading>Salesperson&apos;s Activity</ColumnHeading>
                 {followUpsCard}
+                <SalesActivityChart data={data.salesActivityByMonth} />
               </div>
 
               {/* RIGHT — Salesperson's Funnels */}
@@ -380,6 +382,11 @@ export default async function DashboardPage() {
                 {approvalsCard}
                 {overdueInvoicesCard}
                 {staleFunnelsCard}
+                {/* Salesforce home bar charts (SPEC §1, right column). */}
+                <DashboardCharts
+                  salesByOwnerStage={data.salesByOwnerStage}
+                  closedDealsByProduct={data.closedDealsByProduct}
+                />
               </div>
             </div>
           </>

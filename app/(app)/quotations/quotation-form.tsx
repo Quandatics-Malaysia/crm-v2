@@ -404,7 +404,7 @@ export function QuotationForm({
     setBusy(false)
   }
 
-  async function runAction(
+  async function submitAction(
     fn: () => Promise<ActionResult<unknown>>,
     successMsg: string,
     options?: { redirect?: string }
@@ -456,7 +456,7 @@ export function QuotationForm({
             ) : null}
             <Card>
               <CardHeader>
-                <CardTitle>Header</CardTitle>
+                <CardTitle>Quote Information</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <FormField
@@ -593,7 +593,7 @@ export function QuotationForm({
 
             <Card>
               <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Line items</CardTitle>
+                <CardTitle>Quote Line Items</CardTitle>
                 {canEditDraft ? (
                   <Button
                     type="button"
@@ -631,18 +631,18 @@ export function QuotationForm({
                           <th className="w-8 py-2 pr-2 font-medium">#</th>
                           <th className="py-2 pr-2 font-medium">Product</th>
                           <th className="py-2 pr-2 font-medium">Description</th>
-                          <th className="w-20 py-2 pr-2 text-right font-medium">
-                            Qty
-                          </th>
                           <th className="w-14 py-2 pr-2 font-medium">UOM</th>
-                          <th className="w-28 py-2 pr-2 text-right font-medium">
-                            Unit price
+                          <th className="w-20 py-2 pr-2 text-right font-medium">
+                            Quantity
                           </th>
                           <th className="w-28 py-2 pr-2 text-right font-medium">
-                            Disc ({quotation.currency})
+                            Unit Price
                           </th>
                           <th className="w-28 py-2 pr-2 text-right font-medium">
-                            Line total
+                            Item Discount ({quotation.currency})
+                          </th>
+                          <th className="w-28 py-2 pr-2 text-right font-medium">
+                            Sub-total
                           </th>
                           {canEditDraft ? <th className="w-8 py-2" /> : null}
                         </tr>
@@ -684,6 +684,9 @@ export function QuotationForm({
                                   {...form.register(`lines.${i}.description`)}
                                 />
                               </td>
+                              <td className="py-1.5 pr-2 text-muted-foreground">
+                                {line?.uom || "—"}
+                              </td>
                               <td className="py-1.5 pr-2">
                                 <Input
                                   type="number"
@@ -693,9 +696,6 @@ export function QuotationForm({
                                   disabled={!canEditDraft}
                                   {...form.register(`lines.${i}.quantity`)}
                                 />
-                              </td>
-                              <td className="py-1.5 pr-2 text-muted-foreground">
-                                {line?.uom || "—"}
                               </td>
                               <td
                                 className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground"
@@ -840,7 +840,7 @@ export function QuotationForm({
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() =>
-                        runAction(
+                        submitAction(
                           () => sendQuotation(quotation.id),
                           "Quotation sent"
                         )
@@ -906,7 +906,7 @@ export function QuotationForm({
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={() =>
-                          runAction(
+                          submitAction(
                             () => rejectQuotation(quotation.id),
                             "Quotation rejected"
                           )
@@ -969,7 +969,7 @@ export function QuotationForm({
                     <AlertDialogAction
                       variant="destructive"
                       onClick={() =>
-                        runAction(
+                        submitAction(
                           () => deleteQuotation(quotation.id),
                           "Quotation deleted",
                           { redirect: "/quotations" }
@@ -1111,11 +1111,11 @@ export function QuotationForm({
                   <tr className="border-b border-zinc-200 text-left text-xs text-zinc-400">
                     <th className="w-8 py-2 pr-2 font-medium">#</th>
                     <th className="py-2 pr-2 font-medium">Description</th>
-                    <th className="py-2 pr-2 text-right font-medium">Qty</th>
                     <th className="py-2 pr-2 font-medium">UOM</th>
-                    <th className="py-2 pr-2 text-right font-medium">Unit price</th>
-                    <th className="py-2 pr-2 text-right font-medium">Disc</th>
-                    <th className="py-2 pr-2 text-right font-medium">Line total</th>
+                    <th className="py-2 pr-2 text-right font-medium">Quantity</th>
+                    <th className="py-2 pr-2 text-right font-medium">Unit Price</th>
+                    <th className="py-2 pr-2 text-right font-medium">Item Discount</th>
+                    <th className="py-2 pr-2 text-right font-medium">Sub-total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1135,11 +1135,11 @@ export function QuotationForm({
                           {i + 1}
                         </td>
                         <td className="py-2 pr-2">{l.description || "—"}</td>
-                        <td className="py-2 pr-2 text-right tabular-nums">
-                          {l.quantity}
-                        </td>
                         <td className="py-2 pr-2 text-zinc-500">
                           {l.uom || "—"}
+                        </td>
+                        <td className="py-2 pr-2 text-right tabular-nums">
+                          {l.quantity}
                         </td>
                         <td className="py-2 pr-2 text-right tabular-nums">
                           {formatMoney(l.unitPrice, quotation.currency)}

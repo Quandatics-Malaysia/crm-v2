@@ -22,14 +22,6 @@ import {
 import { AccountEditButton } from "./account-edit-button"
 import { AccountDetailBody, type AccountDetailSection } from "./account-detail-body"
 
-function formatAddress(a: BillingAddress | null | undefined): string | null {
-  if (!a) return null
-  const parts = [a.line1, a.line2, a.city, a.state, a.postcode, a.country]
-    .map((p) => (p ?? "").toString().trim())
-    .filter(Boolean)
-  return parts.length ? parts.join(", ") : null
-}
-
 export default async function AccountDetailPage({
   params,
 }: {
@@ -70,9 +62,7 @@ export default async function AccountDetailPage({
     listAccountQuotations(id),
   ])
 
-  const address = formatAddress(account.billingAddress as BillingAddress | null)
-
-  // Salesforce-named field sections (SPEC §6). Account Information groups the
+// Salesforce-named field sections (SPEC §6). Account Information groups the
   // company/registration/owner fields; Address Information holds the billing
   // address. Only fields already fetched are included.
   const accountInformation: AccountDetailSection["fields"] = [
@@ -109,6 +99,7 @@ export default async function AccountDetailPage({
     {
       label: "Registration number",
       value: account.registrationNumber ?? "—",
+      editKey: "registrationNumber" as const,
     },
     {
       label: "Website",
@@ -142,8 +133,16 @@ export default async function AccountDetailPage({
     { label: "Created", value: formatDate(account.createdAt) },
   ]
 
+  // One inline-editable row per structured subfield (the jsonb column can't
+  // round-trip a single free-text blob).
+  const billing = account.billingAddress as BillingAddress | null
   const addressInformation: AccountDetailSection["fields"] = [
-    { label: "Billing address", value: address ?? "—" },
+    { label: "Street line 1", value: billing?.line1 ?? "—", editKey: "address.line1" },
+    { label: "Street line 2", value: billing?.line2 ?? "—", editKey: "address.line2" },
+    { label: "City", value: billing?.city ?? "—", editKey: "address.city" },
+    { label: "State", value: billing?.state ?? "—", editKey: "address.state" },
+    { label: "Postcode", value: billing?.postcode ?? "—", editKey: "address.postcode" },
+    { label: "Country", value: billing?.country ?? "—", editKey: "address.country" },
   ]
 
   const sections: AccountDetailSection[] = [
@@ -215,6 +214,7 @@ export default async function AccountDetailPage({
           record={record}
           canEdit={ctx.can(PERMISSIONS.ACCOUNT_UPDATE)}
           industries={industries}
+          countries={countries.map((c) => c.name)}
           contacts={contacts}
           opportunities={accountOpportunities}
           pipelines={pipelines}

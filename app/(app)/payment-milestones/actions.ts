@@ -127,6 +127,8 @@ export type FunnelMilestoneUpdateInput = {
   amount?: string | null
   dueDate?: string | null
   status?: string
+  expectedInvoiceMonth?: string | null
+  expectedInvoiceYear?: number | null
 }
 
 type MilestoneStatusValue = (typeof paymentMilestoneStatus.enumValues)[number]
@@ -414,6 +416,14 @@ export async function updateFunnelMilestone(
               input.dueDate === undefined
                 ? existing.dueDate
                 : input.dueDate || null,
+            expectedInvoiceMonth:
+              input.expectedInvoiceMonth === undefined
+                ? existing.expectedInvoiceMonth
+                : input.expectedInvoiceMonth || null,
+            expectedInvoiceYear:
+              input.expectedInvoiceYear === undefined
+                ? existing.expectedInvoiceYear
+                : input.expectedInvoiceYear ?? null,
             status: nextStatus,
             updatedAt: new Date(),
           })

@@ -658,7 +658,29 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             </FieldRow>
             {financeEnabled ? (
               <FieldRow label="Recognized">
-                {recognizedPercent ? (
+                {canEdit && parties.length === 0 ? (
+                  // Manual % override — recomputed from party shares (and thus
+                  // locked here) once handling partners exist.
+                  <InlineValue
+                    value={recognizedPercent ?? ""}
+                    display={
+                      recognizedPercent ? (
+                        <span className="tabular-nums">
+                          {formatMoney(recognizedAmount, currency)}
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({Number(recognizedPercent)}% of {recognizedBasisLabel})
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Set recognized %</span>
+                      )
+                    }
+                    formatDraft={(v) => (v ? `${Number(v)}%` : "—")}
+                    type="number"
+                    title="Click to edit recognized %"
+                    onSave={(next) => saveField({ recognizedPercent: next || null })}
+                  />
+                ) : recognizedPercent ? (
                   <span className="tabular-nums">
                     {formatMoney(recognizedAmount, currency)}
                     <span className="ml-1 text-xs text-muted-foreground">

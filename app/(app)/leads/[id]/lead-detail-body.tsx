@@ -59,7 +59,7 @@ export type LeadConverted = {
 }
 
 /** Raw scalar fields the page marks inline-editable (Salesforce-style). */
-export type LeadEditKey = "companyName" | "email" | "phone" | "source"
+export type LeadEditKey = "name" | "companyName" | "email" | "phone" | "source"
 
 export type LeadDetailSection = {
   title: string
@@ -166,10 +166,10 @@ export function LeadDetailBody({
                           display={record[key] || "—"}
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
-                            // Email is required on leads — ignore an emptied draft.
-                            if (key === "email") {
+                            // Name + email are required on leads — ignore an emptied draft.
+                            if (key === "name" || key === "email") {
                               if (!next.trim()) return
-                              return saveField({ email: next })
+                              return saveField({ [key]: next })
                             }
                             return saveField({ [key]: next || null })
                           }}

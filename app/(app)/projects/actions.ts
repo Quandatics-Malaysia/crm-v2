@@ -101,6 +101,7 @@ export type ProjectUpdateInput = {
   value?: string | null
   startDate?: string | null
   status?: string
+  notes?: string | null
 }
 
 /** All non-deleted projects with denormalized account + funnel names, newest first. */
@@ -416,6 +417,8 @@ export async function updateProject(
           input.startDate === undefined
             ? existing.startDate
             : input.startDate || null,
+        notes:
+          input.notes === undefined ? existing.notes : input.notes || null,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id))

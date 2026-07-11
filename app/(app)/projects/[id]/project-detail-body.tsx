@@ -125,15 +125,29 @@ export function ProjectDetailBody({
           ]}
         />
 
-        {notes ? (
+        {notes || canManage ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Notes</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                {notes}
-              </p>
+              {canManage ? (
+                <InlineValue
+                  value={notes ?? ""}
+                  multiline
+                  display={
+                    <span className="text-sm whitespace-pre-wrap text-muted-foreground">
+                      {notes || "Add notes"}
+                    </span>
+                  }
+                  title="Click to edit notes"
+                  onSave={(next) => saveField({ notes: next || null })}
+                />
+              ) : (
+                <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                  {notes}
+                </p>
+              )}
             </CardContent>
           </Card>
         ) : null}

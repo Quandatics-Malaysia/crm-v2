@@ -12,6 +12,7 @@ export function InlineValue({
   value,
   display,
   type = "text",
+  multiline = false,
   title,
   onSave,
   formatDraft,
@@ -21,6 +22,8 @@ export function InlineValue({
   value: string
   display: React.ReactNode
   type?: "text" | "number" | "date"
+  /** Render a textarea instead of an input (Enter inserts a newline; blur saves). */
+  multiline?: boolean
   title?: string
   onSave: (next: string) => Promise<void> | void
   /** Format the in-flight draft for the optimistic display while saving. */
@@ -65,6 +68,27 @@ export function InlineValue({
   }
 
   if (editing) {
+    if (multiline) {
+      return (
+        <textarea
+          autoFocus
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault()
+              setEditing(false)
+            }
+          }}
+          className={cn(
+            "w-full min-w-0 resize-y rounded border bg-background px-1.5 py-0.5 text-sm outline-none focus:ring-2 focus:ring-ring",
+            inputClassName
+          )}
+        />
+      )
+    }
     return (
       <input
         autoFocus

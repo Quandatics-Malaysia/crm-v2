@@ -29,6 +29,7 @@ import {
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatMoney } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
   updateProduct,
   type ProductInput,
@@ -254,8 +255,30 @@ export function ProductDetailBody({
                 "—"
               )}
             </FieldRow>
-            <FieldRow label="Subcategory">{product.subcategory ?? "—"}</FieldRow>
-            <FieldRow label="Unit (UOM)">{product.uom ?? "—"}</FieldRow>
+            <FieldRow label="Subcategory">
+              {canEdit ? (
+                <InlineValue
+                  value={product.subcategory ?? ""}
+                  display={product.subcategory || "—"}
+                  title="Click to edit subcategory"
+                  onSave={(next) => saveField({ subcategory: next || null })}
+                />
+              ) : (
+                (product.subcategory ?? "—")
+              )}
+            </FieldRow>
+            <FieldRow label="Unit (UOM)">
+              {canEdit ? (
+                <InlineValue
+                  value={product.uom ?? ""}
+                  display={product.uom || "—"}
+                  title="Click to edit unit"
+                  onSave={(next) => saveField({ uom: next || null })}
+                />
+              ) : (
+                (product.uom ?? "—")
+              )}
+            </FieldRow>
           </CardContent>
         </Card>
 
@@ -310,7 +333,18 @@ export function ProductDetailBody({
                   product.name
                 )}
               </FieldRow>
-              <FieldRow label="Unit (UOM)">{product.uom ?? "—"}</FieldRow>
+              <FieldRow label="Unit (UOM)">
+                {canEdit ? (
+                  <InlineValue
+                    value={product.uom ?? ""}
+                    display={product.uom || "—"}
+                    title="Click to edit unit"
+                    onSave={(next) => saveField({ uom: next || null })}
+                  />
+                ) : (
+                  (product.uom ?? "—")
+                )}
+              </FieldRow>
               <FieldRow label="Product category">
                 {product.productCode ? (
                   <span>
@@ -329,7 +363,16 @@ export function ProductDetailBody({
               </FieldRow>
               <FieldRow label="Currency">{product.currency}</FieldRow>
               <FieldRow label="Product subcategory">
-                {product.subcategory ?? "—"}
+                {canEdit ? (
+                  <InlineValue
+                    value={product.subcategory ?? ""}
+                    display={product.subcategory || "—"}
+                    title="Click to edit subcategory"
+                    onSave={(next) => saveField({ subcategory: next || null })}
+                  />
+                ) : (
+                  (product.subcategory ?? "—")
+                )}
               </FieldRow>
               <FieldRow label="Active">
                 {product.isActive ? (
@@ -345,7 +388,24 @@ export function ProductDetailBody({
           </FieldSection>
 
           <FieldSection title="Description Information">
-            {product.description ? (
+            {canEdit ? (
+              <InlineValue
+                value={product.description ?? ""}
+                multiline
+                display={
+                  <span
+                    className={cn(
+                      "text-sm whitespace-pre-wrap text-muted-foreground",
+                      !product.description && "italic"
+                    )}
+                  >
+                    {product.description || "No description added."}
+                  </span>
+                }
+                title="Click to edit description"
+                onSave={(next) => saveField({ description: next || null })}
+              />
+            ) : product.description ? (
               <p className="text-sm whitespace-pre-wrap text-muted-foreground">
                 {product.description}
               </p>

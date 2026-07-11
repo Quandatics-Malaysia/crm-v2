@@ -4,6 +4,7 @@ import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import {
@@ -45,6 +46,7 @@ export type PersonEditKey =
   | "email"
   | "phone"
   | "accountId"
+  | "isPrimary"
 
 export type PersonDetailSection = {
   title: string
@@ -163,6 +165,12 @@ export function PersonDetailBody({
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
                         d.value
+                      ) : key === "isPrimary" ? (
+                        <Switch
+                          checked={record.isPrimary ?? false}
+                          onCheckedChange={(v) => saveField({ isPrimary: v })}
+                          aria-label="Primary contact"
+                        />
                       ) : key === "accountId" ? (
                         <InlineCombobox
                           value={record.accountId}

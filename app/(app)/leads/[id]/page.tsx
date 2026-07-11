@@ -50,6 +50,7 @@ export default async function LeadDetailPage({
   ]
 
   const leadInformation: LeadDetailSection["fields"] = [
+    { label: "Name", value: lead.name, editKey: "name" },
     { label: "Status", value: STATUS_LABEL[lead.status] ?? lead.status },
     {
       label: "Email",

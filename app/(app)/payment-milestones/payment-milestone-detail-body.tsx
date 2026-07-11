@@ -21,14 +21,21 @@ import {
   FieldRow,
   FieldSection,
   RelatedCard,
+  useSaveField,
 } from "@/components/detail-page"
+import { InlineValue } from "@/components/inline-value"
+import { InlineCombobox } from "@/components/inline-combobox"
 import { StatusBadge } from "@/components/status-badge"
 import { StagePathView, type PathStep } from "@/components/stage-path-view"
 import { formatDate, formatMoney } from "@/lib/format"
 import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
 import { paymentMilestoneStatus } from "@/db/schema"
 import type { FinanceDocRow } from "@/app/(app)/billing/actions"
-import type { PaymentMilestoneDetail } from "./actions"
+import {
+  updateFunnelMilestone,
+  type FunnelMilestoneUpdateInput,
+  type PaymentMilestoneDetail,
+} from "./actions"
 
 // The invoice lifecycle order — mirrors the payment_milestone_status enum.
 const STATUS_ORDER = paymentMilestoneStatus.enumValues
@@ -38,6 +45,11 @@ const STATUS_LABELS: Record<(typeof STATUS_ORDER)[number], string> = {
   paid: "Paid",
 }
 
+const INVOICE_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+].map((m) => ({ value: m, label: m }))
+
 /**
  * Salesperson-friendly payment milestone detail: a left column with the money
  * highlights + related quick links, and a right column with the invoice status
@@ -46,12 +58,24 @@ const STATUS_LABELS: Record<(typeof STATUS_ORDER)[number], string> = {
 export function PaymentMilestoneDetailBody({
   milestone,
   financeDocs,
+  canManage,
 }: {
   milestone: PaymentMilestoneDetail
   /** Finance docs raised against this milestone (empty when finance is off). */
   financeDocs: FinanceDocRow[]
+  /** Gates every inline editor (PAYMENT_MILESTONE_MANAGE + funnel-attached,
+   *  resolved server-side). */
+  canManage: boolean
 }) {
   const [tab, setTab] = React.useState("details")
+
+  // updateFunnelMilestone is patch-style: send only the changed field.
+  const saveField = useSaveField((patch: FunnelMilestoneUpdateInput) =>
+    updateFunnelMilestone(milestone.id, patch)
+  )
+  // Invoiced/paid amounts are locked — only pending milestones may re-split money.
+  const canEditAmount = canManage && milestone.status === "pending"
+
   const currentIndex = STATUS_ORDER.indexOf(milestone.status)
   const steps: PathStep[] = STATUS_ORDER.map((s, i) => ({
     id: s,
@@ -115,9 +139,35 @@ export function PaymentMilestoneDetailBody({
           />
           <CardContent className="grid gap-3">
             <div>
-              <div className="text-2xl font-semibold tabular-nums">
-                {formatMoney(milestone.amount)}
-              </div>
+              {canEditAmount ? (
+                <InlineValue
+                  value={milestone.amount}
+                  display={
+                    <span className="text-2xl font-semibold tabular-nums">
+                      {formatMoney(milestone.amount)}
+                    </span>
+                  }
+                  formatDraft={(v) => (
+                    <span className="text-2xl font-semibold tabular-nums">
+                      {formatMoney(v || "0")}
+                    </span>
+                  )}
+                  type="number"
+                  title="Click to edit amount"
+                  onSave={(next) => saveField({ amount: next || null })}
+                />
+              ) : (
+                <div
+                  className="text-2xl font-semibold tabular-nums"
+                  title={
+                    canManage && milestone.status !== "pending"
+                      ? "Amount is locked once the milestone is invoiced."
+                      : undefined
+                  }
+                >
+                  {formatMoney(milestone.amount)}
+                </div>
+              )}
               <div className="text-xs text-muted-foreground">
                 <StatusBadge status={milestone.status} />
               </div>
@@ -197,7 +247,22 @@ export function PaymentMilestoneDetailBody({
             <div className="grid gap-6">
               <FieldSection title="Payment Milestone">
                 <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                  <FieldRow label="Name">{milestone.title}</FieldRow>
+                  <FieldRow label="Name">
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.title}
+                        display={milestone.title}
+                        title="Click to edit name"
+                        onSave={(next) => {
+                          // Title is required — ignore an emptied draft.
+                          if (!next.trim()) return
+                          return saveField({ title: next })
+                        }}
+                      />
+                    ) : (
+                      milestone.title
+                    )}
+                  </FieldRow>
                   <FieldRow label="Funnel">
                     {milestone.funnelId && milestone.funnelName ? (
                       <Link
@@ -229,6 +294,27 @@ export function PaymentMilestoneDetailBody({
                       "—"
                     )}
                   </FieldRow>
+                  <FieldRow label="Remarks" className="sm:col-span-2">
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.description ?? ""}
+                        multiline
+                        display={
+                          <span className="whitespace-pre-wrap">
+                            {milestone.description || "Add remarks"}
+                          </span>
+                        }
+                        title="Click to edit remarks"
+                        onSave={(next) =>
+                          saveField({ description: next || null })
+                        }
+                      />
+                    ) : (
+                      <span className="whitespace-pre-wrap">
+                        {milestone.description || "—"}
+                      </span>
+                    )}
+                  </FieldRow>
                 </div>
               </FieldSection>
 
@@ -240,11 +326,57 @@ export function PaymentMilestoneDetailBody({
                   <FieldRow label="Invoice date">
                     {formatDate(milestone.invoiceDate)}
                   </FieldRow>
+                  <FieldRow label="Due date">
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.dueDate ?? ""}
+                        display={formatDate(milestone.dueDate)}
+                        formatDraft={(v) => (v ? formatDate(v) : "—")}
+                        type="date"
+                        title="Click to edit due date"
+                        onSave={(next) => saveField({ dueDate: next || null })}
+                      />
+                    ) : (
+                      formatDate(milestone.dueDate)
+                    )}
+                  </FieldRow>
                   <FieldRow label="Expected invoice month">
-                    {milestone.expectedInvoiceMonth ?? "—"}
+                    {canManage ? (
+                      <InlineCombobox
+                        value={milestone.expectedInvoiceMonth ?? ""}
+                        display={milestone.expectedInvoiceMonth || "—"}
+                        options={INVOICE_MONTHS}
+                        onSave={(next) =>
+                          saveField({ expectedInvoiceMonth: next || null })
+                        }
+                        placeholder="Month"
+                        searchPlaceholder="Search months…"
+                        title="Click to set expected invoice month"
+                      />
+                    ) : (
+                      (milestone.expectedInvoiceMonth ?? "—")
+                    )}
                   </FieldRow>
                   <FieldRow label="Expected invoice year">
-                    {milestone.expectedInvoiceYear ?? "—"}
+                    {canManage ? (
+                      <InlineValue
+                        value={
+                          milestone.expectedInvoiceYear != null
+                            ? String(milestone.expectedInvoiceYear)
+                            : ""
+                        }
+                        display={milestone.expectedInvoiceYear ?? "—"}
+                        type="number"
+                        title="Click to set expected invoice year"
+                        onSave={(next) =>
+                          saveField({
+                            expectedInvoiceYear: next ? Number(next) : null,
+                          })
+                        }
+                      />
+                    ) : (
+                      (milestone.expectedInvoiceYear ?? "—")
+                    )}
                   </FieldRow>
                   <FieldRow label="Amount">{formatMoney(milestone.amount)}</FieldRow>
                   <FieldRow label="Status">

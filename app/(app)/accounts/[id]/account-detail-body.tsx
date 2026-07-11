@@ -37,6 +37,7 @@ import {
   type AccountOpportunityItem,
   type AccountProjectItem,
   type AccountQuotationItem,
+  type BillingAddress,
   type PersonRow,
 } from "../actions"
 
@@ -48,8 +49,17 @@ export type AccountChild = {
   accountType: string | null
 }
 
+/** Structured billing-address subfields, each its own inline editor. */
+export type AccountAddressKey = keyof BillingAddress
+
 /** Raw scalar fields the page marks inline-editable (Salesforce-style). */
-export type AccountEditKey = "name" | "industry" | "phone" | "website"
+export type AccountEditKey =
+  | "name"
+  | "industry"
+  | "phone"
+  | "website"
+  | "registrationNumber"
+  | `address.${AccountAddressKey}`
 
 export type AccountDetailSection = {
   title: string
@@ -65,6 +75,8 @@ export type AccountDetailData = {
   /** Gates every inline editor (ACCOUNT_UPDATE, resolved server-side). */
   canEdit: boolean
   industries: string[]
+  /** Country picklist for the inline billing-address country combobox. */
+  countries: string[]
   contacts: PersonRow[]
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
@@ -84,6 +96,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     record,
     canEdit,
     industries,
+    countries,
     contacts,
     opportunities,
     pipelines,
@@ -105,6 +118,16 @@ export function AccountDetailBody(props: AccountDetailData) {
     () => industries.map((i) => ({ value: i, label: i })),
     [industries]
   )
+  const countryOptions = React.useMemo(
+    () => countries.map((c) => ({ value: c, label: c })),
+    [countries]
+  )
+
+  /** Merge one edited billing-address subfield into the structured jsonb. */
+  const saveAddress = (sub: AccountAddressKey, next: string) =>
+    saveField({
+      billingAddress: { ...record.billingAddress, [sub]: next || null },
+    })
 
   const opportunityColumns = React.useMemo<ColumnDef<AccountOpportunityItem>[]>(
     () => [
@@ -251,10 +274,38 @@ export function AccountDetailBody(props: AccountDetailData) {
               <FieldSection key={section.title} title={section.title}>
                 {section.fields.map((d) => {
                   const key = canEdit ? d.editKey : undefined
+                  const addressSub =
+                    key && key.startsWith("address.")
+                      ? (key.slice("address.".length) as AccountAddressKey)
+                      : null
+                  // What's left after the industry/address branches below.
+                  const scalarKey =
+                    key && !addressSub && key !== "industry"
+                      ? (key as "name" | "phone" | "website" | "registrationNumber")
+                      : null
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
                         d.value
+                      ) : addressSub ? (
+                        addressSub === "country" ? (
+                          <InlineCombobox
+                            value={record.billingAddress?.country ?? ""}
+                            display={record.billingAddress?.country || "—"}
+                            options={countryOptions}
+                            onSave={(next) => saveAddress("country", next)}
+                            searchPlaceholder="Search countries…"
+                            emptyMessage="No countries configured."
+                            title="Click to change country"
+                          />
+                        ) : (
+                          <InlineValue
+                            value={record.billingAddress?.[addressSub] ?? ""}
+                            display={record.billingAddress?.[addressSub] || "—"}
+                            title={`Click to edit ${d.label.toLowerCase()}`}
+                            onSave={(next) => saveAddress(addressSub, next)}
+                          />
+                        )
                       ) : key === "industry" ? (
                         <InlineCombobox
                           value={record.industry ?? ""}
@@ -265,20 +316,22 @@ export function AccountDetailBody(props: AccountDetailData) {
                           emptyMessage="No industries configured."
                           title="Click to change industry"
                         />
-                      ) : (
+                      ) : scalarKey ? (
                         <InlineValue
-                          value={record[key] ?? ""}
-                          display={record[key] || "—"}
+                          value={record[scalarKey] ?? ""}
+                          display={record[scalarKey] || "—"}
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // Name is required — ignore an emptied draft.
-                            if (key === "name") {
+                            if (scalarKey === "name") {
                               if (!next.trim()) return
                               return saveField({ name: next })
                             }
-                            return saveField({ [key]: next || null })
+                            return saveField({ [scalarKey]: next || null })
                           }}
                         />
+                      ) : (
+                        d.value
                       )}
                     </FieldRow>
                   )

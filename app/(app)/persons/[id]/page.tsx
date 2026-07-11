@@ -78,6 +78,7 @@ export default async function PersonDetailPage({
     },
     {
       label: "Primary",
+      editKey: "isPrimary",
       value: person.isPrimary ? (
         <Badge variant="secondary">Primary</Badge>
       ) : (

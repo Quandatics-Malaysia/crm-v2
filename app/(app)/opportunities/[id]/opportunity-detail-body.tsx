@@ -2,20 +2,31 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  DataTable,
+  SortableHeader,
+  rightHeader,
+  moneyCell,
+  linkCell,
+} from "@/components/data-table"
+import {
+  DetailAside,
+  DetailCardHeader,
+  DetailTabs,
+  RelatedCard,
+  CountTab,
+  useSaveField,
+} from "@/components/detail-page"
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
-import { showActionError } from "@/lib/show-action-error"
 import { formatMoney, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
@@ -74,21 +85,16 @@ export function OpportunityDetailBody({
   /** Deep-linked tab (?tab=analysis from the stage-gate checklist). */
   initialTab?: string
 }) {
-  const router = useRouter()
   const TABS = ["funnels", "quotations", "products", "analysis", "remarks", "documents"]
   const [tab, setTab] = React.useState(
     initialTab && TABS.includes(initialTab) ? initialTab : "funnels"
   )
   const o = detail.opportunity
 
-  async function saveField(patch: OpportunityContainerUpdateInput) {
-    const res = await updateOpportunityContainer(o.id, patch)
-    if (!res.ok) {
-      showActionError(res)
-      return
-    }
-    router.refresh()
-  }
+  // updateOpportunityContainer is patch-style: send only the changed field.
+  const saveField = useSaveField((patch: OpportunityContainerUpdateInput) =>
+    updateOpportunityContainer(o.id, patch)
+  )
 
   const revalidate = `/opportunities/${o.id}`
 
@@ -119,10 +125,9 @@ export function OpportunityDetailBody({
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Funnel" />,
-        cell: ({ row }) => (
-          <Link href={`/funnel/${row.original.id}`} className="font-medium link">
-            {row.original.name}
-          </Link>
+        cell: linkCell<FunnelRow>(
+          (r) => `/funnel/${r.id}`,
+          (r) => r.name
         ),
       },
       {
@@ -152,10 +157,9 @@ export function OpportunityDetailBody({
       {
         accessorKey: "quoteNumber",
         header: ({ column }) => <SortableHeader column={column} title="Quote" />,
-        cell: ({ row }) => (
-          <Link href={`/quotations/${row.original.id}`} className="font-medium link">
-            {row.original.quoteNumber}
-          </Link>
+        cell: linkCell<QuoteRow>(
+          (r) => `/quotations/${r.id}`,
+          (r) => r.quoteNumber
         ),
       },
       {
@@ -174,11 +178,10 @@ export function OpportunityDetailBody({
       },
       {
         accessorKey: "total",
-        header: () => <div className="text-right">Total</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.total, row.original.currency)}
-          </div>
+        header: rightHeader("Total"),
+        cell: moneyCell<QuoteRow>(
+          (r) => r.total,
+          (r) => r.currency
         ),
       },
     ],
@@ -210,18 +213,17 @@ export function OpportunityDetailBody({
       },
       {
         accessorKey: "quantity",
-        header: () => <div className="text-right">Qty</div>,
+        header: rightHeader("Qty"),
         cell: ({ row }) => (
           <div className="text-right tabular-nums">{Number(row.original.quantity)}</div>
         ),
       },
       {
         accessorKey: "unitPrice",
-        header: () => <div className="text-right">Unit price</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.unitPrice, o.currency)}
-          </div>
+        header: rightHeader("Unit price"),
+        cell: moneyCell<ProductRow>(
+          (r) => r.unitPrice,
+          () => o.currency
         ),
       },
     ],
@@ -231,15 +233,9 @@ export function OpportunityDetailBody({
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — opportunity highlights */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="opportunity" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Opportunity</span>
-              <CardTitle className="text-base">Details</CardTitle>
-            </div>
-          </CardHeader>
+          <DetailCardHeader kind="opportunity" eyebrow="Opportunity" />
           <CardContent className="grid gap-3 text-sm">
             <Field label="Code">
               <span className="font-mono text-xs">{o.code}</span>
@@ -353,28 +349,18 @@ export function OpportunityDetailBody({
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                { kind: "account", label: "Account", href: `/accounts/${detail.accountId}` },
-                { kind: "funnel", label: "Funnels", count: detail.funnels.length, onSelect: () => setTab("funnels") },
-                { kind: "quotation", label: "Quotations", count: detail.quotations.length, onSelect: () => setTab("quotations") },
-                { kind: "product", label: "Products", count: detail.products.length, onSelect: () => setTab("products") },
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
+        <RelatedCard
+          items={[
+            { kind: "account", label: "Account", href: `/accounts/${detail.accountId}` },
+            { kind: "funnel", label: "Funnels", count: detail.funnels.length, onSelect: () => setTab("funnels") },
+            { kind: "quotation", label: "Quotations", count: detail.quotations.length, onSelect: () => setTab("quotations") },
+            { kind: "product", label: "Products", count: detail.products.length, onSelect: () => setTab("products") },
+          ]}
+        />
+      </DetailAside>
 
       {/* Right column — related lists (tabbed, like the funnel view) */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
+      <DetailTabs value={tab} onValueChange={setTab}>
               <TabsList>
                 <TabsTrigger value="funnels">
                   Funnels
@@ -394,8 +380,8 @@ export function OpportunityDetailBody({
                     {detail.products.length}
                   </Badge>
                 </TabsTrigger>
-                <TabsTrigger value="analysis">Analysis (PPVVC)</TabsTrigger>
-                <TabsTrigger value="remarks">Remarks</TabsTrigger>
+                <CountTab value="analysis">Analysis (PPVVC)</CountTab>
+                <CountTab value="remarks">Remarks</CountTab>
                 <TabsTrigger value="documents">
                   Documents
                   <Badge variant="secondary" className="ml-1.5 tabular-nums">
@@ -643,10 +629,7 @@ export function OpportunityDetailBody({
                   revalidate={revalidate}
                 />
               </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+      </DetailTabs>
     </div>
   )
 }

@@ -1,9 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { StatusBadge } from "@/components/status-badge"
 import { formatDate, formatMoney } from "@/lib/format"
 import { StageBadge } from "./stage-badge"
@@ -13,13 +12,9 @@ const columns: ColumnDef<OpportunityListRow>[] = [
   {
     accessorKey: "name",
     header: ({ column }) => <SortableHeader column={column} title="Name" />,
-    cell: ({ row }) => (
-      <Link
-        href={`/funnel/${row.original.id}`}
-        className="font-medium link"
-      >
-        {row.original.name}
-      </Link>
+    cell: linkCell(
+      (r) => `/funnel/${r.id}`,
+      (r) => r.name
     ),
   },
   {

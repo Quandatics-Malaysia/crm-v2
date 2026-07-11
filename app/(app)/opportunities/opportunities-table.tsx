@@ -1,11 +1,10 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { Briefcase } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/format"
 import type { OpportunityContainerRow } from "./actions"
@@ -19,10 +18,9 @@ export function OpportunitiesTable({ data }: { data: OpportunityContainerRow[] }
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Opportunity" />,
-        cell: ({ row }) => (
-          <Link href={`/opportunities/${row.original.id}`} className="font-medium link">
-            {row.original.name}
-          </Link>
+        cell: linkCell(
+          (r) => `/opportunities/${r.id}`,
+          (r) => r.name
         ),
       },
       {

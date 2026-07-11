@@ -7,7 +7,7 @@ import { Building2, MoreHorizontal, Plus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { showActionError } from "@/lib/show-action-error"
@@ -187,13 +187,9 @@ export function AccountsTable({
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Name" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/accounts/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
+        cell: linkCell(
+          (r) => `/accounts/${r.id}`,
+          (r) => r.name
         ),
       },
       {

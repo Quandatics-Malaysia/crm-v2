@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { MoreHorizontal, UserPlus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -133,13 +133,9 @@ export function LeadsTable({
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Name" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/leads/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
+        cell: linkCell(
+          (r) => `/leads/${r.id}`,
+          (r) => r.name
         ),
       },
       {

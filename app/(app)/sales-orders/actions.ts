@@ -468,9 +468,18 @@ async function generateSoMilestones(
   }
   if (!quotationId) return { count: 0, funnelId }
 
-  // Idempotency: never generate when the deal already has milestones.
-  const [existing] = await tx
-    .select({ id: paymentMilestones.id })
+  // Idempotency: never generate when the deal already has milestones — with
+  // one exception: a single untouched seeded default ("Full Payment", still
+  // pending, never invoiced, not tied to an SO — see seedDefaultFunnelMilestone)
+  // is replaced by the per-category split. Anything manual/invoiced no-ops.
+  const existing = await tx
+    .select({
+      id: paymentMilestones.id,
+      title: paymentMilestones.title,
+      status: paymentMilestones.status,
+      invoiceNumber: paymentMilestones.invoiceNumber,
+      soNumber: paymentMilestones.soNumber,
+    })
     .from(paymentMilestones)
     .where(
       funnelId
@@ -480,8 +489,15 @@ async function generateSoMilestones(
           )
         : eq(paymentMilestones.projectId, project.id)
     )
-    .limit(1)
-  if (existing) return { count: 0, funnelId }
+    .limit(2)
+  const seed = existing[0]
+  const replaceableSeed =
+    existing.length === 1 &&
+    seed.title === "Full Payment" &&
+    seed.status === "pending" &&
+    !seed.invoiceNumber &&
+    !seed.soNumber
+  if (existing.length > 0 && !replaceableSeed) return { count: 0, funnelId }
 
   const [quote] = await tx
     .select({
@@ -513,6 +529,10 @@ async function generateSoMilestones(
 
   const drafts = deriveSoMilestones(Number(quoteNet(quote)), lines, natureNames)
   if (drafts.length === 0) return { count: 0, funnelId }
+
+  if (replaceableSeed) {
+    await tx.delete(paymentMilestones).where(eq(paymentMilestones.id, seed.id))
+  }
 
   const now = new Date()
   await tx.insert(paymentMilestones).values(
@@ -546,6 +566,7 @@ async function generateSoMilestones(
     after: {
       soNumber: input.soNumber,
       quotationId,
+      replacedSeedMilestoneId: replaceableSeed ? seed.id : null,
       milestones: drafts.map((d) => ({ title: d.title, amount: d.amount })),
     },
   })

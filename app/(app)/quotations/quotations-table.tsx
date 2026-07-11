@@ -3,7 +3,7 @@
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
@@ -22,13 +22,9 @@ export function QuotationsTable({
     {
       accessorKey: "quoteNumber",
       header: ({ column }) => <SortableHeader column={column} title="Number" />,
-      cell: ({ row }) => (
-        <Link
-          href={`/quotations/${row.original.id}`}
-          className="font-medium link"
-        >
-          {row.original.quoteNumber}
-        </Link>
+      cell: linkCell(
+        (r) => `/quotations/${r.id}`,
+        (r) => r.quoteNumber
       ),
     },
     {

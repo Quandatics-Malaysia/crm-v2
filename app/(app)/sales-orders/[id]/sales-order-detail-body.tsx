@@ -5,13 +5,26 @@ import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import { CheckIcon, XIcon } from "lucide-react"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  DataTable,
+  SortableHeader,
+  rightHeader,
+  moneyCell,
+  linkCell,
+} from "@/components/data-table"
+import {
+  DetailAside,
+  DetailCardHeader,
+  DetailTabs,
+  CountTab,
+  FieldRow,
+  RelatedCard,
+} from "@/components/detail-page"
 import { DocumentViewerButton } from "@/components/document-viewer"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { StatusBadge } from "@/components/status-badge"
 import { formatDate, formatMoney } from "@/lib/format"
 import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
@@ -109,13 +122,9 @@ export function SalesOrderDetailBody({
       {
         accessorKey: "title",
         header: ({ column }) => <SortableHeader column={column} title="Milestone" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/payment-milestones/${row.original.id}`}
-            className="font-medium link"
-          >
-            {row.original.title}
-          </Link>
+        cell: linkCell(
+          (r) => `/payment-milestones/${r.id}`,
+          (r) => r.title
         ),
       },
       {
@@ -130,11 +139,10 @@ export function SalesOrderDetailBody({
       },
       {
         accessorKey: "amount",
-        header: () => <div className="text-right">Amount</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.amount, order.currency)}
-          </div>
+        header: rightHeader("Amount"),
+        cell: moneyCell(
+          (r) => r.amount,
+          () => order.currency
         ),
       },
     ],
@@ -173,11 +181,10 @@ export function SalesOrderDetailBody({
       },
       {
         accessorKey: "amount",
-        header: () => <div className="text-right">Amount</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.amount, row.original.currency)}
-          </div>
+        header: rightHeader("Amount"),
+        cell: moneyCell(
+          (r) => r.amount,
+          (r) => r.currency
         ),
       },
     ],
@@ -187,163 +194,137 @@ export function SalesOrderDetailBody({
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left — sales-order details + related quick links */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="salesOrder" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Sales order</span>
-              <CardTitle className="text-base">Details</CardTitle>
-            </div>
-          </CardHeader>
+          <DetailCardHeader kind="salesOrder" eyebrow="Sales order" />
           <CardContent className="grid gap-3 text-sm">
             {fields.map((d) => (
-              <div key={d.label} className="grid gap-1">
-                <span className="text-xs text-muted-foreground">{d.label}</span>
-                <span className="text-sm">{d.value}</span>
-              </div>
+              <FieldRow key={d.label} label={d.label}>
+                {d.value}
+              </FieldRow>
             ))}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                { kind: "project", label: "Project", href: `/projects/${order.projectId}` },
-                { kind: "milestone", label: "Payment milestones", count: milestones.length, onSelect: () => setTab("milestones") },
-                ...(billing
-                  ? [{ kind: "document" as const, label: "Finance docs", count: billing.docs.length, onSelect: () => setTab("billing") }]
-                  : []),
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
+        <RelatedCard
+          items={[
+            { kind: "project", label: "Project", href: `/projects/${order.projectId}` },
+            { kind: "milestone", label: "Payment milestones", count: milestones.length, onSelect: () => setTab("milestones") },
+            ...(billing
+              ? [{ kind: "document" as const, label: "Finance docs", count: billing.docs.length, onSelect: () => setTab("billing") }]
+              : []),
+          ]}
+        />
+      </DetailAside>
 
       {/* Right — tabbed review + related lists */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="review">Document &amp; review</TabsTrigger>
-                <TabsTrigger value="milestones">
-                  Payment milestones
-                  <Badge variant="secondary" className="ml-1.5">
-                    {milestones.length}
-                  </Badge>
-                </TabsTrigger>
-                {billing ? (
-                  <TabsTrigger value="billing">
-                    Finance docs
-                    <Badge variant="secondary" className="ml-1.5">
-                      {billing.docs.length}
-                    </Badge>
-                  </TabsTrigger>
-                ) : null}
-              </TabsList>
+      <DetailTabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="review">Document &amp; review</TabsTrigger>
+          <CountTab value="milestones" count={milestones.length}>
+            Payment milestones
+          </CountTab>
+          {billing ? (
+            <CountTab value="billing" count={billing.docs.length}>
+              Finance docs
+            </CountTab>
+          ) : null}
+        </TabsList>
 
-              <TabsContent value="review" className="mt-4">
-                <div className="grid gap-4">
-                  <div className="grid gap-1.5">
-                    <span className="text-xs text-muted-foreground">
-                      Supporting document
-                    </span>
-                    {order.document ? (
-                      <DocumentViewerButton
-                        file={{
-                          id: order.document.id,
-                          fileName: order.document.fileName,
-                          contentType: order.document.contentType,
-                        }}
-                      />
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        No document attached.
-                      </span>
-                    )}
-                  </div>
-
-                  {order.notes ? (
-                    <div className="grid gap-1.5">
-                      <span className="text-xs text-muted-foreground">Notes</span>
-                      <p className="text-sm whitespace-pre-wrap">{order.notes}</p>
-                    </div>
-                  ) : null}
-
-                  {order.status === "rejected" && order.rejectReason ? (
-                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                      Rejected: {order.rejectReason}
-                    </div>
-                  ) : null}
-
-                  {showApprove || showResubmit ? (
-                    <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-                      {showApprove ? (
-                        <>
-                          <Button type="button" size="sm" onClick={() => setApproveOpen(true)}>
-                            <CheckIcon className="size-4" />
-                            Approve
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setDeclineOpen(true)}
-                          >
-                            <XIcon className="size-4" />
-                            Decline
-                          </Button>
-                        </>
-                      ) : null}
-                      {showResubmit ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setResubmitOpen(true)}
-                        >
-                          Resubmit
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="milestones" className="mt-4">
-                <DataTable
-                  columns={milestoneColumns}
-                  data={milestones}
-                  tableId="so-milestones"
-                  searchColumn="title"
-                  searchPlaceholder="Search milestones…"
-                  emptyMessage="No payment milestones on this project yet."
-                  pageSize={5}
+        <TabsContent value="review" className="mt-4">
+          <div className="grid gap-4">
+            <div className="grid gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                Supporting document
+              </span>
+              {order.document ? (
+                <DocumentViewerButton
+                  file={{
+                    id: order.document.id,
+                    fileName: order.document.fileName,
+                    contentType: order.document.contentType,
+                  }}
                 />
-              </TabsContent>
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  No document attached.
+                </span>
+              )}
+            </div>
 
-              {billing ? (
-                <TabsContent value="billing" className="mt-4">
-                  <DataTable
-                    columns={docColumns}
-                    data={billing.docs}
-                    tableId="so-finance-docs"
-                    searchColumn="number"
-                    searchPlaceholder="Search finance docs…"
-                    emptyMessage="No finance documents on this project yet."
-                    pageSize={5}
-                  />
-                </TabsContent>
-              ) : null}
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+            {order.notes ? (
+              <div className="grid gap-1.5">
+                <span className="text-xs text-muted-foreground">Notes</span>
+                <p className="text-sm whitespace-pre-wrap">{order.notes}</p>
+              </div>
+            ) : null}
+
+            {order.status === "rejected" && order.rejectReason ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                Rejected: {order.rejectReason}
+              </div>
+            ) : null}
+
+            {showApprove || showResubmit ? (
+              <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+                {showApprove ? (
+                  <>
+                    <Button type="button" size="sm" onClick={() => setApproveOpen(true)}>
+                      <CheckIcon className="size-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setDeclineOpen(true)}
+                    >
+                      <XIcon className="size-4" />
+                      Decline
+                    </Button>
+                  </>
+                ) : null}
+                {showResubmit ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setResubmitOpen(true)}
+                  >
+                    Resubmit
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="milestones" className="mt-4">
+          <DataTable
+            columns={milestoneColumns}
+            data={milestones}
+            tableId="so-milestones"
+            searchColumn="title"
+            searchPlaceholder="Search milestones…"
+            emptyMessage="No payment milestones on this project yet."
+            pageSize={5}
+          />
+        </TabsContent>
+
+        {billing ? (
+          <TabsContent value="billing" className="mt-4">
+            <DataTable
+              columns={docColumns}
+              data={billing.docs}
+              tableId="so-finance-docs"
+              searchColumn="number"
+              searchPlaceholder="Search finance docs…"
+              emptyMessage="No finance documents on this project yet."
+              pageSize={5}
+            />
+          </TabsContent>
+        ) : null}
+      </DetailTabs>
 
       {approveOpen ? (
         <ApproveSalesOrderDialog

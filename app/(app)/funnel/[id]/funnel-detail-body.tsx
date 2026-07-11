@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Plus, PencilIcon } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -13,15 +12,27 @@ import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
 import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
 import { Separator } from "@/components/ui/separator"
-import { ObjectTile, RelatedQuickLinks } from "@/components/object-tile"
 import { cn } from "@/lib/utils"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DataTable, SortableHeader } from "@/components/data-table"
+import { TabsContent, TabsList } from "@/components/ui/tabs"
+import {
+  DataTable,
+  SortableHeader,
+  rightHeader,
+  moneyCell,
+  linkCell,
+} from "@/components/data-table"
+import {
+  DetailAside,
+  DetailCardHeader,
+  TabsCard,
+  RelatedCard,
+  CountTab,
+  useSaveField,
+} from "@/components/detail-page"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
-import { showActionError } from "@/lib/show-action-error"
 import { formatDate, formatMoney } from "@/lib/format"
 import { partyShare, deriveOriginRecognizedAmount } from "@/lib/interco-share"
 import type { Option, MemberOption } from "@/lib/lookups"
@@ -243,16 +254,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     canManageMilestones,
   } = props
 
-  const router = useRouter()
-
-  async function saveField(patch: Partial<OpportunityInput>) {
-    const res = await updateOpportunity(funnelId, patch)
-    if (!res.ok) {
-      showActionError(res)
-      return
-    }
-    router.refresh()
-  }
+  // updateOpportunity is patch-style: send only the changed field.
+  const saveField = useSaveField((patch: Partial<OpportunityInput>) =>
+    updateOpportunity(funnelId, patch)
+  )
 
   const contactOptions = React.useMemo(
     () =>
@@ -336,11 +341,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       },
       {
         accessorKey: "total",
-        header: () => <div className="text-right">Total</div>,
-        cell: ({ row }) => (
-          <div className="text-right tabular-nums">
-            {formatMoney(row.original.total, row.original.currency)}
-          </div>
+        header: rightHeader("Total"),
+        cell: moneyCell<(typeof quotations)[number]>(
+          (r) => r.total,
+          (r) => r.currency
         ),
       },
     ],
@@ -380,13 +384,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       {
         accessorKey: "name",
         header: ({ column }) => <SortableHeader column={column} title="Product" />,
-        cell: ({ row }) => (
-          <Link
-            href={`/products/${row.original.productId}`}
-            className="font-medium link"
-          >
-            {row.original.name}
-          </Link>
+        cell: linkCell<OpportunityProductRow>(
+          (r) => `/products/${r.productId}`,
+          (r) => r.name
         ),
       },
       {
@@ -406,7 +406,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       },
       {
         accessorKey: "quoteCount",
-        header: () => <div className="text-right">On quotes</div>,
+        header: rightHeader("On quotes"),
         cell: ({ row }) => (
           <div className="text-right tabular-nums">{row.original.quoteCount}</div>
         ),
@@ -459,15 +459,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       {/* Left column — funnel highlights + related quick links */}
-      <div className="grid h-fit gap-4 lg:sticky lg:top-4 lg:self-start">
+      <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <ObjectTile kind="funnel" />
-            <div className="grid">
-              <span className="text-xs text-muted-foreground">Funnel</span>
-              <CardTitle className="text-base">Details</CardTitle>
-            </div>
-          </CardHeader>
+          <DetailCardHeader kind="funnel" eyebrow="Funnel" />
           <CardContent className="grid gap-3 text-sm">
             {/* Salesforce "Opportunity Information" section (SPEC §4). */}
             <h3 className="text-sm font-semibold">Opportunity Information</h3>
@@ -899,33 +893,26 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Related</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RelatedQuickLinks
-              items={[
-                ...(container
-                  ? [{ kind: "opportunity" as const, label: "Opportunity", href: `/opportunities/${container.id}` }]
-                  : []),
-                { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
-                { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
-                { kind: "milestone", label: "Payment Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
-                ...(projectsEnabled
-                  ? [{ kind: "project" as const, label: "Projects", count: projects.length, onSelect: () => setTab("projects") }]
-                  : []),
-                ...(showCostMargin
-                  ? [{ kind: "account" as const, label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") }]
-                  : []),
-                ...(SHOW_CONTRACT
-                  ? [{ kind: "funnel" as const, label: "Contract", count: contractYears.length, onSelect: () => setTab("contract") }]
-                  : []),
-              ]}
-            />
-          </CardContent>
-        </Card>
-      </div>
+        <RelatedCard
+          items={[
+            ...(container
+              ? [{ kind: "opportunity" as const, label: "Opportunity", href: `/opportunities/${container.id}` }]
+              : []),
+            { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
+            { kind: "product", label: "Products", count: products.length, onSelect: () => setTab("products") },
+            { kind: "milestone", label: "Payment Milestones", count: milestones.length, onSelect: () => setTab("milestones") },
+            ...(projectsEnabled
+              ? [{ kind: "project" as const, label: "Projects", count: projects.length, onSelect: () => setTab("projects") }]
+              : []),
+            ...(showCostMargin
+              ? [{ kind: "account" as const, label: "Costs & margin", count: costs.length, onSelect: () => setTab("costs") }]
+              : []),
+            ...(SHOW_CONTRACT
+              ? [{ kind: "funnel" as const, label: "Contract", count: contractYears.length, onSelect: () => setTab("contract") }]
+              : []),
+          ]}
+        />
+      </DetailAside>
 
       {/* Right column — stage path + tabbed related lists */}
       <div className="grid gap-4 lg:col-span-2">
@@ -946,61 +933,38 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
+        <TabsCard value={tab} onValueChange={setTab}>
               <TabsList>
 
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-                <TabsTrigger value="quotations">
+                <CountTab value="activity">Activity</CountTab>
+                <CountTab value="quotations" count={quotations.length}>
                   Quotations
-                  <Badge variant="secondary" className="ml-1.5">
-                    {quotations.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="products">
+                </CountTab>
+                <CountTab value="products" count={products.length}>
                   Products
-                  <Badge variant="secondary" className="ml-1.5">
-                    {products.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value="milestones">
+                </CountTab>
+                <CountTab value="milestones" count={milestones.length}>
                   Payment Milestones
-                  <Badge variant="secondary" className="ml-1.5">
-                    {milestones.length}
-                  </Badge>
-                </TabsTrigger>
+                </CountTab>
                 {projectsEnabled ? (
-                  <TabsTrigger value="projects">
+                  <CountTab value="projects" count={projects.length}>
                     Projects
-                    <Badge variant="secondary" className="ml-1.5">
-                      {projects.length}
-                    </Badge>
-                  </TabsTrigger>
+                  </CountTab>
                 ) : null}
                 {showCostMargin ? (
-                  <TabsTrigger value="costs">
+                  <CountTab value="costs" count={costs.length}>
                     Costs &amp; margin
-                    <Badge variant="secondary" className="ml-1.5">
-                      {costs.length}
-                    </Badge>
-                  </TabsTrigger>
+                  </CountTab>
                 ) : null}
                 {SHOW_CONTRACT ? (
-                  <TabsTrigger value="contract">
+                  <CountTab value="contract" count={contractYears.length}>
                     Contract
-                    <Badge variant="secondary" className="ml-1.5">
-                      {contractYears.length}
-                    </Badge>
-                  </TabsTrigger>
+                  </CountTab>
                 ) : null}
-                <TabsTrigger value="history">Stage history</TabsTrigger>
-                <TabsTrigger value="documents">
+                <CountTab value="history">Stage history</CountTab>
+                <CountTab value="documents" count={documents.length}>
                   Documents
-                  <Badge variant="secondary" className="ml-1.5">
-                    {documents.length}
-                  </Badge>
-                </TabsTrigger>
+                </CountTab>
               </TabsList>
 
               <TabsContent value="activity" className="mt-4">
@@ -1141,9 +1105,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   revalidate={revalidate}
                 />
               </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        </TabsCard>
       </div>
     </div>
   )

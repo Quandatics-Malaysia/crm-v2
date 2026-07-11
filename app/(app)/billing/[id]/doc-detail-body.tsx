@@ -16,7 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DetailTabs } from "@/components/detail-page"
 import { StatusBadge } from "@/components/status-badge"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
@@ -305,36 +306,30 @@ export function DocDetailBody({
       </div>
 
       {/* Right: documents + activity */}
-      <div className="lg:col-span-2">
-        <Card>
-          <CardContent className="min-h-[26rem] pt-6">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
-                <TabsTrigger value="documents">
-                  Documents{doc.attachCount ? ` (${doc.attachCount})` : ""}
-                </TabsTrigger>
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-              </TabsList>
-              <TabsContent value="documents" className="mt-4">
-                <DocumentsSection
-                  uploadType="finance_doc"
-                  uploadId={doc.id}
-                  documents={documents}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
-              <TabsContent value="activity" className="mt-4">
-                <ActivityTimeline
-                  entityType="finance_doc"
-                  entityId={doc.id}
-                  items={activity}
-                  revalidate={revalidate}
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+      <DetailTabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="documents">
+            Documents{doc.attachCount ? ` (${doc.attachCount})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+        </TabsList>
+        <TabsContent value="documents" className="mt-4">
+          <DocumentsSection
+            uploadType="finance_doc"
+            uploadId={doc.id}
+            documents={documents}
+            revalidate={revalidate}
+          />
+        </TabsContent>
+        <TabsContent value="activity" className="mt-4">
+          <ActivityTimeline
+            entityType="finance_doc"
+            entityId={doc.id}
+            items={activity}
+            revalidate={revalidate}
+          />
+        </TabsContent>
+      </DetailTabs>
     </div>
   )
 }

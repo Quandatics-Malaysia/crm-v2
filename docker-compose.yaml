@@ -1,9 +1,9 @@
 # Internet-exposed self-host: caddy (HTTPS) → web (Next standalone) → db (Postgres).
 # Postgres is never published; only Caddy binds 80/443. Run: docker compose up -d --build
 #
-# Log rotation is on by default (below). Resource limits are host-dependent —
-# uncomment the `mem_limit:` lines and tune to your host (recommended on a
-# ≥2 GB VPS: db 1g, web 1g). See OPERATIONS.md → Hardening.
+# Log rotation is on by default (below). Resource limits default to db 2g /
+# web 1g / caddy 128m / backup 256m — tune `mem_limit:` to your host.
+# See OPERATIONS.md → Hardening.
 
 x-logging: &default-logging
   driver: json-file
@@ -27,7 +27,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
-    # mem_limit: 1g
+    mem_limit: 2g
     logging: *default-logging
     restart: unless-stopped
 
@@ -83,7 +83,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    # mem_limit: 1g
+    mem_limit: 1g
     logging: *default-logging
     restart: unless-stopped
 
@@ -100,7 +100,7 @@ services:
       - caddyconfig:/config
     depends_on:
       - web
-    # mem_limit: 128m
+    mem_limit: 128m
     logging: *default-logging
     restart: unless-stopped
 
@@ -111,15 +111,20 @@ services:
     image: postgres:17-alpine
     environment:
       DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      # Optional off-box mirror (e.g. user@nas:/backups/crm); unset → skipped.
+      BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
     entrypoint: ["/bin/sh", "/ops/scheduler.sh"]
     volumes:
       - ./ops:/ops:ro
       - appfiles:/data/uploads:ro
       - backups:/backups
+      # Uncomment when using BACKUP_RSYNC_TARGET: SSH key + known_hosts for the
+      # target host (id_ed25519 with 600 perms). See ops/README.md.
+      # - ./ops/ssh:/root/.ssh:ro
     depends_on:
       db:
         condition: service_healthy
-    # mem_limit: 256m
+    mem_limit: 256m
     logging: *default-logging
     restart: unless-stopped
 

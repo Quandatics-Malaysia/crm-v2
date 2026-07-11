@@ -38,10 +38,19 @@ export function QuotationsTable({
       ),
       cell: ({ row }) => row.original.opportunityName ?? "—",
     },
-    // Salesforce Quote list surfaces the Total Excluding Tax / Tax Amount /
-    // Total Including Tax trio; we mirror it with the columns we already store
-    // (subtotal / taxTotal / total). Ref No, Synced and Line-item count have no
-    // column in our schema, so they're omitted (no schema changes).
+    // Salesforce Quote list order: Quote Name · Funnel · Synced · Line Items ·
+    // Ref No · Total Excl Tax · Tax · Total Incl Tax. We mirror it with the
+    // data we already store; Synced and Ref No have no column in our schema,
+    // so they're omitted (no schema changes).
+    {
+      accessorKey: "lineItemCount",
+      header: ({ column }) => (
+        <SortableHeader column={column} title="Line items" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">{row.original.lineItemCount}</span>
+      ),
+    },
     {
       accessorKey: "subtotal",
       header: ({ column }) => (

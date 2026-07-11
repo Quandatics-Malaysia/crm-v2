@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, withModule, requireContext, assertCan } from "@/lib/actions"
 import { runInTenant } from "@/db"
@@ -16,8 +16,12 @@ import {
   attachments,
   funnels,
   quotations,
+  quotationLineItems,
+  paymentMilestones,
   tenantSettings,
 } from "@/db/schema"
+import { quoteNet } from "@/server/services/value"
+import { deriveSoMilestones, milestoneName } from "@/lib/so-milestones"
 import {
   DEFAULT_PAYMENT_TERMS,
   DEFAULT_SO_DOCUMENT_KINDS,
@@ -417,9 +421,140 @@ export async function resubmitSalesOrder(
   })
 }
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const
+
+/**
+ * Auto-generate payment milestones from the approved SO's quotation line
+ * items: one milestone per product category (project-nature code), amounts
+ * summing to the quote's NET value (the milestone reconciliation baseline),
+ * falling back to a single "Full Payment" milestone when no line is
+ * categorised. Fires at most ONCE per deal: skipped whenever the funnel or
+ * project already has ANY milestone (manual, quote-seeded, or from a prior
+ * approval), so a reject → resubmit → re-approve cycle never duplicates.
+ * Runs inside the approval's own transaction/permission context.
+ * Returns { count, funnelId } for the caller's toast + revalidation.
+ */
+async function generateSoMilestones(
+  tx: Parameters<Parameters<typeof withTenant>[1]>[0],
+  ctx: Parameters<Parameters<typeof withTenant>[1]>[1],
+  input: { soId: string; projectId: string; soNumber: string }
+): Promise<{ count: number; funnelId: string | null }> {
+  const [project] = await tx
+    .select({
+      id: projects.id,
+      projectCode: projects.projectCode,
+      funnelId: projects.funnelId,
+      quotationId: projects.quotationId,
+    })
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1)
+  if (!project) return { count: 0, funnelId: null }
+  const funnelId = project.funnelId
+
+  // Resolve the quote to bill against: the project's accepted quote, else
+  // the source funnel's primary quote.
+  let quotationId = project.quotationId
+  if (!quotationId && funnelId) {
+    const [f] = await tx
+      .select({ primaryQuotationId: funnels.primaryQuotationId })
+      .from(funnels)
+      .where(eq(funnels.id, funnelId))
+      .limit(1)
+    quotationId = f?.primaryQuotationId ?? null
+  }
+  if (!quotationId) return { count: 0, funnelId }
+
+  // Idempotency: never generate when the deal already has milestones.
+  const [existing] = await tx
+    .select({ id: paymentMilestones.id })
+    .from(paymentMilestones)
+    .where(
+      funnelId
+        ? or(
+            eq(paymentMilestones.funnelId, funnelId),
+            eq(paymentMilestones.projectId, project.id)
+          )
+        : eq(paymentMilestones.projectId, project.id)
+    )
+    .limit(1)
+  if (existing) return { count: 0, funnelId }
+
+  const [quote] = await tx
+    .select({
+      subtotal: quotations.subtotal,
+      discountTotal: quotations.discountTotal,
+    })
+    .from(quotations)
+    .where(and(eq(quotations.id, quotationId), isNull(quotations.deletedAt)))
+    .limit(1)
+  if (!quote) return { count: 0, funnelId }
+
+  const lines = await tx
+    .select({
+      projectNatureCode: quotationLineItems.projectNatureCode,
+      lineSubtotal: quotationLineItems.lineSubtotal,
+    })
+    .from(quotationLineItems)
+    .where(eq(quotationLineItems.quotationId, quotationId))
+    .orderBy(asc(quotationLineItems.sortOrder))
+
+  const [settings] = await tx
+    .select({ projectNatures: tenantSettings.projectNatures })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, ctx.tenantId))
+    .limit(1)
+  const natureNames = Object.fromEntries(
+    (settings?.projectNatures ?? []).map((n) => [n.code, n.name])
+  )
+
+  const drafts = deriveSoMilestones(Number(quoteNet(quote)), lines, natureNames)
+  if (drafts.length === 0) return { count: 0, funnelId }
+
+  const now = new Date()
+  await tx.insert(paymentMilestones).values(
+    drafts.map((d) => ({
+      tenantId: ctx.tenantId,
+      projectId: project.id,
+      funnelId,
+      quotationId,
+      soNumber: input.soNumber,
+      title: d.title,
+      name: milestoneName(project.projectCode, d.title),
+      amount: d.amount,
+      splitPercentage: d.splitPercentage,
+      productCategory: d.productCategory,
+      sortOrder: d.sortOrder,
+      expectedInvoiceMonth: MONTH_NAMES[now.getMonth()],
+      expectedInvoiceYear: now.getFullYear(),
+    }))
+  )
+
+  await logActivity(tx, ctx, {
+    entityType: "project",
+    entityId: project.id,
+    type: "system",
+    subject: `${drafts.length} payment milestone${drafts.length === 1 ? "" : "s"} generated from ${input.soNumber}`,
+  })
+  await writeAudit(tx, ctx, {
+    action: "sales_order.milestones_generated",
+    entityType: "sales_order",
+    entityId: input.soId,
+    after: {
+      soNumber: input.soNumber,
+      quotationId,
+      milestones: drafts.map((d) => ({ title: d.title, amount: d.amount })),
+    },
+  })
+  return { count: drafts.length, funnelId }
+}
+
 export async function approveSalesOrder(
   id: string
-): Promise<ActionResult<{ soNumber: string }>> {
+): Promise<ActionResult<{ soNumber: string; milestonesGenerated: number }>> {
   return runAction(async () => {
   const result = await withModule(
     "salesOrders",
@@ -498,12 +633,23 @@ export async function approveSalesOrder(
         entityId: id,
         after: { soNumber, projectId: so.projectId },
       })
-      return { soNumber, projectId: so.projectId }
+
+      const milestones = await generateSoMilestones(tx, ctx, {
+        soId: id,
+        projectId: so.projectId,
+        soNumber,
+      })
+      return { soNumber, projectId: so.projectId, milestones }
     }
   )
   revalidatePath("/sales-orders")
   revalidatePath(`/projects/${result.projectId}`)
-  return { soNumber: result.soNumber }
+  if (result.milestones.count > 0) {
+    revalidatePath("/payment-milestones")
+    if (result.milestones.funnelId)
+      revalidatePath(`/funnel/${result.milestones.funnelId}`)
+  }
+  return { soNumber: result.soNumber, milestonesGenerated: result.milestones.count }
   })
 }
 

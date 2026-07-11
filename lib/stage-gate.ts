@@ -12,6 +12,8 @@
  * doesn't care which kind a key is.
  */
 
+import { PERMISSIONS } from "@/lib/permissions"
+
 /** Completeness of the preset system fields (derived from real funnel /
  *  opportunity-container columns — see {@link REQUIRABLE_FIELDS} for which). */
 export type StageGateState = {
@@ -263,6 +265,39 @@ export function requiredKeysForStages<
         out.push(k)
       }
   return out
+}
+
+/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
+export function isTerminalKind(kind: string): boolean {
+  return kind !== "OPEN"
+}
+
+/**
+ * Enforce the stage state machine for a single move:
+ *  - the deal can't move to the stage it's already in,
+ *  - a closed/parked (terminal) deal can't move at all without an explicit,
+ *    separately-handled reopen,
+ *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
+ * OPEN → terminal (win / lose / park) is always allowed from an open stage.
+ */
+export function assertTransitionAllowed(
+  from: { id: string; kind: string; sortOrder: number },
+  to: { id: string; kind: string; sortOrder: number }
+): void {
+  if (from.id === to.id) throw new Error("This funnel is already in this stage")
+  if (isTerminalKind(from.kind))
+    throw new Error("This funnel is closed. Reopen it before changing its stage.")
+  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
+    throw new Error("Stage moves must advance forward in the funnel")
+}
+
+/** Whether the actor may enter approval-gated stages without a request:
+ *  superadmin, or a holder of the stage-approval permission. */
+export function canBypassApproval(ctx: {
+  isSuperadmin: boolean
+  can: (key: string) => boolean
+}): boolean {
+  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 }
 
 /** Terminal stages (Lost / KIV) need a written close reason ("close remarks"). */

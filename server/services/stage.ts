@@ -24,6 +24,9 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   isPresetFieldKey,
+  isTerminalKind,
+  assertTransitionAllowed,
+  canBypassApproval,
   type StageGateState,
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
@@ -67,37 +70,6 @@ async function memberHasPermission(
     .where(and(eq(membershipProfiles.memberId, memberId), eq(permissions.key, key)))
     .limit(1)
   return rows.length > 0
-}
-
-/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
-function isTerminalKind(kind: string): boolean {
-  return kind !== "OPEN"
-}
-
-/**
- * Enforce the stage state machine for a single move:
- *  - the deal can't move to the stage it's already in,
- *  - a closed/parked (terminal) deal can't move at all without an explicit,
- *    separately-handled reopen (none is wired today, so it's simply rejected),
- *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
- * OPEN → terminal (win / lose / park) is always allowed from an open stage.
- */
-function assertTransitionAllowed(from: StageRow, to: StageRow): void {
-  if (from.id === to.id) throw new Error("This funnel is already in this stage")
-  if (isTerminalKind(from.kind))
-    throw new Error("This funnel is closed. Reopen it before changing its stage.")
-  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
-    throw new Error("Stage moves must advance forward in the funnel")
-}
-
-/** Whether the actor may enter approval-gated stages without a request. */
-function canBypassApproval(
-  ctx: ServerContext,
-  _settings: typeof tenantSettings.$inferSelect | undefined
-): boolean {
-  // Tiers retired: you may self-advance an approval-gated stage iff you hold
-  // the stage-approval permission (otherwise it routes to the upline).
-  return ctx.isSuperadmin || ctx.can(PERMISSIONS.STAGE_ADVANCE_APPROVE)
 }
 
 /** Walk the upline chain for the first ancestor that can approve; else any approver. */
@@ -428,7 +400,7 @@ export async function requestStageAdvance(
     }
 
     const gated =
-      target.requiresApprovalToEnter && !canBypassApproval(ctx, settings)
+      target.requiresApprovalToEnter && !canBypassApproval(ctx)
 
     if (!gated) {
       await applyStageMove(
@@ -500,12 +472,7 @@ export async function winOpportunity(
       return { moved: false, pendingApproval: false }
 
     // Respect the Won stage's approval gate instead of bypassing it.
-    const [settings] = await tx
-      .select()
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-    if (won.requiresApprovalToEnter && !canBypassApproval(ctx, settings)) {
+    if (won.requiresApprovalToEnter && !canBypassApproval(ctx)) {
       await createApprovalRequest(
         tx,
         ctx,

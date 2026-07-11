@@ -4,7 +4,9 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Plus, Trash2 } from "lucide-react"
+import type { ColumnDef } from "@tanstack/react-table"
 
+import { DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -126,6 +128,98 @@ export function CostsPanel({
     setCurr(currency)
   }
 
+  const columns: ColumnDef<DealCostRow>[] = [
+    {
+      accessorKey: "supplierName",
+      header: "PO / supplier",
+      cell: ({ row }) => (
+        <div>
+          <div className="font-medium">{row.original.supplierName ?? "—"}</div>
+          {row.original.poNumber ? (
+            <div className="font-mono text-xs text-muted-foreground">
+              {row.original.poNumber}
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "partyKind",
+      header: "Flow",
+      cell: ({ row }) => (
+        <Badge
+          variant={
+            row.original.partyKind === "partner_supplier" ? "outline" : "secondary"
+          }
+        >
+          {partyLabel[row.original.partyKind] ?? row.original.partyKind}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "category",
+      header: "Category / yr",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {row.original.category ?? "—"}
+          {row.original.contractYear ? ` · ${row.original.contractYear}` : ""}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: "Amount",
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatMoney(row.original.amount, row.original.currency)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "exchangeRate",
+      header: "Rate",
+      cell: ({ row }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {Number(row.original.exchangeRate) === 1
+            ? "—"
+            : Number(row.original.exchangeRate).toFixed(4)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "amountBase",
+      header: currency,
+      cell: ({ row }) => (
+        <span className="font-medium tabular-nums">
+          {formatMoney(row.original.amountBase, currency)}
+        </span>
+      ),
+    },
+    ...(canManage
+      ? ([
+          {
+            id: "actions",
+            cell: ({ row }) => (
+              <div className="text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={pending}
+                  aria-label="Delete cost"
+                  onClick={() =>
+                    run(() => deleteDealCost(row.original.id), "Cost deleted")
+                  }
+                >
+                  <Trash2 className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ),
+          },
+        ] satisfies ColumnDef<DealCostRow>[])
+      : []),
+  ]
+
   return (
     <div className="grid gap-4">
       {/* Margin summary */}
@@ -151,79 +245,15 @@ export function CostsPanel({
       ) : null}
 
       {/* Cost lines */}
-      {costs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No cost lines yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-1.5 pr-2 font-medium">PO / supplier</th>
-                <th className="py-1.5 pr-2 font-medium">Flow</th>
-                <th className="py-1.5 pr-2 font-medium">Category / yr</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Amount</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Rate</th>
-                <th className="py-1.5 pr-2 text-right font-medium">{currency}</th>
-                {canManage ? <th className="py-1.5" /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {costs.map((c) => (
-                <tr key={c.id} className="border-b align-top">
-                  <td className="py-1.5 pr-2">
-                    <div className="font-medium">{c.supplierName ?? "—"}</div>
-                    {c.poNumber ? (
-                      <div className="font-mono text-xs text-muted-foreground">
-                        {c.poNumber}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <Badge
-                      variant={
-                        c.partyKind === "partner_supplier" ? "outline" : "secondary"
-                      }
-                    >
-                      {partyLabel[c.partyKind] ?? c.partyKind}
-                    </Badge>
-                  </td>
-                  <td className="py-1.5 pr-2 text-muted-foreground">
-                    {c.category ?? "—"}
-                    {c.contractYear ? ` · ${c.contractYear}` : ""}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">
-                    {formatMoney(c.amount, c.currency)}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
-                    {Number(c.exchangeRate) === 1
-                      ? "—"
-                      : Number(c.exchangeRate).toFixed(4)}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right font-medium tabular-nums">
-                    {formatMoney(c.amountBase, currency)}
-                  </td>
-                  {canManage ? (
-                    <td className="py-1.5 text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={pending}
-                        aria-label="Delete cost"
-                        onClick={() =>
-                          run(() => deleteDealCost(c.id), "Cost deleted")
-                        }
-                      >
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={costs}
+        tableId="funnel-costs"
+        searchColumn="supplierName"
+        searchPlaceholder="Search costs…"
+        emptyMessage="No cost lines yet."
+        pageSize={5}
+      />
 
       {/* Add form */}
       {canManage ? (

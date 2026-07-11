@@ -1,0 +1,45 @@
+# Deploy on push to main: quality gate on a GitHub-hosted runner, then rebuild
+# on the server via a SELF-HOSTED runner (build happens on the box — no
+# registries, no cloud).
+#
+# One-time setup on the server:
+#   1. Clone the repo somewhere persistent (e.g. /opt/crm-v2) with a .env.
+#   2. Install a self-hosted runner for this repo (Settings → Actions →
+#      Runners → New self-hosted runner) and run it as a service:
+#      https://docs.github.com/en/actions/hosting-your-own-runners
+#   3. Give the runner user access to docker (usermod -aG docker <user>).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    needs: quality
+    runs-on: self-hosted
+    steps:
+      # Update the server's persistent checkout, not the runner workdir.
+      - name: Pull latest main
+        run: git -C "${CRM_DIR:-/opt/crm-v2}" pull --ff-only origin main
+      # migrate runs as a one-shot before web starts (web depends_on it).
+      - name: Rebuild and restart
+        run: docker compose -f "${CRM_DIR:-/opt/crm-v2}/docker-compose.yaml" up -d --build migrate web

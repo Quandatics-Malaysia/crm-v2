@@ -108,7 +108,11 @@ export function ApproveSalesOrderDialog({
       setSubmitting(false)
       return
     }
-    toast.success(`Sales order approved — ${res.data.soNumber}`)
+    toast.success(
+      res.data.milestonesGenerated > 0
+        ? `Sales order approved — ${res.data.soNumber} · ${res.data.milestonesGenerated} payment milestone${res.data.milestonesGenerated === 1 ? "" : "s"} generated`
+        : `Sales order approved — ${res.data.soNumber}`
+    )
     onOpenChange(false)
     router.refresh()
     setSubmitting(false)

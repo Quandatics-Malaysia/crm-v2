@@ -21,6 +21,7 @@ import {
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
 import { opportunityNetValue } from "@/server/services/value"
+import { milestoneName } from "@/lib/so-milestones"
 
 export type PaymentMilestoneRow = typeof paymentMilestones.$inferSelect
 
@@ -134,23 +135,6 @@ function isMilestoneStatus(v: string | undefined): v is MilestoneStatusValue {
   return (
     !!v && (paymentMilestoneStatus.enumValues as readonly string[]).includes(v)
   )
-}
-
-/** Lowercase, hyphenated, alnum-only — for the hidden internal `name` suffix. */
-function slugify(s: string): string {
-  return (
-    s
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "milestone"
-  )
-}
-
-/** Hidden internal identifier: `{projectCode}-{slugified title}`. Null when
- *  the funnel's opportunity has no project code (best-effort, never blocks). */
-function milestoneName(projectCode: string | null, title: string): string | null {
-  return projectCode ? `${projectCode}-${slugify(title)}` : null
 }
 
 /** Whole-cent comparison to avoid float drift when reconciling money. */

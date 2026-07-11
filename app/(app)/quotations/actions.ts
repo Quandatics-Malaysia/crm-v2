@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, isNull, ne, notInArray } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -41,6 +41,7 @@ export type QuotationLineRow = typeof quotationLineItems.$inferSelect
 
 export type QuotationListItem = QuotationRow & {
   opportunityName: string | null
+  lineItemCount: number
 }
 
 export type LineInput = {
@@ -82,6 +83,10 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
       .select({
         q: quotations,
         opportunityName: funnels.name,
+        lineItemCount: sql<number>`(
+          select count(*) from ${quotationLineItems}
+          where ${quotationLineItems.quotationId} = ${quotations.id}
+        )`.mapWith(Number),
       })
       .from(quotations)
       .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
@@ -93,7 +98,11 @@ export async function listQuotations(): Promise<QuotationListItem[]> {
       )
       .orderBy(desc(quotations.createdAt))
       .limit(500)
-    return rows.map((r) => ({ ...r.q, opportunityName: r.opportunityName }))
+    return rows.map((r) => ({
+      ...r.q,
+      opportunityName: r.opportunityName,
+      lineItemCount: r.lineItemCount,
+    }))
   })
 }
 

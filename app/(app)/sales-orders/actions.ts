@@ -421,11 +421,6 @@ export async function resubmitSalesOrder(
   })
 }
 
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-] as const
-
 /**
  * Auto-generate payment milestones from the approved SO's quotation line
  * items: one milestone per product category (project-nature code), amounts
@@ -534,22 +529,21 @@ async function generateSoMilestones(
     await tx.delete(paymentMilestones).where(eq(paymentMilestones.id, seed.id))
   }
 
-  const now = new Date()
+  // Strictly the proposal's shape — value · due date · status per
+  // deliverable. No SO numbering or invoice prefill on generated rows
+  // for now; those stay manual/import-only fields.
   await tx.insert(paymentMilestones).values(
     drafts.map((d) => ({
       tenantId: ctx.tenantId,
       projectId: project.id,
       funnelId,
       quotationId,
-      soNumber: input.soNumber,
       title: d.title,
       name: milestoneName(project.projectCode, d.title),
       amount: d.amount,
       splitPercentage: d.splitPercentage,
       productCategory: d.productCategory,
       sortOrder: d.sortOrder,
-      expectedInvoiceMonth: MONTH_NAMES[now.getMonth()],
-      expectedInvoiceYear: now.getFullYear(),
     }))
   )
 

@@ -23,6 +23,7 @@ import {
   RelatedCard,
   CountTab,
   useSaveField,
+  FieldRow,
 } from "@/components/detail-page"
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
@@ -46,17 +47,6 @@ const PPVVC: { key: "pain" | "power" | "vision" | "value" | "control"; label: st
   { key: "value", label: "4-V: Value" },
   { key: "control", label: "5-C: Control" },
 ]
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[9rem_1fr] items-start gap-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      {/* min-w-0 so an inline editor (combobox + cancel) can shrink to fit
-          the cell instead of overflowing behind the neighboring column. */}
-      <span className="min-w-0 text-sm">{children}</span>
-    </div>
-  )
-}
 
 function stageVariant(kind: string | null): "default" | "secondary" | "destructive" | "outline" {
   if (kind === "WON") return "default"
@@ -237,10 +227,10 @@ export function OpportunityDetailBody({
         <Card>
           <DetailCardHeader kind="opportunity" eyebrow="Opportunity" />
           <CardContent className="grid gap-3 text-sm">
-            <Field label="Code">
+            <FieldRow inline label="Code">
               <span className="font-mono text-xs">{o.code}</span>
-            </Field>
-            <Field label="Name">
+            </FieldRow>
+            <FieldRow inline label="Name">
               {canEdit ? (
                 <InlineValue
                   value={o.name}
@@ -255,14 +245,14 @@ export function OpportunityDetailBody({
               ) : (
                 <span className="font-medium">{o.name}</span>
               )}
-            </Field>
-            <Field label="Account">
+            </FieldRow>
+            <FieldRow inline label="Account">
               <Link href={`/accounts/${detail.accountId}`} className="font-medium link">
                 {detail.accountName}
               </Link>
-            </Field>
-            <Field label="Owner">{detail.ownerName ?? "—"}</Field>
-            <Field label="Opportunity Nature">
+            </FieldRow>
+            <FieldRow inline label="Owner">{detail.ownerName ?? "—"}</FieldRow>
+            <FieldRow inline label="Opportunity Nature">
               {canEdit ? (
                 projectNatures.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
@@ -301,8 +291,8 @@ export function OpportunityDetailBody({
               ) : (
                 "—"
               )}
-            </Field>
-            <Field label="Opportunity Owner Contact">
+            </FieldRow>
+            <FieldRow inline label="Opportunity Owner Contact">
               {canEdit ? (
                 <InlineCombobox
                   value={o.ownerContactId ?? ""}
@@ -320,8 +310,8 @@ export function OpportunityDetailBody({
               {detail.ownerContact?.designation ? (
                 <span className="text-muted-foreground"> · {detail.ownerContact.designation}</span>
               ) : null}
-            </Field>
-            <Field label="Opportunity Owner Budget Limit">
+            </FieldRow>
+            <FieldRow inline label="Opportunity Owner Budget Limit">
               {canEdit ? (
                 <InlineValue
                   value={o.ownerBudgetLimit ?? ""}
@@ -334,18 +324,18 @@ export function OpportunityDetailBody({
               ) : (
                 formatMoney(o.ownerBudgetLimit, o.currency)
               )}
-            </Field>
+            </FieldRow>
             <Separator />
-            <Field label="Total est. funnel amount">
+            <FieldRow inline label="Total est. funnel amount">
               <span className="font-semibold tabular-nums">
                 {formatMoney(o.totalEstimatedFunnelAmount, o.currency)}
               </span>
-            </Field>
-            <Field label="Funnels">
+            </FieldRow>
+            <FieldRow inline label="Funnels">
               <Badge variant="secondary" className="tabular-nums">
                 {detail.funnels.length}
               </Badge>
-            </Field>
+            </FieldRow>
           </CardContent>
         </Card>
 

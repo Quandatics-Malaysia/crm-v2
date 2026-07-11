@@ -129,18 +129,35 @@ export function CountTab({
   )
 }
 
-/** One label/value row in the highlights card. */
+/** One label/value row in the highlights card. Default is stacked
+ *  (small label above value); `inline` renders the 9rem two-column shape.
+ *  min-w-0 lets inline editors (combobox + cancel) shrink instead of
+ *  overflowing the neighboring column. */
 export function FieldRow({
   label,
+  inline,
+  className,
   children,
 }: {
   label: string
+  inline?: boolean
+  className?: string
   children: React.ReactNode
 }) {
+  if (inline) {
+    return (
+      <div
+        className={cn("grid grid-cols-[9rem_1fr] items-start gap-2", className)}
+      >
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="min-w-0 text-sm">{children}</span>
+      </div>
+    )
+  }
   return (
-    <div className="grid gap-1">
+    <div className={cn("grid min-w-0 gap-1", className)}>
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{children}</span>
+      <span className="min-w-0 text-sm">{children}</span>
     </div>
   )
 }

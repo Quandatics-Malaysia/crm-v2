@@ -28,6 +28,7 @@ import {
   RelatedCard,
   CountTab,
   useSaveField,
+  FieldRow,
 } from "@/components/detail-page"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
@@ -465,7 +466,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           <CardContent className="grid gap-3 text-sm">
             {/* Salesforce "Opportunity Information" section (SPEC §4). */}
             <h3 className="text-sm font-semibold">Opportunity Information</h3>
-            <Field label="Account">
+            <FieldRow label="Account">
               {canEdit ? (
                 <InlineCombobox
                   value={accountId}
@@ -486,8 +487,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 "—"
               )}
-            </Field>
-            <Field label="Opportunity">
+            </FieldRow>
+            <FieldRow label="Opportunity">
               {container ? (
                 <Link href={`/opportunities/${container.id}`} className="font-medium link">
                   {container.name}
@@ -495,8 +496,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 "—"
               )}
-            </Field>
-            <Field label="Owner">
+            </FieldRow>
+            <FieldRow label="Owner">
               {canEdit ? (
                 <InlineCombobox
                   value={ownerMemberId}
@@ -510,8 +511,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 ownerName ?? "—"
               )}
-            </Field>
-            <Field label="Contact">
+            </FieldRow>
+            <FieldRow label="Contact">
               {canEdit ? (
                 <InlineCombobox
                   value={personId ?? ""}
@@ -533,8 +534,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 personName ?? "—"
               )}
-            </Field>
-            <Field label="Project nature(s)">
+            </FieldRow>
+            <FieldRow label="Project nature(s)">
               {canEdit ? (
                 projectNatureCatalog.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
@@ -573,13 +574,13 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 projectNatureName ?? "—"
               )}
-            </Field>
+            </FieldRow>
 
             <Separator />
 
             {/* Salesforce "Funnel Info" section (SPEC §4). */}
             <h3 className="text-sm font-semibold">Funnel Info</h3>
-            <Field label="Funnel Name">
+            <FieldRow label="Funnel Name">
               {canEdit ? (
                 <InlineValue
                   value={name}
@@ -594,19 +595,19 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 <span className="font-medium">{name}</span>
               )}
-            </Field>
-            <Field label="Funnel">{funnelName ?? "—"}</Field>
-            <Field label="Stage">
+            </FieldRow>
+            <FieldRow label="Funnel">{funnelName ?? "—"}</FieldRow>
+            <FieldRow label="Stage">
               <StageBadge
                 name={stageName}
                 kind={stageKind}
                 probability={stageProbability}
               />
-            </Field>
-            <Field label="Status">
+            </FieldRow>
+            <FieldRow label="Status">
               <StatusBadge status={status} />
-            </Field>
-            <Field label="Currency">
+            </FieldRow>
+            <FieldRow label="Currency">
               {canEdit && !currencyLocked ? (
                 <InlineCombobox
                   value={currency}
@@ -621,10 +622,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   {currency}
                 </span>
               )}
-            </Field>
+            </FieldRow>
 
             {/* Value breakdown: estimated (forecast) vs quoted vs recognized. */}
-            <Field label="Estimated funnel amount">
+            <FieldRow label="Estimated funnel amount">
               {canEdit ? (
                 <InlineValue
                   value={estimatedAmount ?? ""}
@@ -640,8 +641,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   {estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
                 </span>
               )}
-            </Field>
-            <Field label="Quoted amount">
+            </FieldRow>
+            <FieldRow label="Quoted amount">
               {quotedAmount ? (
                 <span className="tabular-nums">
                   {formatMoney(quotedAmount, currency)}
@@ -654,9 +655,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 <span className="text-muted-foreground">No quotation yet</span>
               )}
-            </Field>
+            </FieldRow>
             {financeEnabled ? (
-              <Field label="Recognized">
+              <FieldRow label="Recognized">
                 {recognizedPercent ? (
                   <span className="tabular-nums">
                     {formatMoney(recognizedAmount, currency)}
@@ -667,11 +668,11 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
-              </Field>
+              </FieldRow>
             ) : null}
 
             {financeEnabled ? (
-              <Field label={`Handling partner${parties.length !== 1 ? "s" : ""}`}>
+              <FieldRow label={`Handling partner${parties.length !== 1 ? "s" : ""}`}>
                 <div className="grid gap-1.5">
                   {!isIntercompany || parties.length === 0 ? (
                     <span className="text-muted-foreground">—</span>
@@ -737,10 +738,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     />
                   ) : null}
                 </div>
-              </Field>
+              </FieldRow>
             ) : null}
 
-            <Field label="Project / license year">
+            <FieldRow label="Project / license year">
               {canEdit ? (
                 <InlineValue
                   value={projectYear != null ? String(projectYear) : ""}
@@ -754,8 +755,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 (projectYear ?? "—")
               )}
-            </Field>
-            <Field label="Expected close">
+            </FieldRow>
+            <FieldRow label="Expected close">
               {canEdit ? (
                 <InlineValue
                   value={expectedCloseDate ?? ""}
@@ -768,9 +769,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 formatDate(expectedCloseDate)
               )}
-            </Field>
-            <Field label="Created">{formatDate(createdAt)}</Field>
-            <Field label="Description">
+            </FieldRow>
+            <FieldRow label="Created">{formatDate(createdAt)}</FieldRow>
+            <FieldRow label="Description">
               {canEdit ? (
                 <InlineValue
                   value={description ?? ""}
@@ -781,7 +782,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 description || "—"
               )}
-            </Field>
+            </FieldRow>
 
             <Separator />
 
@@ -789,7 +790,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             <h3 id="procurement" className="text-sm font-semibold">
               Procurement &amp; Commit
             </h3>
-            <Field label="Procurement Process Stage">
+            <FieldRow label="Procurement Process Stage">
               {canEdit ? (
                 <InlineValue
                   value={procurementStage ?? ""}
@@ -800,8 +801,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 procurementStage || "—"
               )}
-            </Field>
-            <Field label="Negotiation Done?">
+            </FieldRow>
+            <FieldRow label="Negotiation Done?">
               {canEdit ? (
                 <Switch
                   checked={negotiationDone}
@@ -812,8 +813,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 "No"
               )}
-            </Field>
-            <Field label="Negotiation Date">
+            </FieldRow>
+            <FieldRow label="Negotiation Date">
               {canEdit ? (
                 <InlineValue
                   value={negotiationDate ?? ""}
@@ -826,8 +827,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ) : (
                 formatDate(negotiationDate)
               )}
-            </Field>
-            <Field label="Expected Invoice">
+            </FieldRow>
+            <FieldRow label="Expected Invoice">
               <span className="inline-flex flex-wrap items-center gap-2">
                 {canEdit ? (
                   <>
@@ -860,7 +861,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   </span>
                 )}
               </span>
-            </Field>
+            </FieldRow>
 
             {customFieldDefs.length > 0 ? (
               <>
@@ -873,7 +874,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                       </div>
                     ) : null}
                     {group.fields.map((def) => (
-                      <Field key={def.key} label={def.label}>
+                      <FieldRow key={def.key} label={def.label}>
                         <CustomFieldValue
                           def={def}
                           value={customValues[def.key] ?? ""}
@@ -884,7 +885,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                             })
                           }
                         />
-                      </Field>
+                      </FieldRow>
                     ))}
                   </React.Fragment>
                 ))}
@@ -1107,23 +1108,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               </TabsContent>
         </TabsCard>
       </div>
-    </div>
-  )
-}
-
-function Field({
-  label,
-  children,
-  className,
-}: {
-  label: string
-  children: React.ReactNode
-  className?: string
-}) {
-  return (
-    <div className={cn("grid min-w-0 gap-1", className)}>
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-sm">{children}</span>
     </div>
   )
 }

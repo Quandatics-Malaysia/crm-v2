@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { showActionError } from "@/lib/show-action-error"
+import { useDialogOpen } from "@/components/use-dialog-open"
 
 import {
   Dialog,
@@ -80,16 +81,7 @@ export function ProductForm({
   onOpenChange?: (open: boolean) => void
   onSaved?: () => void
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
-  const isControlled = controlledOpen !== undefined
-  const open = isControlled ? controlledOpen : uncontrolledOpen
-  const setOpen = React.useCallback(
-    (next: boolean) => {
-      if (isControlled) onOpenChange?.(next)
-      else setUncontrolledOpen(next)
-    },
-    [isControlled, onOpenChange]
-  )
+  const [open, setOpen] = useDialogOpen(controlledOpen, onOpenChange)
   const editing = !!product
 
   const form = useForm<FormValues>({

@@ -36,6 +36,15 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     kivReviewDate: { label: "KIV review", format: date() },
     isRenewal: { label: "Renewal" },
   },
+  account: {
+    name: { label: "Name" },
+    code: { label: "Code" },
+    accountType: { label: "Type" },
+    industry: { label: "Industry" },
+    isCustomer: { label: "Customer" },
+    ownerMemberId: { label: "Owner", format: fk(memberName) },
+    parentAccountId: { label: "Parent account", format: fk(accountName) },
+  },
   // Other entities added in later tasks.
-  opportunity: {}, account: {}, person: {}, lead: {}, project: {}, finance_doc: {},
+  opportunity: {}, person: {}, lead: {}, project: {}, finance_doc: {},
 }

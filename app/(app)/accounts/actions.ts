@@ -12,6 +12,7 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import type { Tx, ServerContext } from "@/lib/actions"
 import {
@@ -649,37 +650,31 @@ export async function updateAccount(
       }
       if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
 
-      const [updated] = await tx
-        .update(accounts)
-        .set({
-          name: input.name,
-          code,
-          parentAccountId,
-          accountType,
-          endUserAccountId,
-          industry: input.industry || null,
-          website: input.website || null,
-          phone: input.phone || null,
-          registrationNumber: input.registrationNumber || null,
-          billingAddress: cleanAddress(input.billingAddress),
-          updatedAt: new Date(),
-        })
-        .where(eq(accounts.id, id))
-        .returning()
-      await logActivity(tx, ctx, {
+      const updated = {
+        name: input.name,
+        code,
+        parentAccountId,
+        accountType,
+        endUserAccountId,
+        industry: input.industry || null,
+        website: input.website || null,
+        phone: input.phone || null,
+        registrationNumber: input.registrationNumber || null,
+        billingAddress: cleanAddress(input.billingAddress),
+        updatedAt: new Date(),
+      }
+
+      await tx.update(accounts).set(updated).where(eq(accounts.id, id))
+
+      await recordChanges(tx, ctx, {
         entityType: "account",
-        entityId: id,
-        type: "system",
-        subject: "Updated",
-      })
-      await writeAudit(tx, ctx, {
-        action: "account.update",
-        entityType: "account",
+        registryKey: "account",
         entityId: id,
         before,
-        after: updated,
+        after: { ...before, ...updated },
+        subject: "Account updated",
       })
-      return updated
+      return { ...before, ...updated }
     })
     revalidatePath("/accounts")
     revalidatePath(`/accounts/${id}`)

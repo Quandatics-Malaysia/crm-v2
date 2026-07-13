@@ -18,6 +18,7 @@ import {
   rightHeader,
 } from "@/components/data-table"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
+import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
 import {
   CountTab,
@@ -125,6 +126,13 @@ export function AccountDetailBody(props: AccountDetailData) {
 
   const [tab, setTab] = React.useState("contacts")
   const revalidate = `/accounts/${accountId}`
+
+  // Field-level change log — a subset of the activity timeline (update rows
+  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
+  const changes = React.useMemo(
+    () => activity.filter((a) => a.type === "update"),
+    [activity]
+  )
 
   const saveField = useSaveField((patch: Partial<AccountInput>) =>
     updateAccount(accountId, { ...record, ...patch })
@@ -391,6 +399,9 @@ export function AccountDetailBody(props: AccountDetailData) {
             Child accounts
           </CountTab>
           <CountTab value="activity">Activity</CountTab>
+          <CountTab value="changes" count={changes.length}>
+            History
+          </CountTab>
           <CountTab value="documents" count={documents.length}>
             Documents
           </CountTab>
@@ -509,6 +520,10 @@ export function AccountDetailBody(props: AccountDetailData) {
             items={activity}
             revalidate={revalidate}
           />
+        </TabsContent>
+
+        <TabsContent value="changes" className="mt-4">
+          <ChangeHistory items={changes} />
         </TabsContent>
 
         <TabsContent value="documents" className="mt-4">

@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, timestamp, index } from "drizzle-orm/pg-core"
+import { pgTable, pgEnum, uuid, text, timestamp, index, jsonb } from "drizzle-orm/pg-core"
 import { organization, member } from "./auth"
 import { timestamps } from "./_helpers"
 
@@ -18,6 +18,7 @@ export const activityType = pgEnum("activity_type", [
   "email",
   "system",
   "stage_change",
+  "update",
   "file",
 ])
 
@@ -38,6 +39,7 @@ export const activities = pgTable(
     type: activityType("type").notNull().default("note"),
     subject: text("subject"),
     body: text("body"),
+    changes: jsonb("changes"), // [{ field, label, from, to }] — set only on type='update'
     // Standardized log fields
     outcome: text("outcome"),
     nextStep: text("next_step"),

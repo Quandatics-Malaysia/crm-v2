@@ -16,17 +16,24 @@ export async function diffFields(
   after: Record<string, unknown>,
   fmtBase: { tx: Tx }
 ): Promise<ChangeEntry[]> {
-  const out: ChangeEntry[] = []
-  for (const [field, spec] of Object.entries(registry)) {
+  const changed = Object.entries(registry).filter(([field]) => {
     const b = before[field], a = after[field]
-    if (String(b ?? "") === String(a ?? "")) continue
-    const fmt = spec.format
-    const from = fmt ? await fmt(b, { tx: fmtBase.tx, record: before }) : raw(b)
-    const to = fmt ? await fmt(a, { tx: fmtBase.tx, record: after }) : raw(a)
-    if (from === to) continue
-    out.push({ field, label: spec.label, from, to })
-  }
-  return out
+    return String(b ?? "") !== String(a ?? "")
+  })
+
+  const resolved = await Promise.all(
+    changed.map(async ([field, spec]) => {
+      const b = before[field], a = after[field]
+      const fmt = spec.format
+      const [from, to] = await Promise.all([
+        fmt ? fmt(b, { tx: fmtBase.tx, record: before }) : raw(b),
+        fmt ? fmt(a, { tx: fmtBase.tx, record: after }) : raw(a),
+      ])
+      return { field, label: spec.label, from, to }
+    })
+  )
+
+  return resolved.filter((entry) => entry.from !== entry.to)
 }
 
 export async function recordChanges(

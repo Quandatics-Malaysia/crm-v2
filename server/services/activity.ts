@@ -2,6 +2,7 @@ import "server-only"
 import type { Tx } from "@/db"
 import { activities } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
+import type { ChangeEntry } from "@/server/services/changes/types"
 
 export type ActivityEntity =
   | "account"
@@ -18,6 +19,7 @@ export type ActivityKind =
   | "system"
   | "stage_change"
   | "file"
+  | "update"
 
 /**
  * Append an activity to an entity's timeline. Call inside an existing
@@ -37,6 +39,7 @@ export async function logActivity(
     nextStep?: string | null
     dueAt?: Date | null
     occurredAt?: Date
+    changes?: ChangeEntry[] | null
   }
 ): Promise<void> {
   await tx.insert(activities).values({
@@ -51,5 +54,6 @@ export async function logActivity(
     dueAt: input.dueAt ?? null,
     memberId: ctx.memberId,
     occurredAt: input.occurredAt ?? undefined,
+    changes: input.changes ?? null,
   })
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { money, date, enumLabel } from "@/server/services/changes/formatters"
+import { diffFields } from "@/server/services/changes/record"
 
 const noCtx = { tx: {} as any, record: {} }
 describe("change formatters", () => {
@@ -14,5 +15,20 @@ describe("change formatters", () => {
     const f = enumLabel({ "2c": "Qualified", "3b": "Proposal" })
     expect(await f("2c", noCtx)).toBe("Qualified")
     expect(await f("zz", noCtx)).toBe("zz")
+  })
+})
+
+describe("diffFields", () => {
+  const reg = {
+    name: { label: "Name" },
+    amount: { label: "Amount", format: (v: any) => `RM ${v}` },
+  }
+  it("reports only changed fields, formatted", async () => {
+    const out = await diffFields(reg as any, { name: "A", amount: "1" }, { name: "A", amount: "2" }, { tx: {} as any })
+    expect(out).toEqual([{ field: "amount", label: "Amount", from: "RM 1", to: "RM 2" }])
+  })
+  it("returns [] when nothing user-facing changed", async () => {
+    const out = await diffFields(reg as any, { name: "A", amount: "1", updatedAt: 1 }, { name: "A", amount: "1", updatedAt: 2 }, { tx: {} as any })
+    expect(out).toEqual([])
   })
 })

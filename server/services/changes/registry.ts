@@ -54,6 +54,16 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     isPrimary: { label: "Primary contact" },
     accountId: { label: "Account", format: fk(accountName) },
   },
+  lead: {
+    name: { label: "Name" },
+    companyName: { label: "Company" },
+    email: { label: "Email" },
+    phone: { label: "Phone" },
+    source: { label: "Source" },
+    status: { label: "Status", format: enumLabel({ new: "New", contacted: "Contacted", qualified: "Qualified", disqualified: "Disqualified", converted: "Converted" }) },
+    ownerMemberId: { label: "Owner", format: fk(memberName) },
+    disqualifyReason: { label: "Disqualify reason" },
+  },
   // Other entities added in later tasks.
-  opportunity: {}, lead: {}, project: {}, finance_doc: {},
+  opportunity: {}, project: {}, finance_doc: {},
 }

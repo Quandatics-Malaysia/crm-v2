@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
+import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection, type SectionDocument } from "@/components/documents-section"
 import {
   CountTab,
@@ -102,6 +103,13 @@ export function LeadDetailBody({
   const perms = usePermissions()
   const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
   const revalidate = `/leads/${leadId}`
+
+  // Field-level change log — a subset of the activity timeline (update rows
+  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
+  const changes = React.useMemo(
+    () => activity.filter((a) => a.type === "update"),
+    [activity]
+  )
 
   // Converted/disqualified leads are terminal — their status is locked.
   const terminal = status === "converted" || status === "disqualified"
@@ -259,6 +267,9 @@ export function LeadDetailBody({
         <TabsCard value={tab} onValueChange={setTab}>
           <TabsList>
             <CountTab value="activity">Activity</CountTab>
+            <CountTab value="changes" count={changes.length}>
+              History
+            </CountTab>
             <CountTab value="documents" count={files.length}>
               Documents
             </CountTab>
@@ -271,6 +282,10 @@ export function LeadDetailBody({
               items={activity}
               revalidate={revalidate}
             />
+          </TabsContent>
+
+          <TabsContent value="changes" className="mt-4">
+            <ChangeHistory items={changes} />
           </TabsContent>
 
           <TabsContent value="documents" className="mt-4">

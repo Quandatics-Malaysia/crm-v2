@@ -15,6 +15,7 @@ import {
 import { writeAudit } from "@/server/audit"
 import { convertLead } from "@/server/services/conversion"
 import { logActivity } from "@/server/services/activity"
+import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   visibleMemberIds,
@@ -292,28 +293,23 @@ export async function updateLead(
         clean(input.currentStageId)
       )
 
+      const updated = {
+        name: input.name.trim(),
+        companyName: clean(input.companyName),
+        email,
+        phone: clean(input.phone),
+        source: clean(input.source),
+        status: input.status ?? before.status,
+        pipelineId,
+        currentStageId: nextStageId,
+        updatedAt: new Date(),
+      }
+
       const [lead] = await tx
         .update(leads)
-        .set({
-          name: input.name.trim(),
-          companyName: clean(input.companyName),
-          email,
-          phone: clean(input.phone),
-          source: clean(input.source),
-          status: input.status ?? before.status,
-          pipelineId,
-          currentStageId: nextStageId,
-          updatedAt: new Date(),
-        })
+        .set(updated)
         .where(eq(leads.id, id))
         .returning()
-
-      await logActivity(tx, ctx, {
-        entityType: "lead",
-        entityId: id,
-        type: "system",
-        subject: "Updated",
-      })
 
       // Record a dedicated stage-change activity when the stage moves.
       if (before.currentStageId !== nextStageId) {
@@ -334,12 +330,13 @@ export async function updateLead(
         })
       }
 
-      await writeAudit(tx, ctx, {
-        action: "lead.updated",
+      await recordChanges(tx, ctx, {
         entityType: "lead",
+        registryKey: "lead",
         entityId: id,
         before,
-        after: lead,
+        after: { ...before, ...updated },
+        subject: "Lead updated",
       })
       return lead
     })

@@ -1,5 +1,6 @@
 # Internet-exposed self-host: caddy (HTTPS) → web (Next standalone) → db (Postgres).
-# Postgres is never published; only Caddy binds 80/443. Run: docker compose up -d --build
+# Postgres is published on 127.0.0.1:5433 only (loopback, for SSH-tunnelled admin);
+# only Caddy is reachable off-box. Run: docker compose up -d --build
 #
 # Log rotation is on by default (below). Resource limits default to db 2g /
 # web 1g / caddy 128m / backup 256m — tune `mem_limit:` to your host.
@@ -14,8 +15,12 @@ x-logging: &default-logging
 services:
   db:
     image: postgres:17-alpine
+    # Localhost-only publish on 5433 so it never clashes with a host Postgres on
+    # 5432 and is never internet-exposed. Reach it from a workstation with a SQL
+    # client (VeloxDB / DBeaver / TablePlus) via an SSH tunnel — see
+    # OPERATIONS.md → "Connect a SQL client (VeloxDB / DBeaver)".
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}

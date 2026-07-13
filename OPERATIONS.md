@@ -155,6 +155,31 @@ docker compose --profile admin down              # stop it when done
 ```
 For local dev, `npm run db:studio` (drizzle-studio) is the equivalent.
 
+## Connect a SQL client (VeloxDB / DBeaver / TablePlus)
+
+Postgres is bound to **`127.0.0.1:5433` on the server** (loopback only — never
+reachable off-box). To browse it from your workstation, open an SSH tunnel, then
+point the client at `localhost`:
+
+```bash
+# On your workstation — forward local 5433 → the server's loopback 5433:
+ssh -L 5433:127.0.0.1:5433 internalops@<server>
+# leave that shell open, then connect the SQL client to:
+```
+
+| Field | Value |
+|---|---|
+| Host | `127.0.0.1` (a.k.a. `localhost`) |
+| Port | `5433` |
+| Database | `crm` |
+| Username | `postgres` (full) or `crm_app` (RLS-enforced, app's view) |
+| Password | `POSTGRES_PASSWORD` / `CRM_APP_PASSWORD` from the server `.env` |
+| SSL mode | `disable` (traffic is already inside the SSH tunnel) |
+
+`crm_app` sees only what Row-Level Security allows and needs a tenant set
+(`SET app.current_tenant = '<org-id>'`); use `postgres` for unrestricted admin
+browsing. Close the SSH shell to drop the tunnel when you're done.
+
 ## Hardening notes
 
 - **Healthcheck:** `web` is health-gated on `/api/health`; Caddy only routes to a

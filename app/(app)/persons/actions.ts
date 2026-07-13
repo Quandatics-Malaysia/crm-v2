@@ -12,6 +12,7 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   accounts,
@@ -294,34 +295,28 @@ export async function updatePerson(
 
       if (input.isPrimary) await clearOtherPrimaries(tx, input.accountId, id)
 
-      const [updated] = await tx
-        .update(persons)
-        .set({
-          accountId: input.accountId,
-          firstName: input.firstName,
-          lastName: input.lastName || null,
-          title: input.title || null,
-          email: input.email || null,
-          phone: input.phone || null,
-          isPrimary: input.isPrimary ?? false,
-          updatedAt: new Date(),
-        })
-        .where(eq(persons.id, id))
-        .returning()
-      await writeAudit(tx, ctx, {
-        action: "person.update",
+      const updated = {
+        accountId: input.accountId,
+        firstName: input.firstName,
+        lastName: input.lastName || null,
+        title: input.title || null,
+        email: input.email || null,
+        phone: input.phone || null,
+        isPrimary: input.isPrimary ?? false,
+        updatedAt: new Date(),
+      }
+
+      await tx.update(persons).set(updated).where(eq(persons.id, id))
+
+      await recordChanges(tx, ctx, {
         entityType: "person",
+        registryKey: "person",
         entityId: id,
         before,
-        after: updated,
+        after: { ...before, ...updated },
+        subject: "Contact updated",
       })
-      await logActivity(tx, ctx, {
-        entityType: "person",
-        entityId: id,
-        type: "system",
-        subject: "Updated contact",
-      })
-      return updated
+      return { ...before, ...updated }
     })
     revalidatePath("/persons")
     revalidatePath(`/persons/${id}`)

@@ -45,6 +45,15 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     ownerMemberId: { label: "Owner", format: fk(memberName) },
     parentAccountId: { label: "Parent account", format: fk(accountName) },
   },
+  person: {
+    firstName: { label: "First name" },
+    lastName: { label: "Last name" },
+    title: { label: "Title" },
+    email: { label: "Email" },
+    phone: { label: "Phone" },
+    isPrimary: { label: "Primary contact" },
+    accountId: { label: "Account", format: fk(accountName) },
+  },
   // Other entities added in later tasks.
-  opportunity: {}, person: {}, lead: {}, project: {}, finance_doc: {},
+  opportunity: {}, lead: {}, project: {}, finance_doc: {},
 }

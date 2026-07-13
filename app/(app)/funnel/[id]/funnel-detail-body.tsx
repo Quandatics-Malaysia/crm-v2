@@ -31,6 +31,7 @@ import {
   FieldRow,
 } from "@/components/detail-page"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
+import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
@@ -456,6 +457,13 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   )
 
   const milestoneValueCeiling = quotedAmount ?? estimatedAmount ?? null
+
+  // Field-level change log — a subset of the activity timeline (update rows
+  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
+  const changes = React.useMemo(
+    () => activity.filter((a) => a.type === "update"),
+    [activity]
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
@@ -985,6 +993,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   </CountTab>
                 ) : null}
                 <CountTab value="history">Stage history</CountTab>
+                <CountTab value="changes" count={changes.length}>
+                  History
+                </CountTab>
                 <CountTab value="documents" count={documents.length}>
                   Documents
                 </CountTab>
@@ -1118,6 +1129,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   emptyMessage="No stage changes recorded."
                   pageSize={5}
                 />
+              </TabsContent>
+
+              <TabsContent value="changes" className="mt-4">
+                <ChangeHistory items={changes} />
               </TabsContent>
 
               <TabsContent value="documents" className="mt-4">

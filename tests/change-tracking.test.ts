@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import { money, date, enumLabel } from "@/server/services/changes/formatters"
 import { diffFields } from "@/server/services/changes/record"
 import type { FieldRegistry } from "@/server/services/changes/types"
@@ -38,5 +39,21 @@ describe("diffFields", () => {
   it("returns [] when nothing user-facing changed", async () => {
     const out = await diffFields(reg, { name: "A", amount: "1", updatedAt: 1 }, { name: "A", amount: "1", updatedAt: 2 }, { tx: mockTx })
     expect(out).toEqual([])
+  })
+})
+
+// Guardrail: every core update action must route through recordChanges, so a
+// future edit can't silently regress to ad-hoc writeAudit/logActivity logging.
+describe("change-tracking guardrail", () => {
+  const UPDATE_ACTIONS = [
+    "app/(app)/funnel/actions.ts",
+    "app/(app)/accounts/actions.ts",
+    "app/(app)/persons/actions.ts",
+    "app/(app)/leads/actions.ts",
+    "app/(app)/opportunities/actions.ts",
+    "app/(app)/projects/actions.ts",
+  ]
+  it.each(UPDATE_ACTIONS)("%s routes updates through recordChanges", (p) => {
+    expect(readFileSync(p, "utf8")).toContain("recordChanges")
   })
 })

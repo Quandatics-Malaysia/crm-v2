@@ -18,8 +18,8 @@ export const activityType = pgEnum("activity_type", [
   "email",
   "system",
   "stage_change",
-  "update",
   "file",
+  "update",
 ])
 
 /**

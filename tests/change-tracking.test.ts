@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { money, date, enumLabel } from "@/server/services/changes/formatters"
+import { money, date, enumLabel, bool } from "@/server/services/changes/formatters"
 import { diffFields } from "@/server/services/changes/record"
 import type { FieldRegistry } from "@/server/services/changes/types"
 import type { Tx } from "@/db"
@@ -24,6 +24,12 @@ describe("change formatters", () => {
     const f = enumLabel({ "2c": "Qualified", "3b": "Proposal" })
     expect(await f("2c", noCtx)).toBe("Qualified")
     expect(await f("zz", noCtx)).toBe("zz")
+  })
+  it("formats booleans, with a dash for null", async () => {
+    const f = bool()
+    expect(await f(true, noCtx)).toBe("Yes")
+    expect(await f(false, noCtx)).toBe("No")
+    expect(await f(null, noCtx)).toBe("—")
   })
 })
 

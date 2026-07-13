@@ -27,6 +27,7 @@ import { maybeCompleteProject } from "@/server/services/finance"
 import { opportunityNetValue } from "@/server/services/value"
 import { splitMilestones } from "@/lib/milestone-split"
 import { writeAudit } from "@/server/audit"
+import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   visibleMemberIds,
@@ -367,22 +368,22 @@ export async function updateProject(
   await withModule("projects", PERMISSIONS.PROJECT_UPDATE, async (tx, ctx) => {
     // Lock the project row so this value edit serializes against concurrent
     // milestone writes (which also lock it) before reconciling allocation.
-    const [existing] = await tx
+    const [before] = await tx
       .select()
       .from(projects)
       .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
       .limit(1)
       .for("update")
-    if (!existing) throw new Error("Project not found")
+    if (!before) throw new Error("Project not found")
 
     const visible = await visibleMemberIds(tx, ctx)
-    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId)) {
+    if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId)) {
       throw new Error("FORBIDDEN: not permitted on this project")
     }
 
     const nextValue =
       input.value === undefined
-        ? existing.value
+        ? before.value
         : input.value
           ? input.value
           : null
@@ -398,44 +399,37 @@ export async function updateProject(
       }
     }
 
-    await tx
-      .update(projects)
-      .set({
-        name: input.name ?? existing.name,
-        accountId: input.accountId ?? existing.accountId,
-        funnelId:
-          input.funnelId === undefined
-            ? existing.funnelId
-            : input.funnelId || null,
-        quotationId:
-          input.quotationId === undefined
-            ? existing.quotationId
-            : input.quotationId || null,
-        status: isStatus(input.status) ? input.status : existing.status,
-        value: nextValue,
-        startDate:
-          input.startDate === undefined
-            ? existing.startDate
-            : input.startDate || null,
-        notes:
-          input.notes === undefined ? existing.notes : input.notes || null,
-        updatedAt: new Date(),
-      })
-      .where(eq(projects.id, id))
+    const updated = {
+      name: input.name ?? before.name,
+      accountId: input.accountId ?? before.accountId,
+      funnelId:
+        input.funnelId === undefined
+          ? before.funnelId
+          : input.funnelId || null,
+      quotationId:
+        input.quotationId === undefined
+          ? before.quotationId
+          : input.quotationId || null,
+      status: isStatus(input.status) ? input.status : before.status,
+      value: nextValue,
+      startDate:
+        input.startDate === undefined
+          ? before.startDate
+          : input.startDate || null,
+      notes:
+        input.notes === undefined ? before.notes : input.notes || null,
+      updatedAt: new Date(),
+    }
 
-    await logActivity(tx, ctx, {
+    await tx.update(projects).set(updated).where(eq(projects.id, id))
+
+    await recordChanges(tx, ctx, {
       entityType: "project",
+      registryKey: "project",
       entityId: id,
-      type: "system",
+      before,
+      after: { ...before, ...updated },
       subject: "Project updated",
-    })
-
-    await writeAudit(tx, ctx, {
-      action: "project.updated",
-      entityType: "project",
-      entityId: id,
-      before: { value: existing.value },
-      after: { value: nextValue },
     })
   })
   revalidatePath("/projects")

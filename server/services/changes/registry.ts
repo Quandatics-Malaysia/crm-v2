@@ -71,6 +71,14 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     totalEstimatedFunnelAmount: { label: "Est. funnel amount", format: money() },
     description: { label: "Description" },
   },
+  project: {
+    name: { label: "Name" },
+    status: { label: "Status", format: enumLabel({ planning: "Planning", active: "Active", on_hold: "On hold", completed: "Completed", cancelled: "Cancelled" }) },
+    value: { label: "Value", format: money() },
+    ownerMemberId: { label: "Owner", format: fk(memberName) },
+    startDate: { label: "Start date", format: date() },
+    projectNatureCode: { label: "Project nature" },
+  },
   // Other entities added in later tasks.
-  project: {}, finance_doc: {},
+  finance_doc: {},
 }

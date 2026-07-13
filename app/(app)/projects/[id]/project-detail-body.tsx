@@ -5,6 +5,7 @@ import * as React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
+import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
 import {
   DetailAside,
@@ -74,6 +75,13 @@ export function ProjectDetailBody({
   // updateProject is patch-style: send only the changed field.
   const saveField = useSaveField((patch: ProjectUpdateInput) =>
     updateProject(projectId, patch)
+  )
+
+  // Field-level change log — a subset of the activity timeline (update rows
+  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
+  const changes = React.useMemo(
+    () => activity.filter((a) => a.type === "update"),
+    [activity]
   )
 
   return (
@@ -170,6 +178,9 @@ export function ProjectDetailBody({
             </CountTab>
           ) : null}
           <CountTab value="activity">Activity</CountTab>
+          <CountTab value="changes" count={changes.length}>
+            History
+          </CountTab>
           <CountTab value="documents" count={documents.length}>
             Documents
           </CountTab>
@@ -213,6 +224,10 @@ export function ProjectDetailBody({
             items={activity}
             revalidate={revalidate}
           />
+        </TabsContent>
+
+        <TabsContent value="changes" className="mt-4">
+          <ChangeHistory items={changes} />
         </TabsContent>
 
         <TabsContent value="documents" className="mt-4">

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { PencilIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { showActionError } from "@/lib/show-action-error"
 
 /**
  * Compact click-to-edit value (mirrors InlineRename, but renders a custom
@@ -37,31 +38,37 @@ export function InlineValue({
   // shows the new value optimistically instead of flashing the stale one until
   // router.refresh() lands.
   const [optimistic, setOptimistic] = React.useState<string | null>(null)
+  const [, startTransition] = React.useTransition()
 
   function start() {
     setDraft(value)
     setEditing(true)
   }
-  async function commit() {
+  function commit() {
     setEditing(false)
     const next = draft.trim()
     if (next === value.trim()) return
+    // Commit instantly at full opacity; the save + page refetch run in a
+    // non-blocking transition so the cell never sits in a dimmed "busy" state.
     setOptimistic(next)
-    try {
-      await onSave(next)
-    } finally {
-      // Fresh props from the refresh now reflect the saved value.
-      setOptimistic(null)
-    }
+    startTransition(async () => {
+      try {
+        await onSave(next)
+      } catch (err) {
+        showActionError({
+          ok: false,
+          error: err instanceof Error ? err.message : "Failed to save change.",
+        })
+      } finally {
+        // Fresh props from the completed refetch now reflect the saved value.
+        setOptimistic(null)
+      }
+    })
   }
 
   if (optimistic !== null) {
     return (
-      <span
-        aria-busy
-        title="Saving…"
-        className={cn("opacity-60", className)}
-      >
+      <span className={className}>
         {formatDraft ? formatDraft(optimistic) : optimistic}
       </span>
     )

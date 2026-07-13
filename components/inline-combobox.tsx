@@ -5,6 +5,7 @@ import { PencilIcon, XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Button } from "@/components/ui/button"
+import { showActionError } from "@/lib/show-action-error"
 
 /**
  * Click-to-edit reference-field value (InlineValue's sibling for pickers
@@ -36,24 +37,31 @@ export function InlineCombobox({
 }) {
   const [editing, setEditing] = React.useState(false)
   const [optimisticLabel, setOptimisticLabel] = React.useState<string | null>(null)
+  const [, startTransition] = React.useTransition()
 
-  async function commit(next: string) {
+  function commit(next: string) {
     setEditing(false)
     if (next === value) return
+    // Commit instantly at full opacity; the save + page refetch run in a
+    // non-blocking transition so the cell never sits in a dimmed "busy" state.
     setOptimisticLabel(options.find((o) => o.value === next)?.label ?? "—")
-    try {
-      await onSave(next)
-    } finally {
-      setOptimisticLabel(null)
-    }
+    startTransition(async () => {
+      try {
+        await onSave(next)
+      } catch (err) {
+        showActionError({
+          ok: false,
+          error: err instanceof Error ? err.message : "Failed to save change.",
+        })
+      } finally {
+        // Fresh props from the completed refetch now reflect the saved value.
+        setOptimisticLabel(null)
+      }
+    })
   }
 
   if (optimisticLabel !== null) {
-    return (
-      <span aria-busy title="Saving…" className={cn("opacity-60", className)}>
-        {optimisticLabel}
-      </span>
-    )
+    return <span className={className}>{optimisticLabel}</span>
   }
 
   if (editing) {

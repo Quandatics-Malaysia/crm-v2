@@ -39,7 +39,7 @@ jobs:
     steps:
       # Update the server's persistent checkout, not the runner workdir.
       - name: Pull latest main
-        run: git -C "${CRM_DIR:-/opt/crm-v2}" pull --ff-only origin main
+        run: git -C "${CRM_DIR:-$HOME/crm-v2}" pull --ff-only origin main
       # migrate runs as a one-shot before web starts (web depends_on it).
       - name: Rebuild and restart
-        run: docker compose -f "${CRM_DIR:-/opt/crm-v2}/docker-compose.yaml" up -d --build migrate web
+        run: docker compose -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web

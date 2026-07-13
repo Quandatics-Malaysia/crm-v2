@@ -21,7 +21,7 @@ FROM base AS migrator
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx --conditions=react-server db/seed.ts"]
+CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx --conditions=react-server db/seed.ts && if [ \"$SEED_SAMPLE_DATA\" = \"true\" ]; then echo '→ SEED_SAMPLE_DATA=true — layering sample demo data'; node_modules/.bin/tsx --conditions=react-server db/seed-sample.ts; fi"]
 
 # ---- minimal production runner ----
 FROM base AS runner

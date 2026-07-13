@@ -56,7 +56,21 @@ const {
 } = schema
 
 const TENANT_ID = "demo-entity"
-const PASSWORD = "Password123!"
+
+// All sample logins share one password. The Docker migrate job runs with
+// NODE_ENV=production, where a weak/default password is REFUSED — set
+// SEED_SAMPLE_PASSWORD, or let it fall back to DEMO_ADMIN_PASSWORD (already
+// required to be strong). In local dev it stays the convenient well-known value.
+const IS_PROD = process.env.NODE_ENV === "production"
+const PASSWORD =
+  process.env.SEED_SAMPLE_PASSWORD ||
+  (IS_PROD ? process.env.DEMO_ADMIN_PASSWORD ?? "" : "Password123!")
+if (!PASSWORD || (IS_PROD && PASSWORD === "Password123!")) {
+  throw new Error(
+    "sample seed: refusing a weak/empty login password in production — set " +
+      "SEED_SAMPLE_PASSWORD (or ensure DEMO_ADMIN_PASSWORD is set to a strong value).",
+  )
+}
 
 /** Deterministic UUID (v5-shaped) from a stable key → idempotent uuid columns. */
 const NS = "crm-v2::seed-sample::"
@@ -214,14 +228,23 @@ async function main() {
   // ── 2. accounts (customer companies) ──────────────────────────────────────
   const accId = (k: string) => det(`account:${k}`)
   const accountValues = [
-    { k: "acme", name: "Acme Corporation", code: "ACME", accountType: "client", industry: "Manufacturing", owner: MEM_S1 },
-    { k: "globex", name: "Globex Industries", code: "GLOBEX", accountType: "client", industry: "Energy", owner: MEM_S2 },
-    { k: "initech", name: "Initech Sdn Bhd", code: "INITECH", accountType: "client", industry: "Technology", owner: MEM_S1 },
-    { k: "umbrella", name: "Umbrella Group", code: "UMBRELLA", accountType: "client", industry: "Healthcare", owner: MEM_S2 },
+    { k: "acme", name: "Acme Corporation", code: "ACME", accountType: "client", industry: "Manufacturing", owner: MEM_S1, isCustomer: true },
+    { k: "globex", name: "Globex Industries", code: "GLOBEX", accountType: "client", industry: "Energy", owner: MEM_S2, isCustomer: true },
+    { k: "initech", name: "Initech Sdn Bhd", code: "INITECH", accountType: "client", industry: "Technology", owner: MEM_S1, isCustomer: true },
+    { k: "umbrella", name: "Umbrella Group", code: "UMBRELLA", accountType: "client", industry: "Healthcare", owner: MEM_S2, isCustomer: true },
     // child of Umbrella Group (parent hierarchy)
-    { k: "umbpharma", name: "Umbrella Pharma", code: "UMBPH", accountType: "client", industry: "Healthcare", owner: MEM_S2, parent: "umbrella" },
+    { k: "umbpharma", name: "Umbrella Pharma", code: "UMBPH", accountType: "client", industry: "Healthcare", owner: MEM_S2, parent: "umbrella", isCustomer: true },
     // reseller pointing at an end-user client (channel relationship)
     { k: "stark", name: "Stark Reseller Partners", code: "STARKR", accountType: "reseller", industry: "Technology", owner: MEM_S1, endUser: "acme" },
+    // ── more customers ──
+    { k: "wayne", name: "Wayne Enterprises", code: "WAYNE", accountType: "client", industry: "Finance", owner: MEM_S1, isCustomer: true },
+    { k: "soylent", name: "Soylent Foods Bhd", code: "SOYLENT", accountType: "client", industry: "Food & Beverage", owner: MEM_S2, isCustomer: true },
+    { k: "wonka", name: "Wonka Industries", code: "WONKA", accountType: "client", industry: "Food & Beverage", owner: MEM_S1, isCustomer: true },
+    // child of Stark's channel (reseller's end-user division)
+    { k: "starkretail", name: "Stark Retail Division", code: "STARKRD", accountType: "client", industry: "Retail", owner: MEM_S1, parent: "stark", isCustomer: true },
+    // ── prospects (not yet customers — isCustomer=false) ──
+    { k: "hooli", name: "Hooli Ventures", code: "HOOLI", accountType: "prospect", industry: "Technology", owner: MEM_S1, isCustomer: false },
+    { k: "cyberdyne", name: "Cyberdyne Systems", code: "CYBER", accountType: "prospect", industry: "Robotics", owner: MEM_S2, isCustomer: false },
   ]
   for (const a of accountValues) {
     await db
@@ -233,6 +256,7 @@ async function main() {
         code: a.code,
         accountType: a.accountType,
         industry: a.industry,
+        isCustomer: a.isCustomer ?? (a.accountType === "client"),
         ownerMemberId: a.owner,
         parentAccountId: a.parent ? accId(a.parent) : null,
         endUserAccountId: a.endUser ? accId(a.endUser) : null,
@@ -246,8 +270,16 @@ async function main() {
     { k: "acme-alice", account: "acme", firstName: "Alice", lastName: "Tan", title: "IT Director", email: "alice.tan@acme.example", phone: "+60 12-300 1001", primary: true },
     { k: "acme-bob", account: "acme", firstName: "Bob", lastName: "Lee", title: "Procurement Lead", email: "bob.lee@acme.example", phone: "+60 12-300 1002", primary: false },
     { k: "globex-carol", account: "globex", firstName: "Carol", lastName: "Lim", title: "Operations Manager", email: "carol.lim@globex.example", phone: "+60 12-300 2001", primary: true },
+    { k: "globex-dan", account: "globex", firstName: "Dan", lastName: "Ong", title: "Procurement Officer", email: "dan.ong@globex.example", phone: "+60 12-300 2002", primary: false },
     { k: "initech-david", account: "initech", firstName: "David", lastName: "Ng", title: "CISO", email: "david.ng@initech.example", phone: "+60 12-300 3001", primary: true },
     { k: "umbrella-eva", account: "umbrella", firstName: "Eva", lastName: "Wong", title: "Head of Digital", email: "eva.wong@umbrella.example", phone: "+60 12-300 4001", primary: true },
+    // ── more contacts across the added accounts ──
+    { k: "wayne-victor", account: "wayne", firstName: "Victor", lastName: "Chen", title: "Chief Financial Officer", email: "victor.chen@wayne.example", phone: "+60 12-300 5001", primary: true },
+    { k: "wayne-bruce", account: "wayne", firstName: "Bruce", lastName: "Tan", title: "Head of IT", email: "bruce.tan@wayne.example", phone: "+60 12-300 5002", primary: false },
+    { k: "soylent-nina", account: "soylent", firstName: "Nina", lastName: "Rao", title: "Chief Operating Officer", email: "nina.rao@soylent.example", phone: "+60 12-300 6001", primary: true },
+    { k: "wonka-willy", account: "wonka", firstName: "Willy", lastName: "Loh", title: "Managing Director", email: "willy.loh@wonka.example", phone: "+60 12-300 7001", primary: true },
+    { k: "hooli-gavin", account: "hooli", firstName: "Gavin", lastName: "Belson", title: "Chief Executive Officer", email: "gavin.belson@hooli.example", phone: "+60 12-300 8001", primary: true },
+    { k: "cyberdyne-miles", account: "cyberdyne", firstName: "Miles", lastName: "Dyson", title: "Chief Technology Officer", email: "miles.dyson@cyberdyne.example", phone: "+60 12-300 9001", primary: true },
   ]
   for (const c of personValues) {
     await db
@@ -284,6 +316,19 @@ async function main() {
     { k: "globex-legacy", name: "Globex Legacy Upgrade", account: "globex", person: "globex-carol", owner: MEM_S1, stage: "lost", status: "lost", amount: "60000.00", closed: true, lostReason: "Budget deferred to next fiscal year", projectNature: "H" },
     // KIV / parked
     { k: "umbpharma-pilot", name: "Umbrella Pharma Pilot", account: "umbpharma", person: null, owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "30000.00", kivReview: "2026-09-01", projectNature: "T" },
+    // ── more deals across every stage / owner (fuller pipeline board + charts) ──
+    { k: "wonka-portal", name: "Wonka Customer Portal", account: "wonka", person: "wonka-willy", owner: MEM_S1, stage: "0e", status: "open", amount: "54000.00", expected: "2026-12-15", projectNature: "L" },
+    { k: "wayne-analytics", name: "Wayne Analytics Platform", account: "wayne", person: "wayne-victor", owner: MEM_S1, stage: "1d", status: "open", amount: "95000.00", expected: "2026-11-30", projectNature: "H" },
+    { k: "soylent-bi", name: "Soylent BI Dashboards", account: "soylent", person: "soylent-nina", owner: MEM_S2, stage: "2c", status: "open", amount: "68000.00", expected: "2026-10-15", projectNature: "PS" },
+    // renewal deal (isRenewal flag)
+    { k: "acme-support", name: "Acme Support Renewal FY27", account: "acme", person: "acme-bob", owner: MEM_S1, stage: "3b", status: "open", amount: "36000.00", expected: "2026-09-20", projectNature: "M", isRenewal: true },
+    { k: "globex-expansion", name: "Globex Platform Expansion", account: "globex", person: "globex-carol", owner: MEM_S2, stage: "4a", status: "open", amount: "130000.00", expected: "2026-08-25", projectNature: "H" },
+    // second Won deal (carries its own accepted primary quote)
+    { k: "initech-mssp", name: "Initech Managed SecOps", account: "initech", person: "initech-david", owner: MEM_S1, stage: "won", status: "won", amount: "88000.00", closed: true, projectNature: "PS" },
+    // second Lost
+    { k: "wayne-legacy", name: "Wayne Legacy Migration", account: "wayne", person: null, owner: MEM_S1, stage: "lost", status: "lost", amount: "45000.00", closed: true, lostReason: "Lost to incumbent vendor", projectNature: "T" },
+    // second KIV
+    { k: "soylent-audit", name: "Soylent Compliance Audit", account: "soylent", person: "soylent-nina", owner: MEM_S2, stage: "kiv", status: "on_hold", amount: "25000.00", kivReview: "2026-10-01", projectNature: "PS" },
   ]
   const oppProjectNature = new Map(oppValues.map((o) => [o.k, o.projectNature]))
 
@@ -292,12 +337,21 @@ async function main() {
   const containerOf: Record<string, string> = {
     "acme-erp": "acme-platform",
     "acme-data": "acme-platform",
+    "acme-support": "acme-platform", // third funnel under Acme's programme container
     "globex-cloud": "globex-cloud",
     "initech-audit": "initech-audit",
     "umbrella-crm": "umbrella-crm",
     "stark-msp": "stark-msp",
     "globex-legacy": "globex-legacy",
     "umbpharma-pilot": "umbpharma-pilot",
+    "wonka-portal": "wonka-portal",
+    // Wayne container groups two funnels (analytics + legacy) → rollup demo
+    "wayne-analytics": "wayne-programme",
+    "wayne-legacy": "wayne-programme",
+    "soylent-bi": "soylent-bi",
+    "globex-expansion": "globex-expansion",
+    "initech-mssp": "initech-mssp",
+    "soylent-audit": "soylent-audit",
   }
   const containerId = (ck: string) => det(`opportunity-container:${ck}`)
   const containerName: Record<string, string> = {
@@ -308,6 +362,12 @@ async function main() {
     "stark-msp": "Stark Managed Services",
     "globex-legacy": "Globex Legacy Upgrade",
     "umbpharma-pilot": "Umbrella Pharma Pilot",
+    "wonka-portal": "Wonka Customer Portal",
+    "wayne-programme": "Wayne Digital Programme",
+    "soylent-bi": "Soylent BI Programme",
+    "globex-expansion": "Globex Platform Expansion",
+    "initech-mssp": "Initech Managed SecOps",
+    "soylent-audit": "Soylent Compliance Audit",
   }
   const containerKeys = [...new Set(Object.values(containerOf))]
   let cnum = 0
@@ -350,6 +410,7 @@ async function main() {
         pipelineId: funnel.id,
         currentStageId: stage.get(o.stage)!,
         ownerMemberId: o.owner,
+        isRenewal: o.isRenewal ?? false,
         amount: o.amount,
         // Estimated Funnel Amount drives the forecast; seed it from the deal value.
         estimatedAmount: o.amount,
@@ -383,7 +444,7 @@ async function main() {
     k: string
     opp: string
     number: string
-    status: "draft" | "sent" | "accepted"
+    status: "draft" | "sent" | "accepted" | "rejected" | "expired" | "void"
     isPrimary: boolean
     sent?: boolean
     accepted?: boolean
@@ -423,6 +484,70 @@ async function main() {
       lines: [
         { description: "Managed services — monthly retainer", quantity: 12, unitPrice: 2500 },
         { description: "Onboarding & environment setup", quantity: 1, unitPrice: 8000 },
+      ],
+    },
+    // accepted primary on the second Won deal
+    {
+      k: "initech-mssp-accepted",
+      opp: "initech-mssp",
+      number: "Q-SMP-0004",
+      status: "accepted",
+      isPrimary: true,
+      sent: true,
+      accepted: true,
+      lines: [
+        { description: "Managed SecOps — 24x7 monitoring (annual)", quantity: 1, unitPrice: 72000 },
+        { description: "SIEM onboarding & tuning", quantity: 1, unitPrice: 16000 },
+      ],
+    },
+    // sent, awaiting decision
+    {
+      k: "wayne-sent",
+      opp: "wayne-analytics",
+      number: "Q-SMP-0005",
+      status: "sent",
+      isPrimary: true,
+      sent: true,
+      lines: [
+        { description: "Analytics platform — build & deploy", quantity: 1, unitPrice: 78000 },
+        { description: "Data pipeline integration", quantity: 1, unitPrice: 17000 },
+      ],
+    },
+    // rejected by the customer
+    {
+      k: "soylent-rejected",
+      opp: "soylent-bi",
+      number: "Q-SMP-0006",
+      status: "rejected",
+      isPrimary: true,
+      sent: true,
+      lines: [
+        { description: "BI dashboards — design & build", quantity: 1, unitPrice: 52000 },
+        { description: "Training & handover", quantity: 2, unitPrice: 8000 },
+      ],
+    },
+    // lapsed past validity
+    {
+      k: "globex-expired",
+      opp: "globex-expansion",
+      number: "Q-SMP-0007",
+      status: "expired",
+      isPrimary: true,
+      sent: true,
+      lines: [
+        { description: "Platform expansion — additional modules", quantity: 1, unitPrice: 110000 },
+        { description: "Capacity upgrade", quantity: 1, unitPrice: 20000 },
+      ],
+    },
+    // a superseded revision sitting alongside the SENT primary on Umbrella (non-primary)
+    {
+      k: "umbrella-revised",
+      opp: "umbrella-crm",
+      number: "Q-SMP-0008",
+      status: "void",
+      isPrimary: false,
+      lines: [
+        { description: "CRM platform licence (revised seat count)", quantity: 40, unitPrice: 600 },
       ],
     },
   ]
@@ -477,11 +602,15 @@ async function main() {
         .onConflictDoNothing()
     }
   }
-  // point the won opportunity at its accepted primary quote
+  // point each won opportunity at its accepted primary quote
   await db
     .update(funnels)
     .set({ primaryQuotationId: quoteId("stark-accepted") })
     .where(eq(funnels.id, oppId("stark-msp")))
+  await db
+    .update(funnels)
+    .set({ primaryQuotationId: quoteId("initech-mssp-accepted") })
+    .where(eq(funnels.id, oppId("initech-mssp")))
 
   // ── 6+7. project + milestones off the accepted quote (won deal) ───────────
   // Only when the projects plugin is enabled — otherwise a core-only seed would
@@ -580,6 +709,14 @@ async function main() {
     { k: "nimbus", name: "Frank Aziz", companyName: "Nimbus Tech", email: "frank@nimbustech.example", phone: "+60 13-555 0001", source: "Website", status: "new", owner: MEM_S1 },
     { k: "orbit", name: "Grace Teo", companyName: "Orbit Logistics", email: "grace@orbitlogistics.example", phone: "+60 13-555 0002", source: "Referral", status: "contacted", owner: MEM_S2 },
     { k: "peak", name: "Henry Goh", companyName: "Peak Retail", email: "henry@peakretail.example", phone: "+60 13-555 0003", source: "Trade Show", status: "qualified", owner: MEM_S1 },
+    // ── more inbound across every status ──
+    { k: "delta", name: "Jack Ho", companyName: "Delta Freight", email: "jack@deltafreight.example", phone: "+60 13-555 0004", source: "Cold Call", status: "new", owner: MEM_S2 },
+    { k: "apex", name: "Kelly Yeo", companyName: "Apex Media", email: "kelly@apexmedia.example", phone: "+60 13-555 0005", source: "LinkedIn", status: "contacted", owner: MEM_S1 },
+    { k: "vertex", name: "Leon Chua", companyName: "Vertex Labs", email: "leon@vertexlabs.example", phone: "+60 13-555 0006", source: "Webinar", status: "qualified", owner: MEM_S2 },
+    // disqualified (carries a reason)
+    { k: "zenith", name: "Ivy Sim", companyName: "Zenith Corp", email: "ivy@zenithcorp.example", phone: "+60 13-555 0007", source: "Website", status: "disqualified", disqualifyReason: "No budget this cycle", owner: MEM_S2 },
+    // converted (links to the account + contact it became)
+    { k: "acme-inbound", name: "Alice Tan", companyName: "Acme Corporation", email: "alice.tan@acme.example", phone: "+60 12-300 1001", source: "Referral", status: "converted", owner: MEM_S1, convertedAccount: "acme", convertedPerson: "acme-alice", converted: true },
   ]
   for (const l of leadValues) {
     await db
@@ -592,7 +729,11 @@ async function main() {
         email: l.email,
         phone: l.phone,
         source: l.source,
-        status: l.status as "new" | "contacted" | "qualified",
+        status: l.status as "new" | "contacted" | "qualified" | "disqualified" | "converted",
+        disqualifyReason: l.disqualifyReason ?? null,
+        convertedAccountId: l.convertedAccount ? accId(l.convertedAccount) : null,
+        convertedPersonId: l.convertedPerson ? perId(l.convertedPerson) : null,
+        convertedAt: l.converted ? new Date("2026-05-10T02:00:00Z") : null,
         ownerMemberId: l.owner,
       })
       .onConflictDoNothing()
@@ -604,6 +745,11 @@ async function main() {
     { k: "training-pbi", name: "Training - Power BI Fundamentals", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "8000.00", description: "2-day instructor-led course" },
     { k: "license-annual", name: "Platform License - Annual", productCode: "LICENSE", subcategory: "Subscription", uom: "Year", price: "36000.00", description: "Per-tenant annual subscription" },
     { k: "support-prem", name: "Premium Support", productCode: "SUPPORT", subcategory: "Managed Services", uom: "Month", price: "5000.00", description: "Priority SLA, 8x5 coverage" },
+    { k: "consulting-strategy", name: "Consulting - Data Strategy", productCode: "CONSULT", subcategory: "Advisory", uom: "Day", price: "18000.00", description: "Executive data-strategy advisory" },
+    { k: "impl-crm", name: "Implementation - CRM Rollout", productCode: "IMPL", subcategory: "Professional Services", uom: "Project", price: "45000.00", description: "End-to-end CRM implementation" },
+    { k: "integration-api", name: "Integration - API Connector", productCode: "INTEG", subcategory: "Professional Services", uom: "Each", price: "12000.00", description: "Bespoke API integration" },
+    { k: "managed-cloud", name: "Managed Cloud Operations", productCode: "MCLOUD", subcategory: "Managed Services", uom: "Month", price: "7000.00", description: "24x7 managed cloud ops" },
+    { k: "workshop-ai", name: "Workshop - AI for Business", productCode: "WORKSHOP", subcategory: "Data Analytics", uom: "Day", price: "9000.00", description: "1-day executive AI workshop" },
   ]
   for (const p of productValues) {
     await db
@@ -651,7 +797,12 @@ async function main() {
 
   await sql.end()
   console.log("✓ sample seed complete")
-  console.log("  login (all password 'Password123!'):")
+  const pwHint = process.env.SEED_SAMPLE_PASSWORD
+    ? "SEED_SAMPLE_PASSWORD"
+    : IS_PROD
+      ? "DEMO_ADMIN_PASSWORD"
+      : "'Password123!'"
+  console.log(`  login (all share password: ${pwHint}):`)
   for (const p of people) console.log(`    ${p.email.padEnd(20)} ${p.roleName} (tier ${p.tier})`)
   console.log(`  pending approval id: ${APPROVAL_ID} (Initech Security Audit, 2c → 3b, routed to manager@demo.local)`)
 }

@@ -49,6 +49,14 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@demo.local}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?DEMO_ADMIN_PASSWORD must be set to a non-default value}
+      # Optional demo/sample data — OFF by default. SEED_SAMPLE_DATA=true layers a
+      # rich role-play dataset (accounts, contacts, funnels across every stage,
+      # quotations, leads, products…) onto the demo tenant; set it back to false
+      # to hide the demo from a real deployment. SEED_SAMPLE_PASSWORD sets the
+      # shared sample-login password (falls back to DEMO_ADMIN_PASSWORD; a
+      # weak/default is refused in production).
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-false}
+      SEED_SAMPLE_PASSWORD: ${SEED_SAMPLE_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy

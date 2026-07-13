@@ -36,6 +36,7 @@ import {
 import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
+import { recordChanges } from "@/server/services/changes/record"
 import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import {
   deriveOriginRecognizedPercent,
@@ -843,69 +844,68 @@ export async function updateOpportunity(
         ? existing.recognizedPercent
         : input.recognizedPercent || null
 
-    await tx
-      .update(funnels)
-      .set({
-        name: input.name ?? existing.name,
-        accountId: input.accountId ?? existing.accountId,
-        primaryPersonId:
-          input.primaryPersonId === undefined
-            ? existing.primaryPersonId
-            : input.primaryPersonId || null,
-        ownerMemberId: input.ownerMemberId ?? existing.ownerMemberId,
-        // amount is quote-derived (never user-edited here).
-        estimatedAmount: nextEstimated,
-        recognizedPercent: recognizedPercentValue,
-        description:
-          input.description === undefined
-            ? existing.description
-            : input.description || null,
-        projectYear:
-          input.projectYear === undefined
-            ? existing.projectYear
-            : input.projectYear ?? null,
-        isIntercompany: effectiveInterco,
-        currency: input.currency ?? existing.currency,
-        projectNatures:
-          input.projectNatures === undefined
-            ? existing.projectNatures
-            : input.projectNatures && input.projectNatures.length
-              ? input.projectNatures
-              : null,
-        customFields:
-          input.customFields === undefined
-            ? existing.customFields
-            : input.customFields ?? {},
-        projectNatureCode:
-          input.projectNatures !== undefined
-            ? input.projectNatures?.[0] ?? null
-            : input.projectNatureCode === undefined
-              ? existing.projectNatureCode
-              : input.projectNatureCode || null,
-        expectedCloseDate:
-          input.expectedCloseDate === undefined
-            ? existing.expectedCloseDate
-            : input.expectedCloseDate || null,
-        procurementStage:
-          input.procurementStage === undefined
-            ? existing.procurementStage
-            : input.procurementStage || null,
-        negotiationDone: input.negotiationDone ?? existing.negotiationDone,
-        negotiationDate:
-          input.negotiationDate === undefined
-            ? existing.negotiationDate
-            : input.negotiationDate || null,
-        expectedInvoiceMonth:
-          input.expectedInvoiceMonth === undefined
-            ? existing.expectedInvoiceMonth
-            : input.expectedInvoiceMonth || null,
-        expectedInvoiceYear:
-          input.expectedInvoiceYear === undefined
-            ? existing.expectedInvoiceYear
-            : input.expectedInvoiceYear ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(funnels.id, id))
+    const updated = {
+      name: input.name ?? existing.name,
+      accountId: input.accountId ?? existing.accountId,
+      primaryPersonId:
+        input.primaryPersonId === undefined
+          ? existing.primaryPersonId
+          : input.primaryPersonId || null,
+      ownerMemberId: input.ownerMemberId ?? existing.ownerMemberId,
+      // amount is quote-derived (never user-edited here).
+      estimatedAmount: nextEstimated,
+      recognizedPercent: recognizedPercentValue,
+      description:
+        input.description === undefined
+          ? existing.description
+          : input.description || null,
+      projectYear:
+        input.projectYear === undefined
+          ? existing.projectYear
+          : input.projectYear ?? null,
+      isIntercompany: effectiveInterco,
+      currency: input.currency ?? existing.currency,
+      projectNatures:
+        input.projectNatures === undefined
+          ? existing.projectNatures
+          : input.projectNatures && input.projectNatures.length
+            ? input.projectNatures
+            : null,
+      customFields:
+        input.customFields === undefined
+          ? existing.customFields
+          : input.customFields ?? {},
+      projectNatureCode:
+        input.projectNatures !== undefined
+          ? input.projectNatures?.[0] ?? null
+          : input.projectNatureCode === undefined
+            ? existing.projectNatureCode
+            : input.projectNatureCode || null,
+      expectedCloseDate:
+        input.expectedCloseDate === undefined
+          ? existing.expectedCloseDate
+          : input.expectedCloseDate || null,
+      procurementStage:
+        input.procurementStage === undefined
+          ? existing.procurementStage
+          : input.procurementStage || null,
+      negotiationDone: input.negotiationDone ?? existing.negotiationDone,
+      negotiationDate:
+        input.negotiationDate === undefined
+          ? existing.negotiationDate
+          : input.negotiationDate || null,
+      expectedInvoiceMonth:
+        input.expectedInvoiceMonth === undefined
+          ? existing.expectedInvoiceMonth
+          : input.expectedInvoiceMonth || null,
+      expectedInvoiceYear:
+        input.expectedInvoiceYear === undefined
+          ? existing.expectedInvoiceYear
+          : input.expectedInvoiceYear ?? null,
+      updatedAt: new Date(),
+    }
+
+    await tx.update(funnels).set(updated).where(eq(funnels.id, id))
 
     // estimatedAmount may have changed → refresh the parent container's rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
@@ -914,20 +914,12 @@ export async function updateOpportunity(
       await saveParties(tx, id, parties, input.currency ?? existing.currency)
     }
 
-    await writeAudit(tx, ctx, {
-      action: "opportunity.updated",
+    await recordChanges(tx, ctx, {
       entityType: "opportunity",
+      registryKey: "funnel",
       entityId: id,
-      before: {
-        name: existing.name,
-        estimatedAmount: existing.estimatedAmount,
-      },
-      after: { name: input.name, estimatedAmount: input.estimatedAmount },
-    })
-    await logActivity(tx, ctx, {
-      entityType: "opportunity",
-      entityId: id,
-      type: "system",
+      before: existing,
+      after: { ...existing, ...updated },
       subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.

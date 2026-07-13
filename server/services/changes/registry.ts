@@ -64,6 +64,13 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     ownerMemberId: { label: "Owner", format: fk(memberName) },
     disqualifyReason: { label: "Disqualify reason" },
   },
+  opportunity: {
+    name: { label: "Name" },
+    accountId: { label: "Account", format: fk(accountName) },
+    ownerMemberId: { label: "Owner", format: fk(memberName) },
+    totalEstimatedFunnelAmount: { label: "Est. funnel amount", format: money() },
+    description: { label: "Description" },
+  },
   // Other entities added in later tasks.
-  opportunity: {}, project: {}, finance_doc: {},
+  project: {}, finance_doc: {},
 }

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache"
 import { withTenant } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
-import { writeAudit } from "@/server/audit"
+import { recordChanges } from "@/server/services/changes/record"
 import {
   visibleMemberIds,
   ownerScope,
@@ -315,48 +315,47 @@ export async function updateOpportunityContainer(
               : null,
       }
 
-      await tx
-        .update(opportunities)
-        .set({
-          name: input.name?.trim() || existing.name,
-          description:
-            input.description === undefined ? existing.description : input.description || null,
-          ...cascade,
-          ownerContactId:
-            input.ownerContactId === undefined
-              ? existing.ownerContactId
-              : input.ownerContactId || null,
-          ownerBudgetLimit:
-            input.ownerBudgetLimit === undefined
-              ? existing.ownerBudgetLimit
-              : input.ownerBudgetLimit || null,
-          powerSponsorContactId:
-            input.powerSponsorContactId === undefined
-              ? existing.powerSponsorContactId
-              : input.powerSponsorContactId || null,
-          powerSponsorBudgetLimit:
-            input.powerSponsorBudgetLimit === undefined
-              ? existing.powerSponsorBudgetLimit
-              : input.powerSponsorBudgetLimit || null,
-          estimatedBudget:
-            input.estimatedBudget === undefined
-              ? existing.estimatedBudget
-              : input.estimatedBudget || null,
-          estimatedCloseDate:
-            input.estimatedCloseDate === undefined
-              ? existing.estimatedCloseDate
-              : input.estimatedCloseDate || null,
-          isRenewal: input.isRenewal ?? existing.isRenewal,
-          showDashboards: input.showDashboards ?? existing.showDashboards,
-          assignedPresales:
-            input.assignedPresales === undefined
-              ? existing.assignedPresales
-              : input.assignedPresales || null,
-          competitor:
-            input.competitor === undefined ? existing.competitor : input.competitor || null,
-          updatedAt: new Date(),
-        })
-        .where(eq(opportunities.id, id))
+      const updated = {
+        name: input.name?.trim() || existing.name,
+        description:
+          input.description === undefined ? existing.description : input.description || null,
+        ...cascade,
+        ownerContactId:
+          input.ownerContactId === undefined
+            ? existing.ownerContactId
+            : input.ownerContactId || null,
+        ownerBudgetLimit:
+          input.ownerBudgetLimit === undefined
+            ? existing.ownerBudgetLimit
+            : input.ownerBudgetLimit || null,
+        powerSponsorContactId:
+          input.powerSponsorContactId === undefined
+            ? existing.powerSponsorContactId
+            : input.powerSponsorContactId || null,
+        powerSponsorBudgetLimit:
+          input.powerSponsorBudgetLimit === undefined
+            ? existing.powerSponsorBudgetLimit
+            : input.powerSponsorBudgetLimit || null,
+        estimatedBudget:
+          input.estimatedBudget === undefined
+            ? existing.estimatedBudget
+            : input.estimatedBudget || null,
+        estimatedCloseDate:
+          input.estimatedCloseDate === undefined
+            ? existing.estimatedCloseDate
+            : input.estimatedCloseDate || null,
+        isRenewal: input.isRenewal ?? existing.isRenewal,
+        showDashboards: input.showDashboards ?? existing.showDashboards,
+        assignedPresales:
+          input.assignedPresales === undefined
+            ? existing.assignedPresales
+            : input.assignedPresales || null,
+        competitor:
+          input.competitor === undefined ? existing.competitor : input.competitor || null,
+        updatedAt: new Date(),
+      }
+
+      await tx.update(opportunities).set(updated).where(eq(opportunities.id, id))
 
       // Cascade PPVVC + nature to every non-deleted child funnel — they're
       // read-only copies for display/gating, this container is the source.
@@ -374,25 +373,13 @@ export async function updateOpportunityContainer(
         })
         .where(and(eq(funnels.opportunityId, id), isNull(funnels.deletedAt)))
 
-      await writeAudit(tx, ctx, {
-        action: "opportunity_container.updated",
-        entityType: "opportunity_container",
+      await recordChanges(tx, ctx, {
+        entityType: "opportunity",
+        registryKey: "opportunity",
         entityId: id,
-        before: {
-          ownerBudgetLimit: existing.ownerBudgetLimit,
-          powerSponsorBudgetLimit: existing.powerSponsorBudgetLimit,
-          estimatedBudget: existing.estimatedBudget,
-        },
-        after: {
-          ownerBudgetLimit:
-            input.ownerBudgetLimit === undefined ? existing.ownerBudgetLimit : input.ownerBudgetLimit,
-          powerSponsorBudgetLimit:
-            input.powerSponsorBudgetLimit === undefined
-              ? existing.powerSponsorBudgetLimit
-              : input.powerSponsorBudgetLimit,
-          estimatedBudget:
-            input.estimatedBudget === undefined ? existing.estimatedBudget : input.estimatedBudget,
-        },
+        before: existing,
+        after: { ...existing, ...updated },
+        subject: "Opportunity updated",
       })
     })
     revalidatePath(`/opportunities/${id}`)

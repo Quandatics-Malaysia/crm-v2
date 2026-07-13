@@ -1,5 +1,5 @@
 import { formatMoney, formatDate } from "@/lib/format"
-import type { FieldSpec, FormatCtx } from "./types"
+import type { FieldSpec } from "./types"
 import type { Tx } from "@/db"
 
 type Fmt = NonNullable<FieldSpec["format"]>

@@ -16,6 +16,7 @@ import {
   projects,
 } from "@/db/schema"
 import { logActivity, type ActivityEntity, type ActivityKind } from "@/server/services/activity"
+import type { ChangeEntry } from "@/server/services/changes/types"
 
 export type ActivityRow = {
   id: string
@@ -27,6 +28,7 @@ export type ActivityRow = {
   dueAt: string | null
   memberName: string | null
   occurredAt: string
+  changes: ChangeEntry[] | null
 }
 
 /** Timeline for one entity, newest first. Gated by the per-type view
@@ -51,6 +53,7 @@ export async function listActivities(
         dueAt: activities.dueAt,
         occurredAt: activities.occurredAt,
         memberName: user.name,
+        changes: activities.changes,
       })
       .from(activities)
       .leftJoin(member, eq(activities.memberId, member.id))
@@ -73,6 +76,7 @@ export async function listActivities(
       dueAt: r.dueAt ? r.dueAt.toISOString() : null,
       memberName: r.memberName,
       occurredAt: r.occurredAt.toISOString(),
+      changes: r.changes as ChangeEntry[] | null,
     }))
   })
 }
@@ -161,6 +165,7 @@ export async function listEntityTimeline(
         occurredAt: activities.occurredAt,
         memberName: user.name,
         sourceType: activities.entityType,
+        changes: activities.changes,
       })
       .from(activities)
       .leftJoin(member, eq(activities.memberId, member.id))
@@ -179,6 +184,7 @@ export async function listEntityTimeline(
       memberName: r.memberName,
       occurredAt: r.occurredAt.toISOString(),
       sourceType: r.sourceType,
+      changes: r.changes as ChangeEntry[] | null,
     }))
   })
 }

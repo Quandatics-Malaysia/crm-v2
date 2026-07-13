@@ -29,6 +29,7 @@ import {
 import { addActivity, type ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import type { ActivityEntity, ActivityKind } from "@/server/services/activity"
 import { formatDate } from "@/lib/format"
+import { ChangeList } from "@/components/activity/change-list"
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   note: StickyNoteIcon,
@@ -38,6 +39,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   system: ActivityIcon,
   stage_change: ArrowRightIcon,
   file: PaperclipIcon,
+  update: ActivityIcon,
 }
 
 const TYPES: { value: ActivityKind; label: string }[] = [
@@ -55,6 +57,7 @@ const TYPE_LABEL: Record<string, string> = {
   system: "System",
   stage_change: "Stage change",
   file: "File",
+  update: "Updated",
 }
 
 function todayISO() {
@@ -265,6 +268,9 @@ export function ActivityTimeline({
                     <div className="whitespace-pre-wrap text-sm text-muted-foreground">
                       {a.body}
                     </div>
+                  ) : null}
+                  {a.type === "update" ? (
+                    <ChangeList changes={a.changes ?? []} />
                   ) : null}
                   {a.outcome ? (
                     <div className="text-sm">

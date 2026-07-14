@@ -40,9 +40,11 @@ type ProductCodeOption = { code: string; name: string }
 function RowActions({
   product,
   productCodes,
+  currencies,
 }: {
   product: ProductRow
   productCodes: ProductCodeOption[]
+  currencies: string[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -82,6 +84,7 @@ function RowActions({
         <ProductForm
           product={product}
           productCodes={productCodes}
+          currencies={currencies}
           open={editOpen}
           onOpenChange={setEditOpen}
           onSaved={() => {
@@ -146,9 +149,11 @@ function RowActions({
 export function ProductsTable({
   data,
   productCodes,
+  currencies,
 }: {
   data: ProductRow[]
   productCodes: ProductCodeOption[]
+  currencies: string[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -235,12 +240,16 @@ export function ProductsTable({
         id: "actions",
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => (
-          <RowActions product={row.original} productCodes={productCodes} />
+          <RowActions
+            product={row.original}
+            productCodes={productCodes}
+            currencies={currencies}
+          />
         ),
         enableHiding: false,
       },
     ],
-    [productCodes, codeName]
+    [productCodes, codeName, currencies]
   )
 
   return (
@@ -262,6 +271,7 @@ export function ProductsTable({
         canCreate ? (
           <ProductForm
             productCodes={productCodes}
+            currencies={currencies}
             trigger={
               <Button size="sm">
                 <Plus className="size-4" />
@@ -276,6 +286,7 @@ export function ProductsTable({
         canCreate ? (
           <ProductForm
             productCodes={productCodes}
+            currencies={currencies}
             open={newOpen}
             onOpenChange={setNewOpen}
             trigger={

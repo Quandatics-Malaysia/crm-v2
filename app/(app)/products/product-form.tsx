@@ -28,7 +28,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Combobox } from "@/components/ui/combobox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { createProduct, updateProduct, type ProductRow } from "./actions"
+import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 
 const NONE = "__none__"
 
@@ -52,13 +60,13 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-function defaults(product?: ProductRow): FormValues {
+function defaults(product?: ProductRow, currencies: string[] = DEFAULT_CURRENCIES): FormValues {
   return {
     name: product?.name ?? "",
     productCode: product?.productCode ?? NONE,
     subcategory: product?.subcategory ?? "",
     uom: product?.uom ?? "",
-    currency: product?.currency ?? "MYR",
+    currency: product?.currency ?? currencies[0] ?? "MYR",
     standardPrice: product?.standardPrice ?? "0",
     description: product?.description ?? "",
     isActive: product?.isActive ?? true,
@@ -68,6 +76,7 @@ function defaults(product?: ProductRow): FormValues {
 export function ProductForm({
   product,
   productCodes,
+  currencies = DEFAULT_CURRENCIES,
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -76,6 +85,8 @@ export function ProductForm({
   product?: ProductRow
   /** Tenant product-code picklist (code + name). */
   productCodes: { code: string; name: string }[]
+  /** Tenant currency picklist (Settings → General); first = default. */
+  currencies?: string[]
   trigger?: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -86,11 +97,11 @@ export function ProductForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: defaults(product),
+    defaultValues: defaults(product, currencies),
   })
 
   React.useEffect(() => {
-    if (open) form.reset(defaults(product))
+    if (open) form.reset(defaults(product, currencies))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -106,6 +117,14 @@ export function ProductForm({
       items.push({ value: current, label: current })
     return items
   }, [productCodes, product?.productCode])
+
+  // Include the product's stored currency even if it's no longer in the
+  // tenant picklist so a stale value stays selectable.
+  const currencyItems = React.useMemo(() => {
+    const current = product?.currency
+    if (current && !currencies.includes(current)) return [...currencies, current]
+    return currencies
+  }, [currencies, product?.currency])
 
   async function onSubmit(values: FormValues) {
     const payload = {
@@ -216,9 +235,24 @@ export function ProductForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel required>Currency</FormLabel>
-                    <FormControl>
-                      <Input placeholder="MYR" maxLength={3} className="uppercase" {...field} />
-                    </FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      items={currencyItems.map((c) => ({ value: c, label: c }))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pick a currency…" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {currencyItems.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

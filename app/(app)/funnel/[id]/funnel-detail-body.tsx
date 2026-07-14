@@ -1103,6 +1103,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     revenue={marginRevenue}
                     revenueLabel={marginRevenueLabel}
                     currency={currency}
+                    currencies={currencies}
                     canManage={canManageCosts}
                   />
                 </TabsContent>

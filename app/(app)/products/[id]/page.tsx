@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { listProductCodes } from "@/lib/lookups"
+import { listProductCodes, listCurrencies } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -17,9 +17,10 @@ export default async function ProductDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [product, productCodes, usage, deals, ctx] = await Promise.all([
+  const [product, productCodes, currencies, usage, deals, ctx] = await Promise.all([
     getProduct(id),
     listProductCodes(),
+    listCurrencies(),
     listProductUsage(id),
     listProductDeals(id),
     requireContext(),
@@ -54,6 +55,7 @@ export default async function ProductDetailPage({
             <ProductForm
               product={product}
               productCodes={productCodes}
+              currencies={currencies}
               trigger={<Button variant="outline">Edit</Button>}
             />
           ) : null}

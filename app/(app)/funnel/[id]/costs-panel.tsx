@@ -51,6 +51,7 @@ export function CostsPanel({
   revenue,
   revenueLabel = "Quoted revenue",
   currency,
+  currencies,
   canManage,
 }: {
   funnelId: string
@@ -61,6 +62,8 @@ export function CostsPanel({
   /** Label for the revenue stat (e.g. "Recognized revenue" for interco deals). */
   revenueLabel?: string
   currency: string
+  /** Tenant currency picklist (Settings → General), for the cost-entry picker. */
+  currencies: string[]
   canManage: boolean
 }) {
   const router = useRouter()
@@ -76,6 +79,14 @@ export function CostsPanel({
   const [rate, setRate] = React.useState("1")
 
   const previewBase = (Number(amount || 0) * Number(rate || 1)).toFixed(2)
+
+  // Include the deal's own currency even if it's fallen out of the tenant
+  // picklist so a stale value stays selectable.
+  const currencyItems = React.useMemo(() => {
+    const items = [...currencies]
+    if (curr && !items.includes(curr)) items.push(curr)
+    return items
+  }, [currencies, curr])
 
   // Tenant outlay = supplier + partner POs; partner_supplier is informational.
   const ourCost = costs
@@ -320,12 +331,22 @@ export function CostsPanel({
           <div className="grid items-end gap-2 sm:grid-cols-[5rem_1fr_1fr_auto_auto]">
             <div className="grid gap-1">
               <label className="text-xs text-muted-foreground">Currency</label>
-              <Input
+              <Select
                 value={curr}
-                onChange={(e) => setCurr(e.target.value.toUpperCase())}
-                maxLength={3}
-                className="uppercase"
-              />
+                onValueChange={(v) => setCurr(String(v))}
+                items={currencyItems.map((c) => ({ value: c, label: c }))}
+              >
+                <SelectTrigger size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {currencyItems.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-1">
               <label className="text-xs text-muted-foreground">Amount</label>

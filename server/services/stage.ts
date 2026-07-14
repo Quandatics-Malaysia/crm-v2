@@ -13,8 +13,11 @@ import {
   rolePermissions,
   permissions,
   tenantSettings,
+  paymentMilestones,
 } from "@/db/schema"
 import { recomputeOpportunityTotal } from "@/server/services/opportunity-container"
+import { opportunityNetValue } from "@/server/services/value"
+import { milestoneName } from "@/lib/so-milestones"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   buildStageGate,
@@ -27,6 +30,8 @@ import {
   isTerminalKind,
   assertTransitionAllowed,
   canBypassApproval,
+  entersMilestoneAutoCreateStage,
+  entersMilestoneDeleteStage,
   type StageGateState,
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
@@ -176,6 +181,89 @@ async function createApprovalRequest(
   return { approvalRequestId: req.id }
 }
 
+/**
+ * Salesforce "Create New Project Item List Records in Renewal, 4A and Closed
+ * Won" flow: auto-seed the funnel's default full-value payment milestone the
+ * first time it enters 4A or Won — but ONLY if it doesn't already have one
+ * (SF's "Has Project Item List?" checkbox is modeled here as "milestones
+ * already exist", so this never fires twice and never duplicates a manually
+ * split set). Mirrors `seedDefaultFunnelMilestone`
+ * (app/(app)/payment-milestones/actions.ts) but runs directly against the
+ * stage-move `tx` instead of going through that auth-wrapped server action.
+ */
+async function autoCreateMilestoneOnStageEntry(
+  tx: Tx,
+  ctx: ServerContext,
+  opp: OppRow
+): Promise<void> {
+  const [existing] = await tx
+    .select({ id: paymentMilestones.id })
+    .from(paymentMilestones)
+    .where(eq(paymentMilestones.funnelId, opp.id))
+    .limit(1)
+  if (existing) return
+
+  // Funnel's estimated/quoted value: primary quote's net value if one is
+  // attached, else the manual estimate — same resolution order used
+  // everywhere else a funnel's "current value" is needed.
+  const { value: netValue } = await opportunityNetValue(tx, opp.id)
+  const amount = Number(netValue) || 0
+  if (amount <= 0) return
+
+  const [container] = await tx
+    .select({ projectCode: opportunities.projectCode })
+    .from(opportunities)
+    .where(eq(opportunities.id, opp.opportunityId))
+    .limit(1)
+
+  const title = "Full Payment"
+  const [row] = await tx
+    .insert(paymentMilestones)
+    .values({
+      tenantId: ctx.tenantId,
+      funnelId: opp.id,
+      quotationId: opp.primaryQuotationId,
+      title,
+      name: milestoneName(container?.projectCode ?? null, title),
+      amount: netValue,
+      sortOrder: 0,
+    })
+    .returning({ id: paymentMilestones.id })
+
+  await logActivity(tx, ctx, {
+    entityType: "opportunity",
+    entityId: opp.id,
+    type: "system",
+    subject: `Milestone added: ${title}`,
+  })
+  await writeAudit(tx, ctx, {
+    action: "milestone.created",
+    entityType: "opportunity",
+    entityId: opp.id,
+    after: { milestoneId: row.id, title, amount: netValue },
+  })
+}
+
+/**
+ * Salesforce "Delete Project Item List and Payment Milestones on Funnel When
+ * Closed Lost and KIV" flow. Blind-spot guard the client explicitly asked
+ * for: a milestone whose status is `invoiced` or `paid` is a billed row and
+ * must never be deleted here — only `pending` milestones are removed.
+ */
+async function deletePendingMilestonesOnClose(
+  tx: Tx,
+  opp: OppRow
+): Promise<void> {
+  await tx
+    .delete(paymentMilestones)
+    .where(
+      and(
+        eq(paymentMilestones.funnelId, opp.id),
+        eq(paymentMilestones.status, "pending")
+      )
+    )
+}
+
 async function applyStageMove(
   tx: Tx,
   ctx: ServerContext,
@@ -229,6 +317,16 @@ async function applyStageMove(
       .where(and(eq(accounts.id, opp.accountId), eq(accounts.isCustomer, false)))
     // Estimated amount may have changed → refresh the container rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, opp.opportunityId)
+  }
+
+  // ── Salesforce "Project Item List" (payment milestone) lifecycle ─────────
+  // Create on entering 4A/Won (renewal funnels included — same trigger, no
+  // separate "Renewal" stage exists here); delete PENDING-only milestones on
+  // entering Lost/KIV, leaving invoiced/paid rows untouched.
+  if (entersMilestoneAutoCreateStage(toStage)) {
+    await autoCreateMilestoneOnStageEntry(tx, ctx, opp)
+  } else if (entersMilestoneDeleteStage(toStage.kind)) {
+    await deletePendingMilestonesOnClose(tx, opp)
   }
 
   await tx.insert(funnelStageHistory).values({

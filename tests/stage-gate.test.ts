@@ -7,6 +7,8 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   requiresCloseRemarks,
+  entersMilestoneAutoCreateStage,
+  entersMilestoneDeleteStage,
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
 } from "@/lib/stage-gate"
@@ -136,5 +138,30 @@ describe("requiresCloseRemarks", () => {
     expect(requiresCloseRemarks("PARKED")).toBe(true)
     expect(requiresCloseRemarks("WON")).toBe(false)
     expect(requiresCloseRemarks("OPEN")).toBe(false)
+  })
+})
+
+describe("milestone lifecycle triggers (SF 'Project Item List' flows)", () => {
+  it("entering 4A or Won triggers auto-create, regardless of stage id/name", () => {
+    expect(entersMilestoneAutoCreateStage({ code: "4a", kind: "OPEN" })).toBe(true)
+    expect(entersMilestoneAutoCreateStage({ code: "won", kind: "WON" })).toBe(true)
+    // A funnel's `isRenewal` flag doesn't change the trigger — entering 4A/Won
+    // is the whole condition, whether or not the deal is a renewal.
+    expect(entersMilestoneAutoCreateStage({ code: "3b", kind: "OPEN" })).toBe(false)
+  })
+
+  it("only 4A/Won trigger auto-create — earlier open stages and terminal non-Won stages don't", () => {
+    for (const code of ["0e", "1d", "2c", "3b"] as const) {
+      expect(entersMilestoneAutoCreateStage({ code, kind: "OPEN" })).toBe(false)
+    }
+    expect(entersMilestoneAutoCreateStage({ code: "lost", kind: "LOST" })).toBe(false)
+    expect(entersMilestoneAutoCreateStage({ code: "kiv", kind: "PARKED" })).toBe(false)
+  })
+
+  it("entering Lost or KIV triggers the pending-only delete", () => {
+    expect(entersMilestoneDeleteStage("LOST")).toBe(true)
+    expect(entersMilestoneDeleteStage("PARKED")).toBe(true)
+    expect(entersMilestoneDeleteStage("WON")).toBe(false)
+    expect(entersMilestoneDeleteStage("OPEN")).toBe(false)
   })
 })

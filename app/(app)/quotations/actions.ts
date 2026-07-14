@@ -493,7 +493,7 @@ export async function createQuotation(input: {
       taxInclusive,
     })
 
-    const quoteNumber = await nextQuoteNumber(tx, ctx)
+    const { quoteNumber, version } = await nextQuoteNumber(tx, ctx, input.funnelId)
 
     const [created] = await tx
       .insert(quotations)
@@ -501,6 +501,7 @@ export async function createQuotation(input: {
         tenantId: ctx.tenantId,
         funnelId: input.funnelId,
         quoteNumber,
+        version,
         status: "draft",
         currency: opp.currency,
         projectNatureCode,

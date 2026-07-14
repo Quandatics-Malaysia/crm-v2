@@ -247,6 +247,14 @@ export const funnels = pgTable(
       .references(() => member.id, { onDelete: "restrict" }),
     // references quotations (defined in quotations.ts) — FK-less to avoid an import cycle
     primaryQuotationId: uuid("primary_quotation_id"),
+    /**
+     * Salesforce-format quote numbering: ALL quotes on this funnel share one
+     * running number (assigned once, on the funnel's first quote — global
+     * max + 1 off tenant_settings.quote_next_number). NULL until the first
+     * quote is created. See server/services/numbering.ts nextQuoteNumber and
+     * lib/quote-number.ts formatQuoteRef.
+     */
+    quoteRunningNumber: integer("quote_running_number"),
     /** QUOTED amount — synced from the primary quotation's net (display/actuals). */
     amount: numeric("amount", { precision: 14, scale: 2 }),
     /**

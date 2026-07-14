@@ -773,12 +773,14 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
   const currentYear = new Date().getFullYear()
   const entityCode = (settings.entityCode || "ENTITY").toUpperCase()
   const values = useWatch({ control: form.control })
-  // Quote numbers now mint as {ENTITY}Q-{running} (see nextQuoteNumber), mirroring
-  // the SO scheme; the entity code drives the prefix, not the legacy quotePrefix.
-  const quotePreview = `${entityCode}Q-${pad(
+  // Quote numbers mint as Q1{running}-{rev} (see nextQuoteNumber /
+  // lib/quote-number.ts) — a Salesforce-format reference, not entity-coded.
+  // This preview shows a brand-new funnel's first quote (rev 1); the running
+  // number itself is shared by every quote on the same funnel, not entity code.
+  const quotePreview = `Q1${pad(
     Number(values.quoteNextNumber) || 0,
     Number(values.quotePadWidth) || 1
-  )}`
+  )}-1`
   // SO numbers mint as {ENTITY}SO-{running} (see nextSoNumber).
   const soPreview = `${entityCode}SO-${pad(
     Number(values.soNextNumber) || 0,

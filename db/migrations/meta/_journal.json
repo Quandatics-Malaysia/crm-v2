@@ -421,6 +421,13 @@
 			"when": 1784050000000,
 			"tag": "0059_activity_changes",
 			"breakpoints": true
+		},
+		{
+			"idx": 60,
+			"version": "7",
+			"when": 1784060000000,
+			"tag": "0060_funnel_quote_running_number",
+			"breakpoints": true
 		}
 	]
 }

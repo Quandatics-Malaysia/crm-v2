@@ -1,8 +1,9 @@
 import "server-only"
 import { eq, sql } from "drizzle-orm"
 import type { Tx } from "@/db"
-import { projectCounters, tenantSettings } from "@/db/schema"
+import { funnels, projectCounters, quotations, tenantSettings } from "@/db/schema"
 import { toDateString } from "@/lib/dates"
+import { formatQuoteRef, QUOTE_PAD_WIDTH } from "@/lib/quote-number"
 import type { ServerContext } from "@/lib/server-context"
 
 /**
@@ -22,28 +23,88 @@ export function isDuplicateNumberError(e: unknown): boolean {
 }
 
 /**
- * Allocate the next quotation number in the format `{EntityCode}Q-{running}`
- * (e.g. `QMQ-0001`) — the entity code prefix + a "Q" document marker, mirroring
- * nextSoNumber's `{EntityCode}SO-` scheme. Each entity keeps its own counter.
- * Call inside the same tx that inserts the quotation.
+ * Allocate the next quotation reference, matching the client's Salesforce
+ * format (see lib/quote-number.ts for the exact rules):
+ *
+ *  - The RUNNING number is per-FUNNEL: every quote on `funnelId` shares one
+ *    running number. The funnel's first quote assigns a new one (the
+ *    tenant's atomic `quoteNextNumber` counter, i.e. global max + 1);
+ *    subsequent quotes on the same funnel reuse the funnel's stored
+ *    `funnels.quoteRunningNumber`.
+ *  - The REVISION is per-quote-in-funnel: `quotations.version`
+ *    (max(version) + 1 for the funnel, or 1 for its first quote).
+ *  - The FORMAT (old `Q{yy}-...` vs. new `Q1...`) is fixed by the funnel's
+ *    earliest quote's creation date — see formatQuoteRef.
+ *
+ * Call inside the same tx that inserts the quotation, after the funnel row
+ * is known to exist. Returns both the formatted reference AND the revision
+ * number the caller MUST write to the new row's `quotations.version` column
+ * — the reference's `-{rev}` suffix and the stored version must always
+ * agree, since the version column is what the NEXT call's `max(version)`
+ * reads back.
  */
-export async function nextQuoteNumber(tx: Tx, ctx: ServerContext): Promise<string> {
-  const [s] = await tx
-    .update(tenantSettings)
-    .set({ quoteNextNumber: sql`${tenantSettings.quoteNextNumber} + 1` })
+export async function nextQuoteNumber(
+  tx: Tx,
+  ctx: ServerContext,
+  funnelId: string
+): Promise<{ quoteNumber: string; version: number }> {
+  const [f] = await tx
+    .select({ quoteRunningNumber: funnels.quoteRunningNumber })
+    .from(funnels)
+    .where(eq(funnels.id, funnelId))
+    .limit(1)
+  if (!f) throw new Error("Funnel not found")
+
+  const [ts] = await tx
+    .select({ pad: tenantSettings.quotePadWidth })
+    .from(tenantSettings)
     .where(eq(tenantSettings.organizationId, ctx.tenantId))
-    .returning({
-      entityCode: tenantSettings.entityCode,
-      next: tenantSettings.quoteNextNumber,
-      pad: tenantSettings.quotePadWidth,
+    .limit(1)
+  // No settings row — fail loudly rather than mint a bogus number that
+  // collides for every such tenant.
+  if (!ts) throw new Error("Quotation numbering is not configured for this tenant")
+
+  let running = f.quoteRunningNumber
+  if (running == null) {
+    // First quote on this funnel — atomically claim the next running number
+    // off the tenant's global counter and stamp it onto the funnel so every
+    // later quote on this funnel reuses it.
+    const [s] = await tx
+      .update(tenantSettings)
+      .set({ quoteNextNumber: sql`${tenantSettings.quoteNextNumber} + 1` })
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .returning({ next: tenantSettings.quoteNextNumber })
+    if (!s) throw new Error("Quotation numbering is not configured for this tenant")
+    running = s.next - 1
+    await tx
+      .update(funnels)
+      .set({ quoteRunningNumber: running, updatedAt: new Date() })
+      .where(eq(funnels.id, funnelId))
+  }
+
+  // Revision + format are both derived from the funnel's existing quotes.
+  // Soft-deleted quotes are INCLUDED here deliberately: quoteNumber keeps a
+  // hard (non-partial) unique constraint even after soft-delete, so a
+  // deleted quote's version/date must still count to avoid re-minting a
+  // reference that collides with it.
+  const [agg] = await tx
+    .select({
+      maxVersion: sql<number>`coalesce(max(${quotations.version}), 0)`,
+      minCreatedAt: sql<Date | null>`min(${quotations.createdAt})`,
     })
-  // A zero-row UPDATE means the tenant has no settings row — fail loudly rather
-  // than mint a bogus ENTQ-0000 that collides for every such tenant.
-  if (!s) throw new Error("Quotation numbering is not configured for this tenant")
-  const assigned = s.next - 1
-  const entity = (s.entityCode || "ENT").toUpperCase()
-  const running = String(assigned).padStart(s.pad ?? 4, "0")
-  return `${entity}Q-${running}`
+    .from(quotations)
+    .where(eq(quotations.funnelId, funnelId))
+
+  const rev = (agg?.maxVersion ?? 0) + 1
+  const earliestQuoteDate = agg?.minCreatedAt ?? null
+
+  const quoteNumber = formatQuoteRef({
+    running,
+    rev,
+    earliestQuoteDate,
+    pad: ts.pad ?? QUOTE_PAD_WIDTH,
+  })
+  return { quoteNumber, version: rev }
 }
 
 /**

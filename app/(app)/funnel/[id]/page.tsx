@@ -26,6 +26,7 @@ import {
   listPersonsWithAccount,
 } from "../actions"
 import { listFunnelMilestones } from "@/app/(app)/payment-milestones/actions"
+import { listFunnelApprovalHistory } from "@/app/(app)/approvals/actions"
 import { buildStageGate } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "../stage-advance-dialog"
 import { StageReopenDialog } from "../stage-reopen-dialog"
@@ -62,6 +63,7 @@ export default async function OpportunityDetailPage({
     entities,
     currencies,
     milestones,
+    approvalHistory,
   ] = await Promise.all([
     requireContext(),
     listAccountOptions(),
@@ -79,6 +81,7 @@ export default async function OpportunityDetailPage({
     listEntities(),
     listCurrencies(),
     listFunnelMilestones(id),
+    listFunnelApprovalHistory(id),
   ])
 
   // Resolve the project-nature display name for the overview (falls back to the
@@ -308,6 +311,7 @@ export default async function OpportunityDetailPage({
           documents={documents}
           milestones={milestones}
           canManageMilestones={canManageMilestones}
+          approvalHistory={approvalHistory}
         />
 
         <div>

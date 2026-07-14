@@ -12,8 +12,9 @@ import {
   user,
   tenantSettings,
 } from "@/db/schema"
-import { requireContext } from "@/lib/server-context"
+import { requireContext, assertCan } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
+import { canAccessAttachable } from "@/lib/access-scope"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { decideApproval, type DecisionOutcome } from "@/server/services/stage"
 
@@ -133,6 +134,33 @@ export async function listMyApprovals(): Promise<ApprovalRow[]> {
     const rows = await buildApprovalQuery(
       tx,
       eq(stageApprovalRequests.requesterMemberId, ctx.memberId)
+    )
+    const names = await nameMap(tx, [
+      ...rows.map((r) => r.requesterUserId),
+      ...rows.map((r) => r.approverMemberId),
+    ])
+    return rows.map((r) => shape(r, names))
+  })
+}
+
+/**
+ * Full stage-approval history for one funnel, every status, newest first — for
+ * the funnel detail's "Approval history" tab. Gated the same way as the
+ * funnel detail's other record-scoped reads (attachments/activity): the
+ * opportunity view permission, plus record-level ownership/management scope
+ * via {@link canAccessAttachable}.
+ */
+export async function listFunnelApprovalHistory(
+  funnelId: string
+): Promise<ApprovalRow[]> {
+  const ctx = await requireContext()
+  assertCan(ctx, PERMISSIONS.OPPORTUNITY_VIEW)
+  return runInTenant(ctx.tenantId, async (tx) => {
+    if (!(await canAccessAttachable(tx, ctx, "opportunity", funnelId, "view")))
+      return []
+    const rows = await buildApprovalQuery(
+      tx,
+      eq(stageApprovalRequests.funnelId, funnelId)
     )
     const names = await nameMap(tx, [
       ...rows.map((r) => r.requesterUserId),

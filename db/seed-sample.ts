@@ -612,10 +612,11 @@ async function main() {
     .set({ primaryQuotationId: quoteId("initech-mssp-accepted") })
     .where(eq(funnels.id, oppId("initech-mssp")))
 
-  // ── 6+7. project + milestones off the accepted quote (won deal) ───────────
+  // ── 6. project off the accepted quote (won deal) ───────────────────────────
   // Only when the projects plugin is enabled — otherwise a core-only seed would
-  // create orphan project/milestone rows. The PROJECT_ID string is declared
+  // create an orphan project row. The PROJECT_ID string is declared
   // unconditionally (a deterministic id, harmless) so section 8 can reference it.
+  // Payment milestones (below) are funnel-scoped and no longer depend on this.
   const PROJECT_ID = det("project:stark-msp")
   if (isModuleEnabled("projects")) {
     await db
@@ -638,24 +639,60 @@ async function main() {
         notes: "Delivery kicked off after quote acceptance.",
       })
       .onConflictDoNothing()
+  }
 
-    // payment milestones reconciling to the accepted quote total
-    const milestones = [
-      { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
-      { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
-    ]
-    for (const m of milestones) {
+  // ── 7. payment milestones on FUNNELS ────────────────────────────────────
+  // Milestones are a funnel child (see app/(app)/payment-milestones/actions.ts)
+  // and work independently of the (off) projects module — always seeded, never
+  // gated behind isModuleEnabled("projects"). Each milestone attaches to the
+  // funnel that closed (via funnelId) and the funnel's accepted quote (via
+  // quotationId, for billing traceability); projectId is left null. Amounts
+  // reconcile to the FUNNEL's quoted/estimated amount, not a project's value.
+  const funnelMilestones: {
+    funnel: string
+    quote: string
+    items: {
+      k: string
+      title: string
+      amount: string
+      due: string
+      status: "pending" | "invoiced" | "paid"
+      sort: number
+    }[]
+  }[] = [
+    {
+      // funnel amount 40280.00 == accepted quote total (38000 subtotal + 6% SST)
+      funnel: "stark-msp",
+      quote: "stark-accepted",
+      items: [
+        { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
+        { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
+      ],
+    },
+    {
+      // funnel amount 88000.00 (reconciliation baseline; quote total incl. SST is higher)
+      funnel: "initech-mssp",
+      quote: "initech-mssp-accepted",
+      items: [
+        { k: "initech-mssp-deposit", title: "Deposit", amount: "44000.00", due: "2026-06-20", status: "paid", sort: 0 },
+        { k: "initech-mssp-completion", title: "On completion", amount: "44000.00", due: "2026-12-20", status: "invoiced", sort: 1 },
+      ],
+    },
+  ]
+  for (const fm of funnelMilestones) {
+    for (const m of fm.items) {
       await db
         .insert(paymentMilestones)
         .values({
           id: det(`milestone:${m.k}`),
           tenantId: TENANT_ID,
-          projectId: PROJECT_ID,
-          quotationId: quoteId("stark-accepted"),
+          projectId: null,
+          funnelId: oppId(fm.funnel),
+          quotationId: quoteId(fm.quote),
           title: m.title,
           amount: m.amount,
           dueDate: m.due,
-          status: m.status as "pending" | "invoiced" | "paid",
+          status: m.status,
           sortOrder: m.sort,
         })
         .onConflictDoNothing()
@@ -743,13 +780,20 @@ async function main() {
   const productValues = [
     { k: "coaching-bi", name: "Coaching - Business Intelligence", productCode: "COACHING", subcategory: "Data Analytics", uom: "Day", price: "15000.00", description: "HRDF Claimable RM10,500" },
     { k: "training-pbi", name: "Training - Power BI Fundamentals", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "8000.00", description: "2-day instructor-led course" },
-    { k: "license-annual", name: "Platform License - Annual", productCode: "LICENSE", subcategory: "Subscription", uom: "Year", price: "36000.00", description: "Per-tenant annual subscription" },
-    { k: "support-prem", name: "Premium Support", productCode: "SUPPORT", subcategory: "Managed Services", uom: "Month", price: "5000.00", description: "Priority SLA, 8x5 coverage" },
-    { k: "consulting-strategy", name: "Consulting - Data Strategy", productCode: "CONSULT", subcategory: "Advisory", uom: "Day", price: "18000.00", description: "Executive data-strategy advisory" },
-    { k: "impl-crm", name: "Implementation - CRM Rollout", productCode: "IMPL", subcategory: "Professional Services", uom: "Project", price: "45000.00", description: "End-to-end CRM implementation" },
-    { k: "integration-api", name: "Integration - API Connector", productCode: "INTEG", subcategory: "Professional Services", uom: "Each", price: "12000.00", description: "Bespoke API integration" },
-    { k: "managed-cloud", name: "Managed Cloud Operations", productCode: "MCLOUD", subcategory: "Managed Services", uom: "Month", price: "7000.00", description: "24x7 managed cloud ops" },
-    { k: "workshop-ai", name: "Workshop - AI for Business", productCode: "WORKSHOP", subcategory: "Data Analytics", uom: "Day", price: "9000.00", description: "1-day executive AI workshop" },
+    // was LICENSE — recurring annual subscription reads as renewal revenue under the new picklist
+    { k: "license-annual", name: "Platform License - Annual", productCode: "RENEWAL", subcategory: "Subscription", uom: "Year", price: "36000.00", description: "Per-tenant annual subscription" },
+    // was SUPPORT — a delivered service engagement, folds into PS
+    { k: "support-prem", name: "Premium Support", productCode: "PS", subcategory: "Managed Services", uom: "Month", price: "5000.00", description: "Priority SLA, 8x5 coverage" },
+    // was CONSULT — advisory work is professional services
+    { k: "consulting-strategy", name: "Consulting - Data Strategy", productCode: "PS", subcategory: "Advisory", uom: "Day", price: "18000.00", description: "Executive data-strategy advisory" },
+    // was IMPL — already Professional Services subcategory
+    { k: "impl-crm", name: "Implementation - CRM Rollout", productCode: "PS", subcategory: "Professional Services", uom: "Project", price: "45000.00", description: "End-to-end CRM implementation" },
+    // was INTEG — already Professional Services subcategory
+    { k: "integration-api", name: "Integration - API Connector", productCode: "PS", subcategory: "Professional Services", uom: "Each", price: "12000.00", description: "Bespoke API integration" },
+    // was MCLOUD — ongoing managed delivery is professional services
+    { k: "managed-cloud", name: "Managed Cloud Operations", productCode: "PS", subcategory: "Managed Services", uom: "Month", price: "7000.00", description: "24x7 managed cloud ops" },
+    // was WORKSHOP — a short instructor-led session is training
+    { k: "workshop-ai", name: "Workshop - AI for Business", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "9000.00", description: "1-day executive AI workshop" },
   ]
   for (const p of productValues) {
     await db

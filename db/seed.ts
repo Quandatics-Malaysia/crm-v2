@@ -70,10 +70,13 @@ async function main() {
         { code: "M", name: "Mixed" },
       ],
       productCodes: [
-        { code: "COACHING", name: "Coaching" },
+        { code: "RENEWAL", name: "Renewal" },
+        { code: "PS", name: "PS" },
         { code: "TRAINING", name: "Training" },
-        { code: "LICENSE", name: "Licensing" },
-        { code: "SUPPORT", name: "Support" },
+        { code: "COACHING", name: "Coaching" },
+        { code: "HARDWARE", name: "Hardware" },
+        { code: "NPS", name: "NPS" },
+        { code: "OTHERS", name: "Others" },
       ],
       industries: [
         "Agriculture",

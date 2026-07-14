@@ -5,7 +5,6 @@ import {
   listAccountOptions,
   listMembers,
   listFunnelsWithStages,
-  listProjectNatures,
   listCustomFunnelFields,
   listEntities,
   listCurrencies,
@@ -26,7 +25,6 @@ export default async function OpportunitiesPage() {
     persons,
     members,
     pipelines,
-    projectNatures,
     customFunnelFields,
     entities,
     currencies,
@@ -36,7 +34,6 @@ export default async function OpportunitiesPage() {
     listPersonsWithAccount(),
     listMembers(),
     listFunnelsWithStages(),
-    listProjectNatures(),
     listCustomFunnelFields(),
     listEntities(),
     listCurrencies(),
@@ -52,7 +49,6 @@ export default async function OpportunitiesPage() {
       persons={persons}
       members={members}
       pipelines={pipelines}
-      projectNatures={projectNatures}
       customFieldDefs={customFunnelFields}
       entityOptions={entities}
       financeEnabled={isModuleEnabled("finance")}

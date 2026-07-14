@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
-import { cn } from "@/lib/utils"
 import { groupCustomFields, type CustomFunnelField } from "@/lib/stage-gate"
 import { showActionError } from "@/lib/show-action-error"
 import {
@@ -63,7 +62,6 @@ const schema = z.object({
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
-  natureCodes: z.array(z.string()),
   expectedCloseDate: z.string().optional(),
   estimatedAmount: z.string().optional(),
   recognizedPercent: z
@@ -99,7 +97,6 @@ export function OpportunityForm({
   persons,
   members,
   pipelines,
-  projectNatures = [],
   customFieldDefs = [],
   entityOptions = [],
   financeEnabled = false,
@@ -115,8 +112,6 @@ export function OpportunityForm({
   persons: (Option & { accountId: string })[]
   members: MemberOption[]
   pipelines: FunnelWithStages[]
-  /** Tenant project-nature picklist (code + name) from listProjectNatures(). */
-  projectNatures?: { code: string; name: string }[]
   /** Tenant custom funnel fields to capture on the funnel. */
   customFieldDefs?: CustomFunnelField[]
   /** Other entities the user belongs to — the only valid intercompany partners. */
@@ -172,11 +167,6 @@ export function OpportunityForm({
           currentStageId: opportunity.stageId,
           ownerMemberId: opportunity.ownerMemberId,
           currency: opportunity.currency ?? "MYR",
-          natureCodes:
-            opportunity.projectNatures ??
-            (opportunity.projectNatureCode
-              ? [opportunity.projectNatureCode]
-              : []),
           expectedCloseDate: opportunity.expectedCloseDate ?? "",
           estimatedAmount: opportunity.estimatedAmount ?? "",
           recognizedPercent: opportunity.recognizedPercent ?? "",
@@ -203,7 +193,6 @@ export function OpportunityForm({
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
           currency: currencies[0] ?? "MYR",
-          natureCodes: [],
           expectedCloseDate: "",
           estimatedAmount: "",
           recognizedPercent: "",
@@ -263,7 +252,6 @@ export function OpportunityForm({
         currentStageId: values.currentStageId,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
-        projectNatures: values.natureCodes,
         expectedCloseDate: values.expectedCloseDate || null,
         estimatedAmount: values.estimatedAmount || null,
         recognizedPercent: values.recognizedPercent || null,
@@ -287,7 +275,6 @@ export function OpportunityForm({
         primaryPersonId: values.primaryPersonId || null,
         ownerMemberId: values.ownerMemberId,
         currency: values.currency,
-        projectNatures: values.natureCodes,
         expectedCloseDate: values.expectedCloseDate || null,
         estimatedAmount: values.estimatedAmount || null,
         recognizedPercent: values.recognizedPercent || null,
@@ -564,53 +551,6 @@ export function OpportunityForm({
                   <FormMessage />
                 </FormItem>
               )}
-            />
-
-            <FormField
-              control={form.control}
-              name="natureCodes"
-              render={({ field }) => {
-                if (opportunityId) return <></>
-                const selected = field.value ?? []
-                // Single-select: picking replaces; re-clicking clears.
-                const toggle = (code: string) =>
-                  field.onChange(selected.includes(code) ? [] : [code])
-                return (
-                  <FormItem>
-                    <FormLabel>Opportunity Nature</FormLabel>
-                    {projectNatures.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No project natures configured. Add them in Settings.
-                      </p>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {projectNatures.map((p) => {
-                          const on = selected.includes(p.code)
-                          return (
-                            <button
-                              key={p.code}
-                              type="button"
-                              onClick={() => toggle(p.code)}
-                              className={cn(
-                                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                                on
-                                  ? "border-primary bg-primary text-primary-foreground"
-                                  : "border-input bg-background text-muted-foreground hover:bg-accent"
-                              )}
-                            >
-                              {p.name}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <FormDescription>
-                      Drives the nature segment of the project code.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )
-              }}
             />
 
             {/* Custom fields are captured progressively when advancing stages

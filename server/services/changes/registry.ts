@@ -36,7 +36,6 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     accountId: { label: "Account", format: fk(accountName) },
     status: { label: "Status", format: enumLabel(STATUS) },
     expectedCloseDate: { label: "Expected close", format: date() },
-    projectNatureCode: { label: "Project nature" },
     lostReason: { label: "Lost reason" },
     kivReviewDate: { label: "KIV review", format: date() },
     isRenewal: { label: "Renewal", format: bool() },

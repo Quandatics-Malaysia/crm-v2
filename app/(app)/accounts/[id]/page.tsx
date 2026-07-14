@@ -43,13 +43,15 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, parentOptions, industries, countries, ctx] = await Promise.all([
-    getAccount(id),
-    listParentOptions(id),
-    listIndustries(),
-    listCountries(),
-    requireContext(),
-  ])
+  const [data, parentOptions, industries, countries, members, ctx] =
+    await Promise.all([
+      getAccount(id),
+      listParentOptions(id),
+      listIndustries(),
+      listCountries(),
+      listMembers(),
+      requireContext(),
+    ])
 
   if (!data) notFound()
   const {
@@ -148,7 +150,7 @@ export default async function AccountDetailPage({
       : []),
     { label: "Industry", value: account.industry ?? "—", editKey: "industry" },
     { label: "Phone", value: account.phone ?? "—", editKey: "phone" },
-    { label: "Account manager", value: ownerName ?? "—" },
+    { label: "Account manager", value: ownerName ?? "—", editKey: "owner" },
     {
       label: "Registration number",
       value: account.registrationNumber ?? "—",
@@ -211,6 +213,7 @@ export default async function AccountDetailPage({
     parentAccountId: account.parentAccountId,
     accountType: account.accountType,
     endUserAccountId: account.endUserAccountId,
+    ownerMemberId: account.ownerMemberId,
     industry: account.industry,
     website: account.website,
     phone: account.phone,
@@ -268,6 +271,7 @@ export default async function AccountDetailPage({
           canEdit={ctx.can(PERMISSIONS.ACCOUNT_UPDATE)}
           industries={industries}
           countries={countries.map((c) => c.name)}
+          members={members}
           contacts={contacts}
           opportunities={accountOpportunities}
           pipelines={pipelines}

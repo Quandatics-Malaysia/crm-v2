@@ -32,6 +32,7 @@ import {
 } from "@/components/detail-page"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
+import type { MemberOption } from "@/lib/lookups"
 import { StageBadge } from "@/app/(app)/funnel/stage-badge"
 import { AccountContacts } from "./account-contacts"
 import {
@@ -59,6 +60,7 @@ export type AccountAddressKey = keyof BillingAddress
 /** Raw scalar fields the page marks inline-editable (Salesforce-style). */
 export type AccountEditKey =
   | "name"
+  | "owner"
   | "industry"
   | "phone"
   | "website"
@@ -81,6 +83,8 @@ export type AccountDetailData = {
   industries: string[]
   /** Country picklist for the inline billing-address country combobox. */
   countries: string[]
+  /** Tenant members, for the inline account-owner (account manager) picker. */
+  members: MemberOption[]
   contacts: PersonRow[]
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
@@ -107,6 +111,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     canEdit,
     industries,
     countries,
+    members,
     contacts,
     opportunities,
     pipelines,
@@ -146,6 +151,12 @@ export function AccountDetailBody(props: AccountDetailData) {
     () => countries.map((c) => ({ value: c, label: c })),
     [countries]
   )
+  const memberOptions = React.useMemo(
+    () => members.map((m) => ({ value: m.memberId, label: m.name })),
+    [members]
+  )
+  const ownerName =
+    memberOptions.find((o) => o.value === record.ownerMemberId)?.label ?? "—"
 
   /** Merge one edited billing-address subfield into the structured jsonb. */
   const saveAddress = (sub: AccountAddressKey, next: string) =>
@@ -302,9 +313,9 @@ export function AccountDetailBody(props: AccountDetailData) {
                     key && key.startsWith("address.")
                       ? (key.slice("address.".length) as AccountAddressKey)
                       : null
-                  // What's left after the industry/address branches below.
+                  // What's left after the industry/owner/address branches below.
                   const scalarKey =
-                    key && !addressSub && key !== "industry"
+                    key && !addressSub && key !== "industry" && key !== "owner"
                       ? (key as "name" | "phone" | "website" | "registrationNumber")
                       : null
                   return (
@@ -339,6 +350,18 @@ export function AccountDetailBody(props: AccountDetailData) {
                           searchPlaceholder="Search industries…"
                           emptyMessage="No industries configured."
                           title="Click to change industry"
+                        />
+                      ) : key === "owner" ? (
+                        <InlineCombobox
+                          value={record.ownerMemberId ?? ""}
+                          display={ownerName}
+                          options={memberOptions}
+                          onSave={(next) =>
+                            next ? saveField({ ownerMemberId: next }) : undefined
+                          }
+                          searchPlaceholder="Search members…"
+                          emptyMessage="No members found."
+                          title="Click to change owner"
                         />
                       ) : scalarKey ? (
                         <InlineValue

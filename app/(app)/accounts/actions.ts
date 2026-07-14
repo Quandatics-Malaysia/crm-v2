@@ -13,6 +13,7 @@ import {
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
+import { cascadeAccountOwner } from "@/server/services/owner-cascade"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import type { Tx, ServerContext } from "@/lib/actions"
 import {
@@ -70,6 +71,12 @@ export type AccountInput = {
   accountType?: string | null
   /** Required for resellers: the end-user client account. */
   endUserAccountId?: string | null
+  /**
+   * Account owner / account manager (Salesforce "Account Owner"). When changed
+   * on update, the new owner cascades to the account's child persons,
+   * opportunities, and funnels. Omit to leave the current owner unchanged.
+   */
+  ownerMemberId?: string | null
   industry?: string | null
   website?: string | null
   /** Main office / switchboard phone. */
@@ -650,12 +657,20 @@ export async function updateAccount(
       }
       if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
 
+      // Owner is full-replace like every other field: an omitted ownerMemberId
+      // means "leave as-is", so it defaults to the current owner.
+      const newOwnerMemberId =
+        input.ownerMemberId !== undefined
+          ? input.ownerMemberId
+          : before.ownerMemberId
+
       const updated = {
         name: input.name,
         code,
         parentAccountId,
         accountType,
         endUserAccountId,
+        ownerMemberId: newOwnerMemberId,
         industry: input.industry || null,
         website: input.website || null,
         phone: input.phone || null,
@@ -665,6 +680,29 @@ export async function updateAccount(
       }
 
       await tx.update(accounts).set(updated).where(eq(accounts.id, id))
+
+      // Salesforce owner cascade: on an actual owner change, push the new owner
+      // to the account's child persons/opportunities/funnels so record-scoped
+      // access stays consistent. Skip no-ops and null owners (child owner
+      // columns are NOT NULL — there's nothing valid to cascade).
+      if (
+        newOwnerMemberId &&
+        newOwnerMemberId !== before.ownerMemberId
+      ) {
+        const cascaded = await cascadeAccountOwner(
+          tx,
+          ctx.tenantId,
+          id,
+          newOwnerMemberId
+        )
+        await writeAudit(tx, ctx, {
+          action: "account.owner_cascaded",
+          entityType: "account",
+          entityId: id,
+          before: { ownerMemberId: before.ownerMemberId },
+          after: { newOwnerMemberId, ...cascaded },
+        })
+      }
 
       await recordChanges(tx, ctx, {
         entityType: "account",

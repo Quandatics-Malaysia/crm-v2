@@ -7,7 +7,6 @@ import { ChevronDown, ChevronUp, Plus, SplitIcon, Trash2 } from "lucide-react"
 import { MilestoneSplitDialog } from "@/components/milestone-split-dialog"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { showActionError } from "@/lib/show-action-error"
 import {
   Select,
@@ -121,12 +120,6 @@ export function MilestonesPanel({
   const [splitOpen, setSplitOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
 
-  // Add-row form state. Milestones are split by EXACT amount (not percentage).
-  const [title, setTitle] = React.useState("")
-  const [description, setDescription] = React.useState("")
-  const [amount, setAmount] = React.useState("")
-  const [dueDate, setDueDate] = React.useState("")
-
   const value = valueCeiling ? Number(valueCeiling) : 0
   const hasValue = valueCeiling != null && valueCeiling !== ""
   const allocated = milestones.reduce(
@@ -201,27 +194,21 @@ export function MilestonesPanel({
     run(() => onReorder(order), "Milestones reordered")
   }
 
-  function onAdd(e: React.FormEvent) {
-    e.preventDefault()
-    if (!title.trim()) {
-      toast.error("Title is required")
-      return
-    }
+  // Add a blank row (like appending a quote line item): create a milestone
+  // with sensible defaults, then the user edits it inline via the row's cell
+  // editors. Title is required by onCreate, so seed it non-empty.
+  function onAdd() {
     startTransition(async () => {
       const res = await onCreate({
-        title: title.trim(),
-        description: description.trim() || null,
-        amount: amount || null,
-        dueDate: dueDate || null,
+        title: "New milestone",
+        description: null,
+        amount: "0",
+        dueDate: null,
       })
       if (!res.ok) {
         showActionError(res)
         return
       }
-      setTitle("")
-      setDescription("")
-      setAmount("")
-      setDueDate("")
       toast.success("Milestone added")
       router.refresh()
     })
@@ -447,54 +434,17 @@ export function MilestonesPanel({
       )}
 
       {canManage ? (
-      <form
-        onSubmit={onAdd}
-        className="grid gap-2 rounded-lg border border-dashed p-3"
-      >
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Deposit"
-            />
-          </div>
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Amount</label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="sm:w-32"
-            />
-          </div>
-          <div className="grid gap-1">
-            <label className="text-xs text-muted-foreground">Due date</label>
-            <Input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="sm:w-40"
-            />
-          </div>
-          <Button type="submit" size="sm" disabled={pending}>
-            <Plus className="size-4" />
-            Add
-          </Button>
-        </div>
-        <div className="grid gap-1">
-          <label className="text-xs text-muted-foreground">Description (optional)</label>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What this milestone covers"
-          />
-        </div>
-      </form>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="justify-self-start"
+          disabled={pending}
+          onClick={onAdd}
+        >
+          <Plus className="size-4" />
+          Add milestone
+        </Button>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm">

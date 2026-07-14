@@ -7,6 +7,16 @@ import { Trash2Icon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { FileDropzone } from "@/components/file-dropzone"
 import { formatDate } from "@/lib/format"
 import { showActionError } from "@/lib/show-action-error"
@@ -57,6 +67,9 @@ export function DocumentsSection({
 }) {
   const router = useRouter()
   const [busy, setBusy] = React.useState(false)
+  const [deleteTarget, setDeleteTarget] = React.useState<SectionDocument | null>(
+    null
+  )
 
   async function onUpload(files: File[]) {
     setBusy(true)
@@ -95,6 +108,7 @@ export function DocumentsSection({
     } else {
       showActionError(res)
     }
+    setDeleteTarget(null)
   }
 
   return (
@@ -139,7 +153,7 @@ export function DocumentsSection({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => onDelete(d.id)}
+                    onClick={() => setDeleteTarget(d)}
                     className="text-muted-foreground hover:text-destructive"
                     title="Remove"
                     aria-label={`Remove ${d.fileName}`}
@@ -152,6 +166,32 @@ export function DocumentsSection({
           ))}
         </ul>
       )}
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? `“${deleteTarget.fileName}” will be removed. ` : ""}
+              This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && onDelete(deleteTarget.id)}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

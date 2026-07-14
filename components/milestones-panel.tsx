@@ -29,6 +29,15 @@ import {
 } from "@/components/ui/alert-dialog"
 import { InlineRename } from "@/components/inline-rename"
 import { InlineValue } from "@/components/inline-value"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { formatDate, formatMoney } from "@/lib/format"
 import { MILESTONE_STATUS_OPTIONS } from "@/lib/status-meta"
 import { cn } from "@/lib/utils"
@@ -126,6 +135,24 @@ export function MilestonesPanel({
   )
   const remaining = value - allocated
 
+  // Chronological ("timely manner") view: sort by due date ascending, nulls
+  // last. Ties (including both-null) fall back to sortOrder so the row order
+  // stays stable. This is purely a render-order concern — the underlying
+  // `milestones` prop/sortOrder is untouched; reordering (below) swaps rows
+  // within this sorted view and persists that as the new sortOrder.
+  const sortedMilestones = React.useMemo(() => {
+    return [...milestones].sort((a, b) => {
+      if (a.dueDate && b.dueDate) {
+        if (a.dueDate < b.dueDate) return -1
+        if (a.dueDate > b.dueDate) return 1
+        return a.sortOrder - b.sortOrder
+      }
+      if (a.dueDate) return -1
+      if (b.dueDate) return 1
+      return a.sortOrder - b.sortOrder
+    })
+  }, [milestones])
+
   // Splitting is only offered in the default, unsplit state — one milestone
   // whose amount exactly equals the value ceiling ("never make it splitable"
   // otherwise, since a split couldn't reconcile against a value that's
@@ -168,8 +195,8 @@ export function MilestonesPanel({
 
   function move(index: number, dir: -1 | 1) {
     const next = index + dir
-    if (next < 0 || next >= milestones.length) return
-    const order = milestones.map((m) => m.id)
+    if (next < 0 || next >= sortedMilestones.length) return
+    const order = sortedMilestones.map((m) => m.id)
     ;[order[index], order[next]] = [order[next], order[index]]
     run(() => onReorder(order), "Milestones reordered")
   }
@@ -215,168 +242,205 @@ export function MilestonesPanel({
         </Button>
       ) : null}
       {milestones.length > 0 ? (
-        <div className="grid gap-1">
-          {milestones.map((m, index) => (
-            <div
-              key={m.id}
-              className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 sm:grid-cols-[1fr_auto_auto_auto]"
-            >
-              <div className="min-w-0">
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead>Milestone</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Due date</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Status</TableHead>
                 {canManage ? (
-                  <InlineRename
-                    value={m.title}
-                    onSave={(next) =>
-                      save(() => onUpdate(m.id, { title: next }))
-                    }
-                    className="text-sm font-medium"
-                  />
-                ) : (
-                  <span className="text-sm font-medium">{m.title}</span>
-                )}
-                <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                  {canManage ? (
-                    <InlineValue
-                      value={m.dueDate ?? ""}
-                      display={m.dueDate ? formatDate(m.dueDate) : "No due date"}
-                      formatDraft={(v) => (v ? formatDate(v) : "No due date")}
-                      type="date"
-                      title="Click to edit due date"
-                      onSave={(next) =>
-                        save(() =>
-                          onUpdate(m.id, { dueDate: next || null })
+                  <TableHead className="w-28 text-right">Actions</TableHead>
+                ) : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedMilestones.map((m, index) => (
+                <TableRow key={m.id}>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {index + 1}
+                  </TableCell>
+                  <TableCell className="min-w-32 whitespace-normal">
+                    {canManage ? (
+                      <InlineRename
+                        value={m.title}
+                        onSave={(next) =>
+                          save(() => onUpdate(m.id, { title: next }))
+                        }
+                        className="text-sm font-medium"
+                      />
+                    ) : (
+                      <span className="text-sm font-medium">{m.title}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="min-w-40 whitespace-normal text-xs text-muted-foreground">
+                    {canManage ? (
+                      <InlineValue
+                        value={m.description ?? ""}
+                        display={m.description || "Add description"}
+                        title="Click to edit description"
+                        onSave={(next) =>
+                          save(() =>
+                            onUpdate(m.id, { description: next || null })
+                          )
+                        }
+                        className="text-xs text-muted-foreground"
+                      />
+                    ) : m.description ? (
+                      <span>{m.description}</span>
+                    ) : (
+                      <span>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {canManage ? (
+                      <InlineValue
+                        value={m.dueDate ?? ""}
+                        display={m.dueDate ? formatDate(m.dueDate) : "No due date"}
+                        formatDraft={(v) => (v ? formatDate(v) : "No due date")}
+                        type="date"
+                        title="Click to edit due date"
+                        onSave={(next) =>
+                          save(() =>
+                            onUpdate(m.id, { dueDate: next || null })
+                          )
+                        }
+                      />
+                    ) : (
+                      <span>{m.dueDate ? formatDate(m.dueDate) : "No due date"}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {canManage ? (
+                      <InlineValue
+                        value={m.amount ?? ""}
+                        display={formatMoney(m.amount, currency)}
+                        formatDraft={(v) => formatMoney(v || "0", currency)}
+                        type="number"
+                        title="Click to edit amount"
+                        onSave={(next) =>
+                          save(() => onUpdate(m.id, { amount: next || null }))
+                        }
+                        className="justify-end text-sm font-semibold tabular-nums"
+                        inputClassName="w-24 text-right tabular-nums"
+                      />
+                    ) : (
+                      <span className="text-sm font-semibold tabular-nums">
+                        {formatMoney(m.amount, currency)}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={m.status}
+                      onValueChange={(next) =>
+                        run(
+                          () => onUpdate(m.id, { status: String(next) }),
+                          "Milestone updated"
                         )
                       }
-                    />
-                  ) : (
-                    <span>{m.dueDate ? formatDate(m.dueDate) : "No due date"}</span>
-                  )}
-                </div>
-                {canManage ? (
-                  <InlineValue
-                    value={m.description ?? ""}
-                    display={m.description || "Add description"}
-                    title="Click to edit description"
-                    onSave={(next) =>
-                      save(() => onUpdate(m.id, { description: next || null }))
-                    }
-                    className="text-xs text-muted-foreground"
-                  />
-                ) : m.description ? (
-                  <div className="text-xs text-muted-foreground">{m.description}</div>
-                ) : null}
-              </div>
-
-              {canManage ? (
-                <InlineValue
-                  value={m.amount ?? ""}
-                  display={formatMoney(m.amount, currency)}
-                  formatDraft={(v) => formatMoney(v || "0", currency)}
-                  type="number"
-                  title="Click to edit amount"
-                  onSave={(next) =>
-                    save(() => onUpdate(m.id, { amount: next || null }))
-                  }
-                  className="text-sm font-semibold tabular-nums"
-                  inputClassName="w-24 text-right tabular-nums"
-                />
-              ) : (
-                <span className="text-sm font-semibold tabular-nums">
-                  {formatMoney(m.amount, currency)}
-                </span>
-              )}
-
-              <Select
-                value={m.status}
-                onValueChange={(next) =>
-                  run(
-                    () => onUpdate(m.id, { status: String(next) }),
-                    "Milestone updated"
-                  )
-                }
-                disabled={!canManage}
-                items={STATUS_OPTIONS}
-              >
-                <SelectTrigger size="sm" className="w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_OPTIONS.map((o, i) => (
-                    <SelectItem
-                      key={o.value}
-                      value={o.value}
-                      // Forward-only: can't revert to an earlier status.
-                      disabled={
-                        i <
-                        STATUS_OPTIONS.findIndex((s) => s.value === m.status)
-                      }
+                      disabled={!canManage}
+                      items={STATUS_OPTIONS}
                     >
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {canManage ? (
-              <div className="flex items-center gap-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={pending || index === 0}
-                  aria-label="Move milestone up"
-                  onClick={() => move(index, -1)}
-                >
-                  <ChevronUp className="size-4 text-muted-foreground" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={pending || index === milestones.length - 1}
-                  aria-label="Move milestone down"
-                  onClick={() => move(index, 1)}
-                >
-                  <ChevronDown className="size-4 text-muted-foreground" />
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={pending}
-                        aria-label="Delete milestone"
-                      >
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
-                    }
-                  />
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete this milestone?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        “{m.title}” ({formatMoney(m.amount, currency)}) will be
-                        removed from the payment schedule. This can’t be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        variant="destructive"
-                        onClick={() =>
-                          run(() => onDelete(m.id), "Milestone deleted")
-                        }
-                      >
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-              ) : null}
-            </div>
-          ))}
+                      <SelectTrigger size="sm" className="w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((o, i) => (
+                          <SelectItem
+                            key={o.value}
+                            value={o.value}
+                            // Forward-only: can't revert to an earlier status.
+                            disabled={
+                              i <
+                              STATUS_OPTIONS.findIndex((s) => s.value === m.status)
+                            }
+                          >
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  {canManage ? (
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={pending || index === 0}
+                          aria-label="Move milestone up"
+                          onClick={() => move(index, -1)}
+                        >
+                          <ChevronUp className="size-4 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={pending || index === sortedMilestones.length - 1}
+                          aria-label="Move milestone down"
+                          onClick={() => move(index, 1)}
+                        >
+                          <ChevronDown className="size-4 text-muted-foreground" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger
+                            render={
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                disabled={pending}
+                                aria-label="Delete milestone"
+                              >
+                                <Trash2 className="size-4 text-muted-foreground" />
+                              </Button>
+                            }
+                          />
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete this milestone?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                “{m.title}” ({formatMoney(m.amount, currency)}) will be
+                                removed from the payment schedule. This can’t be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={() =>
+                                  run(() => onDelete(m.id), "Milestone deleted")
+                                }
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={4} className="text-right font-medium">
+                  Total
+                </TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatMoney(allocated, currency)}
+                </TableCell>
+                <TableCell colSpan={canManage ? 2 : 1} />
+              </TableRow>
+            </TableFooter>
+          </Table>
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">No milestones yet.</p>

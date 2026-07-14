@@ -17,6 +17,7 @@ import {
   quotationLineItems,
   funnels,
   opportunities,
+  opportunityProducts,
   projects,
   taxSettings,
   tenantSettings,
@@ -28,6 +29,7 @@ import {
 import type { ProductOption } from "@/lib/lookups"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
+import { syncFunnelProductsFromQuote } from "@/server/services/quote-sync"
 import { winOpportunity } from "@/server/services/stage"
 import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
@@ -531,6 +533,9 @@ export async function createQuotation(input: {
         .set({ primaryQuotationId: created.id, updatedAt: new Date() })
         .where(eq(funnels.id, input.funnelId))
       await syncOpportunityAmount(tx, ctx, input.funnelId)
+      // Synced quote -> opportunity products (Salesforce Quote Line Item ->
+      // Opportunity Product behaviour).
+      await syncFunnelProductsFromQuote(tx, ctx.tenantId, input.funnelId, created.id)
       // Itemised into the quotation by default: a synced quote seeds exactly
       // one "Full Payment" milestone, no-op once any milestone exists.
       await seedDefaultFunnelMilestone(tx, ctx, input.funnelId)
@@ -620,9 +625,11 @@ export async function updateQuotation(
     await tx.delete(quotationLineItems).where(eq(quotationLineItems.quotationId, id))
     await insertLines(tx, ctx.tenantId, id, input.lines, totals, input.taxSettingId)
 
-    // If this quote is the opportunity's primary, keep amount == its net.
+    // If this quote is the opportunity's primary, keep amount == its net, and
+    // keep opportunity products in step with the lines just replaced.
     if (existing.isPrimary) {
       await syncOpportunityAmount(tx, ctx, existing.funnelId)
+      await syncFunnelProductsFromQuote(tx, ctx.tenantId, existing.funnelId, id)
       // Covers the common case of a quote auto-promoted to primary while
       // still $0 (a brand-new draft), then given real value here — the
       // "becomes primary" seed call already fired at net value 0 and no-op'd.
@@ -870,6 +877,9 @@ export async function acceptQuotation(
       .set({ primaryQuotationId: id, updatedAt: new Date() })
       .where(eq(funnels.id, q.funnelId))
     await syncOpportunityAmount(tx, ctx, q.funnelId)
+    // Synced quote -> opportunity products (Salesforce Quote Line Item ->
+    // Opportunity Product behaviour).
+    await syncFunnelProductsFromQuote(tx, ctx.tenantId, q.funnelId, id)
     // Itemised into the quotation by default: a synced quote seeds exactly
     // one "Full Payment" milestone, no-op once any milestone exists.
     await seedDefaultFunnelMilestone(tx, ctx, q.funnelId)
@@ -1091,6 +1101,9 @@ async function reassignPrimaryAfterRemoval(
       .update(funnels)
       .set({ primaryQuotationId: candidate.id, updatedAt: new Date() })
       .where(eq(funnels.id, funnelId))
+    // Synced quote -> opportunity products (Salesforce Quote Line Item ->
+    // Opportunity Product behaviour).
+    await syncFunnelProductsFromQuote(tx, ctx.tenantId, funnelId, candidate.id)
     await seedDefaultFunnelMilestone(tx, ctx, funnelId)
   } else {
     // No live quote remains: clear the pointer AND reset the amount. Without
@@ -1100,6 +1113,15 @@ async function reassignPrimaryAfterRemoval(
       .update(funnels)
       .set({ primaryQuotationId: null, amount: null, updatedAt: new Date() })
       .where(eq(funnels.id, funnelId))
+    // No synced quote left to drive opportunity products either.
+    await tx
+      .delete(opportunityProducts)
+      .where(
+        and(
+          eq(opportunityProducts.tenantId, ctx.tenantId),
+          eq(opportunityProducts.funnelId, funnelId)
+        )
+      )
   }
   await syncOpportunityAmount(tx, ctx, funnelId)
 }
@@ -1151,6 +1173,9 @@ export async function setPrimaryQuotation(
       .set({ primaryQuotationId: id, updatedAt: new Date() })
       .where(eq(funnels.id, q.funnelId))
     await syncOpportunityAmount(tx, ctx, q.funnelId)
+    // Synced quote -> opportunity products (Salesforce Quote Line Item ->
+    // Opportunity Product behaviour).
+    await syncFunnelProductsFromQuote(tx, ctx.tenantId, q.funnelId, id)
     // Itemised into the quotation by default: a synced quote seeds exactly
     // one "Full Payment" milestone, no-op once any milestone exists.
     await seedDefaultFunnelMilestone(tx, ctx, q.funnelId)

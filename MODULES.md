@@ -42,7 +42,7 @@ finance      → projects, salesOrders
 
 1. Edit [`modules.config.ts`](./modules.config.ts) — set the flag (and any
    dependencies it needs; the app validates this at boot).
-2. **Rebuild + redeploy** (`npm run build` + restart, or `docker compose up -d
+2. **Rebuild + redeploy** (`pnpm run build` + restart, or `docker compose up -d
    --build`). There is no per-tenant flag and no CLI — the config file is the
    single source of truth.
 3. Nothing else. No migration, no data change. Enabling later shows all
@@ -110,9 +110,9 @@ The "ingestion" recipe — every step is a small, local edit:
    usual. Per "disable, don't delete," they are created regardless of the flag;
    the flag only gates *access*, never *data*.
 
-**Verify:** `npm run typecheck && npm run build` with `x: false` (proves core
+**Verify:** `pnpm run typecheck && pnpm run build` with `x: false` (proves core
 has no static edge into X), then flip `x: true` (+deps) and smoke-test that the
-routes serve and the nav appears. `npm run test` for any pure logic.
+routes serve and the nav appears. `pnpm run test` for any pure logic.
 
 ---
 

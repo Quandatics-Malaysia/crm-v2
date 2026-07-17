@@ -31,16 +31,16 @@ cp .env.example .env            # fill in secrets (Microsoft optional for email 
 # start a Postgres 17 somewhere. DATABASE_ADMIN_URL = the superuser (migrations +
 # seed); DATABASE_URL = the non-privileged, RLS-enforced crm_app role the app
 # connects as (crm_app is created by db:setup).
-npm install
-npm run db:generate             # (already generated; re-run after schema changes)
-npm run db:setup                # apply migrations + RLS + views, then seed
-npm run dev                     # http://localhost:3000
+pnpm install
+pnpm run db:generate             # (already generated; re-run after schema changes)
+pnpm run db:setup                # apply migrations + RLS + views, then seed
+pnpm run dev                     # http://localhost:3000
 ```
 The seed creates a **Demo Entity** and a demo Owner login (printed at the end, default `admin@demo.local` / `Password123!`).
 
 To start with a populated demo (extra logins + sample customers/funnels/quotations) instead of an empty entity, use the seeded setup — same as `db:setup`, plus `db/seed-sample.ts` layered on top:
 ```bash
-npm run db:setup-seeded         # migrations + RLS + views + base seed + sample data
+pnpm run db:setup-seeded         # migrations + RLS + views + base seed + sample data
 ```
 This adds four more logins under the Demo Entity (all password `Password123!`) and a set of sample customers, contacts, funnels, quotations, a won project, and leads to play with:
 

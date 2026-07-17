@@ -9,24 +9,24 @@ Quick reference first; details below.
 > only, and only for holders of `docs.view` (Owner/Admin by default; grant
 > per role in Team & roles). Kill switch: Settings → General → Behavior →
 > "Documentation". Regenerate the schema pages after a migration with
-> `npm run docs:schema`.
+> `pnpm run docs:schema`.
 
 ## Cheat sheet
 
 | What | Command |
 |---|---|
-| Run dev server | `npm run dev` (needs Postgres up + migrations applied) |
-| Apply DB migrations + RLS + views + permission sync | `npm run db:migrate` |
-| Seed base data (roles, funnel, tax, demo admin) | `npm run db:seed` |
-| Seed sample CRM data | `npm run db:seed-sample` |
+| Run dev server | `pnpm run dev` (needs Postgres up + migrations applied) |
+| Apply DB migrations + RLS + views + permission sync | `pnpm run db:migrate` |
+| Seed base data (roles, funnel, tax, demo admin) | `pnpm run db:seed` |
+| Seed sample CRM data | `pnpm run db:seed-sample` |
 | **Enable/disable an optional module** | edit `modules.config.ts`, then rebuild + redeploy |
-| Run tests | `npm test` |
-| Typecheck / lint / build | `npx tsc --noEmit` · `npm run lint` · `npm run build` |
+| Run tests | `pnpm test` |
+| Typecheck / lint / build | `npx tsc --noEmit` · `pnpm run lint` · `pnpm run build` |
 | Full stack via Docker | `docker compose up -d --build` (migrate runs automatically) |
-| Anything inside the container | `docker compose exec web npm run <script>` |
+| Anything inside the container | `docker compose exec web pnpm run <script>` |
 
 **Golden rule:** after every `git pull` that touches `db/migrations/`, run
-`npm run db:migrate` before starting the app. `column "…" does not exist`
+`pnpm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
 ## Optional modules (plugins)
@@ -48,9 +48,9 @@ export const MODULE_CONFIG = {
 } as const
 ```
 
-- **One switch, global.** Set a value and **rebuild + redeploy** (`npm run build`
+- **One switch, global.** Set a value and **rebuild + redeploy** (`pnpm run build`
   + restart). There is no per-tenant flag anymore — the old
-  `npm run module:finance` CLI and `tenant_settings.finance_module` column are
+  `pnpm run module:finance` CLI and `tenant_settings.finance_module` column are
   retired (the column is kept but no longer read).
 - **Dependencies are validated at boot** (`lib/modules.ts` → `validateModuleConfig`,
   called from `instrumentation.ts`): enabling `finance` without `projects` +
@@ -153,7 +153,7 @@ docker compose --profile admin up -d admin       # start it
 ssh -L 8082:127.0.0.1:8082 user@server           # then open http://localhost:8082
 docker compose --profile admin down              # stop it when done
 ```
-For local dev, `npm run db:studio` (drizzle-studio) is the equivalent.
+For local dev, `pnpm run db:studio` (drizzle-studio) is the equivalent.
 
 ## Connect a SQL client (VeloxDB / DBeaver / TablePlus)
 
@@ -196,8 +196,8 @@ browsing. Close the SSH shell to drop the tunnel when you're done.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `column "…" does not exist` on startup | Pending migrations | `npm run db:migrate` |
+| `column "…" does not exist` on startup | Pending migrations | `pnpm run db:migrate` |
 | Dev terminal spams `GET /dashboard` + `ChunkLoadError` | A browser tab (any device on your LAN) left open across a dev-server restart; its stale HMR client reload-loops | Close or hard-refresh (Cmd+Shift+R) every tab pointing at the dev server |
-| `npm ci` fails in Docker: "lock file out of sync" | Lockfile written by a newer npm than the image's | `npx npm@10.9.8 install --package-lock-only`, commit, rebuild |
+| `pnpm install --frozen-lockfile` fails in Docker: "lockfile is not up to date" | `pnpm-lock.yaml` wasn't committed after a dependency change | Run `pnpm install` locally, commit the updated `pnpm-lock.yaml`, rebuild |
 | Finance pages 404/redirect though flag is on | Master switch off, or user lacks `finance.view` | Check `lib/modules.ts` and the user's role |
 | Sign-in works but user sees nothing | Membership `disabled`/`invited`, or tenant suspended | Team page (status) / `tenant_settings.status` |

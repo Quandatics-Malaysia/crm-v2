@@ -14,7 +14,7 @@ open while you work.
 ## 1. Get it running
 
 Follow **[README → Local development](./README.md#local-development)**. Use
-`npm run db:setup-seeded` rather than `db:setup` — it gives you sample accounts,
+`pnpm run db:setup-seeded` rather than `db:setup` — it gives you sample accounts,
 funnels, and quotations to click around, plus four extra logins.
 
 You need a Postgres 17 running somewhere. There is no shared dev database — you
@@ -74,7 +74,7 @@ if (isModuleEnabled("x")) {
 *Schema is exempt* — because of rule 2, every module's tables always exist, so
 `db/schema` importing them is correct. This rule is about actions, services, and UI.
 
-**Check it:** `npm run typecheck && npm run build` with your flag `false`. If
+**Check it:** `pnpm run typecheck && pnpm run build` with your flag `false`. If
 your code gets pulled in, you have a static edge to remove.
 
 **4 — Registration is explicit.**
@@ -109,10 +109,10 @@ git checkout -b feat/<module>-<short-desc>
 Before opening a PR, all four must pass:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
+pnpm run lint
+pnpm run typecheck
+pnpm test
+pnpm run build
 ```
 
 Plus: if you touched a gated module, build once with its flag `false` (rule 3).
@@ -156,6 +156,5 @@ Honest status, so you know what to expect:
 
 - The GitHub org, teams, `CODEOWNERS`, and branch protection are **not set up
   yet** — reviews are by convention until they are.
-- The repo is mid-migration from npm to **pnpm workspaces**; the commands above
-  become `pnpm` when that lands.
-- The `apps/` + `packages/` + `modules/` restructure is designed, not built.
+- The repo uses **pnpm** (single package for now); the `apps/` + `packages/` +
+  `modules/` **workspace** restructure is designed, not built.

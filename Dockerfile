@@ -2,19 +2,23 @@
 
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat
+# Pin pnpm globally. We use `npm i -g` rather than corepack: corepack is being
+# unbundled from newer Node and its registry-signature checks are a recurring
+# CI failure. The version must match packageManager in package.json.
+RUN npm install -g pnpm@11.6.0
 WORKDIR /app
 
 # ---- dependencies (incl. dev, for build + migrate) ----
 FROM base AS deps
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # ---- build the standalone Next.js server ----
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN pnpm run build
 
 # ---- migrate/seed job image (has tsx + drizzle-kit + source) ----
 FROM base AS migrator

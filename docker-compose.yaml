@@ -20,7 +20,7 @@ services:
     # client (VeloxDB / DBeaver / TablePlus) via an SSH tunnel — see
     # OPERATIONS.md → "Connect a SQL client (VeloxDB / DBeaver)".
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -106,7 +106,7 @@ services:
       DOMAIN: ${DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
-      - "8081:8081"
+      - "${CADDY_HOST_PORT:-8081}:8081"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data

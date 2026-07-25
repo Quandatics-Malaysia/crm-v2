@@ -1,0 +1,42 @@
+# Architecture
+
+A short tour of how the codebase is organised and where it's heading. Full design
+specs live in `docs/superpowers/specs/` in the repository; these are summaries.
+
+## One repository, module-by-module
+
+The CRM is built as a **single repository**, not a set of per-module repos. The
+decision was grounded in the code's own history — a large share of changes touch
+more than one module at once, which a multi-repo split would turn into painful
+cross-repo PR chains. A single repo keeps those changes to one pull request.
+
+Everything beyond the core CRM (leads, accounts, contacts, opportunities, funnel,
+quotations, tax, products, RBAC) is an **optional module** — a plugin switched on
+or off by one boolean in `modules.config.ts`. See **[Modules](/modules)** for the
+plugin system and how to add one, and **[Contributing](/contributing)** for the
+rules that keep module boundaries clean.
+
+## Settings
+
+Settings is organised as **nested routes under a grouped sub-navigation**,
+following how established products (Stripe, Odoo) structure their settings:
+
+- **General** — organisation profile, currency, behaviour
+- **Billing** — numbering, invoicing, and tax
+- **Taxonomy** — industries, project natures, product codes, funnel stages
+- **People** — team access
+
+Money and document configuration is consolidated under one **Billing** umbrella
+rather than scattered — the same grouping the big CRMs use.
+
+## Staging & previews
+
+A persistent **staging** environment mirrors production closely (a second,
+fully-namespaced stack on the same server) so changes can be previewed before
+they go live. See **[Operations](/operations)** for the deploy flow.
+
+## The road ahead
+
+The repository is moving toward a workspace layout (`apps/` + `packages/` +
+`modules/`) so that many contributors can build modules in parallel with clear
+boundaries. The design for this lives in the repository's specs.

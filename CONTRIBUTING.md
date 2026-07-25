@@ -150,11 +150,24 @@ You don't. Merging to `main` deploys automatically: quality gate → self-hosted
 runner on the box → `docker compose up -d --build`. **There is no staging
 environment** — `main` is production. This is why the checks are not optional.
 
-## 8. Not yet in place
+## 8. Status of the setup
 
-Honest status, so you know what to expect:
+What's in place:
 
-- The GitHub org, teams, `CODEOWNERS`, and branch protection are **not set up
-  yet** — reviews are by convention until they are.
+- The repo lives in the **`Quandatics-Malaysia`** GitHub org, with `core` and
+  `ops` teams and `CODEOWNERS` routing reviews to them.
+- **CI runs on every PR** (`quality`: lint · typecheck · test · build) and the
+  PR template lists the checklist above.
+
+Convention, not yet enforced:
+
+- **Reviews and green CI are expected but not *blocked*.** Branch protection /
+  rulesets need a paid GitHub plan on a private repo (Free can't enforce), so
+  today nothing physically stops an unreviewed or red merge to `main`. Treat the
+  PR checklist and a `@Quandatics-Malaysia/core` review as required anyway.
+  Enabling enforcement = upgrade the org to GitHub Team, then apply a ruleset.
+
+Not built yet:
+
 - The repo uses **pnpm** (single package for now); the `apps/` + `packages/` +
   `modules/` **workspace** restructure is designed, not built.

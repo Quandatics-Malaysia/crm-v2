@@ -192,6 +192,52 @@ browsing. Close the SSH shell to drop the tunnel when you're done.
   and `CRM_APP_PASSWORD` periodically. Instrumentation refuses to boot in
   production on the dev-default secret or a superuser/BYPASSRLS app role.
 
+## Staging environment
+
+A persistent preview environment at **`staging.quandatics.com`** — a second Docker
+stack on the **same box** as prod, fully namespaced (Compose project
+`crm-staging`, host ports **8091/5434**, its own volumes via the project prefix),
+deployed from the **`staging` branch**. It runs the same `docker-compose.yaml`;
+only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` (prod)**.
+
+**One-time setup (do once):**
+
+1. **Server checkout** — clone a second working tree on the `staging` branch and
+   create its env file from the template:
+   ```bash
+   git clone https://github.com/Quandatics-Malaysia/crm-v2.git ~/crm-v2-staging
+   cd ~/crm-v2-staging && git checkout staging
+   cp .env.staging.example .env.staging
+   # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
+   # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
+   ```
+2. **Cloudflare tunnel route** — Zero Trust → your existing tunnel → **Public
+   Hostname** → add `staging.quandatics.com` → `http://localhost:8091`.
+3. **Cloudflare Access (gate it to the team)** — Zero Trust → **Access →
+   Applications** → add an application protecting `staging.quandatics.com` with a
+   policy allowing your team's emails. Staging seeds well-known demo credentials,
+   so this keeps the public out.
+4. The existing self-hosted runner already serves this repo — no new runner needed.
+
+**Deploy:** push or merge into `staging`:
+```bash
+git push origin <feature-branch>:staging     # or merge a PR into staging
+```
+`deploy-staging` runs the quality gate then rebuilds the `crm-staging` stack.
+Review at `https://staging.quandatics.com`, then merge to `main` for prod. The
+staging deploy has its own concurrency group, so it never cancels a prod deploy.
+
+**Reset staging data** (wipe + reseed):
+```bash
+docker compose -p crm-staging -f ~/crm-v2-staging/docker-compose.yaml \
+  --env-file ~/crm-v2-staging/.env.staging down -v
+# next push to staging (or a manual `up -d --build`) reseeds it
+```
+
+**Guardrail:** staging must always keep `CADDY_HOST_PORT=8091` / `DB_HOST_PORT=5434`
+and project `crm-staging` — never prod's `8081`/`5433`/`crm-v2`, or the two stacks
+collide on the box.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

@@ -118,7 +118,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Admin",
     items: [
       { title: "Team & roles", url: "/team", icon: ShieldCheckIcon, tile: "bg-cyan-600", permission: PERMISSIONS.TENANT_MANAGE_USERS },
-      { title: "Settings", url: "/settings", icon: Settings2Icon, tile: "bg-gray-500", permission: PERMISSIONS.TENANT_SETTINGS },
+      { title: "Settings", url: "/settings/general", icon: Settings2Icon, tile: "bg-gray-500", permission: PERMISSIONS.TENANT_SETTINGS },
     ],
   },
   // /documentation is deliberately NOT in the nav — internal docs, reached by

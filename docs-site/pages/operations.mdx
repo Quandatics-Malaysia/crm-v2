@@ -1,0 +1,40 @@
+# Operations
+
+How the Quandatics CRM is built and deployed, at a glance. The full operator
+runbook — server access, backups & restore, database admin, and hardening —
+lives in **`OPERATIONS.md` in the repository** (kept out of this public site on
+purpose).
+
+## Environments
+
+- **Production** — the live app, deployed from the `main` branch.
+- **Staging** — a persistent preview built from the `staging` branch, so changes
+  can be reviewed before they reach production.
+
+The flow is: **feature branch → `staging` (preview) → `main` (production)**.
+
+## How a deploy works
+
+Every push follows the same gate:
+
+1. A **quality gate** runs on a GitHub-hosted runner — lint, typecheck, tests,
+   and a production build. A pull request must pass it before merge.
+2. On a merge to `main`, a **self-hosted runner rebuilds the app on the server**
+   (Docker Compose) and restarts it. Staging works the same way from its own
+   branch, in a separate namespaced stack, so a staging deploy never disturbs
+   production.
+
+There is no cloud build step and no image registry — the server builds and runs
+its own containers.
+
+## Modules
+
+Optional features (Projects, Sales Orders, Finance, Forecast, …) are toggled by
+a single boolean each in `modules.config.ts` and take effect on the next
+rebuild. See **[Modules](/modules)** for the full plugin system.
+
+## Where the details live
+
+For anything operational — connecting to the database, running migrations,
+backups and restore, or hardening — read `OPERATIONS.md` in the repository. It is
+intentionally not published here.

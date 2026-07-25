@@ -3,6 +3,10 @@
 Everything an operator needs to run, migrate, and toggle this CRM.
 Quick reference first; details below.
 
+> The repo root is a thin pnpm workspace; the app source (including
+> `modules.config.ts`) lives under `apps/web/`. All `pnpm run …` commands
+> below still run from the repo root — they delegate to `--filter web`.
+
 > **Internal documentation:** `/documentation` is a standalone docs site
 > (module guides, Mermaid flow maps, ⌘K full-text search, generated schema
 > reference, per-version changelog). It is linked NOWHERE in the app — URL
@@ -32,7 +36,7 @@ errors always mean a pending migration.
 ## Optional modules (plugins)
 
 Everything beyond the core CRM is an optional plugin, toggled **deployment-wide**
-in one file — `modules.config.ts` at the repo root — with one boolean each.
+in one file — `apps/web/modules.config.ts` — with one boolean each.
 See [`MODULES.md`](./MODULES.md) for the architecture and the recipe to add a
 brand-new module.
 

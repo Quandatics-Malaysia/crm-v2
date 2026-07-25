@@ -25,6 +25,10 @@ Lightweight, self-hostable multitenant CRM for a services business.
 | [AGENTS.md](./AGENTS.md) | Rules for AI coding agents working in this repo. |
 | [docs/superpowers/specs/](./docs/superpowers/specs/) | Architecture decisions. Current: [monorepo, org structure, and the module contribution model](./docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md). |
 
+The app itself lives in `apps/web` (a pnpm workspace under the repo root). Local-dev
+and CI commands run from the repo **root** — the root `package.json` scripts
+delegate to `--filter web`, so you don't need to `cd apps/web`.
+
 ## Local development
 ```bash
 cp .env.example .env            # sensible localhost defaults; Microsoft optional for email login

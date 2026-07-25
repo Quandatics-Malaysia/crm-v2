@@ -1,0 +1,25 @@
+# Code ownership + required reviewers.
+#
+# INTERIM: this repo is still a personal repo, so owners are the individual
+# @JienWeng. When it is transferred to the `quandatics` org (see
+# docs/superpowers/plans/2026-07-17-pnpm-and-org-governance.md, Phase 1),
+# replace @JienWeng with the teams: * → @quandatics/core, ops paths →
+# @quandatics/ops @quandatics/core, and add per-module lines
+# (/app/(app)/<x>/ → @quandatics/module-<x>).
+
+# Everything defaults to the core maintainer.
+*                          @JienWeng
+
+# Highest blast radius — migrations, RLS, and schema.
+/db/migrations/            @JienWeng
+/db/schema/                @JienWeng
+
+# The module-system core files.
+/lib/                      @JienWeng
+/modules.config.ts         @JienWeng
+
+# Ops, deployment, CI.
+/ops/                      @JienWeng
+/Dockerfile                @JienWeng
+/docker-compose.yaml       @JienWeng
+/.github/                  @JienWeng

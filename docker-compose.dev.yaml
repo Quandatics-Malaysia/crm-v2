@@ -1,5 +1,5 @@
 # Local-dev convenience: just Postgres 17, port published to the host so
-# `npm run db:setup` and `npm run dev` (running on the host) can reach it.
+# `pnpm run db:setup` and `pnpm run dev` (running on the host) can reach it.
 # Usage: docker compose -f docker-compose.dev.yaml up -d
 services:
   db:

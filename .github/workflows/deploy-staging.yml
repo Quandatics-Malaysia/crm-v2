@@ -1,0 +1,48 @@
+# Deploy the STAGING stack on push to the `staging` branch. Mirrors deploy.yml
+# but targets a separate server checkout (~/crm-v2-staging) and Compose project
+# (crm-staging), in its own concurrency group so it never fights the prod deploy.
+#
+# One-time server setup (see OPERATIONS.md → "Staging environment"):
+#   git clone <repo> ~/crm-v2-staging && cd ~/crm-v2-staging && git checkout staging
+#   cp .env.staging.example .env.staging   # then fill in fresh secrets
+name: deploy-staging
+
+on:
+  push:
+    branches: [staging]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run build
+
+  deploy-staging:
+    needs: quality
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest staging
+        run: git -C "${STAGING_DIR:-$HOME/crm-v2-staging}" pull --ff-only origin staging
+      - name: Rebuild and restart the staging stack
+        run: |
+          docker compose \
+            -p crm-staging \
+            -f "${STAGING_DIR:-$HOME/crm-v2-staging}/docker-compose.yaml" \
+            --env-file "${STAGING_DIR:-$HOME/crm-v2-staging}/.env.staging" \
+            up -d --build migrate web caddy

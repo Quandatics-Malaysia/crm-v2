@@ -123,7 +123,7 @@ const NAV_ITEMS: {
   { label: "Forecast", href: "/forecast", permission: PERMISSIONS.FORECAST_VIEW, module: "forecast", icon: TrendingUpIcon },
   { label: "Intercompany", href: "/intercompany", permission: PERMISSIONS.INTERCOMPANY_VIEW, module: "finance", icon: ArrowLeftRightIcon },
   { label: "Team", href: "/team", permission: PERMISSIONS.TENANT_MANAGE_USERS, icon: ShieldCheckIcon },
-  { label: "Settings", href: "/settings", permission: PERMISSIONS.TENANT_SETTINGS, icon: Settings2Icon },
+  { label: "Settings", href: "/settings/general", permission: PERMISSIONS.TENANT_SETTINGS, icon: Settings2Icon },
 ]
 
 /** Search button + ⌘K palette + "+ New" quick-create menu for the site header. */

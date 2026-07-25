@@ -78,7 +78,7 @@ export async function createTax(
     })
     return created
   })
-  revalidatePath("/tax-settings")
+  revalidatePath("/settings/billing/tax")
   return row
   })
 }
@@ -130,7 +130,7 @@ export async function updateTax(
     })
     return updated
   })
-  revalidatePath("/tax-settings")
+  revalidatePath("/settings/billing/tax")
   return row
   })
 }
@@ -149,7 +149,7 @@ export async function deleteTax(id: string): Promise<ActionResult<void>> {
       entityId: id,
     })
   })
-  revalidatePath("/tax-settings")
+  revalidatePath("/settings/billing/tax")
   })
 }
 
@@ -172,6 +172,6 @@ export async function setDefaultTax(id: string): Promise<ActionResult<void>> {
       entityId: id,
     })
   })
-  revalidatePath("/tax-settings")
+  revalidatePath("/settings/billing/tax")
   })
 }

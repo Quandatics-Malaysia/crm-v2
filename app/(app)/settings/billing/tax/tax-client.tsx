@@ -259,7 +259,7 @@ function RowActions({ row }: { row: TaxSettingRow }) {
   )
 }
 
-export function TaxSettingsClient({ data }: { data: TaxSettingRow[] }) {
+export function TaxClient({ data }: { data: TaxSettingRow[] }) {
   const [createOpen, setCreateOpen] = React.useState(false)
 
   const columns: ColumnDef<TaxSettingRow>[] = [

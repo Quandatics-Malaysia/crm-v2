@@ -16,6 +16,12 @@ name: deploy
 on:
   push:
     branches: [main]
+    # Docs-only merges don't change the running app — skip the whole workflow
+    # (and the production rebuild) when nothing outside these paths changed.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
     branches: [main]
 

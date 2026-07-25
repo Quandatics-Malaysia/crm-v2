@@ -6,6 +6,13 @@
 people can build modules in parallel, module-by-module, on the existing
 Dockerised deployment.
 
+> **Naming update (2026-07-18):** the org materialised as **`Quandatics-Malaysia`**
+> and the repo kept its name — it is **`Quandatics-Malaysia/crm-v2`**, not the
+> `quandatics/crm` placeholder used throughout this doc. Teams are
+> `@Quandatics-Malaysia/core` and `@Quandatics-Malaysia/ops`. The `crm-v2 → crm`
+> rename is deferred (not required). Read the `quandatics/crm` and `@quandatics/*`
+> names below as those real values.
+
 ---
 
 ## 1. Decision

@@ -3,11 +3,11 @@
 This is the day-one guide. Read it once, then keep [`MODULES.md`](./MODULES.md)
 open while you work.
 
-> **Note:** this describes the repo **as it is today**. A monorepo restructure
-> (`apps/` + `packages/` + `modules/`) is designed and approved — see
+> **Note:** the `apps/` workspace restructure has landed — the app now lives
+> under `apps/web/`, with the repo root as a thin pnpm workspace. `packages/`
+> and `modules/` are reserved in `pnpm-workspace.yaml` for later phases — see
 > [the design spec](./docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
-> Nothing below changes when it lands except *where files live*; the five rules
-> stay identical.
+> Only *where files live* changed; the five rules stay identical.
 
 ---
 
@@ -31,17 +31,18 @@ run your own.
 | Past security/correctness findings | [AUDIT.md](./AUDIT.md) |
 | Rules for AI coding agents | [AGENTS.md](./AGENTS.md) |
 
-Current layout:
+Current layout — the repo root is a thin pnpm workspace; the app lives under
+`apps/web/`:
 
 ```
-app/(app)/<module>/     # routes, server actions, module UI
-components/             # shared design system (shadcn/Base UI)
-lib/                    # shared kernel — auth, permissions, module registry
-server/services/        # business rules — MUST NOT import next/*
-db/schema/              # Drizzle tables
-db/migrations/          # generated SQL — one linear chain
-modules.config.ts       # the on/off switch for every optional module
-ops/                    # backup scripts, Caddyfile
+apps/web/app/(app)/<module>/   # routes, server actions, module UI
+apps/web/components/           # shared design system (shadcn/Base UI)
+apps/web/lib/                  # shared kernel — auth, permissions, module registry
+apps/web/server/services/      # business rules — MUST NOT import next/*
+apps/web/db/schema/            # Drizzle tables
+apps/web/db/migrations/        # generated SQL — one linear chain
+apps/web/modules.config.ts     # the on/off switch for every optional module
+ops/                           # backup scripts, Caddyfile (repo root)
 ```
 
 ## 3. The five rules
@@ -169,5 +170,6 @@ Convention, not yet enforced:
 
 Not built yet:
 
-- The repo uses **pnpm** (single package for now); the `apps/` + `packages/` +
-  `modules/` **workspace** restructure is designed, not built.
+- The `apps/` **workspace** restructure has landed (the app is under
+  `apps/web/`); the `packages/` and `modules/` layers of the design are still
+  reserved, not built.

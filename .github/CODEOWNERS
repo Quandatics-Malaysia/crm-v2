@@ -1,25 +1,22 @@
-# Code ownership + required reviewers.
+# Code ownership + required reviewers. Teams live in the Quandatics-Malaysia org.
+# See CONTRIBUTING.md and docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md
 #
-# INTERIM: this repo is still a personal repo, so owners are the individual
-# @JienWeng. When it is transferred to the `quandatics` org (see
-# docs/superpowers/plans/2026-07-17-pnpm-and-org-governance.md, Phase 1),
-# replace @JienWeng with the teams: * → @quandatics/core, ops paths →
-# @quandatics/ops @quandatics/core, and add per-module lines
-# (/app/(app)/<x>/ → @quandatics/module-<x>).
+# Add per-module lines as module teams are created, e.g.:
+#   /app/(app)/<x>/   @Quandatics-Malaysia/module-<x> @Quandatics-Malaysia/core
 
-# Everything defaults to the core maintainer.
-*                          @JienWeng
+# Everything defaults to the core team.
+*                          @Quandatics-Malaysia/core
 
 # Highest blast radius — migrations, RLS, and schema.
-/db/migrations/            @JienWeng
-/db/schema/                @JienWeng
+/db/migrations/            @Quandatics-Malaysia/core
+/db/schema/                @Quandatics-Malaysia/core
 
 # The module-system core files.
-/lib/                      @JienWeng
-/modules.config.ts         @JienWeng
+/lib/                      @Quandatics-Malaysia/core
+/modules.config.ts         @Quandatics-Malaysia/core
 
 # Ops, deployment, CI.
-/ops/                      @JienWeng
-/Dockerfile                @JienWeng
-/docker-compose.yaml       @JienWeng
-/.github/                  @JienWeng
+/ops/                      @Quandatics-Malaysia/ops @Quandatics-Malaysia/core
+/Dockerfile                @Quandatics-Malaysia/ops @Quandatics-Malaysia/core
+/docker-compose.yaml       @Quandatics-Malaysia/ops @Quandatics-Malaysia/core
+/.github/                  @Quandatics-Malaysia/core

@@ -194,9 +194,276 @@ paths:
                       id: { type: string }
                       email: { type: string, format: email }
                       name: { type: string }
+  /api/v1/leads:
+    get:
+      operationId: listLeads
+      summary: List leads
+      description: Paginated list of leads visible to the API key's member (ownership/management scope, same as the UI). Requires the `lead.view` permission.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/leads/{id}:
+    get:
+      operationId: getLead
+      summary: Get a lead
+      description: A single lead by id, with resolved stage/funnel/account/person names. Requires `lead.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+  /api/v1/accounts:
+    get:
+      operationId: listAccounts
+      summary: List accounts
+      description: >
+        Paginated list of accounts visible to the API key's member. Requires
+        `account.view`. `parentAccountName` is resolved only from the accounts
+        already present on the same page of results, not a full-table lookup
+        — a parent that falls on a different page shows `null`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/accounts/{id}:
+    get:
+      operationId: getAccount
+      summary: Get an account
+      description: A single account by id, with parent/children, contacts, pipelines, and owner name resolved. Requires `account.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+  /api/v1/persons:
+    get:
+      operationId: listPersons
+      summary: List persons (contacts)
+      description: Paginated list of contacts visible to the API key's member, each with its account name resolved. Requires `person.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/persons/{id}:
+    get:
+      operationId: getPerson
+      summary: Get a person (contact)
+      description: A single contact by id, with its account, related opportunities, and related projects. Requires `person.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+  /api/v1/opportunities:
+    get:
+      operationId: listOpportunities
+      summary: List opportunities (deal containers)
+      description: >
+        Paginated list of Opportunity containers — the Salesforce-style parent
+        that groups one or more funnels (deals) under an account. Requires
+        `opportunity.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/opportunities/{id}:
+    get:
+      operationId: getOpportunity
+      summary: Get an opportunity (deal container)
+      description: A single Opportunity container by id, with its child funnels, quotations, and products rolled up. Requires `opportunity.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+  /api/v1/funnels:
+    get:
+      operationId: listFunnels
+      summary: List funnels (staged deals)
+      description: >
+        Paginated list of funnels — the individual staged deal rows that live
+        under an opportunity container and move through a pipeline's stages.
+        Requires `opportunity.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/funnels/{id}:
+    get:
+      operationId: getFunnel
+      summary: Get a funnel (staged deal)
+      description: A single funnel by id, with its stage, quotations, intercompany parties, and stage history. Requires `opportunity.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+  /api/v1/quotations:
+    get:
+      operationId: listQuotations
+      summary: List quotations
+      description: Paginated list of quotations visible to the API key's member, with the parent funnel name and line-item count. Requires `quotation.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200": { $ref: "#/components/responses/ListResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+  /api/v1/quotations/{id}:
+    get:
+      operationId: getQuotation
+      summary: Get a quotation
+      description: A single quotation by id, with its line items and resolved funnel/account/container names. Requires `quotation.view`.
+      tags: [REST API v1]
+      security: [{ apiKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200": { $ref: "#/components/responses/ItemResponse" }
+        "401": { $ref: "#/components/responses/UnauthorizedResponse" }
+        "403": { $ref: "#/components/responses/ForbiddenResponse" }
+        "404": { $ref: "#/components/responses/NotFoundResponse" }
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: >
+        A tenant API key (`qdk_...`), minted in Settings → API Keys and shown
+        exactly once. Send it as `Authorization: Bearer qdk_...`. A key is
+        capped to its member's role-granted permissions — it can never do
+        more than that member could do in the app, and it is checked against
+        the SAME `*_VIEW` permission each resource's UI page requires.
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      description: Max rows to return. Default 50, capped at 100.
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, minimum: 0, default: 0 }
+      description: Rows to skip, for paging.
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: The resource's id.
+  schemas:
+    ApiErrorBody:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: forbidden }
+            message: { type: string, example: "Your API key's role lacks permission for this resource" }
+    ApiPagination:
+      type: object
+      properties:
+        limit: { type: integer, example: 50 }
+        offset: { type: integer, example: 0 }
+        total: { type: integer, example: 137 }
+    ApiListBody:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { type: object, additionalProperties: true }
+        pagination: { $ref: "#/components/schemas/ApiPagination" }
+    ApiItemBody:
+      type: object
+      properties:
+        data: { type: object, additionalProperties: true }
+  responses:
+    ListResponse:
+      description: A page of results.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiListBody" }
+    ItemResponse:
+      description: The requested resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiItemBody" }
+    UnauthorizedResponse:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiErrorBody" }
+    ForbiddenResponse:
+      description: The key's role lacks the required `*_VIEW` permission for this resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiErrorBody" }
+    NotFoundResponse:
+      description: Unknown resource name, or no matching row (including rows outside the key's ownership/management scope).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiErrorBody" }
 tags:
   - name: System
     description: Liveness / ops.
+  - name: REST API v1
+    description: >
+      The read-only REST surface at `/api/v1/*` — 6 resources (leads,
+      accounts, persons, opportunities, funnels, quotations), each with a
+      paginated list and a detail endpoint. Authenticated with a bearer API
+      key (Settings → API Keys), never a session cookie. See the "Using the
+      REST API" guide for a walkthrough.
   - name: Files
     description: Authenticated, tenant-scoped file downloads.
   - name: Auth

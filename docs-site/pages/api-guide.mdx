@@ -1,0 +1,140 @@
+---
+title: "Using the REST API"
+---
+
+The CRM exposes a small, read-only REST surface at `/api/v1/*` for pulling
+data into external tools (reporting, integrations, scripts). Everything else
+— creating a lead, moving a funnel stage, sending a quotation — is a
+[Server Action](/api-reference), not REST; see [API Reference](/api-reference)
+for that architecture. This page covers the `/api/v1` surface only. You can
+also try every endpoint live in the [API Playground](/api-playground).
+
+## Get an API key
+
+1. Go to **Settings → API Keys** (`/settings/access`).
+2. Create a key and give it a name.
+3. Copy the raw key immediately — it is shown **exactly once**. Only a
+   salted hash is stored server-side, so if you lose it you must issue a new
+   one.
+
+A key belongs to a specific member and inherits **that member's role
+permissions, and nothing more** — it can never do more than the member could
+do signed in through the app. If the member's role doesn't grant a
+resource's `*_VIEW` permission, calls against that resource return `403`. If
+the member is disabled, or the tenant is suspended, the key stops working
+immediately (same lockout the UI session gets).
+
+## Authentication
+
+Send the raw key as a bearer token on every request:
+
+```
+Authorization: Bearer qdk_xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+There is no separate API-key header or query-string option — only
+`Authorization: Bearer`. Requests without a valid key get `401`.
+
+## Base URL
+
+```
+/api/v1
+```
+
+For example, in production: `https://app.quandatics.com/api/v1/leads`.
+
+## Resources
+
+Six resources, each with a list endpoint and a detail endpoint:
+
+| Resource | List | Detail | Permission required |
+| --- | --- | --- | --- |
+| Leads | `GET /api/v1/leads` | `GET /api/v1/leads/{id}` | `lead.view` |
+| Accounts | `GET /api/v1/accounts` | `GET /api/v1/accounts/{id}` | `account.view` |
+| Persons (contacts) | `GET /api/v1/persons` | `GET /api/v1/persons/{id}` | `person.view` |
+| Opportunities (deal containers) | `GET /api/v1/opportunities` | `GET /api/v1/opportunities/{id}` | `opportunity.view` |
+| Funnels (staged deals) | `GET /api/v1/funnels` | `GET /api/v1/funnels/{id}` | `opportunity.view` |
+| Quotations | `GET /api/v1/quotations` | `GET /api/v1/quotations/{id}` | `quotation.view` |
+
+An "Opportunity" is the Salesforce-style parent container; a "funnel" is the
+individual staged deal underneath it that moves through a pipeline's stages
+— both read from the `opportunity.view` permission.
+
+Every result is scoped to the caller's tenant and further scoped by the
+key's member's ownership/management hierarchy — the exact same visibility
+rules the UI applies for that member. A row that exists but is outside that
+scope reads as `404`, not `403`, so a key can't be used to enumerate records
+it isn't allowed to see.
+
+## Pagination
+
+List endpoints take two optional query parameters:
+
+- `limit` — rows per page. Default `50`, maximum `100`.
+- `offset` — rows to skip.
+
+A list response looks like:
+
+```json
+{
+  "data": [ { "...": "..." }, { "...": "..." } ],
+  "pagination": { "limit": 50, "offset": 0, "total": 137 }
+}
+```
+
+Page through a resource by incrementing `offset` by the `limit` you used
+until `offset + data.length >= pagination.total`.
+
+## Detail responses
+
+A detail endpoint returns the single record wrapped the same way:
+
+```json
+{ "data": { "...": "..." } }
+```
+
+Detail payloads are richer than list rows — e.g. an account's detail
+includes its parent, children, contacts, and pipelines, not just its own
+columns. One known limitation: on the **list** endpoint, `accounts[].parentAccountName`
+is only resolved from accounts already present on that same page of
+results, not from a full-table lookup — if a parent account falls on a
+different page, `parentAccountName` comes back `null` even though the
+parent exists. The account **detail** endpoint always resolves the parent
+correctly.
+
+## Errors
+
+Errors share one shape:
+
+```json
+{ "error": { "code": "forbidden", "message": "Your API key's role lacks permission for this resource" } }
+```
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| `401` | `unauthorized` | Missing or invalid `Authorization: Bearer` header. |
+| `403` | `forbidden` | The key's role lacks the resource's `*_VIEW` permission. |
+| `404` | `not_found` | Unknown resource name in the URL, or no matching/visible row for that id. |
+
+## curl example
+
+```bash
+curl "https://app.quandatics.com/api/v1/leads?limit=20" \
+  -H "Authorization: Bearer qdk_xxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+Fetching a single record:
+
+```bash
+curl "https://app.quandatics.com/api/v1/accounts/acc_123" \
+  -H "Authorization: Bearer qdk_xxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+## Read-only in v1
+
+There are no `POST`/`PATCH`/`DELETE` endpoints under `/api/v1` — every
+mutation (creating a lead, advancing a funnel stage, sending a quotation,
+editing a role) stays a Server Action reachable only from the app UI over an
+authenticated session. An API key cannot write data. If you need write
+access from an external system, that isn't available yet — request it
+through the usual channel rather than scripting around the app UI.

@@ -1,0 +1,91 @@
+---
+title: Codebase Guide — Overview
+---
+
+# Codebase Guide
+
+This is the source-level companion to [Modules Guide](/modules/overview) and
+[API Reference](/api-reference). Where those pages describe the *plugin
+system* and the *server-action architecture* respectively, this section walks
+the actual `apps/web/` directory tree — what lives where, the conventions each
+directory enforces, and how to add something to it. Every code sample on
+these pages is copied or paraphrased from the real source; file paths are
+exact.
+
+## Monorepo context
+
+The repo root is a **thin pnpm workspace**. There is exactly one app,
+`apps/web/`; `packages/` and `modules/` are reserved in
+`pnpm-workspace.yaml` for a later phase but hold nothing today. Root
+`package.json` scripts are all one-line delegations —
+`"build": "pnpm --filter web run build"` and similarly for `dev`, `lint`,
+`typecheck`, `test`, `db:migrate`, `db:setup`, `db:setup-seeded` — so local
+dev and CI commands run from the repo root without `cd apps/web`. This docs
+site (`docs-site/`) is a second, independent Vite/Zudoku workspace member; it
+has no runtime dependency on `apps/web` beyond reading its `MODULES.md` and
+`AGENTS.md` at build time (see `docs-site/scripts/sync-root-docs.mjs`).
+
+Everything below refers to paths under `apps/web/` unless stated otherwise.
+
+## The 8 top-level directories
+
+| Directory | Responsibility | Contribute here when… |
+|---|---|---|
+| [`app/`](/codebase/app) | Next.js App Router: routes, layouts, Server Components, Server Actions (`actions.ts` per route), and the 4 `app/api/` route handlers. | You're adding or changing a page, a form, or a mutation exposed to the UI. |
+| [`lib/`](/codebase/lib) | The shared kernel: auth (`auth.ts`), authorization (`server-context.ts`, `permissions.ts`, `access-scope.ts`), the module registry (`modules.ts`, `module-guard.ts`), the action wrappers (`actions.ts`, `action-result.ts`), env, storage, and small pure helpers (dates, formatting, quote/opportunity numbering rules). | You need a cross-cutting helper more than one route module will import, or you're touching auth/permissions/module gating itself. |
+| [`server/services/`](/codebase/server-services) | Framework-free business rules — quotation math, stage/approval state machine, numbering, activity logging, finance completion rules, intercompany mirroring. No `next/*` imports. | The logic is a business rule that could plausibly run outside an HTTP request (a job, a script, a test) — not UI, not routing. |
+| [`db/`](/codebase/db) | Drizzle schema (`db/schema/*.ts`, 18 files + `index.ts` barrel), the migration chain (`db/migrations/`, journal-based), hand-authored RLS/views SQL (`db/sql/`), and seed scripts (`seed.ts`, `seed-sample.ts`). | You're adding/changing a table, a migration, or seed data. |
+| [`components/`](/codebase/components-and-tests) | Shared UI: `components/ui/` (shadcn/Base UI primitives), plus app-level building blocks (`data-table.tsx`, `detail-page.tsx`, `app-sidebar.tsx`, `command-palette.tsx`, …) and `components/activity/`, `components/attachments/`. | You're building UI reusable across more than one route module. |
+| [`hooks/`](/codebase/components-and-tests) | Small React hooks (`use-mobile.ts`, `use-open-on-new-param.ts`). | A stateful UI concern is shared by more than one component. |
+| [`tests/`](/codebase/components-and-tests) | Vitest unit tests, almost entirely against `lib/*` and `server/services/*` pure functions. | You add or change pure logic (numbering, math, state machines) — these are the things this repo actually unit-tests. |
+| `public/` | Static assets served as-is. | Rare — favicons, static images. |
+
+Two more root files worth knowing: `modules.config.ts` (the plugin on/off
+switches — see [Modules Guide](/modules/overview)) and `instrumentation.ts`
+(boot-time checks, including `validateModuleConfig()`).
+
+## Request → server action → service → db
+
+The whole app funnels through one shape. A route's `page.tsx` (a Server
+Component) or a client component's form submit calls a function from the
+route's own `actions.ts`:
+
+```
+Server Component / client form
+        │  calls
+        ▼
+app/(app)/<module>/actions.ts        "use server"
+        │  runAction(() => withTenant(PERMISSION, (tx, ctx) => { ... }))
+        │                     ── or ── withModule("moduleId", PERMISSION, ...)
+        ▼
+lib/actions.ts → lib/server-context.ts
+        │  requireContext() resolves the session, tenant, permissions
+        │  assertCan(ctx, permission) throws "FORBIDDEN: missing <key>" if denied
+        │  runInTenant(tenantId, fn) opens a transaction with
+        │  app.current_tenant set (Postgres RLS GUC)
+        ▼
+server/services/*  (optional — framework-free business rules)
+        │  quotation totals, numbering, stage transitions, activity logging —
+        │  pure functions/queries operating on the `tx` handed to them
+        ▼
+db/schema/*.ts via Drizzle, inside the RLS-scoped transaction
+```
+
+Three things make this shape load-bearing rather than incidental:
+
+- **Authorization happens once, at the top**, via `withTenant`/`withModule` —
+  not scattered through each query. See [lib/actions.ts](/codebase/lib).
+- **Tenant isolation is enforced by Postgres**, not just application code:
+  every tenant-owned table has `FORCE ROW LEVEL SECURITY` keyed to
+  `current_setting('app.current_tenant')`, which `runInTenant` sets for the
+  duration of the transaction. A missing/wrong setting yields zero rows, not
+  another tenant's rows. See [db.mdx](/codebase/db).
+- **Mutations never throw across the Server Action boundary** in production —
+  React Flight strips thrown error messages to an opaque digest, so
+  `runAction` converts them into a typed `ActionResult` return value instead.
+  See [lib/action-result.ts](/codebase/lib).
+
+For the full authorize → scope → execute breakdown of `withTenant`, see
+[API Reference → Server actions](/api-reference#server-actions-the-real-api).
+This Codebase Guide is more about *where to put new code*; API Reference is
+about *the wrapper functions' exact contracts*.

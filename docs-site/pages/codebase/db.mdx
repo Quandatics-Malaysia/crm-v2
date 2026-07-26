@@ -1,0 +1,227 @@
+---
+title: Codebase Guide — db/
+---
+
+# `db/` — schema, migrations, RLS
+
+`apps/web/db/` is [Drizzle ORM](https://orm.drizzle.team/) over PostgreSQL
+17. It has four parts: the schema (`schema/*.ts`), the generated migration
+chain (`migrations/`), hand-authored SQL applied after migrations
+(`sql/rls.sql`, `sql/views.sql`), and seed scripts (`seed.ts`,
+`seed-sample.ts`).
+
+## Schema — `db/schema/*.ts` + the barrel
+
+18 files, one per domain area, each exporting `pgTable`/`pgEnum` definitions:
+`auth.ts` (Better Auth's own tables — user/session/account/organization/
+member — excluded from RLS, see below), `rbac.ts` (roles, permissions,
+role_permissions, membership_profiles, member_roles), `crm.ts` (leads,
+accounts, persons), `pipeline.ts` (funnels, pipeline stages), `approvals.ts`
+(stage_approval_requests), `quotations.ts`, `products.ts`, `costs.ts`
+(deal_costs), `contracts.ts`, `system.ts`, `activities.ts`, `projects.ts`,
+`billing.ts` (payment_milestones), `sales-orders.ts`, `intercompany.ts`,
+`finance.ts` (finance_docs), `deferred-objects.ts`, and `_helpers.ts`
+(shared column groups — `timestamps`, `softDelete`).
+
+`db/schema/index.ts` is a plain re-export barrel:
+
+```ts
+export * from "./auth"
+export * from "./rbac"
+export * from "./crm"
+export * from "./pipeline"
+export * from "./approvals"
+export * from "./quotations"
+export * from "./products"
+export * from "./costs"
+export * from "./contracts"
+export * from "./system"
+export * from "./activities"
+export * from "./projects"
+export * from "./billing"
+export * from "./sales-orders"
+export * from "./intercompany"
+export * from "./finance"
+export * from "./deferred-objects"
+```
+
+Everything imports from `@/db/schema` (the barrel), never a specific file
+directly — this is what lets `projects.ts` statically import `accounts` from
+`./crm` and `funnels` from `./pipeline` without a circular-import fight.
+Note this static cross-file importing is **fine even across a module
+boundary** — `db/schema/finance.ts` statically imports `salesOrders` from
+`./sales-orders` and `projects` from `./projects`. Schema is explicitly
+exempt from the "no static core→module import" rule (invariant 3 in
+[Modules Guide → Contributing](/modules/contributing)) because every
+module's tables exist regardless of its flag — see "flags gate access, never
+data" below.
+
+A representative table, `projects` in `db/schema/projects.ts`:
+
+```ts
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    projectCode: text("project_code").notNull(),
+    codeNature: text("code_nature").notNull().default("auto"),
+    accountId: uuid("account_id").notNull(),
+    funnelId: uuid("funnel_id").references(() => funnels.id, { onDelete: "set null" }),
+    ownerMemberId: text("owner_member_id").references(() => member.id, { onDelete: "set null" }),
+    status: projectStatus("status").notNull().default("planning"),
+    value: numeric("value", { precision: 14, scale: 2 }),
+    currency: char("currency", { length: 3 }).notNull().default("MYR"),
+    ...timestamps,
+    ...softDelete,
+  },
+  (t) => [
+    unique("projects_code_uq").on(t.tenantId, t.projectCode),
+    foreignKey({
+      columns: [t.tenantId, t.accountId],
+      foreignColumns: [accounts.tenantId, accounts.id],
+      name: "projects_tenant_account_fk",
+    }).onDelete("restrict"),
+  ]
+)
+```
+
+Notice the **tenant-safe composite FK**: `accountId` doesn't have a plain
+`.references()` to `accounts.id` — it's enforced via the table-level
+`foreignKey({ columns: [t.tenantId, t.accountId], foreignColumns: [accounts.tenantId, accounts.id] })`,
+so a project can only ever reference an account in *its own* tenant, at the
+database level, not just via RLS. `...timestamps` / `...softDelete` (from
+`_helpers.ts`) are the standard `createdAt`/`updatedAt`/`deletedAt` columns
+every tenant-owned table gets.
+
+## RLS & the `crm_app` model
+
+Migrations run as a **privileged superuser** connection
+(`DATABASE_ADMIN_URL`); the running app connects as a **non-superuser,
+non-table-owner** role, `crm_app` (`DATABASE_URL`), for which RLS is
+actually enforced (superusers and table owners bypass RLS regardless of
+policy). `db/sql/rls.sql` — applied by `db/migrate.ts` right after the
+Drizzle migration step — creates that role if missing, grants it CRUD on
+every table, then loops a list of tenant-owned table names and for each:
+
+```sql
+ALTER TABLE %I ENABLE ROW LEVEL SECURITY;
+ALTER TABLE %I FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON %I
+  USING (tenant_id = current_setting('app.current_tenant', true))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
+```
+
+`FORCE ROW LEVEL SECURITY` (not just `ENABLE`) is what makes this apply even
+to the table owner if `crm_app` ever became one — belt and suspenders. A
+missing/unset `app.current_tenant` GUC evaluates the predicate to `NULL`,
+which matches nothing: **fail-closed, zero rows**, not another tenant's
+rows. `runInTenant(tenantId, fn)` in `db/index.ts` (not shown in full here)
+is what sets `app.current_tenant` for the lifetime of the transaction that
+every `withTenant`/`withModule` call opens — see
+[lib.mdx](/codebase/lib).
+
+A few tables get bespoke policies instead of the generic loop:
+`intercompany_deals` and `intercompany_deal_responses` are visible to
+**both** sides of a cross-tenant deal (`tenant_id = current_tenant() OR
+partner_tenant_id = current_tenant()`); `audit_log` is tenant-scoped and
+additionally has `UPDATE`/`DELETE` revoked from `crm_app` (append-only);
+Better Auth's own tables (`user`, `session`, `account`, `organization`,
+`member`, …) are **excluded** from RLS entirely, since Better Auth queries
+them before any tenant context exists.
+
+## Migrations — `db/migrations/`, and the journal gotcha
+
+Migrations are **generated by Drizzle**, not hand-authored, via
+`drizzle-kit generate` (invoked as `pnpm run db:generate`). Each run adds a
+numbered SQL file (`0000_init.sql` … the chain currently ends around
+`0060_funnel_quote_running_number.sql`) plus a matching
+`meta/<NNNN>_snapshot.json`, and appends one entry to
+`db/migrations/meta/_journal.json`:
+
+```json
+{ "idx": 60, "version": "7", "when": 1784060000000,
+  "tag": "0060_funnel_quote_running_number", "breakpoints": true }
+```
+
+**`db/migrate.ts` (`drizzle-orm/postgres-js/migrator`'s `migrate()`) walks
+`_journal.json`, not the filesystem.** A `.sql` file that exists on disk but
+has no corresponding entry in `_journal.json` is **silently skipped** — it
+never runs, on any environment, with no error. This is the "journal
+gotcha": if you ever hand-write or hand-copy a migration `.sql` file instead
+of generating it with `drizzle-kit`, you **must** add a matching entry to
+`_journal.json` yourself (and a snapshot, if downstream generations should
+diff against it) or the migration is dead code that happens to sit in the
+migrations folder.
+
+The safe path is to never hand-write one: change a `db/schema/*.ts` file,
+run `pnpm run db:generate`, and let Drizzle append both the SQL and the
+journal entry together. Migrations apply **in one linear chain, in full, on
+every deployment** — there is no per-module chain (invariant 1 in
+[Modules Guide → Contributing](/modules/contributing)); a new module's
+tables are just the next few numbered files in the same sequence.
+
+`db/migrate.ts` also does three things beyond running the chain, every
+deploy, idempotently: creates the `pg_trgm` extension (fuzzy account-name
+matching), applies `rls.sql` and `views.sql`, and syncs the permission
+catalog (`ALL_PERMISSION_KEYS` from `lib/permissions.ts` → `permissions`
+table, then grants every permission to each tenant's `Owner`/`Admin` system
+roles) — so a permission added to the code after a tenant was seeded still
+reaches that tenant's full-access roles on the next deploy.
+
+## Seeds — `seed.ts` and `seed-sample.ts`
+
+`seed.ts` creates one real tenant (the "Demo Entity") with a single Owner
+login and the baseline `roles`/`permissions` rows — this is what
+`pnpm run db:setup` leaves you with. `seed-sample.ts` layers on top (via
+`pnpm run db:setup-seeded`): four more demo logins plus a full set of sample
+customers, contacts, funnels, quotations, and one won project with
+milestones and a sales-order submission.
+
+**Sample data belonging to an optional module is partitioned behind
+`isModuleEnabled(...)`**, so a core-only build produces zero orphan rows:
+
+```ts
+// db/seed-sample.ts
+if (isModuleEnabled("projects")) {
+  await db.insert(projects).values({ id: PROJECT_ID, ... }).onConflictDoNothing()
+}
+// payment milestones are funnel-scoped, not project-scoped, so they're
+// seeded unconditionally regardless of the projects flag
+if (isModuleEnabled("projects") && isModuleEnabled("salesOrders")) {
+  await db.insert(salesOrders).values({ ... projectId: PROJECT_ID, ... })
+}
+```
+
+The sample seed is dev-only, idempotent (`onConflictDoNothing()` /
+deterministic ids via a `det(...)` helper), and intentionally excluded from
+the production Docker `migrate` step.
+
+## How to add a table or a migration
+
+1. Add or edit a `pgTable`/`pgEnum` in the relevant `db/schema/<area>.ts`
+   file (or create a new file for a genuinely new domain area, and add
+   `export * from "./<area>"` to `db/schema/index.ts`). Tenant-owned tables
+   get a `tenantId: text("tenant_id").notNull().references(() =>
+   organization.id, { onDelete: "cascade" })` column and `...timestamps` /
+   `...softDelete` from `_helpers.ts` where soft-delete applies.
+2. If the table needs cross-tenant-safe FKs to another tenant-owned table,
+   use the table-level composite `foreignKey({ columns: [tenantId, xId],
+   foreignColumns: [other.tenantId, other.id] })` pattern from
+   `projects.ts` above — a plain `.references()` on the child id alone does
+   not stop a cross-tenant reference.
+3. Run `pnpm run db:generate` — this writes the next `NNNN_*.sql` file, its
+   snapshot, and the `_journal.json` entry together. **Never hand-edit an
+   already-generated file** or write a migration `.sql` by hand — see the
+   journal gotcha above.
+4. Add the new table name to the `tenant_tables` array in `db/sql/rls.sql`
+   (the generic loop) unless it needs bespoke policies (like
+   `intercompany_deals`) or is a Better-Auth-owned table (excluded
+   entirely).
+5. Run `pnpm run db:setup` (or `db:migrate` if you already have a DB) to
+   apply it locally; add any sample rows to `seed-sample.ts`, partitioned
+   behind `isModuleEnabled(...)` if the table belongs to an optional module.
+6. If the table backs a report/rollup, hand-authored views live in
+   `db/sql/views.sql` (applied the same way as `rls.sql`, after
+   migrations) — not in the Drizzle-generated chain.

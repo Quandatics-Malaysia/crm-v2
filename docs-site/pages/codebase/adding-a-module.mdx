@@ -1,0 +1,282 @@
+---
+title: Codebase Guide — Adding a module
+---
+
+# Adding a module: two worked examples
+
+[Modules Guide → Contributing](/modules/contributing) has the abstract
+9-step recipe and the five invariants. This page is the concrete version:
+tracing **Projects** (no dependencies, the simplest real module) and
+**Finance** (`dependsOn: ["projects", "salesOrders"]`, the deepest one) all
+the way through the actual codebase, file by file. Read Modules Guide first
+if you haven't — this page assumes you know what `modules.config.ts` and
+`lib/modules.ts` are for.
+
+## Example 1: Projects (`projects`, no dependencies)
+
+**1 — the switch.** `modules.config.ts`:
+
+```ts
+export const MODULE_CONFIG = {
+  projects: false,
+  // ...
+}
+```
+
+**2 — metadata + deps.** `lib/modules.ts`:
+
+```ts
+export const MODULES: Record<ModuleId, ModuleMeta> = {
+  projects: { id: "projects", label: "Projects", dependsOn: [] },
+  // ...
+}
+```
+
+No `dependsOn` — Projects is a root module. Note the comment right above it
+in `modules.config.ts`: *"Payment Milestones is a core feature and is NOT
+gated by this flag — it lives directly under a Funnel and has no Project
+dependency."* This is a real, load-bearing distinction: `paymentMilestones`
+rows can have `projectId: null` and hang off a funnel directly (see
+`db/seed-sample.ts` section 7), so disabling `projects` doesn't take
+milestones down with it.
+
+**3 — schema.** `db/schema/projects.ts` defines `projectStatus` (a
+`pgEnum`) and two tables: `projects` (see the full definition in
+[db.mdx](/codebase/db)) and `projectCounters` (the per-tenant, per-year
+running-number counter `numbering.ts` upserts against). `db/schema/index.ts`
+re-exports it (`export * from "./projects"`) **unconditionally** — the
+table exists regardless of the flag, per "flags gate access, never data."
+The migration (`db/migrations/0004_projects.sql` historically, or the next
+number when you add fields today) was generated with `pnpm run db:generate`
+and its entry lives in `_journal.json` — see the journal gotcha in
+[db.mdx](/codebase/db) if you're ever tempted to hand-write one.
+
+**4 — the route module.** `app/(app)/projects/` follows the standard
+page/client/actions split documented in [app.mdx](/codebase/app):
+`page.tsx` calls `requireModule("projects")` as its first statement;
+`actions.ts` exports `listProjects`, `getProject`, `createProject`,
+`updateProject`, `deleteProject`, plus the payment-milestone CRUD, every one
+of them wrapped in `withModule("projects", PERMISSIONS.PROJECT_*, ...)`:
+
+```ts
+export async function listProjects(): Promise<ProjectListItem[]> {
+  return withModule("projects", PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
+    const visible = await visibleMemberIds(tx, ctx)
+    return tx.select({ ... }).from(projects)
+      .where(and(isNull(projects.deletedAt), ownerScope(projects.ownerMemberId, visible)))
+      .orderBy(desc(projects.createdAt)).limit(1000)
+  })
+}
+```
+
+`createProject` additionally calls `nextProjectCode(tx, ctx, {...})` from
+`server/services/numbering.ts` to mint
+`{YYYY}-{ENTITY}-{ACCOUNTCODE}-{PROJECTNATURE}-{NNN}`, and
+`splitMilestones(...)` from `lib/milestone-split.ts` to auto-seed payment
+milestones from the tenant's template — both framework-free helpers called
+from inside the `withModule` callback with the `tx`/`ctx` it received.
+
+**5 — the guarded core→module edge.** Core `quotations/actions.ts`'s
+`acceptQuotation` can *optionally* auto-create a project on acceptance
+(a Settings → Behavior toggle). Since quotations is core and must not
+statically depend on the projects plugin, it reaches in with a guarded
+dynamic import:
+
+```ts
+// app/(app)/quotations/actions.ts
+if (result.autoProject && isModuleEnabled("projects")) {
+  // Loaded lazily so core quotations carries no static dependency on the
+  // projects plugin (whose actions transitively import sales-orders + finance).
+  const { createProject, prefillFromOpportunity } = await import(
+    "@/app/(app)/projects/actions"
+  )
+  // ...
+}
+```
+
+The comment is the point: `projects/actions.ts` itself imports
+`sales-orders` and `finance`-related helpers, so a *static* import here
+would drag the whole downstream chain into core's build graph even with
+`projects: false`.
+
+**6 — nav + permissions.** `components/app-sidebar.tsx`:
+`{ title: "Projects", url: "/projects", ..., permission: PERMISSIONS.PROJECT_VIEW, module: "projects" }`.
+`lib/permissions.ts`'s `ALL_GROUPS` has a `"Projects"` group tagged
+`module: "projects"`, containing `PROJECT_VIEW`/`CREATE`/`UPDATE`/`DELETE` —
+present in `ALL_PERMISSION_KEYS` (and thus grantable/seedable) regardless of
+the flag, filtered out of the *rendered* role matrix only by
+`PERMISSION_GROUPS`'s `isModuleEnabled` check.
+
+**7 — seed.** `db/seed-sample.ts` wraps the sample project insert:
+
+```ts
+if (isModuleEnabled("projects")) {
+  await db.insert(projects).values({ id: PROJECT_ID, projectCode: "2026-DEMO-STARKR-PS-001", ... })
+    .onConflictDoNothing()
+}
+```
+
+## Example 2: Finance (`finance`, `dependsOn: ["projects", "salesOrders"]`)
+
+**1–2 — switch + deps.** `modules.config.ts` has `finance: false` with the
+comment *"Billing + Purchasing (O2C/P2P finance_docs) + intercompany
+billing (Release 6)."* `lib/modules.ts`:
+
+```ts
+finance: { id: "finance", label: "Billing & Purchasing", dependsOn: ["projects", "salesOrders"] },
+```
+
+This is the deepest dependency in the app: `validateModuleConfig()` (run
+from `instrumentation.ts` at boot, in every environment) refuses to start if
+`finance: true` while either `projects` or `salesOrders` is `false` — the
+error names exactly which dependency is missing. The reason is structural,
+not arbitrary: a finance document's root anchor is an **approved sales
+order**, and a sales order hangs off a **project** — see
+`db/schema/finance.ts`'s `financeDocs.salesOrderId` /
+`financeDocs.projectId` foreign keys.
+
+**3 — schema.** `db/schema/finance.ts` defines **one** table,
+`financeDocs`, for the entire O2C (delivery_order → invoice → credit_note /
+receipt) and P2P (rfq → purchase_order → purchase_invoice → payment) chain —
+which document kind may parent which is pure config in
+`lib/finance-kinds.ts` (`FINANCE_KINDS`), not separate tables per kind. It
+statically imports `salesOrders`, `projects`, `paymentMilestones`, and
+`intercompanyDeals` from their own schema files — a static schema-to-schema
+import across what are, at the route level, three different plugin
+boundaries (`finance`, `salesOrders`, `projects`, plus core's
+`paymentMilestones`). That's allowed: schema is exempt from the "no static
+core→module import" rule since every module's tables exist unconditionally.
+Two constraints worth noting as a modeling pattern:
+`unique("finance_docs_number_uq").on(t.tenantId, t.number)` (per-tenant
+document numbering) and a **partial unique index** —
+``uniqueIndex("finance_docs_live_milestone_uq").on(t.milestoneId).where(sql`status <> 'cancelled'`)``
+— the DB-level guard against double-billing a milestone, enforced even
+though a cancelled invoice against that milestone is allowed to coexist.
+The migration that created it, `db/migrations/0040_even_forgotten_one.sql`,
+is a normal generated entry in the one linear chain — not a separate one.
+
+**4 — the route modules.** Finance spans **three** route directories:
+`app/(app)/billing/` (sale direction: delivery orders, invoices, credit
+notes, receipts), `app/(app)/purchasing/` (purchase direction: RFQs,
+purchase orders, purchase invoices, payments), and
+`app/(app)/intercompany/` (the cross-tenant mirror UI) — all three
+`page.tsx` files start with `requireModule("finance")`. `billing/actions.ts`
+is the shared actions file purchasing's UI also calls into
+(`listFinanceDocs(direction)` takes `"sale" | "purchase"`).
+
+**A genuinely different pattern from Projects, worth knowing:**
+`billing/actions.ts` does **not** use `withModule("finance", ...)`. It uses
+plain `withTenant(...)` plus a local helper called first inside the
+callback:
+
+```ts
+/** The module is an add-on gated globally by the plugin registry
+ *  (lib/modules.ts). */
+async function assertFinanceEnabled(_tx: Tx, _tenantId: string): Promise<void> {
+  assertModuleEnabled("finance")
+}
+
+export async function listFinanceDocs(direction: "sale" | "purchase") {
+  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
+    await assertFinanceEnabled(tx, ctx.tenantId)
+    // ...
+  })
+}
+```
+
+Both achieve the same defense-in-depth (the plugin is asserted enabled
+before any query runs, behind the hidden nav and the route redirect) —
+`withModule` is the shorter, preferred spelling for new code (as Projects
+uses), but you'll see this explicit-helper variant in the finance route,
+predating `withModule`'s introduction. Either satisfies the recipe; prefer
+`withModule` for anything new.
+
+**5 — the guarded core→module edges, both directions.** Finance is called
+*into* from core in the milestone-completion path — `updateMilestone` in
+`projects/actions.ts` calls `maybeCompleteProject(tx, ctx, projectId)` from
+`server/services/finance.ts` directly (a static import, because
+`server/services/finance.ts` is itself framework-free and *guards its own
+body*, not the call site):
+
+```ts
+// server/services/finance.ts
+export async function maybeCompleteProject(tx: Tx, ctx: ServerContext, projectId: string) {
+  if (!isModuleEnabled("finance")) return
+  // ... auto-complete the project once every milestone is paid, if the
+  // tenant's autoCompleteProjectOnPaid setting is on
+}
+```
+
+And finance calls back *out* into core value-sync: `server/services/
+value.ts`'s `syncOpportunityAmount` — which runs on every quote-driven value
+change, core or not — dynamically imports finance's intercompany mirror:
+
+```ts
+if (isModuleEnabled("finance")) {
+  const { syncIntercompanyMirror } = await import("./intercompany")
+  await syncIntercompanyMirror(tx, funnelId)
+}
+```
+
+The rule that decides which shape to use: if the **module** provides a
+top-level guarded function that no-ops when disabled (`maybeCompleteProject`),
+a static import of *that function* is fine — the guard travels with the
+function, and `server/services/finance.ts` itself has no heavier
+dependencies to drag in. If the target is a whole plugin's actions module
+(heavier, potentially importing further plugins, as `projects/actions.ts`
+does), use the dynamic-import form instead, as `quotations/actions.ts` and
+`value.ts` both do.
+
+**6 — nav + permissions.** `components/app-sidebar.tsx` tags **two** nav
+items with `module: "finance"` (Billing, Purchasing) plus a third,
+Intercompany, also `module: "finance"` (there's no separate `intercompany`
+flag — it's part of the finance plugin). `lib/permissions.ts` has **two**
+groups tagged `module: "finance"`: `"Billing & Purchasing"`
+(`FINANCE_VIEW`, `FINANCE_MANAGE`) and `"Intercompany"`
+(`INTERCOMPANY_VIEW`) — one module can own more than one permission group
+and more than one nav entry; there's no 1:1 constraint.
+
+**7 — seed.** `db/seed-sample.ts` partitions the sales order (a
+`salesOrders` + `projects` dependent) but has no finance-doc sample rows in
+the current seed — a module can be "wired for" without the sample data
+existing yet; the `isModuleEnabled` guard is what matters, not seed
+completeness.
+
+## The five invariants, applied
+
+1. **Single migration chain.** Both `0004_projects.sql` and
+   `0040_even_forgotten_one.sql` are just entries in the one linear
+   `db/migrations/` sequence — neither module has its own chain, and
+   `financeDocs`'s FKs into `salesOrders`/`projects` prove why an
+   independent per-module chain would be unsafe (ordering matters).
+2. **Flags gate access, not data.** `projects` and `finance` tables are
+   created and populated (via seed or real usage) whether or not the flag
+   is on; toggling either only changes what's reachable through nav/routes/
+   actions.
+3. **No static core→module import.** `quotations/actions.ts` →
+   `projects/actions.ts` and `value.ts` → `finance`'s
+   `intercompany.ts` are both dynamic; `finance.ts`'s
+   `maybeCompleteProject` is a static import of a self-guarding function,
+   not of a whole plugin surface.
+4. **Explicit registration.** Both modules touch the same small set of core
+   files by hand: `modules.config.ts`, `lib/modules.ts`, `app-sidebar.tsx`,
+   `command-palette.tsx`, `lib/permissions.ts`. No central "modules/"
+   directory auto-discovers them.
+5. **Services stay framework-free.** `server/services/numbering.ts`
+   (Projects) and `server/services/finance.ts` (Finance) both take `Tx` +
+   `ServerContext` as parameters, have no `next/*` imports, and either use
+   `server-only` (numbering.ts) or don't need to (finance.ts's only
+   sensitive dependency is the `db` types, also fine under `server-only`
+   callers).
+
+## Verify
+
+```bash
+pnpm run typecheck && pnpm run build   # with the new module's flag false —
+                                        # proves core has no static edge into it
+```
+
+Then flip the flag (plus dependencies) on in `modules.config.ts`, rebuild,
+and smoke-test that the route serves and the nav entry appears. Run
+`pnpm run test` for any pure logic you added under `server/services/` or
+`lib/`.

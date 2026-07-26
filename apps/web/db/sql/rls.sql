@@ -140,14 +140,18 @@ GRANT SELECT, INSERT, UPDATE ON api_keys TO crm_app;
 -- the migrating superuser => bypasses api_keys RLS for THIS query only). It
 -- returns ONLY the minimal (organization_id, member_id) tuple needed to set the
 -- tenant GUC, stamps last_used_at, and ignores revoked keys. search_path is
--- pinned to public to defend against search_path hijacking. EXECUTE is revoked
+-- pinned to '' and every object is schema-qualified (public.api_keys,
+-- pg_catalog.now) so a crm_app SQL foothold cannot shadow api_keys via pg_temp
+-- and impersonate a tenant. Depends on the definer being a superuser that
+-- bypasses RLS; if that ever changes it fails closed (returns nothing). EXECUTE is revoked
 -- from PUBLIC and granted solely to the non-privileged crm_app role.
 -- Return type is (text, text) because organization.id / member.id are text.
-CREATE OR REPLACE FUNCTION verify_api_key(p_hash text)
+DROP FUNCTION IF EXISTS verify_api_key(text);
+CREATE FUNCTION verify_api_key(p_hash text)
 RETURNS TABLE(organization_id text, member_id text)
-LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  UPDATE api_keys
-     SET last_used_at = now()
+LANGUAGE sql SECURITY DEFINER SET search_path = '' AS $$
+  UPDATE public.api_keys
+     SET last_used_at = pg_catalog.now()
    WHERE key_hash = p_hash AND revoked_at IS NULL
   RETURNING organization_id, member_id;
 $$;

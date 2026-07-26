@@ -32,8 +32,20 @@ const rewrite = (s) =>
     .replace(/\]\(\.\/README\.md\)/g, "](/overview)")
     .replace(/\]\(\.\/OPERATIONS\.md\)/g, "](/operations)");
 
+// Lift the doc's leading `# H1` into Zudoku frontmatter `title:` and drop it
+// from the body, so the site renders exactly one visible title (from
+// frontmatter) instead of the H1 duplicating the page/category label above
+// it. JSON.stringify gives a YAML-safe double-quoted scalar (handles `:`, `"`).
+const liftTitle = (s) => {
+  const match = s.match(/^#\s+(.+?)\s*\n+/);
+  if (!match) return s;
+  const title = match[1].trim();
+  const rest = s.slice(match[0].length);
+  return `---\ntitle: ${JSON.stringify(title)}\n---\n\n${rest}`;
+};
+
 for (const [src, dst] of map) {
   const body = readFileSync(resolve(repoRoot, src), "utf8");
-  writeFileSync(resolve(pagesDir, dst), rewrite(body));
+  writeFileSync(resolve(pagesDir, dst), liftTitle(rewrite(body)));
   console.log(`synced ${src} -> pages/${dst}`);
 }

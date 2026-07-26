@@ -1,4 +1,6 @@
-# The module (plugin) system
+---
+title: "The module (plugin) system"
+---
 
 Everything beyond the **core CRM** (leads, accounts, contacts/persons,
 opportunities, funnel + stage-gated approvals, quotations, tax, products,

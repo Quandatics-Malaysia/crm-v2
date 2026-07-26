@@ -1,4 +1,6 @@
-# Contributing to CRM v2
+---
+title: "Contributing to CRM v2"
+---
 
 This is the day-one guide. Read it once, then keep [`MODULES.md`](/modules)
 open while you work.

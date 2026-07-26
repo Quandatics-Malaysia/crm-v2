@@ -81,52 +81,51 @@ paths:
               schema: { type: string, format: binary }
         "403": { description: Not authorized for this file's tenant }
         "404": { description: File not found }
-  /api/auth/{path}:
-    get:
-      operationId: authGet
-      summary: Better Auth handler (GET)
-      description: >
-        Catch-all for Better Auth (`apps/web/app/api/auth/[...all]`). Handles
-        sessions, OAuth callbacks (Microsoft Entra: provider id
-        `microsoft-entra-id`), etc. Email/password sign-in is a POST to
-        `/api/auth/sign-in/email`. See the API Reference page for the auth model.
-      tags: [Auth]
-      parameters:
-        - name: path
-          in: path
-          required: true
-          schema: { type: string }
-          description: The Better Auth sub-path (e.g. `get-session`).
-      responses:
-        "200": { description: Handled by Better Auth }
+  /api/auth/sign-in/email:
     post:
-      operationId: authPost
-      summary: Better Auth handler (POST)
+      operationId: signInEmail
+      summary: Sign in with email + password
       description: >
-        e.g. `POST /api/auth/sign-in/email` with `{ "email", "password" }`.
-        Returns 200 + session cookie on success, 401 `INVALID_EMAIL_OR_PASSWORD`
-        on bad credentials. Password login is always enabled; a per-tenant
-        `allowPasswordLogin` flag can gate it (SSO-only tenants).
+        Better Auth's email/password sign-in
+        (`apps/web/app/api/auth/[...all]`, mounted via
+        `toNextJsHandler(auth.handler)`). Password login is enabled at the
+        framework level, but gated **per tenant**: a `hooks.before` middleware
+        checks `tenant_settings.allow_password_login` for every organization
+        the account belongs to and rejects with `403 FORBIDDEN` if none of
+        them allow it (SSO-only tenants). There is no self-service sign-up —
+        `disableSignUp: true` — so this only works for an already-provisioned
+        or invited account. Try it with the seeded demo login
+        (`admin@demo.local` / `Password123!`) against a local dev server.
       tags: [Auth]
-      parameters:
-        - name: path
-          in: path
-          required: true
-          schema: { type: string }
-          description: The Better Auth sub-path (e.g. `sign-in/email`).
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [email, password]
               properties:
                 email: { type: string, format: email, example: admin@demo.local }
-                password: { type: string, format: password }
+                password: { type: string, format: password, example: Password123! }
       responses:
-        "200": { description: Success (sets a session cookie) }
+        "200":
+          description: >
+            Signed in — sets the session cookie on the response. Body includes
+            the Better Auth session token and the user record.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string, format: email }
+                      name: { type: string }
         "401":
-          description: Invalid credentials
+          description: Wrong email or password.
           content:
             application/json:
               schema:
@@ -134,10 +133,78 @@ paths:
                 properties:
                   message: { type: string, example: Invalid email or password }
                   code: { type: string, example: INVALID_EMAIL_OR_PASSWORD }
+        "403":
+          description: >
+            Password sign-in is disabled for every organization this account
+            belongs to (the tenant is SSO-only — use Microsoft Entra instead).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password sign-in is disabled for your organization. Use single sign-on instead.
+                  code: { type: string, example: FORBIDDEN }
+  /api/auth/sign-out:
+    post:
+      operationId: signOut
+      summary: Sign out
+      description: >
+        Ends the current session (reads the session cookie, clears it
+        server-side). No request body. Safe to call with no active session.
+      tags: [Auth]
+      responses:
+        "200":
+          description: Signed out — the session cookie is cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+  /api/auth/get-session:
+    get:
+      operationId: getSession
+      summary: Get the current session
+      description: >
+        Reads the session cookie and returns the active session + user, or
+        `null` if there is no valid session. Useful for confirming
+        `sign-in/email` actually set a cookie the browser will send back.
+      tags: [Auth]
+      responses:
+        "200":
+          description: The active session and user, or null when unauthenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  session:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      userId: { type: string }
+                      activeOrganizationId: { type: string, nullable: true }
+                      expiresAt: { type: string, format: date-time }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string, format: email }
+                      name: { type: string }
 tags:
   - name: System
     description: Liveness / ops.
   - name: Files
     description: Authenticated, tenant-scoped file downloads.
   - name: Auth
-    description: Better Auth (sessions, email/password, Microsoft Entra OAuth).
+    description: >
+      Better Auth (`apps/web/app/api/auth/[...all]`) — sessions, email/password,
+      and Microsoft Entra OAuth. These 3 endpoints are the fine-tunable subset
+      exposed here; the full surface also includes OAuth callbacks
+      (`/api/auth/oauth2/callback/microsoft-entra-id`) that aren't meaningfully
+      testable from a static form. **Public sign-up is disabled** —
+      `emailAndPassword.disableSignUp: true` — so there is intentionally no
+      `/api/auth/sign-up/email` endpoint documented here.

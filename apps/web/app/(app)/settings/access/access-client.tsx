@@ -93,7 +93,7 @@ function CreateKeyDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger render={<Button size="sm">Create API key</Button>} />
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         {created ? (
           <>
             <DialogHeader>
@@ -104,23 +104,22 @@ function CreateKeyDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-2">
-              <div className="flex items-center gap-2">
-                <code className="flex h-9 min-w-0 flex-1 items-center overflow-x-auto rounded-md border bg-muted/40 px-3 font-mono text-sm">
-                  {created.fullKey}
-                </code>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(created.fullKey)
-                    toast.success("API key copied")
-                  }}
-                >
-                  <Copy className="size-3.5" />
-                  Copy
-                </Button>
-              </div>
+              <code className="block w-full select-all break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-sm leading-relaxed">
+                {created.fullKey}
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  navigator.clipboard.writeText(created.fullKey)
+                  toast.success("API key copied")
+                }}
+              >
+                <Copy className="size-3.5" />
+                Copy key
+              </Button>
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
                 You won&apos;t be able to see this key again after closing this

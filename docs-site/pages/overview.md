@@ -1,4 +1,6 @@
-# CRM v2
+---
+title: "CRM v2"
+---
 
 Lightweight, self-hostable multitenant CRM for a services business.
 **Next.js 16** (App Router) · **shadcn/ui** (Base UI) · **Better Auth** (Microsoft Entra + email) · **Drizzle ORM** + **PostgreSQL 17** with **Row-Level Security** · **Docker + Caddy**.

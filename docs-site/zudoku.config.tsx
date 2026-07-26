@@ -11,6 +11,13 @@ const config: ZudokuConfig = {
   },
   docs: { files: "/pages/**/*.{md,mdx}" },
   search: { type: "pagefind" },
+  apis: [
+    {
+      type: "file",
+      input: "./apis/crm-api.yaml",
+      path: "/api-playground",
+    },
+  ],
   navigation: [
     { type: "doc", file: "overview", label: "Overview" },
     { type: "doc", file: "contributing", label: "Contributing" },
@@ -18,6 +25,7 @@ const config: ZudokuConfig = {
     { type: "doc", file: "operations", label: "Operations" },
     { type: "doc", file: "architecture", label: "Architecture" },
     { type: "doc", file: "api-reference", label: "API Reference" },
+    { type: "link", to: "/api-playground", label: "API Playground", icon: "flask-conical" },
     {
       type: "category",
       label: "Modules Guide",

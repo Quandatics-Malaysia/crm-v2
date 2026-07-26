@@ -9,6 +9,7 @@ fullWidth: true
 ---
 
 import { Head, LandingPage } from "zudoku/components";
+import { FolderTree, Landmark, Plug, Puzzle, Rocket, Settings } from "lucide-react";
 
 <Head>
   <title>Quandatics CRM Docs</title>
@@ -25,37 +26,37 @@ import { Head, LandingPage } from "zudoku/components";
   ]}
   features={[
     {
-      icon: "🚀",
+      icon: <Rocket />,
       title: "Get Started",
       description: "What the product does, local dev setup, and the five rules that keep the module system working.",
       href: "/overview",
     },
     {
-      icon: "🧩",
+      icon: <Puzzle />,
       title: "Modules",
       description: "The plugin system — enabling/disabling a module and the recipe for adding a brand-new one.",
       href: "/modules",
     },
     {
-      icon: "🗂️",
+      icon: <FolderTree />,
       title: "Codebase Guide",
       description: "A directory-by-directory tour of apps/web/ — app/, lib/, server/services/, db/, components, and tests.",
       href: "/codebase/overview",
     },
     {
-      icon: "🔌",
+      icon: <Plug />,
       title: "API Reference & Playground",
       description: "The 4+ HTTP route handlers, the server-action architecture, and a live playground to try real requests.",
       href: "/api-reference",
     },
     {
-      icon: "⚙️",
+      icon: <Settings />,
       title: "Operations",
       description: "Environments, the deploy pipeline, and how optional modules are toggled in production.",
       href: "/operations",
     },
     {
-      icon: "🏛️",
+      icon: <Landmark />,
       title: "Architecture",
       description: "How the codebase is organised, the settings structure, and where the repo is heading.",
       href: "/architecture",

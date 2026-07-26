@@ -1,0 +1,162 @@
+---
+title: Modules — Contributing
+---
+
+# How to contribute a module
+
+This is the technical recipe for adding a brand-new plugin `x` from scratch,
+plus the five invariants that keep the module system safe. Read [Modules →
+Overview](/modules/overview) first if you haven't — this page assumes you
+know the shape of `modules.config.ts` / `lib/modules.ts`.
+
+## The 9-step recipe
+
+Every step is a small, local edit — there is deliberately no central
+"register your module here" abstraction (see invariant 4 below).
+
+**1 — Declare the switch.** Add `x: false` to `MODULE_CONFIG` in
+`modules.config.ts`. The `ModuleId` union and `MODULE_IDS` pick it up
+automatically — no other type wiring needed.
+
+**2 — Register metadata + dependencies.** Add an entry to `MODULES` in
+`lib/modules.ts`:
+
+```ts
+x: { id: "x", label: "X", dependsOn: [/* e.g. "projects" */] },
+```
+
+`validateModuleConfig()` now enforces those dependencies at boot for free.
+
+**3 — Guard the routes.** First line of every `app/(app)/x/**/page.tsx` (and
+any `layout.tsx`):
+
+```ts
+import { requireModule } from "@/lib/module-guard"
+
+export default async function Page() {
+  requireModule("x")
+  // ...fetch data, render
+}
+```
+
+`requireModule` redirects to `/dashboard` when the plugin is off.
+
+**4 — Guard the server actions.** Swap `withTenant(...)` for
+`withModule("x", ...)` in every one of X's actions — defense in depth behind
+the hidden nav and the route redirect from step 3:
+
+```ts
+export async function createThing(input: Input): Promise<ActionResult<Thing>> {
+  return runAction(() =>
+    withModule("x", PERMISSIONS.X_CREATE, (tx, ctx) =>
+      tx.insert(xThings).values({ tenantId: ctx.tenantId, ... }).returning()
+    )
+  )
+}
+```
+
+For any action that doesn't go through `withTenant`/`withModule` at all, put
+`assertModuleEnabled("x")` as its first line instead.
+
+**5 — Tag the nav.** Add `module: "x"` to X's item(s) in the nav arrays of
+`components/app-sidebar.tsx` and `components/command-palette.tsx`. The layout
+already computes the on/off map from `MODULE_IDS`, so tagged items filter
+themselves — no extra conditional needed at each call site.
+
+**6 — Tag the permission-matrix group.** Add `module: "x"` to X's group in
+`ALL_GROUPS` in `lib/permissions.ts`. Keep X's permission keys in
+`ALL_PERMISSION_KEYS` regardless — that's what lets grants survive toggling
+the module off and back on. `PERMISSION_LABELS` is built from the unfiltered
+key list, so a denial still renders a human label even while the module is
+off.
+
+**7 — Break any core→X static edge.** If core code (or a framework-free
+service) needs to call into X, it must **not** statically `import` it — use a
+guarded dynamic import so core carries no build-time dependency on the
+plugin:
+
+```ts
+if (isModuleEnabled("x")) {
+  const { doThing } = await import("@/app/(app)/x/actions")
+  await doThing(...)
+}
+```
+
+The existing examples to model this on are `server/services/value.ts`,
+`server/services/stage.ts`, and the `quotations`/`funnel` action files.
+
+**8 — Partition the seed.** Wrap any of X's sample rows in
+`if (isModuleEnabled("x")) { ... }` inside `db/seed-sample.ts`, so a core-only
+seed run produces zero orphan rows referencing a disabled module's tables.
+
+**9 — Schema stays ungated.** X's tables live under `db/schema` with normal
+migrations and RLS, created **regardless** of the flag. Per "disable, don't
+delete," the flag only ever gates *access* — never *data* or *schema*.
+
+### Verify
+
+```bash
+pnpm run typecheck && pnpm run build   # with x: false — proves core has no static edge into X
+```
+
+Then flip `x: true` (plus its dependencies) and smoke-test that the routes
+serve and the nav appears. Run `pnpm run test` for any pure logic you added.
+
+## The five invariants
+
+These are enforced by review, not (all) by tooling — breaking one is a
+blocking comment, not a nit.
+
+**1. One migration chain. Never your own.**
+All migrations live in `db/migrations/` and apply in one linear order, in
+full, on every deployment. Modules do not get their own chains. Cross-module
+foreign keys already exist (`finance` → `projects` + `salesOrders`), so
+independent chains applied in different orders would break outright.
+
+**2. Flags gate access, never data.**
+"Disable, don't delete" as a hard rule: a module's tables, migrations, RLS,
+and rows exist regardless of its flag. Turning a module off hides nav,
+redirects routes, and refuses actions — it never touches data. Toggling a
+flag must round-trip with zero loss, in either direction.
+
+**3. No static core→module import.**
+With a module's flag `false`, the production build must carry no import edge
+into its code. When core needs to reach into a module, use the guarded
+dynamic import from step 7 above. **Schema is exempt** from this rule —
+because of invariant 2, every module's tables always exist, so `db/schema`
+statically importing them is correct. This rule is about actions, services,
+and UI, not schema.
+
+Check it with: `pnpm run typecheck && pnpm run build` with the flag `false`.
+If your code gets pulled into the build anyway, there's a static edge to
+remove.
+
+**4. Registration is explicit.**
+Module metadata, nav entries, and permission groups are hand-registered in a
+small set of core files (recipe steps 1, 2, 5, 6). There is deliberately no
+auto-discovery mechanism — a central registry that imports every module would
+itself violate invariant 3 and drag every disabled module into the bundle.
+This means a new module touches roughly 4 core files and needs a core review;
+that friction is intentional.
+
+**5. Business rules stay framework-free.**
+Code under `server/services/*` must not import `next/*`. Those rules need to
+run outside the web request lifecycle (workers, jobs, seed scripts). Data
+access from a service goes through a `Tx` handed to it by the caller — the
+caller (a server action) is the one that opened it via
+`withTenant(permission, (tx, ctx) => …)` or `withModule(id, permission, …)`.
+See [API Reference → Server actions](/api-reference#server-actions-the-real-api)
+for the full authorize → scope → execute sequence these wrappers implement.
+
+## PR checklist for a new/changed module
+
+- [ ] `pnpm run lint && pnpm run typecheck && pnpm test && pnpm run build` all pass
+- [ ] Built once with the module's flag `false` (invariant 3)
+- [ ] No new migration chain — migrations are generated, not hand-written (invariant 1)
+- [ ] No table gated behind a flag (invariant 2)
+- [ ] `server/services/*` still free of `next/*` imports (invariant 5)
+- [ ] Any sample seed rows wrapped in `isModuleEnabled(...)` (recipe step 8)
+
+Ship a new module with its flag `false`; a core maintainer turns it on. If you
+find yourself wanting to import another module's internals directly — stop.
+That's a design conversation, not an import.

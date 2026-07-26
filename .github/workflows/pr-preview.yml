@@ -8,6 +8,8 @@
 #
 # Runs on the SAME box as prod — memory limits (docker-compose.preview.yaml)
 # keep each preview small. Keep the number of open PRs modest.
+# Comments use the REST API via .github/scripts/pr-comment.sh (no `gh` on the
+# runner) and are best-effort (|| true) so they never fail the deploy.
 name: pr-preview
 
 on:
@@ -51,11 +53,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
+      - uses: actions/checkout@v4
       - name: Comment — building
         run: |
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
-          "### 🔨 Preview deploying…
-          Commit \`${HEAD_SHA:0:7}\` — [build logs]($RUN_URL)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/pr-comment.sh" "### 🔨 Preview deploying…
+          Commit \`${HEAD_SHA:0:7}\` — [build logs]($RUN_URL)" || true
 
       - name: Deploy the per-PR preview
         id: deploy
@@ -71,8 +73,7 @@ jobs:
           git -C "$DIR" checkout -f FETCH_HEAD
           cd "$DIR"
 
-          # 2. Per-PR env: unique host ports + fresh secrets (regenerate each run
-          #    is fine; the stack is recreated). Email login + sample data.
+          # 2. Per-PR env: unique host ports + fresh secrets. Email login + sample data.
           CADDY_PORT=$((8100 + PR % 100)); DB_PORT=$((5500 + PR % 100))
           cp .env.staging.example .env.preview
           sed -i "s|^CADDY_HOST_PORT=.*|CADDY_HOST_PORT=${CADDY_PORT}|" .env.preview
@@ -83,7 +84,6 @@ jobs:
           ADMIN_PW="$(openssl rand -hex 16)"
           sed -i "s|change_me_strong_staging_admin|${ADMIN_PW}|" .env.preview
           sed -i "s|change_me_strong_staging_sample|$(openssl rand -hex 16)|" .env.preview
-          # Placeholder auth URL for the first boot; replaced with the tunnel URL below.
           sed -i "s|https://staging.quandatics.com|http://localhost:${CADDY_PORT}|g" .env.preview
           sed -i "s|staging.quandatics.com|localhost:${CADDY_PORT}|g" .env.preview
 
@@ -120,8 +120,8 @@ jobs:
       - name: Comment — ready
         if: success()
         run: |
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
-          "### ✅ Preview ready
+          bash "$GITHUB_WORKSPACE/.github/scripts/pr-comment.sh" "### ✅ Preview ready
+
           | | |
           |---|---|
           | **Preview** | ${{ steps.deploy.outputs.PREVIEW_URL }} |
@@ -129,14 +129,13 @@ jobs:
           | **Commit** | \`${HEAD_SHA:0:7}\` |
           | **Logs** | [build & deploy]($RUN_URL) |
 
-          _Random Cloudflare quick-tunnel URL — changes on each push. Torn down when the PR closes._"
+          _Random Cloudflare quick-tunnel URL — changes on each push. Torn down when the PR closes._" || true
 
       - name: Comment — failed
         if: failure()
         run: |
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
-          "### ❌ Preview failed
-          Commit \`${HEAD_SHA:0:7}\` — see the [logs]($RUN_URL) for the error."
+          bash "$GITHUB_WORKSPACE/.github/scripts/pr-comment.sh" "### ❌ Preview failed
+          Commit \`${HEAD_SHA:0:7}\` — see the [logs]($RUN_URL) for the error." || true
 
   teardown:
     if: github.event.action == 'closed'
@@ -145,6 +144,7 @@ jobs:
       PR: ${{ github.event.number }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
       - name: Tear down the preview
         run: |
           PROJ="crm-pr-$PR"; DIR="$HOME/crm-pr-$PR"
@@ -155,6 +155,5 @@ jobs:
           fi
       - name: Comment — torn down
         run: |
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
-          "### 🧹 Preview torn down
-          The isolated environment for this PR has been removed."
+          bash "$GITHUB_WORKSPACE/.github/scripts/pr-comment.sh" "### 🧹 Preview torn down
+          The isolated environment for this PR has been removed." || true

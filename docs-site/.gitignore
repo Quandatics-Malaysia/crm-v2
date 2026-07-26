@@ -32,6 +32,3 @@ yarn-error.log*
 *.tsbuildinfo
 
 # copied root docs (single source of truth — scripts/sync-root-docs.mjs)
-pages/overview.md
-pages/contributing.md
-pages/modules.md

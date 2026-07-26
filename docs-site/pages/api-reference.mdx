@@ -1,0 +1,261 @@
+---
+title: API Reference
+---
+
+# API Reference
+
+The app is a Next.js **App Router** application. It has almost no traditional
+JSON REST surface — nearly all client → server calls go through **Server
+Actions**, not fetch-able HTTP endpoints. There are exactly **4** HTTP route
+handlers under `apps/web/app/api/`, and this page documents both: the route
+handlers, and the server-action architecture that carries the rest of the
+app's read/write traffic.
+
+## Route handlers
+
+All 4 live under `apps/web/app/api/`. None of them accept a request body; all
+authorization (where relevant) is derived from the session cookie via
+`getServerContext()`.
+
+### `GET /api/health`
+
+**File:** `app/api/health/route.ts`
+
+Liveness/readiness probe used by Docker/orchestration. Runs `select 1` against
+the database.
+
+- **Auth:** none — unauthenticated, unscoped.
+- **Response:** `200 { "status": "ok" }` on success; `503 { "status":
+  "degraded" }` if the `select 1` throws.
+- **Notes:** `export const dynamic = "force-dynamic"` — never statically
+  cached. This is the URL registered as the container/compose health check
+  (see `OPERATIONS.md`).
+
+### `ALL /api/auth/[...all]`
+
+**File:** `app/api/auth/[...all]/route.ts`
+
+The entire Better Auth surface (sign-in, sign-out, session, OAuth callbacks,
+organization endpoints, etc.) mounted at a catch-all route via Better Auth's
+own Next.js adapter:
+
+```ts
+export const { GET, POST } = toNextJsHandler(auth.handler)
+```
+
+- **Auth:** handled internally by Better Auth per sub-route (e.g.
+  `/api/auth/sign-in/email`, `/api/auth/session`,
+  `/api/auth/oauth2/callback/microsoft-entra-id`).
+- **Notes:** this is the *only* place Better Auth's HTTP layer is wired in —
+  everything else (`lib/auth.ts`) is configuration consumed by this handler.
+  The Microsoft Entra redirect URI that must be registered in Azure is
+  `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id`.
+
+### `GET /api/files/[id]`
+
+**File:** `app/api/files/[id]/route.ts`
+
+Streams the raw bytes of a tenant attachment (quotation PDFs, funnel-approval
+evidence, etc.) so they can be viewed inline or downloaded.
+
+- **Auth:** requires an authenticated session with an active tenant
+  (`getServerContext()`); otherwise `403 Forbidden`.
+- **Tenant scoping:** looks up the `attachments` row inside
+  `runInTenant(ctx.tenantId, …)`, so RLS confines the lookup to the caller's
+  tenant. A row that exists but belongs to another tenant is invisible, not
+  just denied — it reads as `404 Not found`.
+- **Authorization:** beyond tenant scope, it checks a *capability* permission
+  (`ATTACH_PERMS[attachableType].view`) **and** record-level ownership via
+  `canAccessAttachable(tx, ctx, type, attachableId, "view")` — matching the
+  same check the attachment server actions use, not just "can view
+  attachments in general." Fails closed to `403 Forbidden`.
+- **Params:** `id` — the attachment row id (path param).
+- **Query:** `?dl=1` — forces `Content-Disposition: attachment` (download)
+  instead of the default `inline` (so PDFs/images render in-browser).
+- **Response:** `200` with the file bytes, `Content-Type` from the stored
+  `contentType` (falls back to `application/octet-stream`), `Content-Length`,
+  and `Content-Disposition`. `404 Not found` if the row or the underlying
+  storage object is missing.
+
+### `GET /api/tenant-logo`
+
+**File:** `app/api/tenant-logo/route.ts`
+
+Streams the active tenant's uploaded company logo (Settings → General;
+rendered on quotation documents).
+
+- **Auth:** requires an authenticated session with an active tenant; otherwise
+  `403 Forbidden`.
+- **Tenant scoping:** reads `tenantSettings` for `ctx.tenantId` inside
+  `runInTenant`. No extra permission check beyond a valid session — a member
+  only ever sees their **own** entity's logo, by construction of the tenant
+  scope, so there is nothing further to authorize.
+- **Response:** `200` with the image bytes, `Content-Type` from
+  `logoContentType` (falls back to `image/png`), and `Cache-Control: private,
+  max-age=300` (short — the storage key changes on every re-upload).
+  `404 Not found` if no logo is set or the storage object is missing.
+
+## Server actions: the real "API"
+
+Everything else — creating a lead, moving a funnel stage, sending a
+quotation, editing roles — is a Next.js **Server Action**: an async function
+in an `actions.ts` file under `app/(app)/<module>/`, called directly from
+client components (no hand-rolled `fetch`, no REST routes to keep in sync).
+
+Two wrappers in `apps/web/lib/actions.ts` standardize every action's
+authorize → scope → execute sequence:
+
+```ts
+export async function withTenant<T>(
+  permission: PermissionKey,
+  fn: (tx: Tx, ctx: ServerContext) => Promise<T>
+): Promise<T> {
+  const ctx = await requireContext()
+  assertCan(ctx, permission)
+  return runInTenant(ctx.tenantId, (tx) => fn(tx, ctx))
+}
+
+export async function withModule<T>(
+  moduleId: ModuleId,
+  permission: PermissionKey,
+  fn: (tx: Tx, ctx: ServerContext) => Promise<T>
+): Promise<T> {
+  assertModuleEnabled(moduleId)
+  return withTenant(permission, fn)
+}
+```
+
+### The pattern, step by step
+
+1. **Authenticate + resolve context** — `requireContext()`
+   (`lib/server-context.ts`) resolves the Better Auth session, the active
+   tenant/organization, the member row, effective permissions, and throws if:
+   - unauthenticated (`"UNAUTHENTICATED"`)
+   - no active tenant (`"NO_ACTIVE_TENANT"`)
+   - the tenant is suspended
+   - the membership is not `active` (e.g. disabled/invited)
+2. **Authorize** — `assertCan(ctx, permission)` checks the permission key
+   against `ctx.permissions` (the union of the member's role grants) and
+   throws `` `FORBIDDEN: missing ${key}` `` if absent.
+3. **Module gate (if applicable)** — `withModule` calls
+   `assertModuleEnabled(moduleId)` *first*, before `withTenant` even runs, so
+   a disabled plugin's actions throw `"The <Label> module is disabled."`
+   before touching the database at all — defense in depth behind the hidden
+   nav and route redirects.
+4. **Open a tenant-scoped, RLS-enforced transaction** — `runInTenant(tenantId,
+   fn)` (`apps/web/db/index.ts`) opens a Postgres transaction and sets a
+   transaction-local GUC:
+   ```sql
+   select set_config('app.current_tenant', $tenantId, true)
+   ```
+   Every RLS policy in the schema reads `app.current_tenant`, so **every**
+   query inside `fn` is automatically confined to that tenant — even a query
+   that forgot a `WHERE tenant_id = …` clause cannot see or mutate another
+   tenant's rows. This is the primary (only sanctioned) data-access path for
+   tenant-owned tables.
+5. **Return an `ActionResult`** — mutating actions wrap their body in
+   `runAction()` (`apps/web/lib/action-result.ts`), which returns a
+   discriminated union instead of throwing across the Server Action boundary:
+   ```ts
+   type ActionResult<T = undefined> =
+     | { ok: true; data: T }
+     | { ok: false; error: string; contact?: DenialContact }
+   ```
+   This exists because React's Flight encoder strips thrown error messages
+   down to an opaque digest in production — so *expected* validation /
+   permission / business-rule failures must be modeled as return values, not
+   thrown errors, for the client to render them. A `FORBIDDEN: …` message is
+   humanized (`humanizeDenial`, so raw permission keys never leak to the UI)
+   and enriched with a `contact` (the user's manager, or an Owner/Admin) via
+   `resolveDenialContact(ctx)`, so a denied user is told *who to ask* instead
+   of dead-ending on a raw error. Read-only actions that run inside Server
+   Components skip `runAction` and keep throwing — they're covered by
+   `error.tsx` boundaries instead.
+
+A typical mutating action looks like:
+
+```ts
+export async function deleteThing(id: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.THING_DELETE, (tx) =>
+      tx.delete(things).where(eq(things.id, id))
+    )
+    revalidatePath("/things")
+  })
+}
+```
+
+and a module-gated one swaps `withTenant` for `withModule`:
+
+```ts
+const project = await withModule("projects", PERMISSIONS.PROJECT_CREATE,
+  (tx, ctx) => tx.insert(projects).values({ ... }).returning())
+```
+
+### Where business rules live
+
+The actual business logic — funnel stage/approval state machine, quotation
+math, lead conversion, billing forecast — is **not** in `actions.ts`. It lives
+in `apps/web/server/services/*` (`stage.ts`, `quotation-math.ts`,
+`conversion.ts`, `value.ts`, `numbering.ts`, `finance.ts`, `intercompany.ts`,
+…), which:
+
+- takes a `Tx` (an open, already-tenant-scoped Drizzle transaction) as an
+  argument rather than opening its own,
+- imports **no** `next/*` module (enforced by review, not lint) — so it is
+  reusable from workers, jobs, or seed scripts outside the web request
+  lifecycle,
+- is called *from* `actions.ts`, which owns the auth/tenant/module gating.
+
+This split is one of the module-system's five invariants (see [Modules →
+Contributing](/modules/contributing)): "business rules stay framework-free."
+
+## Auth model (Better Auth)
+
+Configured in `apps/web/lib/auth.ts`, mounted by the `/api/auth/[...all]`
+route handler above.
+
+- **`emailAndPassword`** is enabled at the framework level unconditionally
+  (`enabled: true, disableSignUp: true` — no public self-serve sign-up;
+  password users are admin-provisioned). Actual sign-in is gated **per
+  tenant** in a `hooks.before` middleware on `/sign-in/email`:
+  `passwordLoginAllowed(email)` checks `tenant_settings.allow_password_login`
+  for every organization the user belongs to and rejects with `FORBIDDEN` if
+  none of them allow it (a tenant can go SSO-only). A user with no membership
+  yet (first-login bootstrap, break-glass superadmin) is always allowed
+  through, since there's no tenant setting to consult.
+- **Microsoft Entra ID** is wired via the `genericOAuth` plugin
+  (`microsoftEntraId(...)`, provider id `microsoft-entra-id`) and is only
+  registered when `microsoftConfigured` is true **and** `MICROSOFT_TENANT_ID`
+  is set to a real directory GUID (not the multi-tenant `"common"` value —
+  the app refuses to boot with `common` in production). The callback URI is
+  `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id`.
+- **`organization()`** (Better Auth plugin) is the tenancy backbone —
+  `activeOrganizationId` on the session is what `getServerContext()` resolves
+  into `ctx.tenantId`.
+- Sessions expire after 7 days (`session.expiresIn`), with a 5-minute cookie
+  cache.
+- `databaseHooks` handle first-login bootstrapping: consuming pending
+  invites, domain auto-join (`tenant_settings.autoJoinDomains`), stamping
+  `lastLoginAt`, and writing an `auth.login` audit row scoped to the resolved
+  tenant.
+
+## Multitenancy & RLS
+
+The application database role is **not** a superuser. The app connects as a
+non-privileged Postgres role, `crm_app`, which has Row-Level Security applied
+to every tenant-owned table — the app refuses to boot if it detects it is
+connected as the admin/superuser role instead.
+
+Isolation is enforced by Postgres itself, not by application-layer
+`WHERE tenant_id = …` filters (though those exist too, defense in depth): every
+RLS policy reads a transaction-local session variable, `app.current_tenant`,
+set by `runInTenant()` (see above) before any query runs. This means a query
+that forgets a tenant filter still cannot leak or corrupt another tenant's
+rows — the database itself is the last line of defense, matching the "gate
+access, never data" module philosophy described in [Modules →
+Overview](/modules/overview).
+
+The `/api/files/[id]` and `/api/tenant-logo` handlers above are the two route
+handlers that touch tenant data directly, and both follow the same shape as a
+server action: resolve context, `runInTenant`, then authorize.

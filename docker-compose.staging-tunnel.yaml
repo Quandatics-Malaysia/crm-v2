@@ -1,0 +1,18 @@
+# Staging-only override: a Cloudflare *quick tunnel* that gives staging a public
+# https://<random>.trycloudflare.com URL with NO domain/DNS setup. Used only by
+# the staging deploy (docker compose -f docker-compose.yaml -f this-file).
+# The URL is random and changes on each redeploy; the deploy workflow captures
+# it from this container's logs and posts it to the run summary.
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://caddy:8081
+    depends_on:
+      - caddy
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

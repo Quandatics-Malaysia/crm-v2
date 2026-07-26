@@ -37,12 +37,103 @@ jobs:
     needs: quality
     runs-on: self-hosted
     steps:
-      - name: Pull latest staging
-        run: git -C "${STAGING_DIR:-$HOME/crm-v2-staging}" pull --ff-only origin staging
-      - name: Rebuild and restart the staging stack
+      # Self-bootstrapping: creates the staging checkout + .env.staging on first
+      # run (fresh generated secrets), so no manual server/Cloudflare/domain work
+      # is needed. Staging is reachable on the box at 127.0.0.1:8091 (SSH tunnel);
+      # there is no public domain.
+      - name: Bootstrap staging checkout + env (first run only)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
+          # Authenticate git over HTTPS with the ephemeral workflow token (the
+          # self-hosted runner has no stored credentials for the private repo).
+          AUTH="https://x-access-token:${GH_TOKEN}@github.com/Quandatics-Malaysia/crm-v2.git"
+          if [ ! -d "$DIR/.git" ]; then
+            git clone "$AUTH" "$DIR"
+            git -C "$DIR" remote set-url origin "https://github.com/Quandatics-Malaysia/crm-v2.git"
+          fi
+          git -C "$DIR" fetch "$AUTH" staging
+          git -C "$DIR" checkout -B staging FETCH_HEAD
+          if [ ! -f "$DIR/.env.staging" ]; then
+            cd "$DIR"
+            cp .env.staging.example .env.staging
+            gen() { openssl rand -hex 24; }
+            sed -i "s|change_me_staging_postgres|$(gen)|" .env.staging
+            sed -i "s|change_me_staging_crm_app|$(gen)|" .env.staging
+            sed -i "s|change_me_run_openssl_rand_base64_32|$(openssl rand -base64 32)|" .env.staging
+            ADMIN_PW="$(openssl rand -hex 16)"
+            SAMPLE_PW="$(openssl rand -hex 16)"
+            sed -i "s|change_me_strong_staging_admin|${ADMIN_PW}|" .env.staging
+            sed -i "s|change_me_strong_staging_sample|${SAMPLE_PW}|" .env.staging
+            # No public domain: reach staging via SSH tunnel to 127.0.0.1:8091.
+            sed -i "s|staging.quandatics.com|localhost:8091|g" .env.staging
+            sed -i "s|https://localhost:8091|http://localhost:8091|g" .env.staging
+            {
+              echo "### Staging bootstrapped"
+              echo "Reach it via SSH tunnel: \`ssh -L 8091:127.0.0.1:8091 <box>\` then http://localhost:8091"
+              echo "- Demo admin: \`admin@demo.local\` / \`${ADMIN_PW}\`"
+              echo "- Sample logins password: \`${SAMPLE_PW}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # Phase 1: bring the whole stack + tunnel up. web boots with the current
+      # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
+      # URL so Better Auth trusts the public origin (else login -> INVALID_ORIGIN).
+      - name: Rebuild and start the staging stack (+ public tunnel)
+        run: |
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
           docker compose \
             -p crm-staging \
-            -f "${STAGING_DIR:-$HOME/crm-v2-staging}/docker-compose.yaml" \
-            --env-file "${STAGING_DIR:-$HOME/crm-v2-staging}/.env.staging" \
-            up -d --build migrate web caddy
+            -f "$DIR/docker-compose.yaml" \
+            -f "$DIR/docker-compose.staging-tunnel.yaml" \
+            --env-file "$DIR/.env.staging" \
+            up -d --build migrate web caddy tunnel
+      # Phase 2: capture the random tunnel URL, point BETTER_AUTH_URL/APP_URL at
+      # it, and recreate ONLY web so auth accepts requests through the tunnel.
+      - name: Point auth at the tunnel URL and recreate web
+        id: url
+        run: |
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
+          URL=""
+          for i in $(seq 1 45); do
+            URL=$(docker logs crm-staging-tunnel-1 2>&1 | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | tail -1)
+            [ -n "$URL" ] && break
+            sleep 4
+          done
+          if [ -z "$URL" ]; then
+            echo "Tunnel URL not captured. cloudflared logs:"; docker logs crm-staging-tunnel-1 2>&1 | tail -30 || true
+            exit 1
+          fi
+          echo "STAGING_URL=$URL" >> "$GITHUB_OUTPUT"
+          sed -i "s|^BETTER_AUTH_URL=.*|BETTER_AUTH_URL=${URL}|" "$DIR/.env.staging"
+          sed -i "s|^APP_URL=.*|APP_URL=${URL}|" "$DIR/.env.staging"
+          docker compose \
+            -p crm-staging \
+            -f "$DIR/docker-compose.yaml" \
+            -f "$DIR/docker-compose.staging-tunnel.yaml" \
+            --env-file "$DIR/.env.staging" \
+            up -d --force-recreate --no-deps web
+      - name: Health check (via the public tunnel URL)
+        run: |
+          URL="${{ steps.url.outputs.STAGING_URL }}"
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 6 "$URL/api/health" >/dev/null 2>&1; then
+              echo "staging $URL/api/health OK"; break
+            fi
+            echo "waiting for staging web through the tunnel... ($i)"; sleep 5
+          done
+          curl -fsS --max-time 6 "$URL/api/health" >/dev/null || { echo "health FAILED"; docker compose -p crm-staging logs --tail=50 web migrate || true; exit 1; }
+      - name: Publish the staging URL
+        if: always()
+        run: |
+          URL="${{ steps.url.outputs.STAGING_URL }}"
+          if [ -n "$URL" ]; then
+            {
+              echo "## Staging"
+              echo "Browsable (login works): $URL"
+              echo ""
+              echo "Random Cloudflare quick-tunnel URL — changes on each redeploy."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "STAGING_PUBLIC_URL=$URL"
+          fi

@@ -16,12 +16,14 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ resource: string }> }
 ) {
+  // Authenticate first, so an unauthenticated caller can't enumerate which
+  // resource names are valid via the 404-vs-401 difference.
+  const ctx = await getApiContext(req)
+  if (!ctx) return err("unauthorized", "Missing or invalid API key", 401, req)
+
   const { resource } = await params
   const def = API_RESOURCES[resource]
   if (!def) return err("not_found", `Unknown resource '${resource}'`, 404, req)
-
-  const ctx = await getApiContext(req)
-  if (!ctx) return err("unauthorized", "Missing or invalid API key", 401, req)
 
   const url = new URL(req.url)
   const limit = Math.min(

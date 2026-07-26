@@ -16,12 +16,13 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ resource: string; id: string }> }
 ) {
+  // Authenticate first (avoid resource-name enumeration via 404-vs-401).
+  const ctx = await getApiContext(req)
+  if (!ctx) return err("unauthorized", "Missing or invalid API key", 401, req)
+
   const { resource, id } = await params
   const def = API_RESOURCES[resource]
   if (!def) return err("not_found", `Unknown resource '${resource}'`, 404, req)
-
-  const ctx = await getApiContext(req)
-  if (!ctx) return err("unauthorized", "Missing or invalid API key", 401, req)
 
   try {
     const row = await withApiTenant(ctx, def.permission, (tx, c) => def.get(tx, c, id))

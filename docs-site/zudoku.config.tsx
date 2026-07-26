@@ -21,7 +21,7 @@ const config: ZudokuConfig = {
   header: {
     navigation: [
       {
-        label: "↩ Open App",
+        label: "Open App",
         to: "https://app.quandatics.com",
         icon: "external-link",
         target: "_blank",

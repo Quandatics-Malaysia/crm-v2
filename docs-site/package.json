@@ -13,6 +13,7 @@
     "prebuild": "node scripts/sync-root-docs.mjs"
   },
   "dependencies": {
+    "lucide-react": "1.16.0",
     "react": ">=19.2.0",
     "react-dom": ">=19.2.0",
     "zudoku": "0.82.3"
@@ -21,9 +22,9 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^6",
-    "eslint": "^8",
     "@typescript-eslint/eslint-plugin": "^8",
-    "@typescript-eslint/parser": "^8"
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^8",
+    "typescript": "^6"
   }
 }

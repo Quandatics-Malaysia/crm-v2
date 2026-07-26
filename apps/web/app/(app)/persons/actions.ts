@@ -1,12 +1,12 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm"
+import { and, eq, isNull, ne } from "drizzle-orm"
 import { withTenant, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import { personsList, personsGet } from "@/lib/api-readers"
 import {
   visibleMemberIds,
-  ownerScope,
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
@@ -14,13 +14,7 @@ import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
-import {
-  accounts,
-  persons,
-  funnels,
-  pipelineStages,
-  projects,
-} from "@/db/schema"
+import { accounts, persons } from "@/db/schema"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
 const LIST_LIMIT = 1000
@@ -71,25 +65,8 @@ export type PersonInput = {
 /** All non-deleted persons with their account name resolved. */
 export async function listPersons(): Promise<PersonListItem[]> {
   return withTenant(PERMISSIONS.PERSON_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const rows = await tx
-      .select({
-        person: persons,
-        accountName: accounts.name,
-      })
-      .from(persons)
-      .innerJoin(accounts, eq(persons.accountId, accounts.id))
-      .where(
-        and(
-          isNull(persons.deletedAt),
-          isNull(accounts.deletedAt),
-          ownerScope(accounts.ownerMemberId, visible)
-        )
-      )
-      .orderBy(asc(persons.firstName), asc(persons.lastName))
-      .limit(LIST_LIMIT)
-
-    return rows.map((r) => ({ ...r.person, accountName: r.accountName }))
+    const { rows } = await personsList(tx, ctx, { limit: LIST_LIMIT, offset: 0 })
+    return rows
   })
 }
 
@@ -98,78 +75,7 @@ export async function listPersons(): Promise<PersonListItem[]> {
  * is the primary contact (each with its current stage for a badge + link).
  */
 export async function getPerson(id: string): Promise<PersonDetail | null> {
-  return withTenant(PERMISSIONS.PERSON_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [row] = await tx
-      .select({
-        person: persons,
-        accountName: accounts.name,
-        accountOwner: accounts.ownerMemberId,
-      })
-      .from(persons)
-      .innerJoin(accounts, eq(persons.accountId, accounts.id))
-      .where(
-        and(
-          eq(persons.id, id),
-          isNull(persons.deletedAt),
-          isNull(accounts.deletedAt)
-        )
-      )
-      .limit(1)
-    if (!row) return null
-    if (!ownsOrManages(visible, row.accountOwner)) return null
-
-    const opps = await tx
-      .select({
-        id: funnels.id,
-        name: funnels.name,
-        amount: funnels.estimatedAmount,
-        currency: funnels.currency,
-        status: funnels.status,
-        stageName: pipelineStages.name,
-        stageKind: pipelineStages.kind,
-        stageProbability: pipelineStages.probability,
-      })
-      .from(funnels)
-      .leftJoin(
-        pipelineStages,
-        eq(funnels.currentStageId, pipelineStages.id)
-      )
-      .where(
-        and(
-          eq(funnels.primaryPersonId, id),
-          isNull(funnels.deletedAt)
-        )
-      )
-      .orderBy(desc(funnels.updatedAt))
-
-    // Projects that belong to this contact's pipelines (the deals they're on).
-    const oppIds = opps.map((o) => o.id)
-    const projs = oppIds.length
-      ? await tx
-          .select({
-            id: projects.id,
-            name: projects.name,
-            projectCode: projects.projectCode,
-            status: projects.status,
-          })
-          .from(projects)
-          .where(
-            and(
-              inArray(projects.funnelId, oppIds),
-              isNull(projects.deletedAt)
-            )
-          )
-          .orderBy(desc(projects.updatedAt))
-      : []
-
-    return {
-      person: row.person,
-      accountName: row.accountName,
-      funnels: opps,
-      projects: projs,
-    }
-  })
+  return withTenant(PERMISSIONS.PERSON_VIEW, (tx, ctx) => personsGet(tx, ctx, id))
 }
 
 /** Clears the primary flag on any other contact of the same account. */

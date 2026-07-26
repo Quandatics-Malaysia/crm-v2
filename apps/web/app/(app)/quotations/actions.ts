@@ -1,10 +1,11 @@
 "use server"
 
-import { and, asc, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, ne, notInArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
+import { quotationsList, quotationsGet } from "@/lib/api-readers"
 import { assertValidQuotationNumbers } from "@/lib/validation-quotation"
 import {
   visibleMemberIds,
@@ -16,7 +17,6 @@ import {
   quotations,
   quotationLineItems,
   funnels,
-  opportunities,
   opportunityProducts,
   projects,
   taxSettings,
@@ -77,75 +77,19 @@ export type QuotationDetail = {
   accountName: string | null
 }
 
+/** Largest page returned by the list action (mirrors the original inline .limit(500)). */
+const LIST_LIMIT = 500
+
 /** All non-deleted quotations with their opportunity name, newest first. */
 export async function listQuotations(): Promise<QuotationListItem[]> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const rows = await tx
-      .select({
-        q: quotations,
-        opportunityName: funnels.name,
-        lineItemCount: sql<number>`(
-          select count(*) from ${quotationLineItems}
-          where ${quotationLineItems.quotationId} = ${quotations.id}
-        )`.mapWith(Number),
-      })
-      .from(quotations)
-      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
-      .where(
-        and(
-          isNull(quotations.deletedAt),
-          ownerScope(funnels.ownerMemberId, visible)
-        )
-      )
-      .orderBy(desc(quotations.createdAt))
-      .limit(500)
-    return rows.map((r) => ({
-      ...r.q,
-      opportunityName: r.opportunityName,
-      lineItemCount: r.lineItemCount,
-    }))
+    const { rows } = await quotationsList(tx, ctx, { limit: LIST_LIMIT, offset: 0 })
+    return rows
   })
 }
 
 export async function getQuotation(id: string): Promise<QuotationDetail | null> {
-  return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [row] = await tx
-      .select({
-        q: quotations,
-        opportunityName: funnels.name,
-        oppOwner: funnels.ownerMemberId,
-        accountId: funnels.accountId,
-        accountName: accounts.name,
-        containerId: opportunities.id,
-        containerName: opportunities.name,
-      })
-      .from(quotations)
-      .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
-      .leftJoin(accounts, eq(funnels.accountId, accounts.id))
-      .leftJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
-      .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
-      .limit(1)
-    if (!row) return null
-    if (!ownsOrManages(visible, row.oppOwner)) return null
-    const lines = await tx
-      .select()
-      .from(quotationLineItems)
-      .where(eq(quotationLineItems.quotationId, id))
-      .orderBy(asc(quotationLineItems.sortOrder))
-    return {
-      quotation: row.q,
-      lines,
-      opportunityName: row.opportunityName,
-      container:
-        row.containerId && row.containerName
-          ? { id: row.containerId, name: row.containerName }
-          : null,
-      accountId: row.accountId ?? null,
-      accountName: row.accountName ?? null,
-    }
-  })
+  return withTenant(PERMISSIONS.QUOTATION_VIEW, (tx, ctx) => quotationsGet(tx, ctx, id))
 }
 
 export type QuotationDocument = {

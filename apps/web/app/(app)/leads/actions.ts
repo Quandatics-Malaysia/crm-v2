@@ -1,13 +1,12 @@
 "use server"
 
-import { and, eq, isNull, ne, desc, sql } from "drizzle-orm"
+import { and, eq, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, type Tx, type ServerContext } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import { leadsList, leadsGet } from "@/lib/api-readers"
 import {
   leads,
-  accounts,
-  persons,
   pipelines,
   pipelineStages,
   tenantSettings,
@@ -19,7 +18,6 @@ import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import {
   visibleMemberIds,
-  ownerScope,
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
@@ -96,13 +94,8 @@ function requireEmail(v?: string | null): string {
 /** All non-deleted leads, newest first. */
 export async function listLeads(): Promise<Lead[]> {
   return withTenant(PERMISSIONS.LEAD_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    return tx
-      .select()
-      .from(leads)
-      .where(and(isNull(leads.deletedAt), ownerScope(leads.ownerMemberId, visible)))
-      .orderBy(desc(leads.createdAt))
-      .limit(LIST_LIMIT)
+    const { rows } = await leadsList(tx, ctx, { limit: LIST_LIMIT, offset: 0 })
+    return rows
   })
 }
 
@@ -119,58 +112,7 @@ export type LeadDetail = {
  * was converted into (account / person / funnel).
  */
 export async function getLead(id: string): Promise<LeadDetail | null> {
-  return withTenant(PERMISSIONS.LEAD_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [lead] = await tx
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, id), isNull(leads.deletedAt)))
-      .limit(1)
-    if (!lead) return null
-    if (!ownsOrManages(visible, lead.ownerMemberId)) return null
-
-    let stageName: string | null = null
-    if (lead.currentStageId) {
-      const [stage] = await tx
-        .select({ name: pipelineStages.name })
-        .from(pipelineStages)
-        .where(eq(pipelineStages.id, lead.currentStageId))
-        .limit(1)
-      stageName = stage?.name ?? null
-    }
-
-    let funnelName: string | null = null
-    if (lead.pipelineId) {
-      const [funnel] = await tx
-        .select({ name: pipelines.name })
-        .from(pipelines)
-        .where(eq(pipelines.id, lead.pipelineId))
-        .limit(1)
-      funnelName = funnel?.name ?? null
-    }
-
-    let accountName: string | null = null
-    if (lead.convertedAccountId) {
-      const [acct] = await tx
-        .select({ name: accounts.name })
-        .from(accounts)
-        .where(eq(accounts.id, lead.convertedAccountId))
-        .limit(1)
-      accountName = acct?.name ?? null
-    }
-
-    let personName: string | null = null
-    if (lead.convertedPersonId) {
-      const [p] = await tx
-        .select({ firstName: persons.firstName, lastName: persons.lastName })
-        .from(persons)
-        .where(eq(persons.id, lead.convertedPersonId))
-        .limit(1)
-      if (p) personName = [p.firstName, p.lastName].filter(Boolean).join(" ")
-    }
-
-    return { lead, stageName, funnelName, accountName, personName }
-  })
+  return withTenant(PERMISSIONS.LEAD_VIEW, (tx, ctx) => leadsGet(tx, ctx, id))
 }
 
 export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> {

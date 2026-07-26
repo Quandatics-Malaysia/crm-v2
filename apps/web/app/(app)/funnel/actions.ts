@@ -1,7 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
-import { alias } from "drizzle-orm/pg-core"
+import { and, asc, desc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withTenant, requireContext, assertCan } from "@/lib/actions"
 import { runInTenant } from "@/db"
@@ -17,21 +16,14 @@ import {
   opportunities,
   accounts,
   persons,
-  pipelines,
   pipelineStages,
   funnelStageHistory,
   quotations,
   quotationLineItems,
   products,
   projects,
-  member,
-  user,
-  organization,
-  stageApprovalRequests,
-  tenantSettings,
-  intercompanyDeals,
   intercompanyDealParties,
-  intercompanyDealResponses,
+  tenantSettings,
 } from "@/db/schema"
 import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
@@ -52,6 +44,12 @@ import {
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
+import {
+  funnelsList,
+  funnelsGet,
+  loadPartiesByOpportunity,
+  type PartyRow,
+} from "@/lib/api-readers"
 
 export type PartyInput = {
   partnerEntityId: string
@@ -62,8 +60,6 @@ export type PartyInput = {
   /** Deal currency -> party currency rate, manual. Null = same currency. */
   manualFxRate?: string | null
 }
-
-export type PartyRow = PartyInput & { partnerName: string }
 
 /**
  * Validate + resolve a deal's full intercompany party list. Each partner MUST
@@ -234,102 +230,19 @@ export type OpportunityInput = {
   expectedInvoiceYear?: number | null
 }
 
-/**
- * Live-resolved party rows for a set of funnels, grouped by
- * funnelId. Entity names resolve LIVE (`organization` is deliberately
- * RLS-excluded, so this sibling-entity join is allowed) so a rename in
- * Settings propagates to every deal that references it.
- */
-async function loadPartiesByOpportunity(
-  tx: Tx,
-  opportunityIds: string[]
-): Promise<Map<string, PartyRow[]>> {
-  const byOpp = new Map<string, PartyRow[]>()
-  if (opportunityIds.length === 0) return byOpp
-  const rows = await tx
-    .select({
-      funnelId: intercompanyDealParties.funnelId,
-      partnerEntityId: intercompanyDealParties.partnerEntityId,
-      partnerName: organization.name,
-      shareType: intercompanyDealParties.shareType,
-      shareValue: intercompanyDealParties.shareValue,
-      currency: intercompanyDealParties.currency,
-      manualFxRate: intercompanyDealParties.manualFxRate,
-    })
-    .from(intercompanyDealParties)
-    .innerJoin(
-      organization,
-      eq(intercompanyDealParties.partnerEntityId, organization.id)
-    )
-    .where(inArray(intercompanyDealParties.funnelId, opportunityIds))
-    .orderBy(asc(intercompanyDealParties.sortOrder))
-  for (const r of rows) {
-    const list = byOpp.get(r.funnelId) ?? []
-    list.push({
-      partnerEntityId: r.partnerEntityId,
-      partnerName: r.partnerName,
-      shareType: r.shareType,
-      shareValue: r.shareValue,
-      currency: r.currency,
-      manualFxRate: r.manualFxRate,
-    })
-    byOpp.set(r.funnelId, list)
-  }
-  return byOpp
-}
+// loadPartiesByOpportunity now lives in @/lib/api-readers (shared with the
+// funnels reader) and is imported above; it's still used by the mutation
+// actions below (createOpportunity / updateOpportunity).
+
+// The original query had no .limit() — every visible funnel was returned.
+// Preserve that by passing an effectively-unbounded page to the shared reader.
+const UNBOUNDED_LIMIT = 1_000_000
 
 /** All open + closed funnels (non-deleted), with denormalized lookups. */
 export async function listOpportunities(): Promise<OpportunityListRow[]> {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const rows = await tx
-      .select({
-        id: funnels.id,
-        name: funnels.name,
-        accountId: funnels.accountId,
-        accountName: accounts.name,
-        amount: funnels.amount,
-        estimatedAmount: funnels.estimatedAmount,
-        recognizedPercent: funnels.recognizedPercent,
-        description: funnels.description,
-        projectYear: funnels.projectYear,
-        isIntercompany: funnels.isIntercompany,
-        currency: funnels.currency,
-        status: funnels.status,
-        expectedCloseDate: funnels.expectedCloseDate,
-        ownerMemberId: funnels.ownerMemberId,
-        ownerName: user.name,
-        stageId: pipelineStages.id,
-        stageName: pipelineStages.name,
-        stageKind: pipelineStages.kind,
-        stageProbability: pipelineStages.probability,
-        stageSortOrder: pipelineStages.sortOrder,
-        pipelineId: funnels.pipelineId,
-        pipelineIsDefault: pipelines.isDefault,
-        primaryQuotationId: funnels.primaryQuotationId,
-        projectNatureCode: funnels.projectNatureCode,
-        projectNatures: funnels.projectNatures,
-        customFields: funnels.customFields,
-      })
-      .from(funnels)
-      .innerJoin(accounts, eq(funnels.accountId, accounts.id))
-      .innerJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
-      .innerJoin(pipelines, eq(funnels.pipelineId, pipelines.id))
-      .leftJoin(member, eq(funnels.ownerMemberId, member.id))
-      .leftJoin(user, eq(member.userId, user.id))
-      .where(
-        and(
-          isNull(funnels.deletedAt),
-          ownerScope(funnels.ownerMemberId, visible)
-        )
-      )
-      .orderBy(desc(funnels.createdAt))
-
-    const partiesByOpp = await loadPartiesByOpportunity(
-      tx,
-      rows.map((r) => r.id)
-    )
-    return rows.map((r) => ({ ...r, parties: partiesByOpp.get(r.id) ?? [] }))
+    const { rows } = await funnelsList(tx, ctx, { limit: UNBOUNDED_LIMIT, offset: 0 })
+    return rows
   })
 }
 
@@ -381,191 +294,7 @@ export type OpportunityDetail = {
 export async function getOpportunity(
   id: string
 ): Promise<OpportunityDetail | null> {
-  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [opp] = await tx
-      .select()
-      .from(funnels)
-      .where(and(eq(funnels.id, id), isNull(funnels.deletedAt)))
-      .limit(1)
-    if (!opp) return null
-    if (!ownsOrManages(visible, opp.ownerMemberId)) return null
-
-    const [acct] = await tx
-      .select({ name: accounts.name })
-      .from(accounts)
-      .where(eq(accounts.id, opp.accountId))
-      .limit(1)
-
-    // Parent Opportunity container (Salesforce-style — funnel belongs to one).
-    // Full row: the SF-parity stage gate reads the container's live Vision /
-    // Pain / Value / Owner+Power-Sponsor Contact/Budget fields client-side too.
-    const [container] = await tx
-      .select()
-      .from(opportunities)
-      .where(eq(opportunities.id, opp.opportunityId))
-      .limit(1)
-
-    // The handling partners, live-resolved (see loadPartiesByOpportunity).
-    const parties = (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
-
-    // Each party's accept/decline on their slice of the assignment (written by
-    // the partner tenant; readable here via the origin-side RLS policy on
-    // responses). One intercompanyDeals mirror row per party.
-    let partnerResponses: OpportunityDetail["partnerResponses"] = []
-    if (opp.isIntercompany) {
-      const rows = await tx
-        .select({
-          partnerEntityId: intercompanyDeals.partnerTenantId,
-          response: intercompanyDealResponses.response,
-          reason: intercompanyDealResponses.reason,
-          respondedAt: intercompanyDealResponses.respondedAt,
-        })
-        .from(intercompanyDeals)
-        .innerJoin(
-          intercompanyDealResponses,
-          eq(intercompanyDealResponses.dealId, intercompanyDeals.id)
-        )
-        .where(eq(intercompanyDeals.funnelId, id))
-      partnerResponses = rows
-    }
-
-    let personName: string | null = null
-    if (opp.primaryPersonId) {
-      const [p] = await tx
-        .select({ firstName: persons.firstName, lastName: persons.lastName })
-        .from(persons)
-        .where(eq(persons.id, opp.primaryPersonId))
-        .limit(1)
-      if (p) personName = [p.firstName, p.lastName].filter(Boolean).join(" ")
-    }
-
-    const [owner] = await tx
-      .select({ name: user.name })
-      .from(member)
-      .innerJoin(user, eq(member.userId, user.id))
-      .where(eq(member.id, opp.ownerMemberId))
-      .limit(1)
-
-    const [stage] = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, opp.currentStageId))
-      .limit(1)
-
-    // Resolve the primary quotation's number so the summary can show that the
-    // net deal value derives "from quotation <quoteNumber>".
-    let quoteNumber: string | null = null
-    if (opp.primaryQuotationId) {
-      const [pq] = await tx
-        .select({ quoteNumber: quotations.quoteNumber })
-        .from(quotations)
-        .where(eq(quotations.id, opp.primaryQuotationId))
-        .limit(1)
-      quoteNumber = pq?.quoteNumber ?? null
-    }
-    const amountFromQuote = quoteNumber !== null
-
-    const funnelStagesList = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.pipelineId, opp.pipelineId))
-      .orderBy(asc(pipelineStages.sortOrder))
-
-    const quotes = await tx
-      .select({
-        id: quotations.id,
-        quoteNumber: quotations.quoteNumber,
-        status: quotations.status,
-        total: quotations.total,
-        currency: quotations.currency,
-        isPrimary: quotations.isPrimary,
-      })
-      .from(quotations)
-      .where(
-        and(eq(quotations.funnelId, id), isNull(quotations.deletedAt))
-      )
-      .orderBy(desc(quotations.version))
-
-    const toStage = alias(pipelineStages, "to_stage")
-    const historyRows = await tx
-      .select({
-        id: funnelStageHistory.id,
-        toStageName: toStage.name,
-        source: funnelStageHistory.source,
-        probabilityAtChange: funnelStageHistory.probabilityAtChange,
-        valueAtChange: funnelStageHistory.valueAtChange,
-        changedAt: funnelStageHistory.changedAt,
-        fromStageId: funnelStageHistory.fromStageId,
-        changedByName: user.name,
-      })
-      .from(funnelStageHistory)
-      .innerJoin(toStage, eq(funnelStageHistory.toStageId, toStage.id))
-      .leftJoin(
-        member,
-        eq(funnelStageHistory.changedByMemberId, member.id)
-      )
-      .leftJoin(user, eq(member.userId, user.id))
-      .where(eq(funnelStageHistory.funnelId, id))
-      .orderBy(desc(funnelStageHistory.changedAt))
-
-    // Resolve fromStage names with a single lookup map.
-    const stageNameById = new Map(
-      funnelStagesList.map((s) => [s.id, s.name])
-    )
-
-    // A pending approval freezes the funnel CTA on the detail page so the
-    // requester sees the in-flight state instead of a still-active Advance.
-    const [pending] = await tx
-      .select({
-        id: stageApprovalRequests.id,
-        targetStageId: stageApprovalRequests.targetStageId,
-      })
-      .from(stageApprovalRequests)
-      .where(
-        and(
-          eq(stageApprovalRequests.funnelId, id),
-          eq(stageApprovalRequests.status, "pending")
-        )
-      )
-      .limit(1)
-    const pendingApproval = pending
-      ? {
-          id: pending.id,
-          targetStageName: stageNameById.get(pending.targetStageId) ?? "—",
-        }
-      : null
-
-    const history = historyRows.map((h) => ({
-      id: h.id,
-      fromStageName: h.fromStageId
-        ? stageNameById.get(h.fromStageId) ?? null
-        : null,
-      toStageName: h.toStageName,
-      source: h.source,
-      probabilityAtChange: h.probabilityAtChange,
-      valueAtChange: h.valueAtChange,
-      changedAt: h.changedAt,
-      changedByName: h.changedByName,
-    }))
-
-    return {
-      opportunity: opp,
-      accountName: acct?.name ?? "—",
-      container: container ?? null,
-      parties,
-      partnerResponses,
-      personName,
-      ownerName: owner?.name ?? null,
-      stage,
-      funnelStagesList,
-      quoteNumber,
-      amountFromQuote,
-      pendingApproval,
-      quotations: quotes,
-      history,
-    }
-  })
+  return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, (tx, ctx) => funnelsGet(tx, ctx, id))
 }
 
 export async function createOpportunity(

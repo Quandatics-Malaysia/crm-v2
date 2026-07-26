@@ -88,4 +88,14 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       },
     ],
   },
+  {
+    label: "Developers",
+    items: [
+      {
+        label: "API Keys",
+        href: "/settings/access",
+        permission: PERMISSIONS.TENANT_SETTINGS,
+      },
+    ],
+  },
 ]

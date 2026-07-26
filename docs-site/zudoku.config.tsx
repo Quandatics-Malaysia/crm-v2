@@ -84,6 +84,7 @@ const config: ZudokuConfig = {
       icon: "server",
       items: [
         { type: "doc", file: "api-reference", label: "API Reference" },
+        { type: "doc", file: "api-guide", label: "Using the REST API", icon: "terminal" },
         { type: "link", to: "/api-playground", label: "API Playground", icon: "flask-conical" },
       ],
     },

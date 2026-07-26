@@ -122,3 +122,38 @@ CREATE POLICY interco_resp_update ON intercompany_deal_responses FOR UPDATE
   WITH CHECK (tenant_id = current_setting('app.current_tenant', true));
 CREATE POLICY interco_resp_delete ON intercompany_deal_responses FOR DELETE
   USING (tenant_id = current_setting('app.current_tenant', true));
+
+-- api_keys: tenant-scoped, keyed by organization_id (like tenant_settings) ----
+-- The tenant column is `organization_id` (text — Better Auth ids), so the
+-- predicate is a plain text compare with NO ::uuid cast. A missing GUC =>
+-- NULL predicate => zero rows (fail-closed), same as every other table.
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE api_keys FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON api_keys;
+CREATE POLICY tenant_isolation ON api_keys
+  USING (organization_id = current_setting('app.current_tenant', true))
+  WITH CHECK (organization_id = current_setting('app.current_tenant', true));
+GRANT SELECT, INSERT, UPDATE ON api_keys TO crm_app;
+
+-- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
+-- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by
+-- the migrating superuser => bypasses api_keys RLS for THIS query only). It
+-- returns ONLY the minimal (organization_id, member_id) tuple needed to set the
+-- tenant GUC, stamps last_used_at, and ignores revoked keys. search_path is
+-- pinned to '' and every object is schema-qualified (public.api_keys,
+-- pg_catalog.now) so a crm_app SQL foothold cannot shadow api_keys via pg_temp
+-- and impersonate a tenant. Depends on the definer being a superuser that
+-- bypasses RLS; if that ever changes it fails closed (returns nothing). EXECUTE is revoked
+-- from PUBLIC and granted solely to the non-privileged crm_app role.
+-- Return type is (text, text) because organization.id / member.id are text.
+DROP FUNCTION IF EXISTS verify_api_key(text);
+CREATE FUNCTION verify_api_key(p_hash text)
+RETURNS TABLE(organization_id text, member_id text)
+LANGUAGE sql SECURITY DEFINER SET search_path = '' AS $$
+  UPDATE public.api_keys
+     SET last_used_at = pg_catalog.now()
+   WHERE key_hash = p_hash AND revoked_at IS NULL
+  RETURNING organization_id, member_id;
+$$;
+REVOKE ALL ON FUNCTION verify_api_key(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION verify_api_key(text) TO crm_app;

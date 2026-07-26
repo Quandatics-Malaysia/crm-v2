@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
+import { accountsList, accountsGet } from "@/lib/api-readers"
 import {
   visibleMemberIds,
   ownerScope,
@@ -21,11 +22,8 @@ import {
   persons,
   funnels,
   opportunities,
-  pipelineStages,
   projects,
   quotations,
-  member,
-  user,
 } from "@/db/schema"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
@@ -110,26 +108,8 @@ function resolveAccountType(input: AccountInput): {
  */
 export async function listAccounts(): Promise<AccountListItem[]> {
   return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const rows = await tx
-      .select({ account: accounts, ownerName: user.name })
-      .from(accounts)
-      .leftJoin(member, eq(accounts.ownerMemberId, member.id))
-      .leftJoin(user, eq(member.userId, user.id))
-      .where(
-        and(isNull(accounts.deletedAt), ownerScope(accounts.ownerMemberId, visible))
-      )
-      .orderBy(asc(accounts.name))
-      .limit(LIST_LIMIT)
-
-    const byId = new Map(rows.map((r) => [r.account.id, r.account]))
-    return rows.map((r) => ({
-      ...r.account,
-      parentAccountName: r.account.parentAccountId
-        ? (byId.get(r.account.parentAccountId)?.name ?? null)
-        : null,
-      ownerName: r.ownerName ?? null,
-    }))
+    const { rows } = await accountsList(tx, ctx, { limit: LIST_LIMIT, offset: 0 })
+    return rows
   })
 }
 
@@ -139,114 +119,7 @@ export async function listAccounts(): Promise<AccountListItem[]> {
  * can link to /funnel/<oppId>).
  */
 export async function getAccount(id: string) {
-  return withTenant(PERMISSIONS.ACCOUNT_VIEW, async (tx, ctx) => {
-    const visible = await visibleMemberIds(tx, ctx)
-    const [account] = await tx
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.id, id), isNull(accounts.deletedAt)))
-      .limit(1)
-    if (!account) return null
-    if (!ownsOrManages(visible, account.ownerMemberId)) return null
-
-    const parent = account.parentAccountId
-      ? (
-          await tx
-            .select()
-            .from(accounts)
-            .where(
-              and(
-                eq(accounts.id, account.parentAccountId),
-                isNull(accounts.deletedAt)
-              )
-            )
-            .limit(1)
-        )[0] ?? null
-      : null
-
-    // For resellers, resolve the linked end-user client account (name + id).
-    const endUserAccount = account.endUserAccountId
-      ? (
-          await tx
-            .select({ id: accounts.id, name: accounts.name })
-            .from(accounts)
-            .where(
-              and(
-                eq(accounts.id, account.endUserAccountId),
-                isNull(accounts.deletedAt)
-              )
-            )
-            .limit(1)
-        )[0] ?? null
-      : null
-
-    const children = await tx
-      .select()
-      .from(accounts)
-      .where(
-        and(
-          eq(accounts.parentAccountId, id),
-          isNull(accounts.deletedAt),
-          ownerScope(accounts.ownerMemberId, visible)
-        )
-      )
-      .orderBy(asc(accounts.name))
-
-    const contacts = await tx
-      .select()
-      .from(persons)
-      .where(and(eq(persons.accountId, id), isNull(persons.deletedAt)))
-      .orderBy(asc(persons.firstName))
-
-    const pipelines = await tx
-      .select({
-        funnelId: funnels.id,
-        name: funnels.name,
-        status: funnels.status,
-        amount: funnels.estimatedAmount,
-        currency: funnels.currency,
-        pipelineId: funnels.pipelineId,
-        stageId: pipelineStages.id,
-        stageName: pipelineStages.name,
-        stageCode: pipelineStages.code,
-        stageKind: pipelineStages.kind,
-      })
-      .from(funnels)
-      .innerJoin(
-        pipelineStages,
-        eq(funnels.currentStageId, pipelineStages.id)
-      )
-      .where(
-        and(
-          eq(funnels.accountId, id),
-          isNull(funnels.deletedAt),
-          ownerScope(funnels.ownerMemberId, visible)
-        )
-      )
-      .orderBy(asc(pipelineStages.sortOrder), asc(funnels.name))
-
-    // Resolve the account owner / account manager (member -> user name).
-    const ownerName = account.ownerMemberId
-      ? (
-          await tx
-            .select({ name: user.name })
-            .from(member)
-            .innerJoin(user, eq(member.userId, user.id))
-            .where(eq(member.id, account.ownerMemberId))
-            .limit(1)
-        )[0]?.name ?? null
-      : null
-
-    return {
-      account,
-      parent,
-      endUserAccount,
-      children,
-      contacts,
-      pipelines: pipelines as AccountFunnelItem[],
-      ownerName,
-    }
-  })
+  return withTenant(PERMISSIONS.ACCOUNT_VIEW, (tx, ctx) => accountsGet(tx, ctx, id))
 }
 
 /** One delivery project belonging to an account. */

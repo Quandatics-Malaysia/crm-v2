@@ -43,7 +43,8 @@ export function generateApiKey(): { key: string; prefix: string; hash: string } 
  */
 export async function getApiContext(req: Request): Promise<ServerContext | null> {
   const auth = req.headers.get("authorization") ?? ""
-  const m = auth.match(/^Bearer\s+(qdk_[A-Za-z0-9_-]+)$/)
+  // "Bearer" is case-insensitive (RFC 7235); the key itself is matched exactly.
+  const m = auth.match(/^Bearer\s+(qdk_[A-Za-z0-9_-]+)$/i)
   if (!m) return null
 
   const hash = hashApiKey(m[1])
@@ -77,7 +78,6 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
     .where(eq(userTable.id, memberRow.userId))
     .limit(1)
   if (!u) return null
-  const isSuperadmin = u.isSuperadmin ?? false
 
   // Effective permissions — a byte-for-byte mirror of the getServerContext
   // permission-loading block, scoped to this member inside the tenant GUC.
@@ -149,7 +149,11 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
     userId: memberRow.userId,
     userName: u.name,
     userEmail: u.email,
-    isSuperadmin,
+    // API keys are capped to ROLE-granted permissions — a key never inherits
+    // platform-superadmin god-mode (a bearer credential is far more leakable
+    // than an interactive session). This also correctly re-enforces the
+    // suspended-tenant / disabled-member lockout that superadmin would bypass.
+    isSuperadmin: false,
     tenantId: organizationId,
     memberId,
     tierLevel: resolved.tierLevel,
@@ -157,7 +161,7 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
     status: resolved.status,
     tenantSuspended: resolved.tenantSuspended,
     permissions: perms,
-    can: (key) => isSuperadmin || perms.has(key as string),
+    can: (key) => perms.has(key as string),
   }
 }
 

@@ -1,0 +1,160 @@
+# Vercel-style per-PR preview environments, self-hosted.
+#
+# On a PR (opened/updated): quality gate, then spin up an ISOLATED stack for
+# that PR on the self-hosted runner (project crm-pr-<N>, unique ports, own DB,
+# its own Cloudflare quick-tunnel → public URL), and post a sticky status
+# comment (Building → Ready ✅ with the URL, or Failed ❌ with a logs link).
+# On PR close: tear the stack down.
+#
+# Runs on the SAME box as prod — memory limits (docker-compose.preview.yaml)
+# keep each preview small. Keep the number of open PRs modest.
+name: pr-preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: pr-preview-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  quality:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run build
+
+  preview:
+    if: github.event.action != 'closed'
+    needs: quality
+    runs-on: self-hosted
+    env:
+      PR: ${{ github.event.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Comment — building
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
+          "### 🔨 Preview deploying…
+          Commit \`${HEAD_SHA:0:7}\` — [build logs]($RUN_URL)"
+
+      - name: Deploy the per-PR preview
+        id: deploy
+        run: |
+          set -euo pipefail
+          DIR="$HOME/crm-pr-$PR"
+          PROJ="crm-pr-$PR"
+          AUTH="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # 1. Check out this PR's exact commit into a per-PR working dir.
+          if [ ! -d "$DIR/.git" ]; then git clone "$AUTH" "$DIR"; fi
+          git -C "$DIR" fetch "$AUTH" "$HEAD_SHA"
+          git -C "$DIR" checkout -f FETCH_HEAD
+          cd "$DIR"
+
+          # 2. Per-PR env: unique host ports + fresh secrets (regenerate each run
+          #    is fine; the stack is recreated). Email login + sample data.
+          CADDY_PORT=$((8100 + PR % 100)); DB_PORT=$((5500 + PR % 100))
+          cp .env.staging.example .env.preview
+          sed -i "s|^CADDY_HOST_PORT=.*|CADDY_HOST_PORT=${CADDY_PORT}|" .env.preview
+          sed -i "s|^DB_HOST_PORT=.*|DB_HOST_PORT=${DB_PORT}|" .env.preview
+          sed -i "s|change_me_staging_postgres|$(openssl rand -hex 24)|" .env.preview
+          sed -i "s|change_me_staging_crm_app|$(openssl rand -hex 24)|" .env.preview
+          sed -i "s|change_me_run_openssl_rand_base64_32|$(openssl rand -base64 32)|" .env.preview
+          ADMIN_PW="$(openssl rand -hex 16)"
+          sed -i "s|change_me_strong_staging_admin|${ADMIN_PW}|" .env.preview
+          sed -i "s|change_me_strong_staging_sample|$(openssl rand -hex 16)|" .env.preview
+          # Placeholder auth URL for the first boot; replaced with the tunnel URL below.
+          sed -i "s|https://staging.quandatics.com|http://localhost:${CADDY_PORT}|g" .env.preview
+          sed -i "s|staging.quandatics.com|localhost:${CADDY_PORT}|g" .env.preview
+
+          COMPOSE=(docker compose -p "$PROJ" -f "$DIR/docker-compose.yaml" -f "$DIR/docker-compose.preview.yaml" --env-file "$DIR/.env.preview")
+
+          # 3. Bring the whole stack up (with the tunnel).
+          "${COMPOSE[@]}" up -d --build migrate web caddy tunnel
+
+          # 4. Capture the public tunnel URL.
+          URL=""
+          for i in $(seq 1 45); do
+            URL=$(docker logs "${PROJ}-tunnel-1" 2>&1 | grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" | tail -1)
+            [ -n "$URL" ] && break
+            sleep 4
+          done
+          if [ -z "$URL" ]; then echo "no tunnel URL"; docker logs "${PROJ}-tunnel-1" 2>&1 | tail -20; exit 1; fi
+
+          # 5. Point auth at the real URL and recreate just the web container.
+          sed -i "s|^BETTER_AUTH_URL=.*|BETTER_AUTH_URL=${URL}|" .env.preview
+          sed -i "s|^APP_URL=.*|APP_URL=${URL}|" .env.preview
+          "${COMPOSE[@]}" up -d --force-recreate --no-deps web
+
+          # 6. Health-check through the public URL.
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 5 "$URL/api/health" >/dev/null 2>&1; then ok=1; break; fi
+            sleep 5
+          done
+          echo "PREVIEW_URL=$URL" >> "$GITHUB_OUTPUT"
+          echo "ADMIN_PW=$ADMIN_PW" >> "$GITHUB_OUTPUT"
+          [ "$ok" = "1" ] || { echo "preview health check failed"; "${COMPOSE[@]}" logs --tail=40 web migrate || true; exit 1; }
+          echo "preview ready at $URL"
+
+      - name: Comment — ready
+        if: success()
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
+          "### ✅ Preview ready
+          | | |
+          |---|---|
+          | **Preview** | ${{ steps.deploy.outputs.PREVIEW_URL }} |
+          | **Login** | \`admin@demo.local\` / \`${{ steps.deploy.outputs.ADMIN_PW }}\` |
+          | **Commit** | \`${HEAD_SHA:0:7}\` |
+          | **Logs** | [build & deploy]($RUN_URL) |
+
+          _Random Cloudflare quick-tunnel URL — changes on each push. Torn down when the PR closes._"
+
+      - name: Comment — failed
+        if: failure()
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
+          "### ❌ Preview failed
+          Commit \`${HEAD_SHA:0:7}\` — see the [logs]($RUN_URL) for the error."
+
+  teardown:
+    if: github.event.action == 'closed'
+    runs-on: self-hosted
+    env:
+      PR: ${{ github.event.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Tear down the preview
+        run: |
+          PROJ="crm-pr-$PR"; DIR="$HOME/crm-pr-$PR"
+          if [ -d "$DIR" ]; then
+            docker compose -p "$PROJ" -f "$DIR/docker-compose.yaml" -f "$DIR/docker-compose.preview.yaml" --env-file "$DIR/.env.preview" down -v 2>/dev/null \
+              || docker compose -p "$PROJ" down -v 2>/dev/null || true
+            rm -rf "$DIR"
+          fi
+      - name: Comment — torn down
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
+          "### 🧹 Preview torn down
+          The isolated environment for this PR has been removed."

@@ -1,0 +1,20 @@
+# Per-PR preview override (used by .github/workflows/pr-preview.yml).
+# Adds a Cloudflare quick tunnel for a public URL (no domain needed) and lowers
+# memory limits so N previews on the same box as prod don't starve it.
+services:
+  db:
+    mem_limit: 512m
+  web:
+    mem_limit: 768m
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://caddy:8081
+    depends_on:
+      - caddy
+    restart: unless-stopped
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

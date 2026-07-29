@@ -3,24 +3,35 @@ import "./styles.css";
 
 const config: ZudokuConfig = {
   site: {
-    title: "CRM Documentation",
+    title: "Quandatics CRM Docs",
     logo: {
       src: {
-        light: "/logo-light.svg",
-        dark: "/logo-dark.svg",
+        light: "/quandatics.png",
+        dark: "/quandatics.png",
       },
       alt: "Quandatics",
       width: "120px",
       href: "/",
       reloadDocument: false,
     },
+    showPoweredBy: false,
     sidebar: {
       collapsible: true,
       toggleVisibility: "hover",
       togglePosition: "bottom",
     },
     footer: {
-      copyright: `© ${new Date().getFullYear()} Quandatics. Internal product documentation.`,
+      logo: {
+        src: {
+          light: "/quandatics.png",
+          dark: "/quandatics.png",
+        },
+        alt: "Quandatics",
+        width: "100px",
+        href: "/",
+      },
+      copyright: `© ${new Date().getFullYear()} Quandatics`,
+      position: "start",
       links: [
         {
           label: "Source",
@@ -37,6 +48,8 @@ const config: ZudokuConfig = {
     title: "Quandatics CRM Documentation",
     description:
       "Lifecycle-first product, developer, API, and operations documentation for Quandatics CRM.",
+    logo: "/quandatics.png",
+    favicon: "/quandatics.png",
   },
   docs: { files: "/pages/**/*.{md,mdx}" },
   search: { type: "pagefind" },

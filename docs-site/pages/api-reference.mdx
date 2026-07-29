@@ -206,7 +206,7 @@ in `apps/web/server/services/*` (`stage.ts`, `quotation-math.ts`,
 - is called *from* `actions.ts`, which owns the auth/tenant/module gating.
 
 This split is one of the module-system's five invariants (see [Modules →
-Contributing](/modules/contributing)): "business rules stay framework-free."
+Contributing](/extensibility/adding-a-module)): "business rules stay framework-free."
 
 ## Auth model (Better Auth)
 
@@ -252,7 +252,7 @@ set by `runInTenant()` (see above) before any query runs. This means a query
 that forgets a tenant filter still cannot leak or corrupt another tenant's
 rows — the database itself is the last line of defense, matching the "gate
 access, never data" module philosophy described in [Modules →
-Overview](/modules/overview).
+Overview](/extensibility/overview).
 
 The `/api/files/[id]` and `/api/tenant-logo` handlers above are the two route
 handlers that touch tenant data directly, and both follow the same shape as a

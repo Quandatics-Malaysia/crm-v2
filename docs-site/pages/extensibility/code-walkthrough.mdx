@@ -1,13 +1,13 @@
 ---
-title: "Adding a module: two worked examples"
+title: "Module code walkthrough: two worked examples"
 ---
 
-[Modules Guide → Contributing](/modules/contributing) has the abstract
-9-step recipe and the five invariants. This page is the concrete version:
+[Extensibility → Adding a module](/extensibility/adding-a-module) has the abstract
+10-step recipe and the five invariants. This page is the concrete version:
 tracing **Projects** (no dependencies, the simplest real module) and
 **Finance** (`dependsOn: ["projects", "salesOrders"]`, the deepest one) all
-the way through the actual codebase, file by file. Read Modules Guide first
-if you haven't — this page assumes you know what `modules.config.ts` and
+the way through the actual codebase, file by file. Read the Extensibility guide
+first if you haven't. This page assumes you know what `modules.config.ts` and
 `lib/modules.ts` are for.
 
 ## Example 1: Projects (`projects`, no dependencies)

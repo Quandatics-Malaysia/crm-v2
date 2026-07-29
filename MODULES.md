@@ -4,7 +4,7 @@ Everything beyond the **core CRM** (leads, accounts, contacts/persons,
 opportunities, funnel + stage-gated approvals, quotations, tax, products,
 pipeline dashboard, RBAC/Team) is an **optional plugin**, switched on or off
 for the whole deployment by **one boolean** in
-[`modules.config.ts`](./modules.config.ts).
+[`apps/web/modules.config.ts`](./apps/web/modules.config.ts).
 
 Guiding principle: **disable, don't delete.** A disabled plugin's nav, routes,
 server actions, and roles-matrix group all disappear, but its code, DB tables,
@@ -17,16 +17,17 @@ roles + permission-matrix editor + seniority tiers), `documentation`.
 
 ---
 
-## The 6 moving parts
+## The moving parts
 
 | File | Role |
 |---|---|
-| [`modules.config.ts`](./modules.config.ts) | **The switches.** One boolean per plugin. Pure/import-free so client, server, next-free services, and seed scripts can all read it. |
-| [`lib/modules.ts`](./lib/modules.ts) | **The registry.** `ModuleId` type (auto-derived from the config keys), the `MODULES` metadata + **dependency graph**, and the gate functions: `isModuleEnabled` / `assertModuleEnabled` / `validateModuleConfig`. |
-| [`lib/module-guard.ts`](./lib/module-guard.ts) | **Route guard.** `requireModule(id)` → `redirect("/dashboard")` when the plugin is off. `server-only`. |
-| [`lib/actions.ts`](./lib/actions.ts) | **Action guard.** `withModule(id, permission, fn)` = `assertModuleEnabled` then the normal tenant/RLS-scoped `withTenant`. |
-| [`instrumentation.ts`](./instrumentation.ts) | **Boot check.** Runs `validateModuleConfig()` on startup and **refuses to boot** if a plugin is on but a dependency is off (in every environment, not just prod). |
-| Nav + permissions | [`components/app-sidebar.tsx`](./components/app-sidebar.tsx), [`components/command-palette.tsx`](./components/command-palette.tsx) tag items with `module?: ModuleId`; [`lib/permissions.ts`](./lib/permissions.ts) tags each roles-matrix group. All are filtered by `isModuleEnabled`. |
+| [`apps/web/modules.config.ts`](./apps/web/modules.config.ts) | **The switches.** One boolean per plugin. Pure/import-free so client, server, next-free services, and seed scripts can all read it. |
+| [`apps/web/lib/modules.ts`](./apps/web/lib/modules.ts) | **The registry.** `ModuleId` type (auto-derived from the config keys), the `MODULES` metadata + **dependency graph**, and the gate functions: `isModuleEnabled` / `assertModuleEnabled` / `validateModuleConfig`. |
+| [`apps/web/lib/module-guard.ts`](./apps/web/lib/module-guard.ts) | **Route guard.** `requireModule(id)` → `redirect("/dashboard")` when the plugin is off. `server-only`. |
+| [`apps/web/lib/actions.ts`](./apps/web/lib/actions.ts) | **Action guard.** `withModule(id, permission, fn)` = `assertModuleEnabled` then the normal tenant/RLS-scoped `withTenant`. |
+| [`apps/web/instrumentation.ts`](./apps/web/instrumentation.ts) | **Boot check.** Runs `validateModuleConfig()` on startup and **refuses to boot** if a plugin is on but a dependency is off (in every environment, not just prod). |
+| Nav + permissions | [`apps/web/components/app-sidebar.tsx`](./apps/web/components/app-sidebar.tsx), [`apps/web/components/command-palette.tsx`](./apps/web/components/command-palette.tsx) tag items with `module?: ModuleId`; [`apps/web/lib/permissions.ts`](./apps/web/lib/permissions.ts) tags each roles-matrix group. All are filtered by `isModuleEnabled`. |
+| Product docs | [`docs-site/catalog/modules.json`](./docs-site/catalog/modules.json) registers every user-facing capability; its canonical page lives under `docs-site/pages/product/<domain>/`. |
 
 The dependency graph is code, not config, so operators can't misconfigure it:
 
@@ -110,9 +111,45 @@ The "ingestion" recipe — every step is a small, local edit:
    usual. Per "disable, don't delete," they are created regardless of the flag;
    the flag only gates *access*, never *data*.
 
+10. **Document and register the capability.** Add it to
+    `docs-site/catalog/modules.json`, create its canonical page under
+    `docs-site/pages/product/<domain>/<capability>.mdx`, and add that page to
+    `docs-site/zudoku.config.tsx`. The page must explain business purpose,
+    workflow, records, permissions, dependencies, routes, source locations,
+    tests, and operational behavior.
+
 **Verify:** `pnpm run typecheck && pnpm run build` with `x: false` (proves core
 has no static edge into X), then flip `x: true` (+deps) and smoke-test that the
 routes serve and the nav appears. `pnpm run test` for any pure logic.
+
+---
+
+## Where new work belongs
+
+First decide whether the change is a **capability** or a **plugin**.
+
+- Add a capability inside an existing plugin when it shares the same flag,
+  permissions, data model, release lifecycle, and owner. O2C and P2P are
+  capabilities inside Finance.
+- Add a plugin only when it needs independent deployment gating, dependencies,
+  permissions, ownership, and a reversible off state.
+
+| Concern | Current location |
+| --- | --- |
+| Routes, pages, and feature actions | `apps/web/app/(app)/<route>/` |
+| Reusable UI | The feature folder first; `apps/web/components/` when shared across features |
+| Framework-free business rules | `apps/web/server/services/<capability>.ts` |
+| Schema | `apps/web/db/schema/<domain>.ts` |
+| Migration | The single chain in `apps/web/db/migrations/` |
+| Permissions | `apps/web/lib/permissions.ts` |
+| Plugin switch and dependencies | `apps/web/modules.config.ts`, `apps/web/lib/modules.ts` |
+| Navigation | `apps/web/components/app-sidebar.tsx`, `command-palette.tsx` |
+| Tests | `apps/web/tests/<capability>.test.ts` |
+| Product documentation | `docs-site/pages/product/<domain>/<capability>.mdx` |
+| Documentation registry | `docs-site/catalog/modules.json` and `zudoku.config.tsx` |
+
+The planned `modules/<name>/` workspace packages are not implemented yet.
+Until that restructure lands, new code follows the current `apps/web` layout.
 
 ---
 

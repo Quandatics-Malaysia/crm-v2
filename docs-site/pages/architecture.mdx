@@ -14,7 +14,7 @@ cross-repo PR chains. A single repo keeps those changes to one pull request.
 
 Everything beyond the core CRM (leads, accounts, contacts, opportunities, funnel,
 quotations, tax, products, RBAC) is an **optional module** — a plugin switched on
-or off by one boolean in `modules.config.ts`. See **[Modules](/modules)** for the
+or off by one boolean in `modules.config.ts`. See **[Modules](/extensibility/plugin-system)** for the
 plugin system and how to add one, and **[Contributing](/contributing)** for the
 rules that keep module boundaries clean.
 
@@ -33,9 +33,10 @@ rather than scattered — the same grouping the big CRMs use.
 
 ## Staging & previews
 
-A persistent **staging** environment mirrors production closely (a second,
+An isolated **staging** stack mirrors production closely (a second,
 fully-namespaced stack on the same server) so changes can be previewed before
-they go live. See **[Operations](/operations)** for the deploy flow.
+they go live. Its public quick-tunnel URL is temporary and appears in the latest
+staging workflow summary. See **[Operations](/operations)** for the deploy flow.
 
 ## The road ahead
 

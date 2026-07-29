@@ -1,0 +1,62 @@
+---
+title: Settings
+description: Organization configuration for company identity, people, billing, numbering, taxonomies, funnel stages, and API access.
+---
+
+| Attribute | Value |
+| --- | --- |
+| Availability | Core, with plugin-gated subsections |
+| Route | `/settings/*` |
+| Main tables | `tenant_settings`, `tax_settings`, `pipeline_stages`, `api_keys` |
+| Permission | `tenant.settings` plus feature-specific permissions |
+| Primary code | `app/(app)/settings/`, `db/schema/rbac.ts` |
+
+## Information architecture
+
+```text
+Settings
+├── General
+│   └── Company profile and defaults
+├── People
+│   └── Membership behavior and organization access
+├── Access
+│   └── API keys
+├── Billing
+│   ├── Invoicing
+│   ├── Numbering
+│   └── Tax
+└── Taxonomy
+    ├── Funnel stages
+    ├── Industries and countries
+    ├── Product codes
+    └── Project natures
+```
+
+Finance-specific settings are hidden when Finance is disabled. Project-nature
+settings remain useful to core sales and quotations even when Projects is off.
+
+## Responsibilities
+
+- Company identity, logo, currency, and commercial defaults.
+- Payment terms, document types, reminders, and numbering.
+- Lead sources, loss reasons, industries, countries, and product codes.
+- Project-nature and milestone templates.
+- Pipeline stage names, probability, requirements, approval, and forecast flags.
+- Intercompany partner configuration.
+- API-key creation and revocation.
+
+## Code map
+
+| Layer | Location |
+| --- | --- |
+| Settings pages | `apps/web/app/(app)/settings/` |
+| Shared settings actions | `apps/web/app/(app)/settings/actions.ts` |
+| Tax actions | `apps/web/app/(app)/settings/billing/tax/actions.ts` |
+| API-key actions | `apps/web/app/(app)/settings/access/actions.ts` |
+| Schema | `apps/web/db/schema/rbac.ts`, `quotations.ts`, `api-keys.ts` |
+
+## Extension rule
+
+Place a setting under the business area it configures. Do not create a new
+top-level settings section for one field. Plugin-specific settings must
+disappear with the plugin while their stored values remain intact.

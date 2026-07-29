@@ -6,7 +6,7 @@ title: server/services/ — business rules
 would still make sense running in a worker, a script, or a test, completely
 outside an HTTP request. That's not an aspiration; it's an enforced
 invariant checked in review (see [Modules Guide → invariant
-5](/modules/contributing#the-five-invariants)):
+5](/extensibility/adding-a-module#the-five-invariants)):
 
 > **Business rules stay framework-free.** Code under `server/services/*`
 > must not import `next/*`. Data access from a service goes through a `Tx`
@@ -85,7 +85,7 @@ if (isModuleEnabled("finance")) {
 If `finance` were statically imported at the top of `value.ts`, core would
 carry a build-time dependency on the finance plugin even with the flag off —
 exactly the coupling invariant 3 in [Modules Guide →
-Contributing](/modules/contributing) forbids. `server/services/stage.ts` has
+Contributing](/extensibility/adding-a-module) forbids. `server/services/stage.ts` has
 the same pattern for its own call into `intercompany.ts`.
 
 ## How to add a service

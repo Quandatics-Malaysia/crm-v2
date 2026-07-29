@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-29T00:00:00+08:00",
+  "title": "Design System: Quandatics CRM Documentation",
+  "extensions": {
+    "colorMeta": {
+      "quandatics-blue": {
+        "role": "primary",
+        "displayName": "Quandatics Blue",
+        "canonical": "oklch(0.51 0.13 250)",
+        "tonalRamp": ["#071b2b", "#0b3151", "#104b7a", "#1769aa", "#2f87d4", "#6cace3", "#afd1ee", "#e8f3fb"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(0.98 0.004 250)",
+        "tonalRamp": ["#202124", "#393c40", "#626971", "#90979f", "#bdc3c9", "#dfe3e8", "#eef1f4", "#f7f8fa"]
+      },
+      "night": {
+        "role": "neutral",
+        "displayName": "Night",
+        "canonical": "oklch(0.20 0.006 250)",
+        "tonalRamp": ["#151719", "#202327", "#363b41", "#555c64", "#7b838c", "#a8afb7", "#d6dae0", "#f1f3f5"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Documentation home and major section introductions." },
+      "headline": { "displayName": "Headline", "purpose": "Page titles and lifecycle sections." },
+      "body": { "displayName": "Body", "purpose": "Readable product and technical explanation." },
+      "label": { "displayName": "Label", "purpose": "Status, type, dependency, and navigation metadata." }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "180ms cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Hover, focus, and disclosure state changes only."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The primary action for a documentation entry point.",
+      "html": "<button class=\"ds-btn-primary\">Get started</button>",
+      "css": ".ds-btn-primary{background:#1769aa;color:#fcfcfd;border:0;border-radius:8px;padding:10px 16px;font:600 13px/1.2 Geist,Inter,system-ui,sans-serif;transition:background 180ms cubic-bezier(.22,1,.36,1)}.ds-btn-primary:hover{background:#105b95}.ds-btn-primary:focus-visible{outline:2px solid #2f87d4;outline-offset:3px}.ds-btn-primary:active{background:#0b4f84}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A secondary destination or supporting action.",
+      "html": "<button class=\"ds-btn-secondary\">View code</button>",
+      "css": ".ds-btn-secondary{background:#fcfcfd;color:#202124;border:1px solid #dfe3e8;border-radius:8px;padding:10px 16px;font:600 13px/1.2 Geist,Inter,system-ui,sans-serif;transition:background 180ms cubic-bezier(.22,1,.36,1),border-color 180ms cubic-bezier(.22,1,.36,1)}.ds-btn-secondary:hover{background:#f7f8fa;border-color:#bdc3c9}.ds-btn-secondary:focus-visible{outline:2px solid #1769aa;outline-offset:3px}"
+    },
+    {
+      "name": "Module Status Chip",
+      "kind": "chip",
+      "refersTo": "module-chip",
+      "description": "Text-backed status and dependency metadata.",
+      "html": "<span class=\"ds-module-chip\">Optional plugin</span>",
+      "css": ".ds-module-chip{display:inline-flex;align-items:center;background:#f7f8fa;color:#626971;border:1px solid #dfe3e8;border-radius:9999px;padding:5px 9px;font:600 12px/1.2 Geist,Inter,system-ui,sans-serif;letter-spacing:.02em}"
+    },
+    {
+      "name": "Module Directory Row",
+      "kind": "custom",
+      "description": "A compact module entry with lifecycle and ownership context.",
+      "html": "<a class=\"ds-module-row\" href=\"#\"><span><strong>Accounts</strong><small>CRM · Core</small></span><span aria-hidden=\"true\">→</span></a>",
+      "css": ".ds-module-row{display:flex;align-items:center;justify-content:space-between;gap:24px;color:#202124;background:#fcfcfd;border-bottom:1px solid #dfe3e8;padding:14px 4px;text-decoration:none;font-family:Geist,Inter,system-ui,sans-serif;transition:color 180ms cubic-bezier(.22,1,.36,1)}.ds-module-row span:first-child{display:grid;gap:3px}.ds-module-row strong{font-size:15px}.ds-module-row small{color:#626971;font-size:12px}.ds-module-row:hover{color:#1769aa}.ds-module-row:focus-visible{outline:2px solid #1769aa;outline-offset:3px;border-radius:4px}"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "description": "Search across product, code, API, and operations documentation.",
+      "html": "<input class=\"ds-search\" type=\"search\" placeholder=\"Search modules, workflows, APIs…\" />",
+      "css": ".ds-search{width:100%;background:#fcfcfd;color:#202124;border:1px solid #dfe3e8;border-radius:8px;padding:11px 13px;font:400 15px/1.4 Geist,Inter,system-ui,sans-serif;transition:border-color 180ms cubic-bezier(.22,1,.36,1)}.ds-search:hover{border-color:#bdc3c9}.ds-search:focus-visible{outline:2px solid #1769aa;outline-offset:2px}.ds-search::placeholder{color:#626971}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Operating Manual",
+    "overview": "The documentation should feel like a well-kept operating manual for a serious business system: direct enough for a new teammate, structured enough for an operator under pressure, and precise enough for an engineer changing a shared data model. Its visual identity is restrained and product-like.",
+    "keyCharacteristics": [
+      "Lifecycle-first orientation with predictable progressive detail.",
+      "Tinted neutral surfaces with one disciplined blue accent.",
+      "Compact metadata for status, dependencies, routes, and ownership.",
+      "Readable prose paired with diagrams, tables, and code maps where useful.",
+      "Consistent light and dark experiences with visible keyboard focus."
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Blue marks navigation, interaction, and focus. It is not decorative filler.", "section": "colors" },
+      { "name": "The Reading First Rule", "body": "Typography supports scanning and sustained reading; display styling never enters buttons, navigation labels, or dense reference tables.", "section": "typography" },
+      { "name": "The Flat Manual Rule", "body": "Documentation content does not float for decoration. Boundaries represent meaningful grouping.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do explain business purpose before routes, schemas, or source paths.",
+      "Do use diagrams for lifecycle, dependencies, and state transitions.",
+      "Do pair every status color with a readable text label.",
+      "Do keep one canonical page for each module or capability.",
+      "Do use CodeGraph and repository scans to verify documentation facts."
+    ],
+    "donts": [
+      "Don't build generic SaaS homepages from repeated equal-sized icon cards.",
+      "Don't publish raw CodeGraph or directory dumps without business explanation.",
+      "Don't recreate dense Salesforce-style help-center sprawl.",
+      "Don't use decorative gradients, glass effects, or motion that competes with the task.",
+      "Don't expose sensitive staging, credential, backup, or server details on a public surface."
+    ]
+  }
+}

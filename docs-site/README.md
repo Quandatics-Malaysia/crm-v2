@@ -52,3 +52,5 @@ mechanism. Do not run manual production deployments for routine releases.
 Pull requests must pass the `docs-quality` verification job before merge. After
 the change reaches `main`, that same workflow verifies the merge commit and
 creates exactly one production deployment from the checked-out source.
+If GitHub does not emit the expected push run, manually dispatch `docs-quality`;
+the workflow still verifies `main` before deploying.

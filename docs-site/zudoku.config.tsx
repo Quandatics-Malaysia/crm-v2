@@ -1,4 +1,5 @@
 import type { ZudokuConfig } from "zudoku";
+import { remarkMermaid } from "./remark-mermaid";
 import "./styles.css";
 
 const config: ZudokuConfig = {
@@ -52,6 +53,9 @@ const config: ZudokuConfig = {
     favicon: "/quandatics.png",
   },
   docs: { files: "/pages/**/*.{md,mdx}" },
+  build: {
+    remarkPlugins: [remarkMermaid],
+  },
   search: { type: "pagefind" },
   theme: {
     fonts: {

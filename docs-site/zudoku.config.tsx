@@ -29,18 +29,23 @@ const config: ZudokuConfig = {
         },
         alt: "Quandatics",
         width: "100px",
-        href: "/",
       },
       copyright: `© ${new Date().getFullYear()} Quandatics`,
       position: "start",
-      links: [
+      columns: [
         {
-          label: "Source",
-          href: "https://github.com/Quandatics-Malaysia/crm-v2",
-        },
-        {
-          label: "Production",
-          href: "https://app.quandatics.com",
+          title: "Links",
+          position: "end",
+          links: [
+            {
+              label: "Source",
+              href: "https://github.com/Quandatics-Malaysia/crm-v2",
+            },
+            {
+              label: "Production",
+              href: "https://app.quandatics.com",
+            },
+          ],
         },
       ],
     },
@@ -49,8 +54,7 @@ const config: ZudokuConfig = {
     title: "Quandatics CRM Documentation",
     description:
       "Lifecycle-first product, developer, API, and operations documentation for Quandatics CRM.",
-    logo: "/quandatics.png",
-    favicon: "/quandatics.png",
+    favicon: "/favicon.png",
   },
   docs: { files: "/pages/**/*.{md,mdx}" },
   build: {

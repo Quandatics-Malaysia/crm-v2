@@ -39,12 +39,19 @@ never published.
 The build fails if a plugin flag is undocumented, a catalog page or route is
 missing, or a catalog page is absent from navigation.
 
-## Deploy to Vercel (one-time, on your personal account)
+## Deploy to Vercel
+
+The documentation site uses Vercel's Git integration as its only production
+deployment mechanism. Do not run manual production deployments for routine
+releases.
 
 1. Create a new Vercel project from this repository.
 2. Set **Root Directory** = `docs-site`.
 3. Framework preset **Vite** (or "Other"); build command `npm run build`; output
    directory `dist`.
-4. Deploy. Use the default `*.vercel.app` URL — no custom domain needed.
+4. Connect the production branch to `main`.
+5. Enable pull-request preview deployments.
 
-After that, pushes to `main` auto-build and pull requests get preview URLs.
+Pull requests must pass the `docs-quality` workflow before merge. Vercel creates
+preview deployments for pull requests and exactly one production deployment
+after the change reaches `main`.

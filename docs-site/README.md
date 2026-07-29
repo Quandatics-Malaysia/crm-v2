@@ -41,17 +41,14 @@ missing, or a catalog page is absent from navigation.
 
 ## Deploy to Vercel
 
-The documentation site uses Vercel's Git integration as its only production
-deployment mechanism. Do not run manual production deployments for routine
-releases.
+The `docs-quality` GitHub Actions workflow is the only production deployment
+mechanism. Do not run manual production deployments for routine releases.
 
-1. Create a new Vercel project from this repository.
-2. Set **Root Directory** = `docs-site`.
-3. Framework preset **Vite** (or "Other"); build command `npm run build`; output
-   directory `dist`.
-4. Connect the production branch to `main`.
-5. Enable pull-request preview deployments.
+1. Create the Vercel project and set **Root Directory** = `docs-site`.
+2. Add its token as the `VERCEL_TOKEN` GitHub Actions secret.
+3. Keep the Vercel organization and project IDs in `docs-quality.yml` aligned
+   with that project.
 
-Pull requests must pass the `docs-quality` workflow before merge. Vercel creates
-preview deployments for pull requests and exactly one production deployment
-after the change reaches `main`.
+Pull requests must pass the `docs-quality` verification job before merge. After
+the change reaches `main`, that same workflow verifies the merge commit and
+creates exactly one production deployment from the checked-out source.

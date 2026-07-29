@@ -3,11 +3,37 @@ import type { ZudokuConfig } from "zudoku";
 const config: ZudokuConfig = {
   site: {
     title: "Quandatics CRM Docs",
+    logo: {
+      src: {
+        light: "/quandatics.png",
+        dark: "/quandatics.png",
+      },
+      alt: "Quandatics",
+      width: "120px",
+      href: "/",
+      reloadDocument: false,
+    },
+    showPoweredBy: false,
+    footer: {
+      logo: {
+        src: {
+          light: "/quandatics.png",
+          dark: "/quandatics.png",
+        },
+        alt: "Quandatics",
+        width: "100px",
+        href: "/",
+      },
+      copyright: `© ${new Date().getFullYear()} Quandatics`,
+      position: "start",
+    },
   },
   metadata: {
     title: "Quandatics CRM Docs",
     description:
       "Developer & operator documentation for the Quandatics CRM.",
+    logo: "/quandatics.png",
+    favicon: "/quandatics.png",
   },
   docs: { files: "/pages/**/*.{md,mdx}" },
   search: { type: "pagefind" },

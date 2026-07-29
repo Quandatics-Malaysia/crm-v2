@@ -2,7 +2,7 @@
 title: Overview
 ---
 
-This is the source-level companion to [Modules Guide](/modules/overview) and
+This is the source-level companion to [Modules Guide](/extensibility/overview) and
 [API Reference](/api-reference). Where those pages describe the *plugin
 system* and the *server-action architecture* respectively, this section walks
 the actual `apps/web/` directory tree — what lives where, the conventions each
@@ -39,7 +39,7 @@ Everything below refers to paths under `apps/web/` unless stated otherwise.
 | `public/` | Static assets served as-is. | Rare — favicons, static images. |
 
 Two more root files worth knowing: `modules.config.ts` (the plugin on/off
-switches — see [Modules Guide](/modules/overview)) and `instrumentation.ts`
+switches — see [Modules Guide](/extensibility/overview)) and `instrumentation.ts`
 (boot-time checks, including `validateModuleConfig()`).
 
 ## Request → server action → service → db

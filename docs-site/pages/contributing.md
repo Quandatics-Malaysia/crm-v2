@@ -2,20 +2,20 @@
 title: "Contributing to CRM v2"
 ---
 
-This is the day-one guide. Read it once, then keep [`MODULES.md`](/modules)
+This is the day-one guide. Read it once, then keep [`MODULES.md`](/extensibility/plugin-system)
 open while you work.
 
 > **Note:** the `apps/` workspace restructure has landed — the app now lives
 > under `apps/web/`, with the repo root as a thin pnpm workspace. `packages/`
 > and `modules/` are reserved in `pnpm-workspace.yaml` for later phases — see
-> [the design spec](./docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
+> [the design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
 > Only *where files live* changed; the five rules stay identical.
 
 ---
 
 ## 1. Get it running
 
-Follow **[README → Local development](./README.md#local-development)**. Use
+Follow **[README → Local development](/overview#local-development)**. Use
 `pnpm run db:setup-seeded` rather than `db:setup` — it gives you sample accounts,
 funnels, and quotations to click around, plus four extra logins.
 
@@ -27,11 +27,11 @@ run your own.
 | To learn… | Read |
 |---|---|
 | What the product does | [README](/overview) |
-| **The module (plugin) system** — read this before writing anything | [MODULES.md](/modules) |
-| Where the repo is heading (monorepo, teams, ownership) | [Design spec](./docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
+| **The module (plugin) system** — read this before writing anything | [MODULES.md](/extensibility/plugin-system) |
+| Where the repo is heading (monorepo, teams, ownership) | [Design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
 | Running it in production, backups, DB access | [OPERATIONS.md](/operations) |
-| Past security/correctness findings | [AUDIT.md](./AUDIT.md) |
-| Rules for AI coding agents | [AGENTS.md](./AGENTS.md) |
+| Past security/correctness findings | [AUDIT.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AUDIT.md) |
+| Rules for AI coding agents | [AGENTS.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AGENTS.md) |
 
 Current layout — the repo root is a thin pnpm workspace; the app lives under
 `apps/web/`:
@@ -82,7 +82,7 @@ your code gets pulled in, you have a static edge to remove.
 
 **4 — Registration is explicit.**
 Module metadata, nav entries, and permission groups are hand-registered in core
-files ([`MODULES.md`](/modules) steps 1, 2, 5, 6). Do **not** add
+files ([`MODULES.md`](/extensibility/plugin-system) steps 1, 2, 5, 6). Do **not** add
 auto-discovery — a central registry that imports every module violates rule 3
 and drags disabled modules into the bundle.
 
@@ -97,7 +97,7 @@ a gated module.
 
 ## 4. Adding a module
 
-Follow the 9-step recipe in **[MODULES.md → "Developer: add a brand-new module"](/modules)**.
+Follow the 10-step recipe in **[MODULES.md → "Developer: add a brand-new module"](/extensibility/plugin-system)**.
 Ship it with its flag `false`; a core maintainer turns it on.
 
 If you find yourself wanting to import another module's internals — **stop.**
@@ -149,9 +149,11 @@ why we stay in one repo.
 
 ## 7. Deploying
 
-You don't. Merging to `main` deploys automatically: quality gate → self-hosted
-runner on the box → `docker compose up -d --build`. **There is no staging
-environment** — `main` is production. This is why the checks are not optional.
+Deployments are automated. Pushing to `staging` runs the quality gate and
+rebuilds the isolated staging stack; its temporary public URL is published in
+that workflow run's summary. Merging to `main` runs the production quality gate
+and rebuilds the production stack on the self-hosted runner. The normal path is
+**feature branch → `staging` → `main`**. This is why the checks are not optional.
 
 ## 8. Status of the setup
 

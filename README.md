@@ -1,29 +1,47 @@
 # CRM v2
 
-Lightweight, self-hostable multitenant CRM for a services business.
-**Next.js 16** (App Router) · **shadcn/ui** (Base UI) · **Better Auth** (Microsoft Entra + email) · **Drizzle ORM** + **PostgreSQL 17** with **Row-Level Security** · **Docker + Caddy**.
+Quandatics' multitenant CRM for the full lead-to-cash lifecycle.
 
-> **Joining the team?** Start with **[CONTRIBUTING.md](./CONTRIBUTING.md)** — setup, the five rules that keep the module system working, and how to open a PR.
+## [Open the documentation →](https://docs-site-eight-umber.vercel.app)
 
-## Features
-- **Multitenant** — one deployment, many entities; isolation enforced by Postgres RLS (`app.current_tenant`), not just app code.
-- **Microsoft Entra** sign-in (single-tenant) + optional per-tenant email/password.
-- **RBAC** with seniority tiers and a manager/upline hierarchy.
-- **Leads → Accounts → Persons** (accounts have parent hierarchy; persons live under accounts).
-- **Funnel** with the 0e/1d/2c/3b/4a/Won/Lost/KIV ladder; **stage-gated approvals** (low-tier users submit a reason + files; upline approves; stage never moves optimistically).
-- **Quotations** (services only — description + price), **tax settings**, snapshot-on-send.
-- **Billing forecast** — a report-only, net-of-tax, probability-weighted Postgres view.
+The documentation portal is the canonical product, module, workflow, API, and
+architecture directory.
 
-## Documentation
+| Go to | Purpose |
+| --- | --- |
+| **[Documentation](https://docs-site-eight-umber.vercel.app)** | Central platform directory |
+| [Production CRM](https://app.quandatics.com) | Live application |
+| [Latest staging deployment](https://github.com/Quandatics-Malaysia/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
+| [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
+| [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
+| [Contributing](./CONTRIBUTING.md) | Local setup and review rules |
+| [Operations](./OPERATIONS.md) | Private operator runbook |
 
-| Doc | What's in it |
-|---|---|
-| **[CONTRIBUTING.md](./CONTRIBUTING.md)** | **Start here.** Day-one setup, the five invariants, the PR checklist, who reviews what. |
-| [MODULES.md](./MODULES.md) | The module (plugin) system — enabling/disabling a module, and the 9-step recipe for adding one. |
-| [OPERATIONS.md](./OPERATIONS.md) | Production: cheat sheet, backups & restore, DB access, hardening, troubleshooting. |
-| [AUDIT.md](./AUDIT.md) | Security & correctness audit — what was found, fixed, and consciously deferred. |
-| [AGENTS.md](./AGENTS.md) | Rules for AI coding agents working in this repo. |
-| [docs/superpowers/specs/](./docs/superpowers/specs/) | Architecture decisions. Current: [monorepo, org structure, and the module contribution model](./docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md). |
+## Module map
+
+| Domain | Capabilities |
+| --- | --- |
+| CRM | Leads, Accounts, Contacts |
+| Sales | Opportunities, Funnel, Approvals, Products, Quotations, Payment Milestones |
+| Delivery | Projects, Sales Orders |
+| Finance | O2C, P2P, Intercompany, Forecast |
+| Platform | Dashboard, Team & RBAC, Settings, Audit, Documentation, Tenancy & Auth |
+
+## Repository map
+
+```text
+crm-v2/
+├── apps/
+│   └── web/                 Next.js application, routes, services, and database
+├── docs-site/               Zudoku product and engineering documentation
+├── docs/
+│   └── superpowers/         Architecture specs and implementation plans
+├── ops/                     Operational scripts and operator notes
+├── .github/                 CI, production, and staging workflows
+├── CONTRIBUTING.md          Development and review workflow
+├── MODULES.md               Optional-plugin contract
+└── OPERATIONS.md            Private operator runbook
+```
 
 The app itself lives in `apps/web` (a pnpm workspace under the repo root). Local-dev
 and CI commands run from the repo **root** — the root `package.json` scripts

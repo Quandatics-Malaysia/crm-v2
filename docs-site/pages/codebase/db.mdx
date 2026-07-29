@@ -50,7 +50,7 @@ Note this static cross-file importing is **fine even across a module
 boundary** — `db/schema/finance.ts` statically imports `salesOrders` from
 `./sales-orders` and `projects` from `./projects`. Schema is explicitly
 exempt from the "no static core→module import" rule (invariant 3 in
-[Modules Guide → Contributing](/modules/contributing)) because every
+[Modules Guide → Contributing](/extensibility/adding-a-module)) because every
 module's tables exist regardless of its flag — see "flags gate access, never
 data" below.
 
@@ -157,7 +157,7 @@ The safe path is to never hand-write one: change a `db/schema/*.ts` file,
 run `pnpm run db:generate`, and let Drizzle append both the SQL and the
 journal entry together. Migrations apply **in one linear chain, in full, on
 every deployment** — there is no per-module chain (invariant 1 in
-[Modules Guide → Contributing](/modules/contributing)); a new module's
+[Modules Guide → Contributing](/extensibility/adding-a-module)); a new module's
 tables are just the next few numbered files in the same sequence.
 
 `db/migrate.ts` also does three things beyond running the chain, every

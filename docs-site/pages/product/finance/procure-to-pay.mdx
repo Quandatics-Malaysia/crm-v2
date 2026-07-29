@@ -1,0 +1,52 @@
+---
+title: Procure to pay
+description: Supplier-facing request, purchase order, supplier invoice, and payment flows under the Finance plugin.
+---
+
+| Attribute | Value |
+| --- | --- |
+| Type | Capability inside the Finance plugin |
+| Flag | `finance` |
+| Route | `/purchasing` |
+| Main table | `finance_docs` |
+| Document kinds | `rfq`, `purchase_order`, `purchase_invoice`, `payment` |
+| Permissions | `finance.view`, `finance.manage` |
+
+## Purpose
+
+P2P records the supplier-side documents required to source and pay for work
+associated with a Project.
+
+```mermaid
+flowchart LR
+  project[Project] --> rfq[Request for quotation]
+  rfq --> po[Purchase order]
+  po --> pinvoice[Purchase invoice]
+  pinvoice --> payment[Payment]
+```
+
+## Rules
+
+- Supplier party is currently free text rather than a dedicated vendor master.
+- Documents may link to the Project and an upstream parent document.
+- The same draft, issued, settled, and cancelled states apply as O2C.
+- Valid parent/child relationships are controlled by `lib/finance-kinds.ts`.
+- Purchase-side documents share tenant numbering with all other finance kinds.
+- Intercompany mirroring may create a purchase invoice paired with the partner's
+  sales invoice.
+
+## Code map
+
+| Layer | Location |
+| --- | --- |
+| Purchasing UI | `apps/web/app/(app)/purchasing/` |
+| Shared finance actions | `apps/web/app/(app)/billing/actions.ts` |
+| Document-kind rules | `apps/web/lib/finance-kinds.ts` |
+| Schema | `apps/web/db/schema/finance.ts` |
+| Tests | `apps/web/tests/finance-kinds.test.ts` |
+
+## Extension rule
+
+Create a Vendor module only when supplier identity needs independent lifecycle,
+ownership, permissions, or master-data behavior. Until then, P2P remains a
+Finance capability, not a separate plugin.

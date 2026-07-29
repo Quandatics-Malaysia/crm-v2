@@ -12,6 +12,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
 const pagesDir = resolve(here, "../pages");
 mkdirSync(pagesDir, { recursive: true });
+mkdirSync(resolve(pagesDir, "extensibility"), { recursive: true });
 
 if (!existsSync(resolve(repoRoot, "README.md"))) {
   console.log("root docs not present (isolated build) — using the committed page copies");
@@ -21,16 +22,20 @@ if (!existsSync(resolve(repoRoot, "README.md"))) {
 const map = [
   ["README.md", "overview.md"],
   ["CONTRIBUTING.md", "contributing.md"],
-  ["MODULES.md", "modules.md"],
+  ["MODULES.md", "extensibility/plugin-system.md"],
 ];
 
-// Rewrite the common cross-doc relative links to site routes so they don't 404.
+const repoUrl = "https://github.com/Quandatics-Malaysia/crm-v2";
+
+// Rewrite cross-doc links to site routes and source-file links to GitHub so
+// generated pages still work regardless of how deeply they are nested.
 const rewrite = (s) =>
   s
-    .replace(/\]\(\.\/CONTRIBUTING\.md\)/g, "](/contributing)")
-    .replace(/\]\(\.\/MODULES\.md\)/g, "](/modules)")
-    .replace(/\]\(\.\/README\.md\)/g, "](/overview)")
-    .replace(/\]\(\.\/OPERATIONS\.md\)/g, "](/operations)");
+    .replace(/\]\(\.\/CONTRIBUTING\.md(#[^)]+)?\)/g, "](/contributing$1)")
+    .replace(/\]\(\.\/MODULES\.md(#[^)]+)?\)/g, "](/extensibility/plugin-system$1)")
+    .replace(/\]\(\.\/README\.md(#[^)]+)?\)/g, "](/overview$1)")
+    .replace(/\]\(\.\/OPERATIONS\.md(#[^)]+)?\)/g, "](/operations$1)")
+    .replace(/\]\(\.\/([^)]+)\)/g, `](${repoUrl}/blob/main/$1)`);
 
 // Lift the doc's leading `# H1` into Zudoku frontmatter `title:` and drop it
 // from the body, so the site renders exactly one visible title (from

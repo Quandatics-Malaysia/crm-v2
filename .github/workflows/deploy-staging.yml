@@ -70,12 +70,6 @@ jobs:
             # No public domain: reach staging via SSH tunnel to 127.0.0.1:8091.
             sed -i "s|staging.quandatics.com|localhost:8091|g" .env.staging
             sed -i "s|https://localhost:8091|http://localhost:8091|g" .env.staging
-            {
-              echo "### Staging bootstrapped"
-              echo "Reach it via SSH tunnel: \`ssh -L 8091:127.0.0.1:8091 <box>\` then http://localhost:8091"
-              echo "- Demo admin: \`admin@demo.local\` / \`${ADMIN_PW}\`"
-              echo "- Sample logins password: \`${SAMPLE_PW}\`"
-            } >> "$GITHUB_STEP_SUMMARY"
           fi
       # Phase 1: bring the whole stack + tunnel up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
@@ -124,16 +118,55 @@ jobs:
             echo "waiting for staging web through the tunnel... ($i)"; sleep 5
           done
           curl -fsS --max-time 6 "$URL/api/health" >/dev/null || { echo "health FAILED"; docker compose -p crm-staging logs --tail=50 web migrate || true; exit 1; }
-      - name: Publish the staging URL
+      - name: Verify email/password login
+        run: |
+          set -euo pipefail
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
+          URL="${{ steps.url.outputs.STAGING_URL }}"
+          get_env() {
+            sed -n "s/^$1=//p" "$DIR/.env.staging" | tail -1
+          }
+          ADMIN_EMAIL="$(get_env DEMO_ADMIN_EMAIL)"
+          ADMIN_PW="$(get_env DEMO_ADMIN_PASSWORD)"
+          HTTP_CODE=$(curl -sS --max-time 12 \
+            -o /tmp/crm-staging-auth-response.json \
+            -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -H "Origin: ${URL}" \
+            --data "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PW}\"}" \
+            "$URL/api/auth/sign-in/email")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "staging email/password login FAILED with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "staging email/password login OK"
+      - name: Publish staging access
         if: always()
         run: |
+          set -euo pipefail
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
           URL="${{ steps.url.outputs.STAGING_URL }}"
+          get_env() {
+            sed -n "s/^$1=//p" "$DIR/.env.staging" | tail -1
+          }
+          ADMIN_EMAIL="$(get_env DEMO_ADMIN_EMAIL)"
+          ADMIN_PW="$(get_env DEMO_ADMIN_PASSWORD)"
+          SAMPLE_PW="$(get_env SEED_SAMPLE_PASSWORD)"
           if [ -n "$URL" ]; then
             {
               echo "## Staging"
-              echo "Browsable (login works): $URL"
               echo ""
-              echo "Random Cloudflare quick-tunnel URL — changes on each redeploy."
+              echo "**Open:** $URL"
+              echo ""
+              echo "### Login"
+              echo ""
+              echo "Use **email and password**. Microsoft SSO is intentionally unavailable because the quick-tunnel hostname changes on each redeploy and cannot be pre-registered as an Entra callback URL."
+              echo ""
+              echo "- Click **Use email and password** on the sign-in screen."
+              echo "- Demo admin: \`${ADMIN_EMAIL}\` / \`${ADMIN_PW}\`"
+              echo "- Sample users: \`manager@demo.local\`, \`sales1@demo.local\`, \`sales2@demo.local\`, or \`viewer@demo.local\` / \`${SAMPLE_PW}\`"
+              echo ""
+              echo "> This is a private-repository staging credential. The URL and credentials are for testing only."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "STAGING_PUBLIC_URL=$URL"
           fi

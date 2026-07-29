@@ -9,8 +9,9 @@
     "preview": "zudoku preview",
     "lint": "eslint",
     "sync-docs": "node scripts/sync-root-docs.mjs",
+    "check:docs": "node scripts/check-module-docs.mjs",
     "predev": "node scripts/sync-root-docs.mjs",
-    "prebuild": "node scripts/sync-root-docs.mjs"
+    "prebuild": "npm run sync-docs && npm run check:docs"
   },
   "dependencies": {
     "lucide-react": "1.16.0",

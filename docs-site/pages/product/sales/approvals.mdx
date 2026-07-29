@@ -1,0 +1,54 @@
+---
+title: Stage approvals
+description: The upline approval gate for sensitive funnel stage transitions.
+---
+
+| Attribute | Value |
+| --- | --- |
+| Availability | Core |
+| Route | `/approvals` |
+| Main tables | `stage_approval_requests`, `attachments` |
+| Permissions | `stage.advance`, `stage.advance.approve` |
+| Primary code | `app/(app)/approvals/`, `server/services/stage.ts`, `db/schema/approvals.ts` |
+
+## Purpose
+
+Approvals prevent lower-tier users from moving a funnel into a controlled stage
+without an explicit reason, evidence, and authorized upline decision.
+
+```mermaid
+sequenceDiagram
+  participant Rep
+  participant CRM
+  participant Manager
+  Rep->>CRM: Request controlled stage
+  CRM->>CRM: Validate required fields
+  CRM->>CRM: Store pending request and attachments
+  CRM-->>Manager: Add incoming approval
+  Manager->>CRM: Approve or reject
+  alt approved
+    CRM->>CRM: Advance through stage service
+    CRM-->>Rep: Stage changed
+  else rejected
+    CRM-->>Rep: Reason recorded, stage unchanged
+  end
+```
+
+## Invariants
+
+- The stage never moves optimistically.
+- The same stage validation runs after approval.
+- A request records requester, target stage, reason, evidence, reviewer,
+  decision, and timestamps.
+- Seniority tier decides whether approval is required, while permissions decide
+  whether a user can advance or approve.
+- Approved movement is recorded with `approval` as its change source.
+
+## Code map
+
+| Layer | Location |
+| --- | --- |
+| Inbox and “my requests” UI | `apps/web/app/(app)/approvals/` |
+| Request and decision actions | `apps/web/app/(app)/approvals/actions.ts` |
+| Authoritative transition | `apps/web/server/services/stage.ts` |
+| Schema | `apps/web/db/schema/approvals.ts` |

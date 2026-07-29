@@ -95,7 +95,7 @@ a gated module.
 
 ## 4. Adding a module
 
-Follow the 9-step recipe in **[MODULES.md → "Developer: add a brand-new module"](./MODULES.md)**.
+Follow the 10-step recipe in **[MODULES.md → "Developer: add a brand-new module"](./MODULES.md)**.
 Ship it with its flag `false`; a core maintainer turns it on.
 
 If you find yourself wanting to import another module's internals — **stop.**
@@ -147,9 +147,11 @@ why we stay in one repo.
 
 ## 7. Deploying
 
-You don't. Merging to `main` deploys automatically: quality gate → self-hosted
-runner on the box → `docker compose up -d --build`. **There is no staging
-environment** — `main` is production. This is why the checks are not optional.
+Deployments are automated. Pushing to `staging` runs the quality gate and
+rebuilds the isolated staging stack; its temporary public URL is published in
+that workflow run's summary. Merging to `main` runs the production quality gate
+and rebuilds the production stack on the self-hosted runner. The normal path is
+**feature branch → `staging` → `main`**. This is why the checks are not optional.
 
 ## 8. Status of the setup
 

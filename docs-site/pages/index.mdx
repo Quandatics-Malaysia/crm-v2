@@ -1,65 +1,125 @@
 ---
-description: >-
-  Quandatics CRM developer & operator documentation — get started, the
-  module system, the codebase guide, API reference and playground,
-  operations, and architecture.
+description: Lifecycle-first product, developer, API, and operations documentation for Quandatics CRM.
 toc: false
 disablePager: true
 fullWidth: true
 ---
 
-import { Head, LandingPage } from "zudoku/components";
-import { FolderTree, Landmark, Plug, Puzzle, Rocket, Settings } from "lucide-react";
+import { Head } from "zudoku/components";
 
 <Head>
-  <title>Quandatics CRM Docs</title>
+  <title>Quandatics CRM Documentation</title>
 </Head>
 
-<LandingPage
-  variant="grid"
-  eyebrow="Quandatics CRM"
-  title="Docs for building, running, and extending the CRM"
-  description="Everything you need to set up a dev environment, understand the module system, find your way around the codebase, call the HTTP API, and run the app in production."
-  actions={[
-    { label: "Get started", href: "/overview" },
-    { label: "Open the app", href: "https://app.quandatics.com", variant: "outline" },
-  ]}
-  features={[
-    {
-      icon: <Rocket />,
-      title: "Get Started",
-      description: "What the product does, local dev setup, and the five rules that keep the module system working.",
-      href: "/overview",
-    },
-    {
-      icon: <Puzzle />,
-      title: "Modules",
-      description: "The plugin system — enabling/disabling a module and the recipe for adding a brand-new one.",
-      href: "/modules",
-    },
-    {
-      icon: <FolderTree />,
-      title: "Codebase Guide",
-      description: "A directory-by-directory tour of apps/web/ — app/, lib/, server/services/, db/, components, and tests.",
-      href: "/codebase/overview",
-    },
-    {
-      icon: <Plug />,
-      title: "API Reference & Playground",
-      description: "The 4+ HTTP route handlers, the server-action architecture, and a live playground to try real requests.",
-      href: "/api-reference",
-    },
-    {
-      icon: <Settings />,
-      title: "Operations",
-      description: "Environments, the deploy pipeline, and how optional modules are toggled in production.",
-      href: "/operations",
-    },
-    {
-      icon: <Landmark />,
-      title: "Architecture",
-      description: "How the codebase is organised, the settings structure, and where the repo is heading.",
-      href: "/architecture",
-    },
-  ]}
-/>
+<main className="docs-home">
+  <section className="docs-hero">
+    <div>
+      <p className="docs-eyebrow">Quandatics CRM documentation</p>
+      <h1>Understand the business. Find the code. Extend with confidence.</h1>
+      <div className="docs-actions">
+        <a className="docs-action" href="/product/lifecycle">Follow the lifecycle</a>
+        <a className="docs-action docs-action-secondary" href="/product/module-directory">Browse every module</a>
+      </div>
+    </div>
+    <p className="docs-hero-copy">
+      One map for product workflows, permissions, data, APIs, source boundaries,
+      environments, and the rules for adding what comes next.
+    </p>
+  </section>
+
+  <section className="docs-audiences" aria-label="Documentation paths">
+    <article className="docs-audience">
+      <p className="docs-section-label">Product and business</p>
+      <h2>Learn how work moves</h2>
+      <p>Start with the customer lifecycle, then open the capability that owns each handoff.</p>
+      <a href="/product">Open product overview →</a>
+    </article>
+    <article className="docs-audience">
+      <p className="docs-section-label">Engineering</p>
+      <h2>Change the system safely</h2>
+      <p>Trace routes, services, schemas, permissions, plugin gates, and tests.</p>
+      <a href="/codebase/overview">Open codebase map →</a>
+    </article>
+    <article className="docs-audience">
+      <p className="docs-section-label">Operations</p>
+      <h2>Run and release it</h2>
+      <p>Understand production, staging, delivery workflows, and module activation.</p>
+      <a href="/operations">Open operations →</a>
+    </article>
+  </section>
+
+  <section className="docs-section">
+    <div className="docs-section-head">
+      <div>
+        <p className="docs-section-label">Operating lifecycle</p>
+        <h2>From first interest to delivery, cash, and insight</h2>
+      </div>
+      <p>Each step links to the record that owns its data and decisions.</p>
+    </div>
+    <ol className="docs-lifecycle">
+      <li><span /><strong>Lead</strong><small>Capture and qualify</small></li>
+      <li><span /><strong>Account</strong><small>Customer and contacts</small></li>
+      <li><span /><strong>Opportunity</strong><small>Shape the pursuit</small></li>
+      <li><span /><strong>Funnel</strong><small>Advance and approve</small></li>
+      <li><span /><strong>Quotation</strong><small>Offer and accept</small></li>
+      <li><span /><strong>Delivery</strong><small>Project and order</small></li>
+      <li><span /><strong>Finance</strong><small>Bill, buy, report</small></li>
+    </ol>
+  </section>
+
+  <section className="docs-section">
+    <div className="docs-section-head">
+      <div>
+        <p className="docs-section-label">Capability directory</p>
+        <h2>Every module has one canonical home</h2>
+      </div>
+      <p>Business explanation first, then workflow, permissions, data, routes, source, and tests.</p>
+    </div>
+    <div className="docs-directory">
+      <section className="docs-domain">
+        <h3>CRM</h3>
+        <ul>
+          <li><a href="/product/crm/leads">Leads</a></li>
+          <li><a href="/product/crm/accounts">Accounts</a></li>
+          <li><a href="/product/crm/contacts">Contacts</a></li>
+        </ul>
+      </section>
+      <section className="docs-domain">
+        <h3>Sales</h3>
+        <ul>
+          <li><a href="/product/sales/opportunities">Opportunities</a></li>
+          <li><a href="/product/sales/funnel">Funnel and approvals</a></li>
+          <li><a href="/product/sales/quotations">Quotations</a></li>
+          <li><a href="/product/sales/payment-milestones">Milestones</a></li>
+        </ul>
+      </section>
+      <section className="docs-domain">
+        <h3>Delivery and finance</h3>
+        <ul>
+          <li><a href="/product/delivery/projects">Projects</a></li>
+          <li><a href="/product/delivery/sales-orders">Sales orders</a></li>
+          <li><a href="/product/finance/order-to-cash">Order to cash</a></li>
+          <li><a href="/product/finance/procure-to-pay">Procure to pay</a></li>
+          <li><a href="/product/finance/intercompany">Intercompany</a></li>
+        </ul>
+      </section>
+      <section className="docs-domain">
+        <h3>Platform</h3>
+        <ul>
+          <li><a href="/product/platform/dashboard">Dashboard</a></li>
+          <li><a href="/product/platform/team-and-rbac">Team and access</a></li>
+          <li><a href="/product/platform/settings">Settings</a></li>
+          <li><a href="/product/platform/audit">Audit and activity</a></li>
+          <li><a href="/api-guide">REST API</a></li>
+        </ul>
+      </section>
+    </div>
+    <div className="docs-note">
+      <p>
+        Finance is one optional plugin. O2C, P2P, and Intercompany are separate
+        capabilities inside it, while Forecast is independently deployable.
+      </p>
+      <a href="/extensibility/overview">See the plugin graph →</a>
+    </div>
+  </section>
+</main>

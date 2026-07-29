@@ -11,8 +11,9 @@ purpose).
 ## Environments
 
 - **Production** — the live app, deployed from the `main` branch.
-- **Staging** — a persistent preview built from the `staging` branch, so changes
-  can be reviewed before they reach production.
+- **Staging** — an isolated stack built from the `staging` branch, so changes
+  can be reviewed before they reach production. Its Cloudflare quick-tunnel URL
+  changes on each redeploy and is published in the latest workflow summary.
 
 The flow is: **feature branch → `staging` (preview) → `main` (production)**.
 
@@ -25,7 +26,8 @@ Every push follows the same gate:
 2. On a merge to `main`, a **self-hosted runner rebuilds the app on the server**
    (Docker Compose) and restarts it. Staging works the same way from its own
    branch, in a separate namespaced stack, so a staging deploy never disturbs
-   production.
+   production. The stack listens locally on port `8091`; the workflow starts a
+   temporary public tunnel for browser review.
 
 There is no cloud build step and no image registry — the server builds and runs
 its own containers.
@@ -34,7 +36,7 @@ its own containers.
 
 Optional features (Projects, Sales Orders, Finance, Forecast, …) are toggled by
 a single boolean each in `modules.config.ts` and take effect on the next
-rebuild. See **[Modules](/modules)** for the full plugin system.
+rebuild. See **[Modules](/extensibility/plugin-system)** for the full plugin system.
 
 ## Where the details live
 

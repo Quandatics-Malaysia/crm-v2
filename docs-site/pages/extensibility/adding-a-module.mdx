@@ -3,11 +3,12 @@ title: Contributing
 ---
 
 This is the technical recipe for adding a brand-new plugin `x` from scratch,
-plus the five invariants that keep the module system safe. Read [Modules →
-Overview](/modules/overview) first if you haven't — this page assumes you
+plus the five invariants that keep the module system safe. Read
+[Extensibility → Overview](/extensibility/overview) first if you haven't. This
+page assumes you
 know the shape of `modules.config.ts` / `lib/modules.ts`.
 
-## The 9-step recipe
+## The 10-step recipe
 
 Every step is a small, local edit — there is deliberately no central
 "register your module here" abstraction (see invariant 4 below).
@@ -91,6 +92,16 @@ seed run produces zero orphan rows referencing a disabled module's tables.
 migrations and RLS, created **regardless** of the flag. Per "disable, don't
 delete," the flag only ever gates *access* — never *data* or *schema*.
 
+**10 — Document and register the capability.** Add it to
+`docs-site/catalog/modules.json`, create its canonical page under
+`docs-site/pages/product/<domain>/<capability>.mdx`, and add it to
+`docs-site/zudoku.config.tsx`.
+
+The page must cover business purpose, lifecycle position, workflow, records,
+permissions, plugin dependencies, routes, source map, tests, and operational
+behavior. Add a top-level README entry only when the change introduces a new
+system or business domain.
+
 ### Verify
 
 ```bash
@@ -99,6 +110,39 @@ pnpm run typecheck && pnpm run build   # with x: false — proves core has no st
 
 Then flip `x: true` (plus its dependencies) and smoke-test that the routes
 serve and the nav appears. Run `pnpm run test` for any pure logic you added.
+
+## Capability or plugin?
+
+Use a capability inside an existing plugin when it shares that plugin's flag,
+permissions, data model, release lifecycle, and owner. O2C and P2P are separate
+Finance workflows in the docs but share the `finance` plugin.
+
+Create a new plugin only when the feature needs independent:
+
+- Deployment gating and boot-validated dependencies.
+- Route and action guards.
+- Permission-matrix visibility.
+- Ownership and review boundary.
+- Off-state build verification.
+
+## Where each part goes today
+
+| Concern | Location |
+| --- | --- |
+| Routes, pages, feature actions | `apps/web/app/(app)/<route>/` |
+| Reusable UI | Feature folder first; `apps/web/components/` when cross-feature |
+| Framework-free business rules | `apps/web/server/services/<capability>.ts` |
+| Schema | `apps/web/db/schema/<domain>.ts` |
+| Migration | Single chain in `apps/web/db/migrations/` |
+| Permission keys and groups | `apps/web/lib/permissions.ts` |
+| Plugin switch and dependencies | `apps/web/modules.config.ts`, `apps/web/lib/modules.ts` |
+| Navigation | `apps/web/components/app-sidebar.tsx`, `command-palette.tsx` |
+| Tests | `apps/web/tests/<capability>.test.ts` |
+| Product documentation | `docs-site/pages/product/<domain>/<capability>.mdx` |
+| Documentation registry | `docs-site/catalog/modules.json`, `zudoku.config.tsx` |
+
+The planned `modules/<name>/` workspace packages are not implemented yet. Use
+the current `apps/web` structure until that migration is deliberately shipped.
 
 ## The five invariants
 
@@ -154,6 +198,7 @@ for the full authorize → scope → execute sequence these wrappers implement.
 - [ ] No table gated behind a flag (invariant 2)
 - [ ] `server/services/*` still free of `next/*` imports (invariant 5)
 - [ ] Any sample seed rows wrapped in `isModuleEnabled(...)` (recipe step 8)
+- [ ] Product page, catalog entry, and Zudoku navigation added (recipe step 10)
 
 Ship a new module with its flag `false`; a core maintainer turns it on. If you
 find yourself wanting to import another module's internals directly — stop.

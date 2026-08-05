@@ -611,6 +611,9 @@ export async function addMember(input: {
 }): Promise<ActionResult<{ invited: boolean }>> {
   return runAction(async () => {
   const ctx = await requireContext()
+  if (!ctx.isSuperadmin) {
+    throw new Error("Only the platform master can add or invite tenant users.")
+  }
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
   const email = (input.email ?? "").trim()

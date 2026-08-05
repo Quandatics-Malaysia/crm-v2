@@ -70,7 +70,7 @@ theme toggle stores an explicit `light` or `dark` preference in browser
 
 Tenant membership uses a three-state model in `membership_profiles.status`:
 
-- `active` — currently consumes one paid seat.
+- `active` — currently consumes one customer seat.
 - `invited` — exists in the tenant but is outside current seat gate.
 - `disabled` — intentionally deactivated while keeping history.
 
@@ -86,6 +86,8 @@ When a tenant is over seat limit or outside the active subscription window:
 - New adds from **Team → Add member** become `invited` (not active access).
 - New sign-ups from pending invites or domain auto-join become `invited`.
 - Reactivation (`active`) is allowed only when the gate is available.
+- Existing customer sessions and API keys cannot use tenant data after the
+  licence expires. The platform master keeps access so the tenant can be renewed.
 
 This lets you enforce strict seat billing while still allowing accounts to queue under
 an invite.
@@ -94,24 +96,27 @@ The seeded **Developer** role is intentionally not a licensing bypass. Developer
 can test business modules and read internal documentation, but cannot manage
 tenant users, roles, settings, or subscriptions. When active they consume a seat;
 setting their membership to `disabled` releases that seat while preserving history.
+The platform-master account never consumes a customer seat.
 
-The platform master opens **Settings → Subscription** for the active tenant and:
+Only the platform master can open **Settings → Subscription**. The operational
+flow is deliberately short:
 
-1. Sets the plan, lifecycle status, and subscription start/end dates.
-2. Creates a draft seat invoice using billing-period price, seats, tax, and due date.
-3. Reviews and issues the draft.
-4. Collects payment externally and records the payment reference.
-5. Marks the issued invoice paid, which atomically increases the paid seat limit.
+1. Choose the plan, total customer seats, and any validity period (for example
+   30 days, six months, or one year).
+2. Enter the price per seat for that entire chosen period and optional tax,
+   due date, and notes.
+3. Select **Issue invoice and seats**. The issued invoice is recorded and the
+   selected access is granted immediately; payment is handled outside the CRM.
 
-Invoices follow `draft → issued → paid`; a draft or issued invoice can instead be
-made `void`. Only the `paid` transition activates seats, and a paid invoice cannot
-activate the same seats twice. The first paid invoice for a legacy unlimited tenant
-must cover every currently active member before it replaces unlimited access with a
-strict seat limit. Initial and renewal invoices charge the full billing period and
-set the licensed seat total; only mid-cycle seat additions are prorated and added to
-the existing total. Every transition is audited and server-gated to the platform
-master; tenant Owners and Admins cannot access the page or call its actions. Pending
-members remain `invited` until an administrator assigns an available paid seat.
+Each issue replaces the tenant's current seat total and validity window, so monthly
+billing produces one issued record per month. There is no draft, payment-reference,
+or mark-paid step. The issued seat count must cover all active customer users.
+
+The platform master also creates customer organizations from the organization
+switcher. Creation sets the initial plan, seat count, validity dates, and optional
+initial users. Each initial user is assigned one of the seeded roles (Owner, Admin,
+Developer, Manager, Senior Rep, Rep, or Viewer). Tenant users cannot create new
+organizations.
 
 ## Extension rule
 

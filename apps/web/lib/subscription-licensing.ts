@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, ne, sql } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
-import { tenantSettings, membershipProfiles } from "@/db/schema"
+import { member, membershipProfiles, tenantSettings, user } from "@/db/schema"
 
 export type SubscriptionStatus =
   | "active"
@@ -21,6 +21,13 @@ export type TenantLicenseState = {
 }
 
 export function getActiveLicenseState(now: Date, state: TenantLicenseState): boolean {
+  return isSubscriptionEntitlementActive(now, state)
+}
+
+export function isSubscriptionEntitlementActive(
+  now: Date,
+  state: Pick<TenantLicenseState, "status" | "startsAt" | "endsAt">
+): boolean {
   if (state.status !== "active" && state.status !== "trial") return false
   if (state.startsAt && state.startsAt > now) return false
   if (state.endsAt && state.endsAt < now) return false
@@ -57,10 +64,13 @@ export async function getLicenseStateForTenant(
   const [activeMembersRow] = await tx
     .select({ count: sql<number>`count(*)::int` })
     .from(membershipProfiles)
+    .innerJoin(member, eq(member.id, membershipProfiles.memberId))
+    .innerJoin(user, eq(user.id, member.userId))
     .where(
       and(
         eq(membershipProfiles.tenantId, tenantId),
-        eq(membershipProfiles.status, "active")
+        eq(membershipProfiles.status, "active"),
+        ne(user.isSuperadmin, true)
       )
     )
 

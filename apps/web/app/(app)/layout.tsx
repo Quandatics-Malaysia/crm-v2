@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { eq } from "drizzle-orm"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
+import { CreateFirstEntity } from "@/components/create-entity-dialog"
 import { HeaderActionsProvider } from "@/components/command-palette"
 import { getServerContext } from "@/lib/server-context"
 import { ensureBootstrap } from "@/lib/bootstrap"
@@ -33,6 +34,19 @@ export default async function AppLayout({
   }
 
   if (tenants.length === 0) {
+    if (ctx.isSuperadmin) {
+      return (
+        <div className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
+          <div>
+            <h1 className="text-lg font-semibold">Create your first customer organization</h1>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              Set the customer&apos;s seat count, access period, and initial user roles during setup.
+            </p>
+          </div>
+          <CreateFirstEntity />
+        </div>
+      )
+    }
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-2 p-6 text-center">
         <h1 className="text-lg font-semibold">No organization access yet</h1>
@@ -73,6 +87,7 @@ export default async function AppLayout({
         activeTenant={activeTenant}
         tenants={tenants}
         permissions={[...ctx.permissions]}
+        isSuperadmin={ctx.isSuperadmin}
         modules={modules}
       />
       <SidebarInset id="main-content">
@@ -81,9 +96,16 @@ export default async function AppLayout({
             Interactive demo · All companies, people and transactions are fictional.
           </div>
         ) : null}
-        <HeaderActionsProvider permissions={[...ctx.permissions]}>
-          {children}
-        </HeaderActionsProvider>
+        {ctx.subscriptionInactive && !ctx.isSuperadmin ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+            <h1 className="text-lg font-semibold">Access period ended</h1>
+            <p className="max-w-md text-sm text-muted-foreground">
+              This organization&apos;s seat licence is not active. Contact Quandatics to renew access.
+            </p>
+          </div>
+        ) : (
+          <HeaderActionsProvider permissions={[...ctx.permissions]}>{children}</HeaderActionsProvider>
+        )}
       </SidebarInset>
     </SidebarProvider>
   )

@@ -14,6 +14,7 @@ import {
 } from "@/db/schema"
 import { assertCan, type ServerContext } from "@/lib/server-context"
 import type { PermissionKey } from "@/lib/permissions"
+import { isSubscriptionEntitlementActive, type SubscriptionStatus } from "@/lib/subscription-licensing"
 
 /** sha256 hex of a raw API key. The DB only ever stores this digest. */
 export function hashApiKey(key: string): string {
@@ -89,11 +90,21 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
       .limit(1)
 
     const [settings] = await tx
-      .select({ status: tenantSettings.status })
+      .select({
+        status: tenantSettings.status,
+        subscriptionStatus: tenantSettings.subscriptionStatus,
+        subscriptionStartsAt: tenantSettings.subscriptionStartsAt,
+        subscriptionEndsAt: tenantSettings.subscriptionEndsAt,
+      })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, organizationId))
       .limit(1)
     const tenantSuspended = settings?.status === "suspended"
+    const subscriptionInactive = !isSubscriptionEntitlementActive(new Date(), {
+      status: (settings?.subscriptionStatus ?? "active") as SubscriptionStatus,
+      startsAt: settings?.subscriptionStartsAt ?? null,
+      endsAt: settings?.subscriptionEndsAt ?? null,
+    })
 
     // A member can hold MANY roles; effective permissions = the UNION of every
     // assigned role's grants. Fall back to the legacy single
@@ -136,13 +147,17 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
       permKeys,
       status: (profile?.status ?? "active") as ServerContext["status"],
       tenantSuspended,
+      subscriptionInactive,
     }
   })
 
   // A disabled/invited member — or anyone in a suspended tenant — keeps no
   // effective permissions: every assertCan fails, locking the key out without
   // a hard delete. Identical to getServerContext.
-  const isActive = resolved.status === "active" && !resolved.tenantSuspended
+  const isActive =
+    resolved.status === "active" &&
+    !resolved.tenantSuspended &&
+    !resolved.subscriptionInactive
   const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {
@@ -160,6 +175,7 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
     roleName: resolved.roleName,
     status: resolved.status,
     tenantSuspended: resolved.tenantSuspended,
+    subscriptionInactive: resolved.subscriptionInactive,
     permissions: perms,
     can: (key) => perms.has(key as string),
   }

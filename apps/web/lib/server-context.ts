@@ -14,6 +14,7 @@ import {
   tenantSettings,
 } from "@/db/schema"
 import type { PermissionKey } from "@/lib/permissions"
+import { isSubscriptionEntitlementActive, type SubscriptionStatus } from "@/lib/subscription-licensing"
 
 export type ServerContext = {
   userId: string
@@ -29,6 +30,8 @@ export type ServerContext = {
   status: "active" | "invited" | "disabled"
   /** Tenant lifecycle — a suspended tenant is locked for everyone in it. */
   tenantSuspended: boolean
+  /** The issued licence is not currently within its active validity window. */
+  subscriptionInactive: boolean
   permissions: Set<string>
   can: (key: PermissionKey | string) => boolean
 }
@@ -86,6 +89,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       roleName: null,
       status: "active",
       tenantSuspended: false,
+      subscriptionInactive: false,
       permissions: new Set(),
       can: () => isSuperadmin,
     }
@@ -118,11 +122,21 @@ export async function getServerContext(): Promise<ServerContext | null> {
     // Tenant lifecycle: `tenant_settings.status = 'suspended'` locks the
     // whole entity (previously a dead flag — it was never consulted).
     const [settings] = await tx
-      .select({ status: tenantSettings.status })
+      .select({
+        status: tenantSettings.status,
+        subscriptionStatus: tenantSettings.subscriptionStatus,
+        subscriptionStartsAt: tenantSettings.subscriptionStartsAt,
+        subscriptionEndsAt: tenantSettings.subscriptionEndsAt,
+      })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, tenantId))
       .limit(1)
     const tenantSuspended = settings?.status === "suspended"
+    const subscriptionInactive = !isSubscriptionEntitlementActive(new Date(), {
+      status: (settings?.subscriptionStatus ?? "active") as SubscriptionStatus,
+      startsAt: settings?.subscriptionStartsAt ?? null,
+      endsAt: settings?.subscriptionEndsAt ?? null,
+    })
 
     // A member can hold MANY roles; effective permissions = the UNION of every
     // assigned role's grants (member_roles). Fall back to the legacy single
@@ -165,13 +179,17 @@ export async function getServerContext(): Promise<ServerContext | null> {
       permKeys,
       status: (profile?.status ?? "active") as ServerContext["status"],
       tenantSuspended,
+      subscriptionInactive,
     }
   })
 
   // A disabled (or not-yet-active/invited) member — or anyone in a suspended
   // tenant — keeps no effective permissions: every assertCan fails, locking
   // them out without a hard delete.
-  const isActive = resolved.status === "active" && !resolved.tenantSuspended
+  const isActive =
+    resolved.status === "active" &&
+    !resolved.tenantSuspended &&
+    (isSuperadmin || !resolved.subscriptionInactive)
   const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {
@@ -185,6 +203,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
     roleName: resolved.roleName,
     status: resolved.status,
     tenantSuspended: resolved.tenantSuspended,
+    subscriptionInactive: resolved.subscriptionInactive,
     permissions: perms,
     can: (key) => isSuperadmin || perms.has(key as string),
   }
@@ -204,6 +223,9 @@ export async function requireContext(): Promise<ServerContext> {
   }
   if (ctx.status !== "active") {
     throw new Error("Your membership in this organization is not active.")
+  }
+  if (ctx.subscriptionInactive && !ctx.isSuperadmin) {
+    throw new Error("This organization's seat licence is not currently active.")
   }
   return ctx
 }

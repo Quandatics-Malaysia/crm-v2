@@ -133,6 +133,7 @@ export function AppSidebar({
   activeTenant,
   tenants,
   permissions,
+  isSuperadmin,
   modules = {},
   ...props
 }: {
@@ -140,6 +141,7 @@ export function AppSidebar({
   activeTenant: SidebarTenant | null
   tenants: SidebarTenant[]
   permissions: string[]
+  isSuperadmin: boolean
   /** Enabled plugins (from modules.config.ts, computed in the layout). */
   modules?: Partial<Record<ModuleId, boolean>>
 } & React.ComponentProps<typeof Sidebar>) {
@@ -220,11 +222,13 @@ export function AppSidebar({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setCreateOpen(true)}>
-                  <PlusIcon className="size-4" />
-                  Create organization
-                </DropdownMenuItem>
+                {isSuperadmin ? <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+                    <PlusIcon className="size-4" />
+                    Create customer organization
+                  </DropdownMenuItem>
+                </> : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
@@ -315,7 +319,7 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarFooter>
 
-      <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {isSuperadmin ? <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} /> : null}
     </Sidebar>
   )
 }

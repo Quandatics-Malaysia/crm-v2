@@ -19,6 +19,11 @@ export const env = {
   BETTER_AUTH_URL: read("BETTER_AUTH_URL", "http://localhost:3000"),
   APP_URL: process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
 
+  // Platform operator (the single account allowed to administer tenants,
+  // licensing and subscriptions across the installation). Keep this separate
+  // from demo credentials; production provisioning must set both values.
+  PLATFORM_MASTER_EMAIL: read("PLATFORM_MASTER_EMAIL"),
+
   // Microsoft Entra (single-tenant app registration)
   MICROSOFT_CLIENT_ID: read("MICROSOFT_CLIENT_ID"),
   MICROSOFT_CLIENT_SECRET: read("MICROSOFT_CLIENT_SECRET"),

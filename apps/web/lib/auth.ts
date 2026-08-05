@@ -11,6 +11,7 @@ import * as schema from "@/db/schema"
 import { writeAuthAudit } from "@/server/audit"
 import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
+import { canActivateAdditionalMembers, getLicenseStateForTenant } from "@/lib/subscription-licensing"
 
 /**
  * Consume pending invites for a user. An admin invites by exact email
@@ -63,6 +64,10 @@ async function consumePendingInvites(user: {
         })
       }
       await runInTenant(invite.tenantId, async (tx) => {
+        const license = await getLicenseStateForTenant(tx, invite.tenantId)
+        const status = canActivateAdditionalMembers(license, 1, new Date())
+          ? "active"
+          : "invited"
         if (!existing) {
           await tx
             .insert(schema.membershipProfiles)
@@ -71,7 +76,7 @@ async function consumePendingInvites(user: {
               tenantId: invite.tenantId,
               roleId: invite.roleId,
               tierLevel: invite.tierLevel,
-              status: "active",
+              status,
             })
             .onConflictDoNothing()
           // member_roles is the effective-permission source (union of roles).
@@ -125,6 +130,22 @@ async function autoJoinByDomain(user: {
   const tier = ROLE_TEMPLATES.find((r) => r.name === roleName)?.tier ?? 0
   const memberId = randomUUID()
   await runInTenant(org.orgId, async (tx) => {
+    const existing = await tx
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(
+        and(
+          eq(schema.member.userId, user.id),
+          eq(schema.member.organizationId, org.orgId)
+        )
+      )
+      .limit(1)
+    if (existing.length > 0) return
+
+    const license = await getLicenseStateForTenant(tx, org.orgId)
+    const status = canActivateAdditionalMembers(license, 1, new Date())
+      ? "active"
+      : "invited"
     const [roleRow] = await tx
       .select({ id: schema.roles.id })
       .from(schema.roles)
@@ -147,7 +168,7 @@ async function autoJoinByDomain(user: {
       tenantId: org.orgId,
       roleId: roleRow?.id ?? null,
       tierLevel: tier,
-      status: "active",
+      status,
     })
     if (roleRow?.id) {
       await tx.insert(schema.memberRoles).values({

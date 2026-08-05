@@ -13,7 +13,7 @@ import { isModuleEnabled } from "@/lib/modules"
  *
  * Layers realistic CRM data on top of the base `db/seed.ts` (which must have run
  * first — it creates the demo tenant, roles, the default "Sales Pipeline"
- * funnel + canonical stages, the SST tax setting, and the single superadmin
+ * funnel + canonical stages, the configured demo tax setting, and the single superadmin
  * `admin@demo.local`). This script:
  *   - adds four normal members (manager / sales1 / sales2 / viewer), all
  *     email+password sign-in, all `isSuperadmin = false` (the one-superadmin
@@ -56,6 +56,8 @@ const {
 } = schema
 
 const TENANT_ID = "demo-entity"
+const DEMO_CURRENCY = (process.env.DEMO_CURRENCY?.trim().toUpperCase() || "USD").slice(0, 3)
+const DEMO_TAX_NAME = process.env.DEMO_TAX_NAME?.trim() || "VAT 5%"
 
 // All sample logins share one password. The Docker migrate job runs with
 // NODE_ENV=production, where a weak/default password is REFUSED — set
@@ -121,11 +123,17 @@ async function main() {
     .where(eq(pipelineStages.pipelineId, funnel.id))
   const stage = new Map<string, string>(stageRows.map((s) => [s.code, s.id]))
 
-  // Default tax setting (SST 6%).
+  // Default tax setting configured by the deployment.
   const [tax] = await db
     .select()
     .from(taxSettings)
-    .where(and(eq(taxSettings.tenantId, TENANT_ID), eq(taxSettings.isDefault, true)))
+    .where(
+      and(
+        eq(taxSettings.tenantId, TENANT_ID),
+        eq(taxSettings.name, DEMO_TAX_NAME),
+        eq(taxSettings.isDefault, true),
+      ),
+    )
     .limit(1)
   if (!tax) throw new Error("Default tax setting not found — run `npm run db:seed` first.")
   const taxRate = tax.ratePercent // numeric string, e.g. "6.000"
@@ -228,23 +236,23 @@ async function main() {
   // ── 2. accounts (customer companies) ──────────────────────────────────────
   const accId = (k: string) => det(`account:${k}`)
   const accountValues = [
-    { k: "acme", name: "Acme Corporation", code: "ACME", accountType: "client", industry: "Manufacturing", owner: MEM_S1, isCustomer: true },
-    { k: "globex", name: "Globex Industries", code: "GLOBEX", accountType: "client", industry: "Energy", owner: MEM_S2, isCustomer: true },
-    { k: "initech", name: "Initech Sdn Bhd", code: "INITECH", accountType: "client", industry: "Technology", owner: MEM_S1, isCustomer: true },
-    { k: "umbrella", name: "Umbrella Group", code: "UMBRELLA", accountType: "client", industry: "Healthcare", owner: MEM_S2, isCustomer: true },
+    { k: "acme", name: "Meridian Manufacturing", code: "MERIDIAN", accountType: "client", industry: "Manufacturing", owner: MEM_S1, isCustomer: true },
+    { k: "globex", name: "Crescent Energy", code: "CRESCENT", accountType: "client", industry: "Energy", owner: MEM_S2, isCustomer: true },
+    { k: "initech", name: "Nexa Digital", code: "NEXA", accountType: "client", industry: "Technology", owner: MEM_S1, isCustomer: true },
+    { k: "umbrella", name: "Amanah Health Group", code: "AMANAH", accountType: "client", industry: "Healthcare", owner: MEM_S2, isCustomer: true },
     // child of Umbrella Group (parent hierarchy)
-    { k: "umbpharma", name: "Umbrella Pharma", code: "UMBPH", accountType: "client", industry: "Healthcare", owner: MEM_S2, parent: "umbrella", isCustomer: true },
+    { k: "umbpharma", name: "Amanah Pharma", code: "AMANPH", accountType: "client", industry: "Healthcare", owner: MEM_S2, parent: "umbrella", isCustomer: true },
     // reseller pointing at an end-user client (channel relationship)
-    { k: "stark", name: "Stark Reseller Partners", code: "STARKR", accountType: "reseller", industry: "Technology", owner: MEM_S1, endUser: "acme" },
+    { k: "stark", name: "Bridgepoint Technology Partners", code: "BRIDGE", accountType: "reseller", industry: "Technology", owner: MEM_S1, endUser: "acme" },
     // ── more customers ──
-    { k: "wayne", name: "Wayne Enterprises", code: "WAYNE", accountType: "client", industry: "Finance", owner: MEM_S1, isCustomer: true },
-    { k: "soylent", name: "Soylent Foods Bhd", code: "SOYLENT", accountType: "client", industry: "Food & Beverage", owner: MEM_S2, isCustomer: true },
-    { k: "wonka", name: "Wonka Industries", code: "WONKA", accountType: "client", industry: "Food & Beverage", owner: MEM_S1, isCustomer: true },
+    { k: "wayne", name: "Harbour Capital", code: "HARBOUR", accountType: "client", industry: "Finance", owner: MEM_S1, isCustomer: true },
+    { k: "soylent", name: "Saffron Foods", code: "SAFFRON", accountType: "client", industry: "Food & Beverage", owner: MEM_S2, isCustomer: true },
+    { k: "wonka", name: "Oasis Hospitality", code: "OASIS", accountType: "client", industry: "Hospitality", owner: MEM_S1, isCustomer: true },
     // child of Stark's channel (reseller's end-user division)
-    { k: "starkretail", name: "Stark Retail Division", code: "STARKRD", accountType: "client", industry: "Retail", owner: MEM_S1, parent: "stark", isCustomer: true },
+    { k: "starkretail", name: "Bridgepoint Retail Division", code: "BRIDGER", accountType: "client", industry: "Retail", owner: MEM_S1, parent: "stark", isCustomer: true },
     // ── prospects (not yet customers — isCustomer=false) ──
-    { k: "hooli", name: "Hooli Ventures", code: "HOOLI", accountType: "prospect", industry: "Technology", owner: MEM_S1, isCustomer: false },
-    { k: "cyberdyne", name: "Cyberdyne Systems", code: "CYBER", accountType: "prospect", industry: "Robotics", owner: MEM_S2, isCustomer: false },
+    { k: "hooli", name: "Atlas Ventures", code: "ATLAS", accountType: "prospect", industry: "Technology", owner: MEM_S1, isCustomer: false },
+    { k: "cyberdyne", name: "Falcon Automation", code: "FALCON", accountType: "prospect", industry: "Technology", owner: MEM_S2, isCustomer: false },
   ]
   for (const a of accountValues) {
     await db
@@ -267,19 +275,19 @@ async function main() {
   // ── 3. persons (contacts under several accounts) ──────────────────────────
   const perId = (k: string) => det(`person:${k}`)
   const personValues = [
-    { k: "acme-alice", account: "acme", firstName: "Alice", lastName: "Tan", title: "IT Director", email: "alice.tan@acme.example", phone: "+60 12-300 1001", primary: true },
-    { k: "acme-bob", account: "acme", firstName: "Bob", lastName: "Lee", title: "Procurement Lead", email: "bob.lee@acme.example", phone: "+60 12-300 1002", primary: false },
-    { k: "globex-carol", account: "globex", firstName: "Carol", lastName: "Lim", title: "Operations Manager", email: "carol.lim@globex.example", phone: "+60 12-300 2001", primary: true },
-    { k: "globex-dan", account: "globex", firstName: "Dan", lastName: "Ong", title: "Procurement Officer", email: "dan.ong@globex.example", phone: "+60 12-300 2002", primary: false },
-    { k: "initech-david", account: "initech", firstName: "David", lastName: "Ng", title: "CISO", email: "david.ng@initech.example", phone: "+60 12-300 3001", primary: true },
-    { k: "umbrella-eva", account: "umbrella", firstName: "Eva", lastName: "Wong", title: "Head of Digital", email: "eva.wong@umbrella.example", phone: "+60 12-300 4001", primary: true },
+    { k: "acme-alice", account: "acme", firstName: "Layla", lastName: "Hassan", title: "IT Director", email: "layla.hassan@meridian.example", phone: "+971 50 555 1001", primary: true },
+    { k: "acme-bob", account: "acme", firstName: "Omar", lastName: "Rahman", title: "Procurement Lead", email: "omar.rahman@meridian.example", phone: "+971 50 555 1002", primary: false },
+    { k: "globex-carol", account: "globex", firstName: "Noor", lastName: "Khalid", title: "Operations Manager", email: "noor.khalid@crescent.example", phone: "+971 50 555 2001", primary: true },
+    { k: "globex-dan", account: "globex", firstName: "Yusuf", lastName: "Malik", title: "Procurement Officer", email: "yusuf.malik@crescent.example", phone: "+971 50 555 2002", primary: false },
+    { k: "initech-david", account: "initech", firstName: "Adam", lastName: "Farouq", title: "CISO", email: "adam.farouq@nexa.example", phone: "+971 50 555 3001", primary: true },
+    { k: "umbrella-eva", account: "umbrella", firstName: "Mariam", lastName: "Saeed", title: "Head of Digital", email: "mariam.saeed@amanah.example", phone: "+971 50 555 4001", primary: true },
     // ── more contacts across the added accounts ──
-    { k: "wayne-victor", account: "wayne", firstName: "Victor", lastName: "Chen", title: "Chief Financial Officer", email: "victor.chen@wayne.example", phone: "+60 12-300 5001", primary: true },
-    { k: "wayne-bruce", account: "wayne", firstName: "Bruce", lastName: "Tan", title: "Head of IT", email: "bruce.tan@wayne.example", phone: "+60 12-300 5002", primary: false },
-    { k: "soylent-nina", account: "soylent", firstName: "Nina", lastName: "Rao", title: "Chief Operating Officer", email: "nina.rao@soylent.example", phone: "+60 12-300 6001", primary: true },
-    { k: "wonka-willy", account: "wonka", firstName: "Willy", lastName: "Loh", title: "Managing Director", email: "willy.loh@wonka.example", phone: "+60 12-300 7001", primary: true },
-    { k: "hooli-gavin", account: "hooli", firstName: "Gavin", lastName: "Belson", title: "Chief Executive Officer", email: "gavin.belson@hooli.example", phone: "+60 12-300 8001", primary: true },
-    { k: "cyberdyne-miles", account: "cyberdyne", firstName: "Miles", lastName: "Dyson", title: "Chief Technology Officer", email: "miles.dyson@cyberdyne.example", phone: "+60 12-300 9001", primary: true },
+    { k: "wayne-victor", account: "wayne", firstName: "Zain", lastName: "Qureshi", title: "Chief Financial Officer", email: "zain.qureshi@harbour.example", phone: "+971 50 555 5001", primary: true },
+    { k: "wayne-bruce", account: "wayne", firstName: "Rami", lastName: "Nasser", title: "Head of IT", email: "rami.nasser@harbour.example", phone: "+971 50 555 5002", primary: false },
+    { k: "soylent-nina", account: "soylent", firstName: "Nadia", lastName: "Ali", title: "Chief Operating Officer", email: "nadia.ali@saffron.example", phone: "+971 50 555 6001", primary: true },
+    { k: "wonka-willy", account: "wonka", firstName: "Karim", lastName: "Saleh", title: "Managing Director", email: "karim.saleh@oasis.example", phone: "+971 50 555 7001", primary: true },
+    { k: "hooli-gavin", account: "hooli", firstName: "Hana", lastName: "Aziz", title: "Chief Executive Officer", email: "hana.aziz@atlas.example", phone: "+971 50 555 8001", primary: true },
+    { k: "cyberdyne-miles", account: "cyberdyne", firstName: "Tariq", lastName: "Mansour", title: "Chief Technology Officer", email: "tariq.mansour@falcon.example", phone: "+971 50 555 9001", primary: true },
   ]
   for (const c of personValues) {
     await db
@@ -391,7 +399,7 @@ async function main() {
         code: `OPP-2026-${String(cnum).padStart(4, "0")}`,
         name: containerName[ck] ?? ck,
         totalEstimatedFunnelAmount: total,
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
       })
       .onConflictDoNothing()
   }
@@ -422,7 +430,7 @@ async function main() {
         // recognized % (manual, no party) still demo the flag.
         recognizedPercent: o.k === "umbrella-crm" ? "10.00" : null,
         projectYear: o.expected ? Number(o.expected.slice(0, 4)) : null,
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
         projectNatureCode: o.projectNature,
         // Demo a multi-nature deal (Professional Services + License + Mixed).
         projectNatures:
@@ -563,7 +571,7 @@ async function main() {
         version: 1,
         isPrimary: q.isPrimary,
         status: q.status,
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
         // inherited from the source funnel on create (editable thereafter)
         projectNatureCode: oppProjectNature.get(q.opp) ?? null,
         taxSettingId: tax.id,
@@ -635,7 +643,7 @@ async function main() {
         status: "active",
         startDate: "2026-06-05",
         value: "40280.00",
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
         notes: "Delivery kicked off after quote acceptance.",
       })
       .onConflictDoNothing()
@@ -805,7 +813,7 @@ async function main() {
         productCode: p.productCode,
         subcategory: p.subcategory,
         uom: p.uom,
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
         standardPrice: p.price,
         description: p.description,
         isActive: true,
@@ -832,7 +840,7 @@ async function main() {
         year: cy.y,
         title: cy.t,
         amount: cy.a,
-        currency: "MYR",
+        currency: DEMO_CURRENCY,
         status: cy.s,
         sortOrder: cy.y,
       })

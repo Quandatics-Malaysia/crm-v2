@@ -25,7 +25,10 @@ const {
 } = schema
 
 const TENANT_ID = "demo-entity"
-const TENANT_NAME = "Demo Entity"
+const TENANT_NAME = process.env.DEMO_TENANT_NAME?.trim() || "Demo Workspace"
+const DEMO_CURRENCY = (process.env.DEMO_CURRENCY?.trim().toUpperCase() || "USD").slice(0, 3)
+const DEMO_TAX_NAME = process.env.DEMO_TAX_NAME?.trim() || "VAT 5%"
+const DEMO_TAX_RATE = process.env.DEMO_TAX_RATE?.trim() || "5.000"
 
 async function main() {
   const url =
@@ -62,6 +65,7 @@ async function main() {
       organizationId: TENANT_ID,
       allowPasswordLogin: true,
       entityCode: "DEMO",
+      defaultCurrency: DEMO_CURRENCY,
       projectNatures: [
         { code: "L", name: "License" },
         { code: "H", name: "Hardware" },
@@ -227,36 +231,57 @@ async function main() {
   const [tax] = await db
     .select({ id: taxSettings.id })
     .from(taxSettings)
-    .where(and(eq(taxSettings.tenantId, TENANT_ID), eq(taxSettings.name, "SST 6%")))
+    .where(and(eq(taxSettings.tenantId, TENANT_ID), eq(taxSettings.name, DEMO_TAX_NAME)))
     .limit(1)
   if (!tax) {
     await db.insert(taxSettings).values({
       tenantId: TENANT_ID,
-      name: "SST 6%",
-      ratePercent: "6.000",
+      name: DEMO_TAX_NAME,
+      ratePercent: DEMO_TAX_RATE,
       isDefault: true,
       isActive: true,
     })
   }
 
-  // 7. demo admin (email/password) — for local sign-in without Microsoft.
-  // Exactly ONE superadmin ever exists (DB enforces this via a partial unique
-  // index on user.is_superadmin), and it is found/created idempotently by email.
-  const email = (process.env.DEMO_ADMIN_EMAIL ?? "admin@demo.local").toLowerCase()
+  // 7. platform master (email/password) — the single break-glass operator for
+  // tenant, licensing and subscription administration. Exactly ONE superadmin
+  // ever exists (DB enforces this via a partial unique index).
+  const email = (
+    process.env.PLATFORM_MASTER_EMAIL ??
+    process.env.DEMO_ADMIN_EMAIL ??
+    "admin@demo.local"
+  ).trim().toLowerCase()
   const DEFAULT_DEMO_PASSWORD = "Password123!"
   // In production a real password is mandatory — never mint a default-credentials
   // superadmin on an internet-exposed deployment.
   if (process.env.NODE_ENV === "production") {
-    const provided = process.env.DEMO_ADMIN_PASSWORD
-    if (!provided || provided === DEFAULT_DEMO_PASSWORD) {
+    const provided = process.env.PLATFORM_MASTER_PASSWORD ?? process.env.DEMO_ADMIN_PASSWORD
+    if (!process.env.PLATFORM_MASTER_EMAIL || !provided || provided === DEFAULT_DEMO_PASSWORD) {
       throw new Error(
-        "DEMO_ADMIN_PASSWORD must be set to a non-default value in production " +
-          "(refusing to seed a superadmin with the well-known default password)."
+        "PLATFORM_MASTER_EMAIL and PLATFORM_MASTER_PASSWORD must be set to non-default " +
+          "values in production (refusing to seed a public default superadmin)."
       )
     }
   }
-  const password = process.env.DEMO_ADMIN_PASSWORD ?? DEFAULT_DEMO_PASSWORD
+  const password =
+    process.env.PLATFORM_MASTER_PASSWORD ??
+    process.env.DEMO_ADMIN_PASSWORD ??
+    DEFAULT_DEMO_PASSWORD
+  const [existingMaster] = await db
+    .select({ email: user.email })
+    .from(user)
+    .where(eq(user.isSuperadmin, true))
+    .limit(1)
+  if (existingMaster && existingMaster.email.toLowerCase() !== email) {
+    throw new Error(
+      `A platform master already exists (${existingMaster.email}); refusing to create or reassign another superadmin.`
+    )
+  }
   let [u] = await db.select().from(user).where(eq(user.email, email)).limit(1)
+  if (u && !u.isSuperadmin) {
+    await db.update(user).set({ isSuperadmin: true, updatedAt: new Date() }).where(eq(user.id, u.id))
+    ;[u] = await db.select().from(user).where(eq(user.id, u.id)).limit(1)
+  }
   if (!u) {
     const uid = randomUUID()
     await db.insert(user).values({

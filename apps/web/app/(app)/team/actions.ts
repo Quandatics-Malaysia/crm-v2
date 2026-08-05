@@ -7,6 +7,7 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS, permLabel } from "@/lib/permissions"
+import { canActivateAdditionalMembers, getLicenseStateForTenant } from "@/lib/subscription-licensing"
 import {
   member,
   membershipProfiles,
@@ -705,13 +706,17 @@ export async function addMember(input: {
 
   // Insert the profile; if it fails, compensate by removing the orphan member
   // row so we never leave a profile-less active member behind.
+  let invitedBySeatLimit = false
   try {
     await runInTenant(ctx.tenantId, async (tx) => {
+      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
+      invitedBySeatLimit = !canActivateAdditionalMembers(license, 1, new Date())
+
       await tx.insert(membershipProfiles).values({
         memberId,
         tenantId: ctx.tenantId,
         roleId: input.roleId,
-        status: "active",
+        status: invitedBySeatLimit ? "invited" : "active",
       })
       // Mirror the primary role into member_roles (the union-permission source).
       await tx.insert(memberRoles).values({
@@ -737,7 +742,7 @@ export async function addMember(input: {
   }
 
   revalidatePath("/team")
-  return { invited: false }
+  return { invited: invitedBySeatLimit }
   })
 }
 
@@ -947,9 +952,22 @@ export async function setMemberStatus(
   }
 
   await runInTenant(ctx.tenantId, async (tx) => {
+    const [memberRow] = await tx
+      .select({ status: membershipProfiles.status })
+      .from(membershipProfiles)
+      .where(eq(membershipProfiles.memberId, memberId))
+      .limit(1)
+    if (!memberRow) throw new Error("Member profile not found.")
+
     // Don't let the last Owner be disabled (would orphan the tenant).
     if (status === "disabled" && (await isLastOwner(tx, memberId))) {
       throw new Error("You can't disable the last Owner.")
+    }
+    if (status === "active" && memberRow.status !== "active") {
+      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
+      if (!canActivateAdditionalMembers(license, 1, new Date())) {
+        throw new Error("Subscription seat limit has been reached.")
+      }
     }
     const [updated] = await tx
       .update(membershipProfiles)

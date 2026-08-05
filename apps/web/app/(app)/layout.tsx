@@ -76,6 +76,11 @@ export default async function AppLayout({
         modules={modules}
       />
       <SidebarInset id="main-content">
+        {process.env.DEMO_MODE === "true" ? (
+          <div className="border-b border-amber-300/60 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100">
+            Interactive demo · All companies, people and transactions are fictional.
+          </div>
+        ) : null}
         <HeaderActionsProvider permissions={[...ctx.permissions]}>
           {children}
         </HeaderActionsProvider>

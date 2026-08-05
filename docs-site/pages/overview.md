@@ -82,7 +82,7 @@ The sample seed is idempotent and **dev-only** — don't run it on an internet-e
 # set these in your shell / .env for compose (REQUIRED — compose fails fast if unset):
 #   DOMAIN=crm.example.com  ACME_EMAIL=you@example.com
 #   POSTGRES_PASSWORD=…  CRM_APP_PASSWORD=…  BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-#   DEMO_ADMIN_PASSWORD=…   # REQUIRED in prod; must NOT be the default Password123!
+#   PLATFORM_MASTER_EMAIL=… PLATFORM_MASTER_PASSWORD=…  # REQUIRED in prod; never use defaults
 #   BETTER_AUTH_URL=https://crm.example.com  APP_URL=https://crm.example.com
 #   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET / MICROSOFT_TENANT_ID  # tenant GUID, not "common"
 #   BOOTSTRAP_OWNER_EMAIL=you@example.com   # first sign-in becomes Owner

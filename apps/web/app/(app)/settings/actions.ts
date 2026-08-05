@@ -15,6 +15,9 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS } from "@/lib/permissions"
+import {
+  getLicenseStateForTenant,
+} from "@/lib/subscription-licensing"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
 import { isModuleEnabled } from "@/lib/modules"
@@ -104,6 +107,14 @@ export type TenantSettingsView = {
   companyProfile: CompanyProfile
   /** True when a logo has been uploaded (served at /api/tenant-logo). */
   hasLogo: boolean
+  /** Subscription / licensing fields (seat licensing managed manually). */
+  subscriptionPlan: string
+  subscriptionStatus: "active" | "trial" | "paused" | "expired" | "cancelled"
+  subscriptionSeatLimit: number | null
+  subscriptionStartsAt: string
+  subscriptionEndsAt: string
+  activeMemberCount: number
+  isSubscriptionActive: boolean
 }
 
 export type CompanyProfile = {
@@ -149,7 +160,22 @@ export type UpdateSettingsInput = {
   intercoAutoMirror: boolean
   /** In-app documentation switch (/documentation). */
   documentationModule: boolean
+  subscriptionPlan?: string
+  subscriptionStatus?: SubscriptionStatusInput
+  /** 0 = no hard cap, >0 is max active seats. */
+  subscriptionSeatLimit?: number | null
+  subscriptionStartsAt?: string | null
+  subscriptionEndsAt?: string | null
 }
+
+const SUBSCRIPTION_STATUSES = [
+  "active",
+  "trial",
+  "paused",
+  "expired",
+  "cancelled",
+] as const
+type SubscriptionStatusInput = (typeof SUBSCRIPTION_STATUSES)[number]
 
 export type UpdateNumberingInput = {
   quoteNextNumber: number
@@ -172,9 +198,25 @@ const DEFAULTS = {
   approvalBypassTier: 40,
   taxInclusive: false,
   autoWinOnQuoteAccept: true,
+  subscriptionPlan: "Starter",
+  subscriptionStatus: "active" as const,
+  subscriptionSeatLimit: null,
   // Default sign-in on so a self-service tenant can't be locked out; SSO-only
   // is an explicit opt-out via the General settings toggle.
   allowPasswordLogin: true,
+}
+
+function parseDateInput(
+  value: string | null | undefined,
+  field: string
+): Date | null {
+  const trimmed = (value ?? "").trim()
+  if (!trimmed) return null
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} must be a valid date in YYYY-MM-DD format.`)
+  }
+  return parsed
 }
 
 /** Tenant settings for the active org. Creates a default row if missing. */
@@ -195,20 +237,26 @@ export async function getSettings(): Promise<TenantSettingsView> {
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
 
+    const license = await getLicenseStateForTenant(tx, ctx.tenantId)
+
     if (!row) {
       const [created] = await tx
         .insert(tenantSettings)
         .values({ organizationId: ctx.tenantId, ...DEFAULTS })
         .returning()
-      return toView(created, entityName)
+      return toView(created, entityName, license)
     }
-    return toView(row, entityName)
+    return toView(row, entityName, license)
   })
 }
 
 function toView(
   row: typeof tenantSettings.$inferSelect,
-  entityName = ""
+  entityName = "",
+  license: { activeMemberCount: number; isSubscriptionActive: boolean } = {
+    activeMemberCount: 0,
+    isSubscriptionActive: true,
+  }
 ): TenantSettingsView {
   return {
     organizationId: row.organizationId,
@@ -264,7 +312,33 @@ function toView(
       quoteFooter: row.quoteFooter ?? "",
     },
     hasLogo: !!row.logoStorageKey,
+    subscriptionPlan: row.subscriptionPlan ?? "Starter",
+    subscriptionStatus: (row.subscriptionStatus as
+      | "active"
+      | "trial"
+      | "paused"
+      | "expired"
+      | "cancelled") || "active",
+    subscriptionSeatLimit: row.subscriptionSeatLimit ?? null,
+    subscriptionStartsAt: row.subscriptionStartsAt
+      ? row.subscriptionStartsAt.toISOString().slice(0, 10)
+      : "",
+    subscriptionEndsAt: row.subscriptionEndsAt
+      ? row.subscriptionEndsAt.toISOString().slice(0, 10)
+      : "",
+    activeMemberCount: license.activeMemberCount,
+    isSubscriptionActive: license.isSubscriptionActive,
   }
+}
+
+async function toViewWithLicense(
+  tx: Tx,
+  row: typeof tenantSettings.$inferSelect,
+  entityName = "",
+  tenantId = row.organizationId
+): Promise<TenantSettingsView> {
+  const license = await getLicenseStateForTenant(tx, tenantId)
+  return toView(row, entityName, license)
 }
 
 /** Shared helper: replace one jsonb picklist column with an audited upsert. */
@@ -313,7 +387,7 @@ async function updatePicklist(
         .from(organization)
         .where(eq(organization.id, ctx.tenantId))
         .limit(1)
-      return toView(updated, org?.name ?? "")
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
     })
     revalidatePath("/settings")
     return view
@@ -410,7 +484,7 @@ export async function updateCompanyProfile(
         .from(organization)
         .where(eq(organization.id, ctx.tenantId))
         .limit(1)
-      return toView(updated, org?.name ?? "")
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
     })
 
     revalidatePath("/settings")
@@ -470,7 +544,7 @@ export async function updateMilestoneTemplate(
         .from(organization)
         .where(eq(organization.id, ctx.tenantId))
         .limit(1)
-      return toView(updated, org?.name ?? "")
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
     })
     revalidatePath("/settings")
     return view
@@ -514,7 +588,7 @@ export async function updateInvoiceReminderDays(
         .from(organization)
         .where(eq(organization.id, ctx.tenantId))
         .limit(1)
-      return toView(updated, org?.name ?? "")
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
     })
     revalidatePath("/settings")
     return view
@@ -654,7 +728,7 @@ export async function updateIntercompanyPartners(
         .from(organization)
         .where(eq(organization.id, ctx.tenantId))
         .limit(1)
-      return toView(updated, org?.name ?? "")
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
     })
 
     revalidatePath("/settings")
@@ -734,21 +808,80 @@ export async function updateSettings(
       .set({ name: entityName })
       .where(eq(organization.id, ctx.tenantId))
 
+    const [existing] = await tx
+      .select({
+        subscriptionPlan: tenantSettings.subscriptionPlan,
+        subscriptionStatus: tenantSettings.subscriptionStatus,
+        subscriptionSeatLimit: tenantSettings.subscriptionSeatLimit,
+        subscriptionStartsAt: tenantSettings.subscriptionStartsAt,
+        subscriptionEndsAt: tenantSettings.subscriptionEndsAt,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+
+    const subscriptionPlan = (input.subscriptionPlan ?? existing?.subscriptionPlan ?? "Starter").trim()
+    const subscriptionStatus = (input.subscriptionStatus ??
+      (existing?.subscriptionStatus ?? DEFAULTS.subscriptionStatus))
+    if (!SUBSCRIPTION_STATUSES.includes(subscriptionStatus as SubscriptionStatusInput)) {
+      throw new Error("subscriptionStatus is invalid.")
+    }
+
+    const rawSeatLimitInput = input.subscriptionSeatLimit
+    const subscriptionSeatLimit =
+      rawSeatLimitInput === undefined
+        ? existing?.subscriptionSeatLimit
+        : rawSeatLimitInput == null || rawSeatLimitInput <= 0
+          ? null
+          : rawSeatLimitInput
+
+    if (
+      subscriptionSeatLimit != null &&
+      (!Number.isInteger(subscriptionSeatLimit) || subscriptionSeatLimit < 1)
+    ) {
+      throw new Error(
+        "subscriptionSeatLimit must be a positive integer or zero/null for unlimited."
+      )
+    }
+
+    const startsAt = input.subscriptionStartsAt === undefined
+      ? existing?.subscriptionStartsAt ?? null
+      : parseDateInput(input.subscriptionStartsAt, "subscriptionStartsAt")
+    const endsAt = input.subscriptionEndsAt === undefined
+      ? existing?.subscriptionEndsAt ?? null
+      : parseDateInput(input.subscriptionEndsAt, "subscriptionEndsAt")
+    if (startsAt && endsAt && startsAt > endsAt) {
+      throw new Error("subscriptionStartsAt must be on or before subscriptionEndsAt.")
+    }
+
+    const subscriptionValues = {
+      subscriptionPlan,
+      subscriptionStatus: subscriptionStatus as SubscriptionStatusInput,
+      subscriptionSeatLimit,
+      subscriptionStartsAt: startsAt,
+      subscriptionEndsAt: endsAt,
+    }
+
     const [updated] = await tx
       .insert(tenantSettings)
-      .values({ organizationId: ctx.tenantId, status: "active", ...values })
+      .values({
+        organizationId: ctx.tenantId,
+        status: "active",
+        ...values,
+        ...subscriptionValues,
+      })
       .onConflictDoUpdate({
         target: tenantSettings.organizationId,
-        set: values,
+        set: { ...values, ...subscriptionValues },
       })
       .returning()
     await writeAudit(tx, ctx, {
       action: "settings.updated",
       entityType: "tenant_settings",
       entityId: ctx.tenantId,
-      after: { ...values, entityName },
+      after: { ...values, ...subscriptionValues, entityName },
     })
-    return toView(updated, entityName)
+    return await toViewWithLicense(tx, updated, entityName, ctx.tenantId)
   })
 
   revalidatePath("/settings")
@@ -849,7 +982,7 @@ export async function updateNumbering(
       entityId: ctx.tenantId,
       after: values,
     })
-    return toView(updated)
+    return await toViewWithLicense(tx, updated, undefined, ctx.tenantId)
   })
 
   revalidatePath("/settings")

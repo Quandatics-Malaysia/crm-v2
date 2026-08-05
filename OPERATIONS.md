@@ -33,6 +33,136 @@ Quick reference first; details below.
 `pnpm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
+## Resume the paused Internal-Ops deployment
+
+The `crm-v2` and `crm-staging` Compose projects were deliberately stopped on
+2026-08-01. Their containers, images, source checkouts, sample databases,
+uploads, and backups were retained. Do not run `docker compose down -v`, remove
+the checkouts, or prune CRM images if the deployment must remain recoverable.
+
+The GitHub Actions workflows `deploy`, `deploy-staging`, and `pr-preview` were
+also disabled. The repository runner is still installed, but it cannot restart
+these stacks while the deployment workflows remain disabled.
+
+### Start production manually
+
+1. Connect to the server and enter the retained production checkout:
+
+   ```bash
+   ssh internalops@<server>
+   cd ~/crm-v2
+   ```
+
+2. Confirm the secret file still exists without printing its contents:
+
+   ```bash
+   test -s .env && stat -c '%A %U:%G %n' .env
+   ```
+
+   It should be owned by `internalops` and readable only by that account. Stop
+   here if `.env` is absent. Recreate it with fresh values from the production
+   variables listed in `README.md`; never copy staging secrets into production.
+
+3. Start the existing stack. Compose reuses the retained database and upload
+   volumes, runs pending migrations, then starts the web, proxy, and backup
+   services:
+
+   ```bash
+   docker compose -p crm-v2 -f docker-compose.yaml up -d db migrate web caddy backup
+   ```
+
+4. Verify every service and the local health endpoint:
+
+   ```bash
+   docker compose -p crm-v2 -f docker-compose.yaml ps
+   curl -fsS http://127.0.0.1:8081/api/health
+   ```
+
+### Start the Hyphen sample demo manually
+
+The staging demo uses a Cloudflare quick tunnel. Its hostname changes every
+time the tunnel is recreated, so both the application origin and the Hyphen
+demo proxy must be updated before the public URL works again.
+
+1. Start the retained staging stack:
+
+   ```bash
+   cd ~/crm-v2-staging
+   test -s .env.staging
+   docker compose \
+     -p crm-staging \
+     -f docker-compose.yaml \
+     -f docker-compose.staging-tunnel.yaml \
+     --env-file .env.staging \
+     up -d db migrate web caddy tunnel
+   ```
+
+2. Read the newly assigned tunnel URL:
+
+   ```bash
+   docker logs crm-staging-tunnel-1 2>&1 \
+     | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' \
+     | tail -1
+   ```
+
+3. Put that exact URL into `BETTER_AUTH_URL` and `APP_URL` in
+   `~/crm-v2-staging/.env.staging`, then recreate only the web service:
+
+   ```bash
+   docker compose \
+     -p crm-staging \
+     -f docker-compose.yaml \
+     -f docker-compose.staging-tunnel.yaml \
+     --env-file .env.staging \
+     up -d --force-recreate --no-deps web
+   ```
+
+4. From the Hyphen company-site repository, replace the `UPSTREAM` value in
+   `workers/demo-proxy/src/index.ts` with the new tunnel URL and deploy the
+   proxy:
+
+   ```bash
+   pnpm run deploy:demo-proxy
+   ```
+
+5. Verify the tunnel directly and the stable public hostname:
+
+   ```bash
+   curl -fsS https://<new-tunnel>.trycloudflare.com/api/health
+   curl -fsS https://demo.hyphen-solution.com/api/health
+   ```
+
+### Restore automatic deployments only when wanted
+
+Run these from an authenticated workstation. Enable only the workflows that
+should be allowed to execute on the Internal-Ops runner:
+
+```bash
+gh workflow enable deploy --repo Quandatics-Malaysia/crm-v2
+gh workflow enable deploy-staging --repo Quandatics-Malaysia/crm-v2
+# Optional, only when server-hosted pull-request previews are wanted:
+gh workflow enable pr-preview --repo Quandatics-Malaysia/crm-v2
+```
+
+Confirm the final state with `gh workflow list --all`. Leaving these workflows
+disabled does not prevent the manual startup commands above.
+
+### Pause both stacks again without deleting data
+
+```bash
+docker compose -p crm-staging \
+  -f ~/crm-v2-staging/docker-compose.yaml \
+  -f ~/crm-v2-staging/docker-compose.staging-tunnel.yaml \
+  --env-file ~/crm-v2-staging/.env.staging stop
+
+docker compose -p crm-v2 \
+  -f ~/crm-v2/docker-compose.yaml stop
+```
+
+`stop` is intentional. It keeps the containers and named volumes available for
+the next startup. Verify the pause with `docker compose ls` and expect
+`https://demo.hyphen-solution.com` to be unavailable while the tunnel is down.
+
 ## Optional modules (plugins)
 
 Everything beyond the core CRM is an optional plugin, toggled **deployment-wide**

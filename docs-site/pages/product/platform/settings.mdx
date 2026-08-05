@@ -51,9 +51,34 @@ settings remain useful to core sales and quotations even when Projects is off.
 | --- | --- |
 | Settings pages | `apps/web/app/(app)/settings/` |
 | Shared settings actions | `apps/web/app/(app)/settings/actions.ts` |
+| Membership licensing logic | `apps/web/lib/subscription-licensing.ts` |
 | Tax actions | `apps/web/app/(app)/settings/billing/tax/actions.ts` |
 | API-key actions | `apps/web/app/(app)/settings/access/actions.ts` |
 | Schema | `apps/web/db/schema/rbac.ts`, `quotations.ts`, `api-keys.ts` |
+
+## Membership licensing model (seat gating)
+
+Tenant membership uses a three-state model in `membership_profiles.status`:
+
+- `active` — currently consumes one paid seat.
+- `invited` — exists in the tenant but is outside current seat gate.
+- `disabled` — intentionally deactivated while keeping history.
+
+Seat decisions are evaluated from:
+
+- `tenant_settings.subscription_status` (`active`, `trial`, `paused`, `expired`, `cancelled`)
+- `tenant_settings.subscription_starts_at`
+- `tenant_settings.subscription_ends_at`
+- `tenant_settings.subscription_seat_limit` (`NULL` means unlimited)
+
+When a tenant is over seat limit or outside the active subscription window:
+
+- New adds from **Team → Add member** become `invited` (not active access).
+- New sign-ups from pending invites or domain auto-join become `invited`.
+- Reactivation (`active`) is allowed only when the gate is available.
+
+This lets you enforce strict seat billing while still allowing accounts to queue under
+an invite.
 
 ## Extension rule
 

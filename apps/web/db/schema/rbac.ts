@@ -7,6 +7,7 @@ import {
   boolean,
   char,
   jsonb,
+  timestamp,
   unique,
   uniqueIndex,
   primaryKey,
@@ -148,6 +149,15 @@ export const tenantSettings = pgTable("tenant_settings", {
   /** In-app documentation (/documentation) — tenant-facing switch in
    *  Settings → Behavior; members also need the `docs.view` permission. */
   documentationModule: boolean("documentation_module").notNull().default(true),
+  /** Subscription plan/seat license name used in billing/admin workflows. */
+  subscriptionPlan: text("subscription_plan").notNull().default("Starter"),
+  /** Subscription status: active allows seats; anything else blocks new activations. */
+  subscriptionStatus: text("subscription_status").notNull().default("active"),
+  /** Hard seat cap for active members; NULL means no hard cap. */
+  subscriptionSeatLimit: integer("subscription_seat_limit"),
+  /** Optional subscription window start/end controlled manually by operators. */
+  subscriptionStartsAt: timestamp("subscription_starts_at", { withTimezone: true }),
+  subscriptionEndsAt: timestamp("subscription_ends_at", { withTimezone: true }),
   /** Invoice reminder schedule: days AFTER the due date for reminder 1, 2, 3…
    *  NULL = built-in default (lib/tenant-defaults.ts). */
   invoiceReminderDays: jsonb("invoice_reminder_days").$type<number[]>(),

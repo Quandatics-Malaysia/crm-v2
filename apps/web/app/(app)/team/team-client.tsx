@@ -351,7 +351,7 @@ function MemberRowActions({
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
 
-  const disabled = member.status === "disabled"
+  const inactive = member.status !== "active"
 
   async function onRemove() {
     setBusy(true)
@@ -369,13 +369,13 @@ function MemberRowActions({
   async function onToggleStatus() {
     const res = await setMemberStatus(
       member.memberId,
-      disabled ? "active" : "disabled"
+      inactive ? "active" : "disabled"
     )
     if (!res.ok) {
       showActionError(res)
       return
     }
-    toast.success(disabled ? "Member reactivated" : "Member disabled")
+    toast.success(inactive ? "Member reactivated" : "Member disabled")
     router.refresh()
   }
 
@@ -403,7 +403,7 @@ function MemberRowActions({
             Edit roles &amp; manager
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onToggleStatus}>
-            {disabled ? "Reactivate" : "Disable access"}
+            {inactive ? "Reactivate" : "Disable access"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

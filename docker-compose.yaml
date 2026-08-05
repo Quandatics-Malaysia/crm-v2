@@ -47,10 +47,12 @@ services:
       CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
-      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@demo.local}
-      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?DEMO_ADMIN_PASSWORD must be set to a non-default value}
-      PLATFORM_MASTER_EMAIL: ${PLATFORM_MASTER_EMAIL:-${DEMO_ADMIN_EMAIL:-admin@demo.local}}
-      PLATFORM_MASTER_PASSWORD: ${PLATFORM_MASTER_PASSWORD:-${DEMO_ADMIN_PASSWORD:?DEMO_ADMIN_PASSWORD must be set to a non-default value}}
+      PLATFORM_MASTER_EMAIL: ${PLATFORM_MASTER_EMAIL:?PLATFORM_MASTER_EMAIL must be set}
+      PLATFORM_MASTER_PASSWORD: ${PLATFORM_MASTER_PASSWORD:?PLATFORM_MASTER_PASSWORD must be set to a strong value}
+      # Temporary compatibility aliases for older seed code. New deployments
+      # configure PLATFORM_MASTER_* only.
+      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-${PLATFORM_MASTER_EMAIL}}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-${PLATFORM_MASTER_PASSWORD}}
       DEMO_TENANT_ID: ${DEMO_TENANT_ID:-demo-entity}
       DEMO_TENANT_NAME: ${DEMO_TENANT_NAME:-Demo Workspace}
       DEMO_CURRENCY: ${DEMO_CURRENCY:-USD}
@@ -59,7 +61,8 @@ services:
       # Optional demo/sample data — OFF by default. SEED_SAMPLE_DATA=true layers a
       # rich role-play dataset (accounts, contacts, funnels across every stage,
       # quotations, leads, products…) onto the demo tenant; set it back to false
-      # to hide the demo from a real deployment. SEED_SAMPLE_PASSWORD sets the
+      # to suspend the demo in a real deployment (records are retained).
+      # SEED_SAMPLE_PASSWORD sets the
       # shared sample-login password (falls back to DEMO_ADMIN_PASSWORD; a
       # weak/default is refused in production).
       SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-false}

@@ -358,7 +358,7 @@ async function main() {
   await sql.end()
   console.log("✓ seed complete")
   console.log(`  entity:   ${TENANT_NAME} (${TENANT_ID})`)
-  console.log(`  login:    ${email} / ${password}`)
+  console.log(`  master:   ${email} (password not logged)`)
 }
 
 main().catch((err) => {

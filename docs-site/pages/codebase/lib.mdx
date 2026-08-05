@@ -116,7 +116,8 @@ map (`LEAD_VIEW: "lead.view"`, `PROJECT_CREATE: "project.create"`, …).
 tagged `module?: ModuleId`; `PERMISSION_GROUPS` filters that list by
 `isModuleEnabled`, while `PERMISSION_LABELS` is built from the **unfiltered**
 list so a denial for a disabled module's permission still resolves a
-friendly label. `ROLE_TEMPLATES` seeds six tiers (Owner 100, Admin 90,
+friendly label. `ROLE_TEMPLATES` seeds seven tiers (Owner 100, Admin 90,
+Developer 80,
 Manager 60, Senior Rep 40, Rep 20, Viewer 10) — Owner/Admin hold `"*"`.
 `humanizeDenial(message)` turns a raw `FORBIDDEN: missing <key>` thrown
 message into `"You don't have permission to do this (<label>)."`.

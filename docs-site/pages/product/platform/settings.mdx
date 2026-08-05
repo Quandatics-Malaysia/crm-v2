@@ -48,7 +48,7 @@ settings remain useful to core sales and quotations even when Projects is off.
 ## Appearance defaults
 
 Appearance is user/browser scoped rather than organization scoped. On first
-visit the application follows the operating-system color scheme. The header
+visit the application starts in dark mode. The header
 theme toggle stores an explicit `light` or `dark` preference in browser
 `localStorage`; creating or switching organizations does not reset it.
 
@@ -86,6 +86,11 @@ When a tenant is over seat limit or outside the active subscription window:
 
 This lets you enforce strict seat billing while still allowing accounts to queue under
 an invite.
+
+The seeded **Developer** role is intentionally not a licensing bypass. Developers
+can test business modules and read internal documentation, but cannot manage
+tenant users, roles, settings, or subscriptions. When active they consume a seat;
+setting their membership to `disabled` releases that seat while preserving history.
 
 ## Extension rule
 

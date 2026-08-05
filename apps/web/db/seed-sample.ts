@@ -151,6 +151,7 @@ async function main() {
     upline?: string // key of the upline member
   }
   const people: Seeded[] = [
+    { key: "dev", email: "developer@demo.local", name: "Dev Developer", roleName: "Developer", tier: 80 },
     { key: "mgr", email: "manager@demo.local", name: "Morgan Manager", roleName: "Manager", tier: 60 },
     { key: "s1", email: "sales1@demo.local", name: "Sam Salesperson", roleName: "Rep", tier: 20, upline: "mgr" },
     { key: "s2", email: "sales2@demo.local", name: "Sara Seller", roleName: "Rep", tier: 20, upline: "mgr" },

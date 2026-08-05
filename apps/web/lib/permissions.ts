@@ -140,6 +140,18 @@ const MANAGER: PermissionKey[] = [
   PERMISSIONS.FINANCE_MANAGE,
 ]
 
+// Product developers can exercise every business module and read internal
+// documentation without receiving tenant-administration or subscription powers.
+// User, role, settings, and licensing changes remain Owner/Admin responsibilities.
+const DEVELOPER_DENIED = new Set<PermissionKey>([
+  PERMISSIONS.TENANT_MANAGE_USERS,
+  PERMISSIONS.TENANT_MANAGE_ROLES,
+  PERMISSIONS.TENANT_SETTINGS,
+])
+const DEVELOPER: PermissionKey[] = ALL_PERMISSION_KEYS.filter(
+  (key) => !DEVELOPER_DENIED.has(key)
+)
+
 /** Grouped, human-labeled catalog for the role permission-matrix UI. */
 /**
  * Full permission catalog for the role matrix. Groups tagged with a `module`
@@ -349,6 +361,12 @@ export type RoleTemplate = {
 export const ROLE_TEMPLATES: RoleTemplate[] = [
   { name: "Owner", description: "Full control of the workspace", tier: 100, permissions: "*" },
   { name: "Admin", description: "Administer users, roles, and settings", tier: 90, permissions: "*" },
+  {
+    name: "Developer",
+    description: "Test business modules and view internal documentation without tenant administration",
+    tier: 80,
+    permissions: DEVELOPER,
+  },
   {
     name: "Manager",
     description: "Manage the team, approve stage advances, send quotes",

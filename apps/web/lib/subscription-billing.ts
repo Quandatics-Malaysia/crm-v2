@@ -20,23 +20,51 @@ export function addCalendarMonths(value: string, months: number): string {
 
 /** Inclusive contract dates expressed as monthly billing periods. */
 export function countMonthlyBillingPeriods(startsAt: string, endsAt: string): number {
-  const start = parseDateOnly(startsAt)
-  const end = parseDateOnly(endsAt)
-  if (start > end) return 0
-  let months =
-    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    end.getUTCMonth() - start.getUTCMonth()
-  if (parseDateOnly(addCalendarMonths(startsAt, months)) <= end) months += 1
-  return Math.max(1, months)
+  return getMonthlyBillingPeriods(startsAt, endsAt).length
+}
+
+export type MonthlyBillingPeriod = {
+  startsAt: string
+  endsAt: string
+  factor: number
+}
+
+function dayBefore(value: string): string {
+  const date = parseDateOnly(value)
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
+}
+
+function inclusiveDays(startsAt: string, endsAt: string): number {
+  return Math.round((parseDateOnly(endsAt).getTime() - parseDateOnly(startsAt).getTime()) / 86_400_000) + 1
+}
+
+/** Monthly cycles anchored to the contract start; the final partial cycle is prorated by days. */
+export function getMonthlyBillingPeriods(startsAt: string, endsAt: string): MonthlyBillingPeriod[] {
+  if (parseDateOnly(startsAt) > parseDateOnly(endsAt)) return []
+  const periods: MonthlyBillingPeriod[] = []
+  for (let index = 0; index < 1200; index += 1) {
+    const periodStart = addCalendarMonths(startsAt, index)
+    if (parseDateOnly(periodStart) > parseDateOnly(endsAt)) break
+    const nextStart = addCalendarMonths(startsAt, index + 1)
+    const fullPeriodEnd = dayBefore(nextStart)
+    const periodEnd = parseDateOnly(endsAt) < parseDateOnly(fullPeriodEnd) ? endsAt : fullPeriodEnd
+    periods.push({
+      startsAt: periodStart,
+      endsAt: periodEnd,
+      factor: inclusiveDays(periodStart, periodEnd) / inclusiveDays(periodStart, fullPeriodEnd),
+    })
+  }
+  return periods
 }
 
 export function calculateContractTotal(
   monthlySeatPrice: number,
   seats: number,
-  billingPeriods: number,
+  billingFactor: number,
   taxRate: number
 ) {
-  const subtotal = Math.round(monthlySeatPrice * seats * billingPeriods * 100) / 100
+  const subtotal = Math.round(monthlySeatPrice * seats * billingFactor * 100) / 100
   const taxAmount = Math.round(subtotal * (taxRate / 100) * 100) / 100
   return { subtotal, taxAmount, total: Math.round((subtotal + taxAmount) * 100) / 100 }
 }
@@ -53,15 +81,21 @@ export function buildCollectionMilestones(input: {
   billingPeriods: number
   firstDueAt: string
   total: number
+  weights?: number[]
 }): CollectionMilestone[] {
   const count = input.frequency === "monthly" ? input.billingPeriods : 1
   if (!Number.isInteger(count) || count < 1) return []
   const totalCents = Math.round(input.total * 100)
-  const baseCents = Math.floor(totalCents / count)
+  const weights = input.frequency === "monthly" && input.weights?.length === count
+    ? input.weights
+    : Array.from({ length: count }, () => 1)
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
   let allocatedCents = 0
 
   return Array.from({ length: count }, (_, index) => {
-    const cents = index === count - 1 ? totalCents - allocatedCents : baseCents
+    const cents = index === count - 1
+      ? totalCents - allocatedCents
+      : Math.round(totalCents * (weights[index] / totalWeight))
     allocatedCents += cents
     return {
       sequence: index + 1,

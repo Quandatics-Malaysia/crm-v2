@@ -15,7 +15,7 @@ import { showActionError } from "@/lib/show-action-error"
 import {
   buildCollectionMilestones,
   calculateContractTotal,
-  countMonthlyBillingPeriods,
+  getMonthlyBillingPeriods,
   type CollectionFrequency,
 } from "@/lib/subscription-billing"
 
@@ -60,13 +60,15 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
   const seatCount = Number(seats)
   const price = Number(seatPrice)
   const tax = Number(taxRate)
-  const billingPeriodCount = startsAt && endsAt && startsAt <= endsAt
-    ? countMonthlyBillingPeriods(startsAt, endsAt)
-    : 0
+  const billingPeriods = startsAt && endsAt && startsAt <= endsAt
+    ? getMonthlyBillingPeriods(startsAt, endsAt)
+    : []
+  const billingPeriodCount = billingPeriods.length
+  const billingFactor = billingPeriods.reduce((sum, period) => sum + period.factor, 0)
   const { subtotal, taxAmount, total } = calculateContractTotal(
     Number.isFinite(price) ? price : 0,
     Number.isInteger(seatCount) ? seatCount : 0,
-    billingPeriodCount,
+    billingFactor,
     Number.isFinite(tax) ? tax : 0
   )
   const milestones = firstDueAt && billingPeriodCount
@@ -75,6 +77,7 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
         billingPeriods: billingPeriodCount,
         firstDueAt,
         total,
+        weights: billingPeriods.map((period) => period.factor),
       })
     : []
   const invalid = !plan.trim() || !Number.isInteger(seatCount) || seatCount < 1 ||
@@ -172,7 +175,8 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
             <div className="rounded-lg border bg-muted/30 p-4">
               <p className="text-xs text-muted-foreground">Invoice total</p>
               <p className="mt-1 text-xl font-semibold">{formatMoney(data.defaultCurrency, Number.isFinite(total) ? total : 0)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{seatCount || 0} seats × {formatMoney(data.defaultCurrency, price || 0)}/month × {billingPeriodCount} months</p>
+              <p className="mt-1 text-xs text-muted-foreground">{seatCount || 0} seats × {formatMoney(data.defaultCurrency, price || 0)}/month × {billingFactor.toFixed(billingFactor === billingPeriodCount ? 0 : 3)} month-equivalent</p>
+              {billingFactor !== billingPeriodCount ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Final month prorated · {billingFactor.toFixed(3)} month-equivalent</p> : null}
               {taxAmount ? <p className="mt-1 text-xs text-muted-foreground">Subtotal {formatMoney(data.defaultCurrency, subtotal)} + tax {formatMoney(data.defaultCurrency, taxAmount)}</p> : null}
             </div>
           </div>

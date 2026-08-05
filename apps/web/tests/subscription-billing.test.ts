@@ -4,6 +4,7 @@ import {
   buildCollectionMilestones,
   calculateContractTotal,
   countMonthlyBillingPeriods,
+  getMonthlyBillingPeriods,
 } from "@/lib/subscription-billing"
 
 describe("subscription billing", () => {
@@ -15,6 +16,15 @@ describe("subscription billing", () => {
 
   it("treats a 30-day contract as one monthly period", () => {
     expect(countMonthlyBillingPeriods("2026-08-05", "2026-09-03")).toBe(1)
+    expect(getMonthlyBillingPeriods("2026-08-05", "2026-09-03")[0].factor).toBeCloseTo(30 / 31)
+  })
+
+  it("prorates only the final partial monthly cycle", () => {
+    const periods = getMonthlyBillingPeriods("2026-08-05", "2026-09-19")
+    expect(periods).toHaveLength(2)
+    expect(periods[0].factor).toBe(1)
+    expect(periods[1].factor).toBeCloseTo(15 / 30)
+    expect(calculateContractTotal(250, 1, periods.reduce((sum, period) => sum + period.factor, 0), 0).total).toBe(375)
   })
 
   it("generates monthly collection milestones that reconcile exactly", () => {
@@ -23,11 +33,23 @@ describe("subscription billing", () => {
       billingPeriods: 3,
       firstDueAt: "2026-08-05",
       total: 100,
+      weights: [1, 1, 1],
     })
     expect(milestones.map((milestone) => milestone.dueAt)).toEqual([
       "2026-08-05", "2026-09-05", "2026-10-05",
     ])
     expect(milestones.reduce((sum, milestone) => sum + milestone.amount, 0)).toBe(100)
+  })
+
+  it("makes the final monthly milestone smaller for a prorated final cycle", () => {
+    const milestones = buildCollectionMilestones({
+      frequency: "monthly",
+      billingPeriods: 2,
+      firstDueAt: "2026-08-05",
+      total: 375,
+      weights: [1, 0.5],
+    })
+    expect(milestones.map((milestone) => milestone.amount)).toEqual([250, 125])
   })
 
   it("generates one upfront collection for the full contract", () => {

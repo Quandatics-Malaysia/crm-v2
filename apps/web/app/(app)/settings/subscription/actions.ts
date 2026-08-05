@@ -20,7 +20,7 @@ import { writeAudit } from "@/server/audit"
 import {
   buildCollectionMilestones,
   calculateContractTotal,
-  countMonthlyBillingPeriods,
+  getMonthlyBillingPeriods,
   type CollectionFrequency,
 } from "@/lib/subscription-billing"
 
@@ -41,6 +41,7 @@ export type SubscriptionInvoiceView = {
   seats: number
   seatPrice: number
   billingPeriodCount: number
+  billingFactor: number
   collectionFrequency: CollectionFrequency
   subtotal: number
   taxRate: number
@@ -114,6 +115,7 @@ function toInvoiceView(
     seats: row.additionalSeats,
     seatPrice: Number(row.monthlySeatPrice ?? Number(row.seatPriceFullTerm) / billingPeriodCount),
     billingPeriodCount,
+    billingFactor: Number(row.prorationFactor),
     collectionFrequency: row.collectionFrequency ?? "upfront",
     subtotal: Number(row.subtotal),
     taxRate: Number(row.taxRate),
@@ -234,11 +236,13 @@ export async function issueSeatLicence(
       throw new Error("Choose a valid collection schedule.")
     }
     const firstDueAt = parseDate(input.firstDueAt, "First collection date", true)
-    const billingPeriodCount = countMonthlyBillingPeriods(input.startsAt, input.endsAt)
+    const billingPeriods = getMonthlyBillingPeriods(input.startsAt, input.endsAt)
+    const billingPeriodCount = billingPeriods.length
+    const billingFactor = billingPeriods.reduce((sum, period) => sum + period.factor, 0)
     const { subtotal, taxAmount, total } = calculateContractTotal(
       input.monthlySeatPrice,
       input.seats,
-      billingPeriodCount,
+      billingFactor,
       input.taxRate
     )
     const milestones = buildCollectionMilestones({
@@ -246,6 +250,7 @@ export async function issueSeatLicence(
       billingPeriods: billingPeriodCount,
       firstDueAt: input.firstDueAt,
       total,
+      weights: billingPeriods.map((period) => period.factor),
     })
     const now = new Date()
 
@@ -284,11 +289,11 @@ export async function issueSeatLicence(
           currency: settings?.currency ?? "MYR",
           seatOperation: "set",
           additionalSeats: input.seats,
-          seatPriceFullTerm: money(input.monthlySeatPrice * billingPeriodCount).toFixed(2),
+          seatPriceFullTerm: money(input.monthlySeatPrice * billingFactor).toFixed(2),
           monthlySeatPrice: money(input.monthlySeatPrice).toFixed(2),
           billingPeriodCount,
           collectionFrequency: input.collectionFrequency,
-          prorationFactor: "1.00000000",
+          prorationFactor: billingFactor.toFixed(8),
           subtotal: subtotal.toFixed(2),
           taxRate: input.taxRate.toFixed(3),
           taxAmount: taxAmount.toFixed(2),
@@ -332,6 +337,7 @@ export async function issueSeatLicence(
           seats: input.seats,
           monthlySeatPrice: input.monthlySeatPrice,
           billingPeriodCount,
+          billingFactor,
           collectionFrequency: input.collectionFrequency,
           collectionMilestones: milestones,
           startsAt,

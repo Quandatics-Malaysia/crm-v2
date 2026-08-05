@@ -104,7 +104,9 @@ flow is deliberately short:
 1. Choose the plan, total customer seats, and any validity period. The form
    defaults to a one-year contract, with shortcuts for 30 days and six months.
 2. Enter the monthly price per seat. The contract value is calculated as
-   `seats × monthly rate × monthly billing periods`, plus optional tax.
+   `seats × monthly rate × month-equivalent`, plus optional tax. Complete
+   monthly cycles have a factor of `1`; a partial final cycle is prorated by
+   active days divided by the days in that anchored monthly cycle.
 3. Choose monthly collection milestones (the default) or one upfront
    collection. Set the first collection date and review the generated schedule.
 4. Select **Issue invoice and seats**. The issued invoice and its collection
@@ -114,7 +116,8 @@ flow is deliberately short:
 Each issue replaces the tenant's current seat total and validity window. A one-year
 contract can therefore have twelve monthly collection milestones without creating
 twelve separate licences. Milestone amounts always reconcile to the invoice total;
-the final milestone absorbs any cent rounding. There is no draft, payment-reference,
+the final milestone reflects any partial-month proration and absorbs cent rounding.
+There is no draft, payment-reference,
 or mark-paid step. The issued seat count must cover all active customer users.
 
 The platform master also creates customer organizations from the organization

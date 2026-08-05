@@ -11,6 +11,7 @@ architecture directory.
 | --- | --- |
 | **[Documentation](https://docs-site-eight-umber.vercel.app)** | Central platform directory |
 | [Production CRM](https://app.quandatics.com) | Live application |
+| [PR Preview (per PR)](https://github.com/Quandatics-Malaysia/crm-v2/actions/workflows/pr-preview.yml) | Temporary preview URL in PR workflow summary/comment |
 | [Latest staging deployment](https://github.com/Quandatics-Malaysia/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
 | [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
 | [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |

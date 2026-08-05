@@ -1,0 +1,10 @@
+# PR preview-only override: remove fixed host ports so many preview projects can
+# coexist on the same server without host publish collisions.
+# Tunnel provides HTTPS ingress.
+
+services:
+  db:
+    ports: []
+
+  caddy:
+    ports: []

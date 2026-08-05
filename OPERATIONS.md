@@ -174,7 +174,6 @@ should be allowed to execute on the Internal-Ops runner:
 ```bash
 gh workflow enable deploy --repo Quandatics-Malaysia/crm-v2
 gh workflow enable deploy-staging --repo Quandatics-Malaysia/crm-v2
-# Optional, only when server-hosted pull-request previews are wanted:
 gh workflow enable pr-preview --repo Quandatics-Malaysia/crm-v2
 ```
 
@@ -196,6 +195,21 @@ docker compose -p crm-v2 \
 `stop` is intentional. It keeps the containers and named volumes available for
 the next startup. Verify the pause with `docker compose ls` and expect
 `https://demo.hyphen-solution.com` to be unavailable while the tunnel is down.
+
+### Cleanup PR previews after merge/close
+
+PR previews auto-clean when the pull request is closed, but you can always force:
+
+```bash
+docker compose -p crm-pr-123 \
+  -f ~/crm-v2/docker-compose.yaml \
+  -f ~/crm-v2/docker-compose.pr-preview.yaml \
+  -f ~/crm-v2/docker-compose.staging-tunnel.yaml \
+  down -v --remove-orphans
+```
+
+Replace `123` with the PR number. This removes the preview DB and app volumes and
+keeps production/staging untouched.
 
 ## Optional modules (plugins)
 

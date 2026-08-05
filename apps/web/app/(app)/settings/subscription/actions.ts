@@ -1,7 +1,7 @@
 "use server"
 
 import { randomUUID } from "node:crypto"
-import { and, desc, eq, ne, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 
 import { runInTenant, type Tx } from "@/db"
@@ -9,6 +9,7 @@ import {
   member,
   membershipProfiles,
   organization,
+  platformSubscriptionCollectionMilestones,
   platformSubscriptionInvoices,
   tenantSettings,
   user,
@@ -16,6 +17,20 @@ import {
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { requireContext } from "@/lib/actions"
 import { writeAudit } from "@/server/audit"
+import {
+  buildCollectionMilestones,
+  calculateContractTotal,
+  countMonthlyBillingPeriods,
+  type CollectionFrequency,
+} from "@/lib/subscription-billing"
+
+export type SubscriptionCollectionMilestoneView = {
+  id: string
+  sequence: number
+  title: string
+  dueAt: string
+  amount: number
+}
 
 export type SubscriptionInvoiceView = {
   id: string
@@ -25,6 +40,8 @@ export type SubscriptionInvoiceView = {
   currency: string
   seats: number
   seatPrice: number
+  billingPeriodCount: number
+  collectionFrequency: CollectionFrequency
   subtotal: number
   taxRate: number
   taxAmount: number
@@ -34,6 +51,7 @@ export type SubscriptionInvoiceView = {
   issuedAt: string | null
   dueAt: string | null
   notes: string | null
+  milestones: SubscriptionCollectionMilestoneView[]
 }
 
 export type SubscriptionAdminView = {
@@ -54,9 +72,10 @@ export type IssueSeatLicenceInput = {
   seats: number
   startsAt: string
   endsAt: string
-  seatPrice: number
+  monthlySeatPrice: number
   taxRate: number
-  dueAt?: string
+  firstDueAt: string
+  collectionFrequency: CollectionFrequency
   notes?: string
 }
 
@@ -81,7 +100,11 @@ function money(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-function toInvoiceView(row: typeof platformSubscriptionInvoices.$inferSelect): SubscriptionInvoiceView {
+function toInvoiceView(
+  row: typeof platformSubscriptionInvoices.$inferSelect,
+  milestones: SubscriptionCollectionMilestoneView[]
+): SubscriptionInvoiceView {
+  const billingPeriodCount = row.billingPeriodCount ?? 1
   return {
     id: row.id,
     invoiceNumber: row.invoiceNumber,
@@ -89,7 +112,9 @@ function toInvoiceView(row: typeof platformSubscriptionInvoices.$inferSelect): S
     plan: row.plan,
     currency: row.currency,
     seats: row.additionalSeats,
-    seatPrice: Number(row.seatPriceFullTerm),
+    seatPrice: Number(row.monthlySeatPrice ?? Number(row.seatPriceFullTerm) / billingPeriodCount),
+    billingPeriodCount,
+    collectionFrequency: row.collectionFrequency ?? "upfront",
     subtotal: Number(row.subtotal),
     taxRate: Number(row.taxRate),
     taxAmount: Number(row.taxAmount),
@@ -99,6 +124,7 @@ function toInvoiceView(row: typeof platformSubscriptionInvoices.$inferSelect): S
     issuedAt: row.issuedAt?.toISOString() ?? null,
     dueAt: row.dueAt?.toISOString() ?? null,
     notes: row.notes,
+    milestones,
   }
 }
 
@@ -139,6 +165,25 @@ async function loadView(tx: Tx, tenantId: string): Promise<SubscriptionAdminView
     .where(eq(platformSubscriptionInvoices.tenantId, tenantId))
     .orderBy(desc(platformSubscriptionInvoices.createdAt))
     .limit(100)
+  const milestoneRows = invoices.length
+    ? await tx
+        .select()
+        .from(platformSubscriptionCollectionMilestones)
+        .where(inArray(platformSubscriptionCollectionMilestones.invoiceId, invoices.map((invoice) => invoice.id)))
+        .orderBy(asc(platformSubscriptionCollectionMilestones.sequence))
+    : []
+  const milestonesByInvoice = new Map<string, SubscriptionCollectionMilestoneView[]>()
+  for (const milestone of milestoneRows) {
+    const rows = milestonesByInvoice.get(milestone.invoiceId) ?? []
+    rows.push({
+      id: milestone.id,
+      sequence: milestone.sequence,
+      title: milestone.title,
+      dueAt: dateOnly(milestone.dueAt),
+      amount: Number(milestone.amount),
+    })
+    milestonesByInvoice.set(milestone.invoiceId, rows)
+  }
 
   const allowedStatuses = ["active", "trial", "paused", "expired", "cancelled"] as const
   const status = allowedStatuses.includes(settings.status as (typeof allowedStatuses)[number])
@@ -154,7 +199,7 @@ async function loadView(tx: Tx, tenantId: string): Promise<SubscriptionAdminView
     startsAt: dateOnly(settings.startsAt),
     endsAt: dateOnly(settings.endsAt),
     defaultCurrency: settings.currency,
-    invoices: invoices.map(toInvoiceView),
+    invoices: invoices.map((invoice) => toInvoiceView(invoice, milestonesByInvoice.get(invoice.id) ?? [])),
   }
 }
 
@@ -174,8 +219,8 @@ export async function issueSeatLicence(
     if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 10000) {
       throw new Error("Seats must be a whole number between 1 and 10,000.")
     }
-    if (!Number.isFinite(input.seatPrice) || input.seatPrice < 0 || input.seatPrice > 100000000) {
-      throw new Error("Enter a valid non-negative price per seat.")
+    if (!Number.isFinite(input.monthlySeatPrice) || input.monthlySeatPrice < 0 || input.monthlySeatPrice > 100000000) {
+      throw new Error("Enter a valid non-negative monthly price per seat.")
     }
     if (!Number.isFinite(input.taxRate) || input.taxRate < 0 || input.taxRate > 100) {
       throw new Error("Tax rate must be between 0 and 100.")
@@ -185,10 +230,23 @@ export async function issueSeatLicence(
     const startsAt = parseDate(input.startsAt, "Valid from")
     const endsAt = parseDate(input.endsAt, "Valid until", true)
     if (startsAt > endsAt) throw new Error("Valid from must be before valid until.")
-    const dueAt = input.dueAt ? parseDate(input.dueAt, "Due date", true) : null
-    const subtotal = money(input.seatPrice * input.seats)
-    const taxAmount = money(subtotal * (input.taxRate / 100))
-    const total = money(subtotal + taxAmount)
+    if (input.collectionFrequency !== "monthly" && input.collectionFrequency !== "upfront") {
+      throw new Error("Choose a valid collection schedule.")
+    }
+    const firstDueAt = parseDate(input.firstDueAt, "First collection date", true)
+    const billingPeriodCount = countMonthlyBillingPeriods(input.startsAt, input.endsAt)
+    const { subtotal, taxAmount, total } = calculateContractTotal(
+      input.monthlySeatPrice,
+      input.seats,
+      billingPeriodCount,
+      input.taxRate
+    )
+    const milestones = buildCollectionMilestones({
+      frequency: input.collectionFrequency,
+      billingPeriods: billingPeriodCount,
+      firstDueAt: input.firstDueAt,
+      total,
+    })
     const now = new Date()
 
     const view = await runInTenant(ctx.tenantId, async (tx) => {
@@ -226,7 +284,10 @@ export async function issueSeatLicence(
           currency: settings?.currency ?? "MYR",
           seatOperation: "set",
           additionalSeats: input.seats,
-          seatPriceFullTerm: money(input.seatPrice).toFixed(2),
+          seatPriceFullTerm: money(input.monthlySeatPrice * billingPeriodCount).toFixed(2),
+          monthlySeatPrice: money(input.monthlySeatPrice).toFixed(2),
+          billingPeriodCount,
+          collectionFrequency: input.collectionFrequency,
           prorationFactor: "1.00000000",
           subtotal: subtotal.toFixed(2),
           taxRate: input.taxRate.toFixed(3),
@@ -235,11 +296,21 @@ export async function issueSeatLicence(
           subscriptionStartsAt: startsAt,
           subscriptionEndsAt: endsAt,
           issuedAt: now,
-          dueAt,
+          dueAt: firstDueAt,
           notes: input.notes?.trim() || null,
           createdBy: ctx.userId,
         })
         .returning()
+      await tx.insert(platformSubscriptionCollectionMilestones).values(
+        milestones.map((milestone) => ({
+          tenantId: ctx.tenantId,
+          invoiceId: invoice.id,
+          sequence: milestone.sequence,
+          title: milestone.title,
+          dueAt: parseDate(milestone.dueAt, "Collection date", true),
+          amount: milestone.amount.toFixed(2),
+        }))
+      )
       await tx
         .update(tenantSettings)
         .set({
@@ -259,6 +330,10 @@ export async function issueSeatLicence(
           invoiceNumber,
           plan,
           seats: input.seats,
+          monthlySeatPrice: input.monthlySeatPrice,
+          billingPeriodCount,
+          collectionFrequency: input.collectionFrequency,
+          collectionMilestones: milestones,
           startsAt,
           endsAt,
           total,

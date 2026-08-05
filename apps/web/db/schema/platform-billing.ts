@@ -49,6 +49,12 @@ export const platformSubscriptionInvoices = pgTable(
       precision: 14,
       scale: 2,
     }).notNull(),
+    /** Recurring price for one seat for one monthly billing period. */
+    monthlySeatPrice: numeric("monthly_seat_price", { precision: 14, scale: 2 }),
+    /** Number of monthly billing periods represented by this contract. */
+    billingPeriodCount: integer("billing_period_count"),
+    collectionFrequency: text("collection_frequency")
+      .$type<"monthly" | "upfront">(),
     prorationFactor: numeric("proration_factor", {
       precision: 9,
       scale: 8,
@@ -83,6 +89,35 @@ export const platformSubscriptionInvoices = pgTable(
     index("platform_subscription_invoices_tenant_created_idx").on(
       t.tenantId,
       t.createdAt
+    ),
+  ]
+)
+
+/** Operator-side collection schedule generated with a subscription invoice. */
+export const platformSubscriptionCollectionMilestones = pgTable(
+  "platform_subscription_collection_milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => platformSubscriptionInvoices.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    title: text("title").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    unique("platform_subscription_collection_milestones_invoice_sequence_uq").on(
+      t.invoiceId,
+      t.sequence
+    ),
+    index("platform_subscription_collection_milestones_tenant_due_idx").on(
+      t.tenantId,
+      t.dueAt
     ),
   ]
 )

@@ -52,7 +52,7 @@ export function CreateEntityDialog({
   const [plan, setPlan] = React.useState("Starter")
   const [seats, setSeats] = React.useState("1")
   const [startsAt, setStartsAt] = React.useState(initialDate)
-  const [endsAt, setEndsAt] = React.useState(addPeriod(initialDate, 1))
+  const [endsAt, setEndsAt] = React.useState(addPeriod(initialDate, 12))
   const [invites, setInvites] = React.useState<Invite[]>([])
   const [busy, setBusy] = React.useState(false)
 
@@ -67,7 +67,7 @@ export function CreateEntityDialog({
     setPlan("Starter")
     setSeats("1")
     setStartsAt(start)
-    setEndsAt(addPeriod(start, 1))
+    setEndsAt(addPeriod(start, 12))
     setInvites([])
   }
 

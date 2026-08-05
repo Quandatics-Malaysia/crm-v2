@@ -39,7 +39,7 @@ DECLARE
     'sales_orders', 'project_counters', 'products', 'deal_costs',
     'lead_companies', 'opportunity_products', 'contracts',
     'contract_years', 'pending_invites', 'finance_docs',
-    'platform_subscription_invoices'
+    'platform_subscription_invoices', 'platform_subscription_collection_milestones'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP

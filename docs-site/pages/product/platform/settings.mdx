@@ -92,6 +92,12 @@ can test business modules and read internal documentation, but cannot manage
 tenant users, roles, settings, or subscriptions. When active they consume a seat;
 setting their membership to `disabled` releases that seat while preserving history.
 
+For a mid-cycle join, the platform master opens **Settings → General → Platform
+subscription**, enters the full-term seat price and number of seats, collects the
+displayed prorated amount externally, then selects **Payment received — add seats**.
+The action is audited and cannot be called by tenant Owners or Admins. Pending
+members remain `invited` until the Owner assigns the newly available paid seat.
+
 ## Extension rule
 
 Place a setting under the business area it configures. Do not create a new

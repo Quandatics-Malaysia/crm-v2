@@ -115,6 +115,7 @@ export type TenantSettingsView = {
   subscriptionEndsAt: string
   activeMemberCount: number
   isSubscriptionActive: boolean
+  isPlatformMaster: boolean
 }
 
 export type CompanyProfile = {
@@ -244,9 +245,9 @@ export async function getSettings(): Promise<TenantSettingsView> {
         .insert(tenantSettings)
         .values({ organizationId: ctx.tenantId, ...DEFAULTS })
         .returning()
-      return toView(created, entityName, license)
+      return toView(created, entityName, license, ctx.isSuperadmin)
     }
-    return toView(row, entityName, license)
+    return toView(row, entityName, license, ctx.isSuperadmin)
   })
 }
 
@@ -256,7 +257,8 @@ function toView(
   license: { activeMemberCount: number; isSubscriptionActive: boolean } = {
     activeMemberCount: 0,
     isSubscriptionActive: true,
-  }
+  },
+  isPlatformMaster = false
 ): TenantSettingsView {
   return {
     organizationId: row.organizationId,
@@ -328,6 +330,7 @@ function toView(
       : "",
     activeMemberCount: license.activeMemberCount,
     isSubscriptionActive: license.isSubscriptionActive,
+    isPlatformMaster,
   }
 }
 
@@ -743,6 +746,15 @@ export async function updateSettings(
   return runAction(async () => {
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+  const subscriptionMutationRequested =
+    input.subscriptionPlan !== undefined ||
+    input.subscriptionStatus !== undefined ||
+    input.subscriptionSeatLimit !== undefined ||
+    input.subscriptionStartsAt !== undefined ||
+    input.subscriptionEndsAt !== undefined
+  if (subscriptionMutationRequested && !ctx.isSuperadmin) {
+    throw new Error("Only the platform master can change subscription licensing.")
+  }
 
   const currency = (input.defaultCurrency ?? "").trim().toUpperCase()
   if (currency.length !== 3) {
@@ -888,6 +900,47 @@ export async function updateSettings(
   // The entity name is shown in the sidebar/header (rendered by the app layout).
   revalidatePath("/", "layout")
   return view
+  })
+}
+
+export async function confirmPaidSeats(
+  additionalSeats: number
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    if (!ctx.isSuperadmin) throw new Error("Only the platform master can confirm paid seats.")
+    if (!Number.isInteger(additionalSeats) || additionalSeats < 1 || additionalSeats > 10000) {
+      throw new Error("Additional seats must be a positive whole number.")
+    }
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [current] = await tx.select().from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId)).limit(1)
+      if (!current) throw new Error("Tenant settings were not found.")
+      if (current.subscriptionSeatLimit == null) {
+        throw new Error("This tenant has unlimited seats; set a paid seat limit first.")
+      }
+      const [updated] = await tx.update(tenantSettings).set({
+        subscriptionSeatLimit: current.subscriptionSeatLimit + additionalSeats,
+        updatedAt: new Date(),
+      }).where(eq(tenantSettings.organizationId, ctx.tenantId)).returning()
+      await writeAudit(tx, ctx, {
+        action: "subscription.seats_paid",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        before: { subscriptionSeatLimit: current.subscriptionSeatLimit },
+        after: {
+          additionalSeats,
+          subscriptionSeatLimit: updated.subscriptionSeatLimit,
+        },
+      })
+      const [org] = await tx.select({ name: organization.name }).from(organization)
+        .where(eq(organization.id, ctx.tenantId)).limit(1)
+      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
+      return toView(updated, org?.name ?? "", license, true)
+    })
+    revalidatePath("/settings")
+    revalidatePath("/team")
+    return view
   })
 }
 

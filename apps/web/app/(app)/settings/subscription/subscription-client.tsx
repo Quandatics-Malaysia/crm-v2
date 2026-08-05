@@ -81,6 +81,9 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
   const [status, setStatus] = React.useState(data.status)
   const [startsAt, setStartsAt] = React.useState(data.startsAt)
   const [endsAt, setEndsAt] = React.useState(data.endsAt)
+  const [seatOperation, setSeatOperation] = React.useState<"set" | "add">(
+    data.seatLimit == null ? "set" : "add"
+  )
   const [additionalSeats, setAdditionalSeats] = React.useState("1")
   const [seatPrice, setSeatPrice] = React.useState("")
   const [taxRate, setTaxRate] = React.useState("0")
@@ -94,8 +97,8 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
   const subtotal = calculateProratedSeatCharge({
     seatPrice: Number.isFinite(price) ? price : 0,
     additionalSeats: Number.isInteger(seats) ? seats : 0,
-    startsAt: data.startsAt ? new Date(`${data.startsAt}T00:00:00Z`) : null,
-    endsAt: data.endsAt ? new Date(`${data.endsAt}T23:59:59.999Z`) : null,
+    startsAt: seatOperation === "add" && data.startsAt ? new Date(`${data.startsAt}T00:00:00Z`) : null,
+    endsAt: seatOperation === "add" && data.endsAt ? new Date(`${data.endsAt}T23:59:59.999Z`) : null,
   })
   const previewTotal = subtotal + subtotal * (Number.isFinite(tax) ? tax / 100 : 0)
   const configurationDirty =
@@ -137,6 +140,7 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
     setBusyAction("create-invoice")
     try {
       const result = await createSubscriptionInvoice({
+        seatOperation,
         additionalSeats: seats,
         seatPriceFullTerm: price,
         taxRate: tax,
@@ -271,24 +275,38 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Create seat invoice</CardTitle>
+          <CardTitle>Create subscription invoice</CardTitle>
           <CardDescription>
-            The price is per seat for the full term. The invoice is prorated to the term end date and starts as a draft.
+            The price is per seat for this billing period. Initial subscriptions and renewals charge the full period; only mid-cycle additions are prorated.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           {data.seatLimit == null ? (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-              This tenant currently has unlimited seats. Its first paid invoice will replace unlimited access with the purchased seat count and must cover all active members.
+              This is the initial subscription invoice. It will charge the full billing period and replace unlimited access with the purchased seat total when paid.
             </div>
           ) : null}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div className="grid gap-1.5">
-              <Label htmlFor="invoice-seats">Seats to add</Label>
+              <Label>Invoice purpose</Label>
+              {data.seatLimit == null ? (
+                <div className="flex h-8 items-center"><Badge variant="secondary">Initial subscription</Badge></div>
+              ) : (
+                <Select value={seatOperation} onValueChange={(value) => setSeatOperation(value as "set" | "add")}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="set">Renew / replace seats</SelectItem>
+                    <SelectItem value="add">Add seats mid-cycle</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="invoice-seats">{seatOperation === "set" ? "Licensed seats" : "Seats to add"}</Label>
               <Input id="invoice-seats" type="number" min="1" step="1" value={additionalSeats} onChange={(event) => setAdditionalSeats(event.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="invoice-price">Price per seat / full term</Label>
+              <Label htmlFor="invoice-price">Price per seat / billing period</Label>
               <Input id="invoice-price" type="number" min="0" step="0.01" value={seatPrice} onChange={(event) => setSeatPrice(event.target.value)} />
             </div>
             <div className="grid gap-1.5">
@@ -354,7 +372,7 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
                     </TableCell>
                     <TableCell><Badge variant={statusVariant(invoice.status)} className="capitalize">{invoice.status}</Badge></TableCell>
                     <TableCell className="text-xs">{invoice.subscriptionStartsAt}<br />{invoice.subscriptionEndsAt}</TableCell>
-                    <TableCell>+{invoice.additionalSeats}</TableCell>
+                    <TableCell>{invoice.seatOperation === "set" ? `${invoice.additionalSeats} total` : `+${invoice.additionalSeats}`}</TableCell>
                     <TableCell>{formatMoney(invoice.currency, invoice.total)}</TableCell>
                     <TableCell className="text-xs">
                       {invoice.paidAt ? `Paid ${formatDate(invoice.paidAt)}` : formatDate(invoice.dueAt)}

@@ -39,6 +39,11 @@ export const platformSubscriptionInvoices = pgTable(
       .default("draft"),
     plan: text("plan").notNull(),
     currency: char("currency", { length: 3 }).notNull(),
+    /** `set` establishes/replaces the licensed total; `add` is a mid-term increment. */
+    seatOperation: text("seat_operation")
+      .$type<"set" | "add">()
+      .notNull()
+      .default("add"),
     additionalSeats: integer("additional_seats").notNull(),
     seatPriceFullTerm: numeric("seat_price_full_term", {
       precision: 14,

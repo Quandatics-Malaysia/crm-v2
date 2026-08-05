@@ -36,6 +36,7 @@ export type SubscriptionInvoiceView = {
   status: InvoiceStatus
   plan: string
   currency: string
+  seatOperation: "set" | "add"
   additionalSeats: number
   seatPriceFullTerm: number
   prorationFactor: number
@@ -75,6 +76,7 @@ export type UpdateSubscriptionInput = {
 }
 
 export type CreateSubscriptionInvoiceInput = {
+  seatOperation: "set" | "add"
   additionalSeats: number
   seatPriceFullTerm: number
   taxRate: number
@@ -121,6 +123,7 @@ function toInvoiceView(
     status: row.status,
     plan: row.plan,
     currency: row.currency,
+    seatOperation: row.seatOperation,
     additionalSeats: row.additionalSeats,
     seatPriceFullTerm: Number(row.seatPriceFullTerm),
     prorationFactor: Number(row.prorationFactor),
@@ -266,6 +269,9 @@ export async function createSubscriptionInvoice(
     }
     if ((input.notes?.length ?? 0) > 2000) throw new Error("Notes must be 2,000 characters or fewer.")
     const dueAt = parseDate(input.dueAt, "Due date", true)
+    if (input.seatOperation !== "set" && input.seatOperation !== "add") {
+      throw new Error("Invoice seat operation is invalid.")
+    }
 
     const created = await runInTenant(ctx.tenantId, async (tx) => {
       const [settings] = await tx
@@ -276,19 +282,26 @@ export async function createSubscriptionInvoice(
       if (!settings?.subscriptionStartsAt || !settings.subscriptionEndsAt) {
         throw new Error("Save the subscription start and end dates before creating an invoice.")
       }
+      if (settings.subscriptionSeatLimit == null && input.seatOperation !== "set") {
+        throw new Error("The first subscription invoice must establish the licensed seat total.")
+      }
       const now = new Date()
       const subtotal = calculateProratedSeatCharge({
         seatPrice: input.seatPriceFullTerm,
         additionalSeats: input.additionalSeats,
-        startsAt: settings.subscriptionStartsAt,
-        endsAt: settings.subscriptionEndsAt,
+        // Initial subscriptions and renewals charge the complete billing
+        // period. Only seats added to an existing term are prorated.
+        startsAt: input.seatOperation === "add" ? settings.subscriptionStartsAt : null,
+        endsAt: input.seatOperation === "add" ? settings.subscriptionEndsAt : null,
         now,
       })
-      const factor = calculateProrationFraction({
-        startsAt: settings.subscriptionStartsAt,
-        endsAt: settings.subscriptionEndsAt,
-        now,
-      })
+      const factor = input.seatOperation === "add"
+        ? calculateProrationFraction({
+            startsAt: settings.subscriptionStartsAt,
+            endsAt: settings.subscriptionEndsAt,
+            now,
+          })
+        : 1
       const taxAmount = money(subtotal * (input.taxRate / 100))
       const total = money(subtotal + taxAmount)
       const id = randomUUID()
@@ -301,6 +314,7 @@ export async function createSubscriptionInvoice(
           invoiceNumber,
           plan: settings.subscriptionPlan,
           currency: settings.defaultCurrency,
+          seatOperation: input.seatOperation,
           additionalSeats: input.additionalSeats,
           seatPriceFullTerm: money(input.seatPriceFullTerm).toFixed(2),
           prorationFactor: factor.toFixed(8),
@@ -398,9 +412,14 @@ export async function markSubscriptionInvoicePaid(
           )
         )
       const currentSeatLimit = settings.subscriptionSeatLimit ?? 0
-      const newSeatLimit = currentSeatLimit + invoice.additionalSeats
-      if (settings.subscriptionSeatLimit == null && newSeatLimit < (usage?.count ?? 0)) {
-        throw new Error(`The first paid invoice must cover all ${usage?.count ?? 0} active members.`)
+      if (settings.subscriptionSeatLimit == null && invoice.seatOperation !== "set") {
+        throw new Error("The first paid invoice must establish the licensed seat total.")
+      }
+      const newSeatLimit = invoice.seatOperation === "set"
+        ? invoice.additionalSeats
+        : currentSeatLimit + invoice.additionalSeats
+      if (newSeatLimit < (usage?.count ?? 0)) {
+        throw new Error(`The paid seat total must cover all ${usage?.count ?? 0} active members.`)
       }
 
       const paidAt = new Date()
@@ -426,6 +445,7 @@ export async function markSubscriptionInvoicePaid(
           status: "paid",
           paidAt,
           paymentReference: reference || null,
+          seatOperation: invoice.seatOperation,
           additionalSeats: invoice.additionalSeats,
           subscriptionSeatLimit: newSeatLimit,
         },

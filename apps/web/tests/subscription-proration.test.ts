@@ -24,6 +24,16 @@ describe("calculateProratedSeatCharge", () => {
     })).toBe(300)
   })
 
+  it("charges a full initial or renewal period when proration dates are omitted", () => {
+    expect(calculateProratedSeatCharge({
+      seatPrice: 250,
+      additionalSeats: 10,
+      startsAt: null,
+      endsAt: null,
+      now: new Date("2026-08-05T00:00:00Z"),
+    })).toBe(2500)
+  })
+
   it("never charges after the term ends", () => {
     expect(calculateProratedSeatCharge({
       seatPrice: 1200,

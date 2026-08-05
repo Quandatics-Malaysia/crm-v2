@@ -98,7 +98,7 @@ setting their membership to `disabled` releases that seat while preserving histo
 The platform master opens **Settings → Subscription** for the active tenant and:
 
 1. Sets the plan, lifecycle status, and subscription start/end dates.
-2. Creates a draft seat invoice using full-term price, seats, tax, and due date.
+2. Creates a draft seat invoice using billing-period price, seats, tax, and due date.
 3. Reviews and issues the draft.
 4. Collects payment externally and records the payment reference.
 5. Marks the issued invoice paid, which atomically increases the paid seat limit.
@@ -107,7 +107,9 @@ Invoices follow `draft → issued → paid`; a draft or issued invoice can inste
 made `void`. Only the `paid` transition activates seats, and a paid invoice cannot
 activate the same seats twice. The first paid invoice for a legacy unlimited tenant
 must cover every currently active member before it replaces unlimited access with a
-strict seat limit. Every transition is audited and server-gated to the platform
+strict seat limit. Initial and renewal invoices charge the full billing period and
+set the licensed seat total; only mid-cycle seat additions are prorated and added to
+the existing total. Every transition is audited and server-gated to the platform
 master; tenant Owners and Admins cannot access the page or call its actions. Pending
 members remain `invited` until an administrator assigns an available paid seat.
 

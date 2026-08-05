@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: pr-preview-${{ github.event.pull_request.number }}
+  group: pr-preview-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_number }}
   cancel-in-progress: false
 
 jobs:
@@ -54,23 +54,23 @@ jobs:
           ADMIN_EMAIL="owner-pr-${PR_NUMBER}@quandatics-preview.local"
 
           mkdir -p "$(dirname "$PREVIEW_ENV")"
-          cat > "$PREVIEW_ENV" <<EOF
-POSTGRES_PASSWORD=$(openssl rand -hex 24)
-CRM_APP_PASSWORD=$(openssl rand -hex 24)
-BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-PLATFORM_MASTER_EMAIL=${ADMIN_EMAIL}
-PLATFORM_MASTER_PASSWORD=$(openssl rand -hex 16)
-DEMO_ADMIN_EMAIL=${ADMIN_EMAIL}
-DEMO_ADMIN_PASSWORD=$(openssl rand -hex 16)
-DEMO_TENANT_ID=demo-pr-${PR_NUMBER}
-DEMO_TENANT_NAME=PR-${PR_NUMBER} Demo Workspace
-SEED_SAMPLE_DATA=true
-SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)
-CADDY_BIND_HOST=127.0.0.1
-BETTER_AUTH_URL=http://127.0.0.1
-APP_URL=http://127.0.0.1
-DOMAIN=preview.quandatics.local
-EOF
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+            echo "CRM_APP_PASSWORD=$(openssl rand -hex 24)"
+            echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
+            echo "PLATFORM_MASTER_EMAIL=${ADMIN_EMAIL}"
+            echo "PLATFORM_MASTER_PASSWORD=$(openssl rand -hex 16)"
+            echo "DEMO_ADMIN_EMAIL=${ADMIN_EMAIL}"
+            echo "DEMO_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+            echo "DEMO_TENANT_ID=demo-pr-${PR_NUMBER}"
+            echo "DEMO_TENANT_NAME=PR-${PR_NUMBER} Demo Workspace"
+            echo "SEED_SAMPLE_DATA=true"
+            echo "SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)"
+            echo "CADDY_BIND_HOST=127.0.0.1"
+            echo "BETTER_AUTH_URL=http://127.0.0.1"
+            echo "APP_URL=http://127.0.0.1"
+            echo "DOMAIN=preview.quandatics.local"
+          } > "$PREVIEW_ENV"
 
           docker compose \
             -p "$PROJECT" \

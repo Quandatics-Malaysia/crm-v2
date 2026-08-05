@@ -16,13 +16,23 @@ import { SETTINGS_NAV } from "./_nav"
  * Styling mirrors the sidebar primitives (sidebar-accent tokens) so it reads as
  * native chrome; `usePathname` drives the active-item highlight.
  */
-export function SettingsNav({ permissions }: { permissions: string[] }) {
+export function SettingsNav({
+  permissions,
+  isSuperadmin,
+}: {
+  permissions: string[]
+  isSuperadmin: boolean
+}) {
   const pathname = usePathname()
   const perms = React.useMemo(() => new Set(permissions), [permissions])
 
   const groups = SETTINGS_NAV.map((group) => ({
     ...group,
-    items: group.items.filter((i) => !i.permission || perms.has(i.permission)),
+    items: group.items.filter(
+      (i) =>
+        (!i.superadminOnly || isSuperadmin) &&
+        (!i.permission || perms.has(i.permission))
+    ),
   })).filter((group) => group.items.length > 0)
 
   return (

@@ -24,7 +24,10 @@ export default async function SettingsLayout({
       <SiteHeader title="Settings" />
       <PageBody>
         <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-          <SettingsNav permissions={[...ctx.permissions]} />
+          <SettingsNav
+            permissions={[...ctx.permissions]}
+            isSuperadmin={ctx.isSuperadmin}
+          />
           <div className="min-w-0 flex-1">{children}</div>
         </div>
       </PageBody>

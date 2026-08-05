@@ -38,7 +38,8 @@ DECLARE
     'custom_field_defs', 'activities', 'projects', 'payment_milestones',
     'sales_orders', 'project_counters', 'products', 'deal_costs',
     'lead_companies', 'opportunity_products', 'contracts',
-    'contract_years', 'pending_invites', 'finance_docs'
+    'contract_years', 'pending_invites', 'finance_docs',
+    'platform_subscription_invoices'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP

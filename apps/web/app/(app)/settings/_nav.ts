@@ -9,6 +9,7 @@ export type SettingsNavItem = {
   label: string
   href: string
   permission?: string
+  superadminOnly?: boolean
 }
 
 /** A labelled group of {@link SettingsNavItem}s, rendered as a header + items. */
@@ -85,6 +86,16 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         label: "People",
         href: "/settings/people",
         permission: PERMISSIONS.TENANT_MANAGE_USERS,
+      },
+    ],
+  },
+  {
+    label: "Platform",
+    items: [
+      {
+        label: "Subscription",
+        href: "/settings/subscription",
+        superadminOnly: true,
       },
     ],
   },

@@ -903,47 +903,6 @@ export async function updateSettings(
   })
 }
 
-export async function confirmPaidSeats(
-  additionalSeats: number
-): Promise<ActionResult<TenantSettingsView>> {
-  return runAction(async () => {
-    const ctx = await requireContext()
-    if (!ctx.isSuperadmin) throw new Error("Only the platform master can confirm paid seats.")
-    if (!Number.isInteger(additionalSeats) || additionalSeats < 1 || additionalSeats > 10000) {
-      throw new Error("Additional seats must be a positive whole number.")
-    }
-    const view = await runInTenant(ctx.tenantId, async (tx) => {
-      const [current] = await tx.select().from(tenantSettings)
-        .where(eq(tenantSettings.organizationId, ctx.tenantId)).limit(1)
-      if (!current) throw new Error("Tenant settings were not found.")
-      if (current.subscriptionSeatLimit == null) {
-        throw new Error("This tenant has unlimited seats; set a paid seat limit first.")
-      }
-      const [updated] = await tx.update(tenantSettings).set({
-        subscriptionSeatLimit: current.subscriptionSeatLimit + additionalSeats,
-        updatedAt: new Date(),
-      }).where(eq(tenantSettings.organizationId, ctx.tenantId)).returning()
-      await writeAudit(tx, ctx, {
-        action: "subscription.seats_paid",
-        entityType: "tenant_settings",
-        entityId: ctx.tenantId,
-        before: { subscriptionSeatLimit: current.subscriptionSeatLimit },
-        after: {
-          additionalSeats,
-          subscriptionSeatLimit: updated.subscriptionSeatLimit,
-        },
-      })
-      const [org] = await tx.select({ name: organization.name }).from(organization)
-        .where(eq(organization.id, ctx.tenantId)).limit(1)
-      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
-      return toView(updated, org?.name ?? "", license, true)
-    })
-    revalidatePath("/settings")
-    revalidatePath("/team")
-    return view
-  })
-}
-
 /** Update quotation + project numbering configuration. */
 export async function updateNumbering(
   input: UpdateNumberingInput

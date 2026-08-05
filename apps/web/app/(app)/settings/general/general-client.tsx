@@ -44,7 +44,6 @@ import {
 import { PicklistCard } from "@/components/picklist-card"
 import {
   updateSettings,
-  confirmPaidSeats,
   updateIntercompanyPartners,
   updateCurrencies,
   updateCompanyProfile,
@@ -56,7 +55,6 @@ import {
 } from "@/app/(app)/settings/actions"
 import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 import { Textarea } from "@/components/ui/textarea"
-import { calculateProratedSeatCharge } from "@/lib/subscription-proration"
 
 // ─── General ─────────────────────────────────────────────────────────────────
 
@@ -927,10 +925,6 @@ export function GeneralClient({
     <div className="grid gap-6">
       <GeneralForm settings={settings} members={members} />
 
-      {settings.isPlatformMaster ? (
-        <PlatformSubscriptionCard settings={settings} />
-      ) : null}
-
       <CompanyProfileCard
         profile={settings.companyProfile}
         hasLogo={settings.hasLogo}
@@ -954,66 +948,5 @@ export function GeneralClient({
         entities={entities}
       />
     </div>
-  )
-}
-
-function PlatformSubscriptionCard({ settings }: { settings: TenantSettingsView }) {
-  const router = useRouter()
-  const [seatPrice, setSeatPrice] = React.useState("")
-  const [additionalSeats, setAdditionalSeats] = React.useState("1")
-  const [isPending, startTransition] = React.useTransition()
-  const seats = Number(additionalSeats)
-  const price = Number(seatPrice)
-  const charge = calculateProratedSeatCharge({
-    seatPrice: Number.isFinite(price) ? price : 0,
-    additionalSeats: Number.isInteger(seats) ? seats : 0,
-    startsAt: settings.subscriptionStartsAt ? new Date(settings.subscriptionStartsAt) : null,
-    endsAt: settings.subscriptionEndsAt ? new Date(settings.subscriptionEndsAt) : null,
-  })
-
-  function confirm() {
-    startTransition(async () => {
-      const result = await confirmPaidSeats(seats)
-      if (!result.ok) return showActionError(result)
-      toast.success(`${seats} paid seat${seats === 1 ? "" : "s"} added`)
-      router.refresh()
-    })
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Platform subscription</CardTitle>
-        <CardDescription>
-          Platform-master only. Calculate a mid-cycle charge, collect payment externally,
-          then increase the paid seat limit. Invited users remain inactive until a seat is available.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="grid gap-1.5">
-            <label className="text-xs text-muted-foreground">Price per seat / full term</label>
-            <Input type="number" min="0" step="0.01" value={seatPrice} onChange={(e) => setSeatPrice(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <label className="text-xs text-muted-foreground">Paid seats to add</label>
-            <Input type="number" min="1" step="1" value={additionalSeats} onChange={(e) => setAdditionalSeats(e.target.value)} />
-          </div>
-          <div className="rounded-lg border p-3 text-sm">
-            <div className="text-muted-foreground">Prorated amount to collect</div>
-            <div className="text-lg font-semibold">{settings.defaultCurrency} {charge.toFixed(2)}</div>
-          </div>
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Current usage: {settings.activeMemberCount} active / {settings.subscriptionSeatLimit ?? "unlimited"} paid seats.
-          Term: {settings.subscriptionStartsAt || "not set"} → {settings.subscriptionEndsAt || "not set"}.
-        </div>
-        <div className="flex justify-end">
-          <Button disabled={isPending || !Number.isInteger(seats) || seats < 1 || price < 0 || settings.subscriptionSeatLimit == null} onClick={confirm}>
-            {isPending ? "Confirming…" : "Payment received — add seats"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   )
 }

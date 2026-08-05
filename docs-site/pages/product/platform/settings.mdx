@@ -19,17 +19,19 @@ Settings
 │   └── Company profile and defaults
 ├── People
 │   └── Membership behavior and organization access
-├── Access
+├── Developers
 │   └── API keys
 ├── Billing
 │   ├── Invoicing
 │   ├── Numbering
 │   └── Tax
-└── Taxonomy
+├── Taxonomy
     ├── Funnel stages
     ├── Industries and countries
     ├── Product codes
     └── Project natures
+└── Platform (platform master only)
+    └── Subscription, licensing, and invoices
 ```
 
 Finance-specific settings are hidden when Finance is disabled. Project-nature
@@ -59,9 +61,10 @@ theme toggle stores an explicit `light` or `dark` preference in browser
 | Settings pages | `apps/web/app/(app)/settings/` |
 | Shared settings actions | `apps/web/app/(app)/settings/actions.ts` |
 | Membership licensing logic | `apps/web/lib/subscription-licensing.ts` |
+| Platform subscription actions | `apps/web/app/(app)/settings/subscription/actions.ts` |
 | Tax actions | `apps/web/app/(app)/settings/billing/tax/actions.ts` |
 | API-key actions | `apps/web/app/(app)/settings/access/actions.ts` |
-| Schema | `apps/web/db/schema/rbac.ts`, `quotations.ts`, `api-keys.ts` |
+| Schema | `apps/web/db/schema/rbac.ts`, `platform-billing.ts`, `quotations.ts`, `api-keys.ts` |
 
 ## Membership licensing model (seat gating)
 
@@ -92,11 +95,21 @@ can test business modules and read internal documentation, but cannot manage
 tenant users, roles, settings, or subscriptions. When active they consume a seat;
 setting their membership to `disabled` releases that seat while preserving history.
 
-For a mid-cycle join, the platform master opens **Settings → General → Platform
-subscription**, enters the full-term seat price and number of seats, collects the
-displayed prorated amount externally, then selects **Payment received — add seats**.
-The action is audited and cannot be called by tenant Owners or Admins. Pending
-members remain `invited` until the Owner assigns the newly available paid seat.
+The platform master opens **Settings → Subscription** for the active tenant and:
+
+1. Sets the plan, lifecycle status, and subscription start/end dates.
+2. Creates a draft seat invoice using full-term price, seats, tax, and due date.
+3. Reviews and issues the draft.
+4. Collects payment externally and records the payment reference.
+5. Marks the issued invoice paid, which atomically increases the paid seat limit.
+
+Invoices follow `draft → issued → paid`; a draft or issued invoice can instead be
+made `void`. Only the `paid` transition activates seats, and a paid invoice cannot
+activate the same seats twice. The first paid invoice for a legacy unlimited tenant
+must cover every currently active member before it replaces unlimited access with a
+strict seat limit. Every transition is audited and server-gated to the platform
+master; tenant Owners and Admins cannot access the page or call its actions. Pending
+members remain `invited` until an administrator assigns an available paid seat.
 
 ## Extension rule
 

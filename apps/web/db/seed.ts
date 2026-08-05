@@ -24,7 +24,7 @@ const {
   memberRoles,
 } = schema
 
-const TENANT_ID = "demo-entity"
+const TENANT_ID = process.env.DEMO_TENANT_ID?.trim() || "demo-entity"
 const TENANT_NAME = process.env.DEMO_TENANT_NAME?.trim() || "Demo Workspace"
 const DEMO_CURRENCY = (process.env.DEMO_CURRENCY?.trim().toUpperCase() || "USD").slice(0, 3)
 const DEMO_TAX_NAME = process.env.DEMO_TAX_NAME?.trim() || "VAT 5%"
@@ -49,7 +49,12 @@ async function main() {
   // 2. demo entity + settings (email login enabled so you can sign in locally)
   await db
     .insert(organization)
-    .values({ id: TENANT_ID, name: TENANT_NAME, slug: "demo", createdAt: new Date() })
+    .values({
+      id: TENANT_ID,
+      name: TENANT_NAME,
+      slug: TENANT_ID.replace(/[^a-z0-9-]/gi, "-").toLowerCase(),
+      createdAt: new Date(),
+    })
     .onConflictDoNothing()
   // ponytail: onConflictDoNothing means these picklist defaults only ever
   // apply to a brand-new tenant row — an existing row's projectNatures/

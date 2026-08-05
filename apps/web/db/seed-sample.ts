@@ -55,7 +55,7 @@ const {
   contractYears,
 } = schema
 
-const TENANT_ID = "demo-entity"
+const TENANT_ID = process.env.DEMO_TENANT_ID?.trim() || "demo-entity"
 const DEMO_CURRENCY = (process.env.DEMO_CURRENCY?.trim().toUpperCase() || "USD").slice(0, 3)
 const DEMO_TAX_NAME = process.env.DEMO_TAX_NAME?.trim() || "VAT 5%"
 

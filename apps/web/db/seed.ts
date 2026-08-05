@@ -234,11 +234,18 @@ async function main() {
     .where(and(eq(taxSettings.tenantId, TENANT_ID), eq(taxSettings.name, DEMO_TAX_NAME)))
     .limit(1)
   if (!tax) {
+    const [existingDefault] = await db
+      .select({ id: taxSettings.id })
+      .from(taxSettings)
+      .where(and(eq(taxSettings.tenantId, TENANT_ID), eq(taxSettings.isDefault, true)))
+      .limit(1)
     await db.insert(taxSettings).values({
       tenantId: TENANT_ID,
       name: DEMO_TAX_NAME,
       ratePercent: DEMO_TAX_RATE,
-      isDefault: true,
+      // Preserve an existing tenant default (for example SST 6% in an
+      // established production tenant); the seed must remain idempotent.
+      isDefault: !existingDefault,
       isActive: true,
     })
   }

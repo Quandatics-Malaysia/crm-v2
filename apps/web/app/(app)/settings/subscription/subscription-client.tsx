@@ -76,7 +76,7 @@ function statusVariant(status: SubscriptionInvoiceView["status"]) {
 
 export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
   const router = useRouter()
-  const [isPending, startTransition] = React.useTransition()
+  const [busyAction, setBusyAction] = React.useState<string | null>(null)
   const [plan, setPlan] = React.useState(data.plan)
   const [status, setStatus] = React.useState(data.status)
   const [startsAt, setStartsAt] = React.useState(data.startsAt)
@@ -98,22 +98,44 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
     endsAt: data.endsAt ? new Date(`${data.endsAt}T23:59:59.999Z`) : null,
   })
   const previewTotal = subtotal + subtotal * (Number.isFinite(tax) ? tax / 100 : 0)
+  const configurationDirty =
+    plan !== data.plan ||
+    status !== data.status ||
+    startsAt !== data.startsAt ||
+    endsAt !== data.endsAt
+  const configurationInvalid =
+    !plan.trim() || !startsAt || !endsAt || startsAt > endsAt
+  const invoiceDisabledReason = !data.startsAt || !data.endsAt
+    ? "Save the plan and term before creating an invoice."
+    : !Number.isInteger(seats) || seats < 1
+      ? "Enter at least one whole seat."
+      : !Number.isFinite(price) || price < 0
+        ? "Enter a valid non-negative seat price."
+        : !Number.isFinite(tax) || tax < 0 || tax > 100
+          ? "Tax must be between 0% and 100%."
+          : !dueAt
+            ? "Choose an invoice due date."
+            : null
 
   function refreshWith(message: string) {
     toast.success(message)
     router.refresh()
   }
 
-  function saveConfiguration() {
-    startTransition(async () => {
+  async function saveConfiguration() {
+    setBusyAction("configuration")
+    try {
       const result = await updateSubscriptionConfiguration({ plan, status, startsAt, endsAt })
       if (!result.ok) return showActionError(result)
       refreshWith("Subscription configuration saved")
-    })
+    } finally {
+      setBusyAction(null)
+    }
   }
 
-  function createInvoice() {
-    startTransition(async () => {
+  async function createInvoice() {
+    setBusyAction("create-invoice")
+    try {
       const result = await createSubscriptionInvoice({
         additionalSeats: seats,
         seatPriceFullTerm: price,
@@ -128,19 +150,25 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
       setDueAt("")
       setNotes("")
       refreshWith(`Draft ${result.data.invoiceNumber} created`)
-    })
+    } finally {
+      setBusyAction(null)
+    }
   }
 
-  function issue(invoice: SubscriptionInvoiceView) {
-    startTransition(async () => {
+  async function issue(invoice: SubscriptionInvoiceView) {
+    setBusyAction(`issue-${invoice.id}`)
+    try {
       const result = await issueSubscriptionInvoice(invoice.id)
       if (!result.ok) return showActionError(result)
       refreshWith(`${invoice.invoiceNumber} issued`)
-    })
+    } finally {
+      setBusyAction(null)
+    }
   }
 
-  function markPaid(invoice: SubscriptionInvoiceView) {
-    startTransition(async () => {
+  async function markPaid(invoice: SubscriptionInvoiceView) {
+    setBusyAction(`pay-${invoice.id}`)
+    try {
       const result = await markSubscriptionInvoicePaid(
         invoice.id,
         paymentReferences[invoice.id] ?? ""
@@ -149,15 +177,20 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
       refreshWith(
         `${invoice.invoiceNumber} paid; ${invoice.additionalSeats} seats activated`
       )
-    })
+    } finally {
+      setBusyAction(null)
+    }
   }
 
-  function voidInvoice(invoice: SubscriptionInvoiceView) {
-    startTransition(async () => {
+  async function voidInvoice(invoice: SubscriptionInvoiceView) {
+    setBusyAction(`void-${invoice.id}`)
+    try {
       const result = await voidSubscriptionInvoice(invoice.id)
       if (!result.ok) return showActionError(result)
       refreshWith(`${invoice.invoiceNumber} voided`)
-    })
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   return (
@@ -225,9 +258,12 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
               <Input id="subscription-end" type="date" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
             </div>
           </div>
-          <div className="flex justify-end">
-            <Button disabled={isPending || !plan.trim() || !startsAt || !endsAt} onClick={saveConfiguration}>
-              {isPending ? "Saving…" : "Save plan and term"}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {configurationDirty ? "You have unsaved plan or term changes." : "Plan and term are saved."}
+            </p>
+            <Button disabled={busyAction != null || configurationInvalid || !configurationDirty} onClick={saveConfiguration}>
+              {busyAction === "configuration" ? "Saving…" : "Save plan and term"}
             </Button>
           </div>
         </CardContent>
@@ -275,9 +311,12 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
               <p className="mt-1 text-xs text-muted-foreground">Subtotal {formatMoney(data.defaultCurrency, subtotal)}</p>
             </div>
           </div>
-          <div className="flex justify-end">
-            <Button disabled={isPending || !Number.isInteger(seats) || seats < 1 || !Number.isFinite(price) || price < 0 || !Number.isFinite(tax) || tax < 0 || tax > 100 || !data.startsAt || !data.endsAt || !dueAt} onClick={createInvoice}>
-              {isPending ? "Creating…" : "Create draft invoice"}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-amber-600 dark:text-amber-400" aria-live="polite">
+              {invoiceDisabledReason ?? "Ready to create a draft invoice."}
+            </p>
+            <Button disabled={busyAction != null || invoiceDisabledReason != null} onClick={createInvoice}>
+              {busyAction === "create-invoice" ? "Creating…" : "Create draft invoice"}
             </Button>
           </div>
         </CardContent>
@@ -324,7 +363,7 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
                     <TableCell>
                       <div className="flex min-w-56 justify-end gap-2">
                         {invoice.status === "draft" ? (
-                          <Button size="sm" disabled={isPending} onClick={() => issue(invoice)}>Issue</Button>
+                          <Button size="sm" disabled={busyAction != null} onClick={() => issue(invoice)}>{busyAction === `issue-${invoice.id}` ? "Issuing…" : "Issue"}</Button>
                         ) : null}
                         {invoice.status === "issued" ? (
                           <>
@@ -336,11 +375,11 @@ export function SubscriptionClient({ data }: { data: SubscriptionAdminView }) {
                               value={paymentReferences[invoice.id] ?? ""}
                               onChange={(event) => setPaymentReferences((current) => ({ ...current, [invoice.id]: event.target.value }))}
                             />
-                            <Button size="sm" disabled={isPending || !(paymentReferences[invoice.id] ?? "").trim()} onClick={() => markPaid(invoice)}>Mark paid</Button>
+                            <Button size="sm" disabled={busyAction != null || !(paymentReferences[invoice.id] ?? "").trim()} onClick={() => markPaid(invoice)}>{busyAction === `pay-${invoice.id}` ? "Recording…" : "Mark paid"}</Button>
                           </>
                         ) : null}
                         {invoice.status === "draft" || invoice.status === "issued" ? (
-                          <Button size="sm" variant="outline" disabled={isPending} onClick={() => voidInvoice(invoice)}>Void</Button>
+                          <Button size="sm" variant="outline" disabled={busyAction != null} onClick={() => voidInvoice(invoice)}>{busyAction === `void-${invoice.id}` ? "Voiding…" : "Void"}</Button>
                         ) : null}
                         {invoice.status === "paid" || invoice.status === "void" ? <span className="text-xs text-muted-foreground">No actions</span> : null}
                       </div>

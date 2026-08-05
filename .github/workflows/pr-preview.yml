@@ -67,6 +67,8 @@ jobs:
             echo "SEED_SAMPLE_DATA=true"
             echo "SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)"
             echo "CADDY_BIND_HOST=127.0.0.1"
+            echo "DB_HOST_PORT=0"
+            echo "CADDY_HOST_PORT=0"
             echo "BETTER_AUTH_URL=http://127.0.0.1"
             echo "APP_URL=http://127.0.0.1"
             echo "DOMAIN=preview.quandatics.local"
@@ -170,13 +172,21 @@ jobs:
         if: failure()
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_ENV: ${{ github.workspace }}/.env.pr-preview
         run: |
           PROJECT="crm-pr-${PR_NUMBER}"
+          set -euo pipefail
+          if [ -f "$PREVIEW_ENV" ]; then
+            ENV_OPTS=(--env-file "$PREVIEW_ENV")
+          else
+            ENV_OPTS=()
+          fi
           docker compose \
             -p "$PROJECT" \
             -f docker-compose.yaml \
             -f docker-compose.pr-preview.yaml \
             -f docker-compose.staging-tunnel.yaml \
+            "${ENV_OPTS[@]}" \
             down -v --remove-orphans || true
           rm -f "${{ github.workspace }}/.env.pr-preview"
 
@@ -188,13 +198,20 @@ jobs:
       - name: Remove PR preview stack and volumes
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PREVIEW_ENV: ${{ github.workspace }}/.env.pr-preview
         run: |
           set -euo pipefail
           PROJECT="crm-pr-${PR_NUMBER}"
+          if [ -f "$PREVIEW_ENV" ]; then
+            ENV_OPTS=(--env-file "$PREVIEW_ENV")
+          else
+            ENV_OPTS=()
+          fi
           docker compose \
             -p "$PROJECT" \
             -f docker-compose.yaml \
             -f docker-compose.pr-preview.yaml \
             -f docker-compose.staging-tunnel.yaml \
+            "${ENV_OPTS[@]}" \
             down -v --remove-orphans || true
           rm -f "${{ github.workspace }}/.env.pr-preview"

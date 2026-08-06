@@ -76,6 +76,33 @@ This adds four more logins under the Demo Entity (all password `Password123!`) a
 
 The sample seed is idempotent and **dev-only** — don't run it on an internet-exposed deployment (it mints well-known default credentials). It is intentionally not part of the production Docker `migrate` step.
 
+## PR preview workflow (for each pull request)
+
+Every PR automatically gets a temporary, isolated preview stack built on our self-hosted
+runner when this workflow runs:
+`.github/workflows/pr-preview.yml`.
+
+- Triggered on PR `opened`, `reopened`, `synchronize`, and `closed`.
+- PR open/reopen/sync:
+  - builds a per-PR Docker stack (`crm-pr-<number>`)
+  - seeds a demo tenant and users
+  - publishes a temporary `https://*.trycloudflare.com` URL
+  - posts the URL + credentials to the PR comment and workflow step summary
+  - checks that login and `/api/health` are healthy before reporting success
+- PR close:
+  - tears down the preview stack and removes preview volumes.
+
+How to use it:
+1. Open/update PR from your feature branch.
+2. Open the PR check list and wait for **`deploy-preview`** + PR comment.
+3. Use the credentials shown in the comment to sign in at the preview URL.
+4. Test the full flow in that temporary stack.
+5. Close PR to auto-clean the stack and release resources.
+
+Notes:
+- Preview stacks are for validation only; Microsoft SSO is unavailable on the tunnel URL.
+- If a preview fails, a fresh push to the same PR re-runs the stack.
+
 ## Production (Docker, internet-exposed)
 ```bash
 # set these in your shell / .env for compose (REQUIRED — compose fails fast if unset):

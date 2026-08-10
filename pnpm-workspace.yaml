@@ -7,3 +7,14 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - '@cloudflare/workerd-darwin-64@1.20260810.1'
+  - '@cloudflare/workerd-darwin-arm64@1.20260810.1'
+  - '@cloudflare/workerd-linux-64@1.20260810.1'
+  - '@cloudflare/workerd-linux-arm64@1.20260810.1'
+  - '@cloudflare/workerd-windows-64@1.20260810.1'
+  - workerd@1.20260810.1
+
+overrides:
+  workerd: 1.20260810.1

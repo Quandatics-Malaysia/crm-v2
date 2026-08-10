@@ -42,6 +42,9 @@ var/
 # vercel
 .vercel
 
+# Cloudflare Workers local state
+.wrangler/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

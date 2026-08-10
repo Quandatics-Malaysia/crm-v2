@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "crm-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-10",
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
+    "ACCESS_AUD": "replace-with-access-application-audience",
+    "BOOTSTRAP_OWNER_EMAIL": "owner@example.com"
+  },
+  "secrets": {
+    "required": [
+      "ENTITLEMENT_SIGNING_PRIVATE_JWK",
+      "INSTALL_TOKEN_PEPPER"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "crm-control-plane",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_VAULT",
+      "bucket_name": "crm-backup-vault"
+    }
+  ],
+  "services": [
+    {
+      "binding": "ASSETS",
+      "service": "crm-control-plane-assets"
+    }
+  ]
+}

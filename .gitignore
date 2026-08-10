@@ -47,6 +47,7 @@ var/
 next-env.d.ts
 .gstack/
 .superpowers/
+.worktrees/
 
 # scratch / throwaway DB + debug scripts
 _*.cjs

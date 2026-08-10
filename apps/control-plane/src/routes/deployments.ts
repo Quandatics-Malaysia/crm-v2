@@ -28,6 +28,8 @@ import {
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const LEGACY_PENDING_FINGERPRINT = "legacy:pending"
+const MAX_JSON_DEPTH = 64
 
 function requestId(headers: Headers): string | null {
   return headers.get("Cf-Ray") ?? headers.get("X-Request-Id")
@@ -78,7 +80,8 @@ function parseJsonWithoutDuplicateKeys(text: string): unknown {
     throw badRequest()
   }
 
-  function parseValue(): void {
+  function parseValue(depth: number): void {
+    if (depth > MAX_JSON_DEPTH) throw badRequest()
     skipWhitespace()
     if (text[index] === '"') {
       parseString()
@@ -100,7 +103,7 @@ function parseJsonWithoutDuplicateKeys(text: string): unknown {
         skipWhitespace()
         if (text[index] !== ":") throw badRequest()
         index += 1
-        parseValue()
+        parseValue(depth + 1)
         skipWhitespace()
         if (text[index] === "}") {
           index += 1
@@ -119,7 +122,7 @@ function parseJsonWithoutDuplicateKeys(text: string): unknown {
         return
       }
       while (index < text.length) {
-        parseValue()
+        parseValue(depth + 1)
         skipWhitespace()
         if (text[index] === "]") {
           index += 1
@@ -136,7 +139,7 @@ function parseJsonWithoutDuplicateKeys(text: string): unknown {
     if (index === start) throw badRequest()
   }
 
-  parseValue()
+  parseValue(0)
   skipWhitespace()
   if (index !== text.length) throw badRequest()
   try {
@@ -156,19 +159,55 @@ async function requestJson(request: Request): Promise<{ bytes: Uint8Array; value
   return { bytes, value: parseJsonWithoutDuplicateKeys(decodeUtf8(bytes)) }
 }
 
-function storedPublicJwk(value: string): { kty: "OKP"; crv: "Ed25519"; x: string } {
+function storedPublicJwk(
+  value: string,
+  allowLegacyMetadata: boolean,
+): { kty: "OKP"; crv: "Ed25519"; x: string } {
   try {
-    const parsed = JSON.parse(value) as Record<string, unknown>
+    const candidate: unknown = JSON.parse(value)
     if (
-      parsed === null ||
-      Array.isArray(parsed) ||
-      typeof parsed !== "object" ||
-      Object.keys(parsed).length !== 3 ||
-      parsed.kty !== "OKP" ||
-      parsed.crv !== "Ed25519" ||
-      typeof parsed.x !== "string"
+      candidate === null ||
+      Array.isArray(candidate) ||
+      typeof candidate !== "object"
     ) {
       throw unauthorized()
+    }
+    const parsed = candidate as Record<string, unknown>
+    const keys = Object.keys(parsed)
+    if (
+      parsed.kty !== "OKP" ||
+      parsed.crv !== "Ed25519" ||
+      typeof parsed.x !== "string" ||
+      Object.hasOwn(parsed, "d")
+    ) {
+      throw unauthorized()
+    }
+    if (
+      !allowLegacyMetadata &&
+      (keys.length !== 3 || keys.some((key) => !["kty", "crv", "x"].includes(key)))
+    ) {
+      throw unauthorized()
+    }
+    if (allowLegacyMetadata) {
+      const allowedKeys = new Set(["kty", "crv", "x", "key_ops", "ext", "alg", "use", "kid"])
+      if (keys.some((key) => !allowedKeys.has(key))) throw unauthorized()
+      if (
+        parsed.key_ops !== undefined &&
+        (!Array.isArray(parsed.key_ops) ||
+          parsed.key_ops.length !== 1 ||
+          parsed.key_ops[0] !== "verify")
+      ) {
+        throw unauthorized()
+      }
+      if (parsed.ext !== undefined && typeof parsed.ext !== "boolean") throw unauthorized()
+      if (parsed.alg !== undefined && parsed.alg !== "EdDSA") throw unauthorized()
+      if (parsed.use !== undefined && parsed.use !== "sig") throw unauthorized()
+      if (
+        parsed.kid !== undefined &&
+        (typeof parsed.kid !== "string" || !/^[\x21-\x7e]{1,128}$/.test(parsed.kid))
+      ) {
+        throw unauthorized()
+      }
     }
     return { kty: "OKP", crv: "Ed25519", x: parsed.x }
   } catch {
@@ -227,12 +266,18 @@ export function createDeploymentRoutes() {
     const bodyDigest = await sha256(bodyBytes)
     let verified = false
     try {
-      const jwk = storedPublicJwk(key.public_jwk_json)
-      const fingerprintMatches = timingSafeDigestEqual(
-        fromBase64Url(await publicKeyFingerprint(jwk.x), 32),
-        fromBase64Url(key.fingerprint, 32),
-      )
-      if (!fingerprintMatches) throw unauthorized()
+      const legacyKey = key.fingerprint === LEGACY_PENDING_FINGERPRINT
+      const jwk = storedPublicJwk(key.public_jwk_json, legacyKey)
+      const derivedFingerprint = await publicKeyFingerprint(jwk.x)
+      if (legacyKey) {
+        key.fingerprint = derivedFingerprint
+      } else {
+        const fingerprintMatches = timingSafeDigestEqual(
+          fromBase64Url(derivedFingerprint, 32),
+          fromBase64Url(key.fingerprint, 32),
+        )
+        if (!fingerprintMatches) throw unauthorized()
+      }
       verified = await crypto.subtle.verify(
         "Ed25519",
         await importStrictEd25519PublicJwk(jwk),

@@ -6,6 +6,12 @@ import { issueInstallToken } from "../src/repos/deployments"
 
 const pepper = "test-only-install-token-pepper"
 const encoder = new TextEncoder()
+const legacySharedKeyId = "11111111-1111-4111-8111-111111111111"
+const legacyValidDeploymentId = "22222222-2222-4222-8222-222222222222"
+const legacyPrivateDeploymentId = "33333333-3333-4333-8333-333333333333"
+const legacyMalformedDeploymentId = "44444444-4444-4444-8444-444444444444"
+let legacyValidPrivateKey: CryptoKey
+let legacyPrivatePrivateKey: CryptoKey
 
 function bindings(database: D1Database = env.CONTROL_DB): CloudflareBindings {
   return {
@@ -205,7 +211,112 @@ function failingBatchDatabase(): D1Database {
 }
 
 beforeAll(async () => {
-  await applyD1Migrations(env.CONTROL_DB, inject("migrations") as D1Migration[])
+  const migrations = inject("migrations") as D1Migration[]
+  await applyD1Migrations(env.CONTROL_DB, migrations.slice(0, 3))
+
+  const validPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+  const privatePair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+  legacyValidPrivateKey = validPair.privateKey
+  legacyPrivatePrivateKey = privatePair.privateKey
+  const validPublicJwk = await crypto.subtle.exportKey("jwk", validPair.publicKey)
+  const privateJwk = await crypto.subtle.exportKey("jwk", privatePair.privateKey)
+  const now = "2026-08-01T00:00:00.000Z"
+  const legacyRows = [
+    {
+      clientId: "55555555-5555-4555-8555-555555555555",
+      deploymentId: legacyValidDeploymentId,
+      publicJwkJson: JSON.stringify(validPublicJwk),
+    },
+    {
+      clientId: "66666666-6666-4666-8666-666666666666",
+      deploymentId: legacyPrivateDeploymentId,
+      publicJwkJson: JSON.stringify(privateJwk),
+    },
+    {
+      clientId: "77777777-7777-4777-8777-777777777777",
+      deploymentId: legacyMalformedDeploymentId,
+      publicJwkJson: '{"kty":"OKP","crv":"Ed25519","x":"not-base64url"}',
+    },
+  ]
+  for (const row of legacyRows) {
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        "INSERT INTO clients (id, client_key, display_name, status, created_at, updated_at) VALUES (?, ?, 'Legacy client', 'active', ?, ?)",
+      ).bind(row.clientId, `legacy-${row.clientId}`, now, now),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO deployments (id, client_id, deployment_key, environment, status, created_at, updated_at) VALUES (?, ?, ?, 'production', 'active', ?, ?)",
+      ).bind(row.deploymentId, row.clientId, `legacy-${row.deploymentId}`, now, now),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO deployment_keys (id, deployment_id, key_id, public_jwk_json, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+      ).bind(crypto.randomUUID(), row.deploymentId, legacySharedKeyId, row.publicJwkJson, now),
+    ])
+  }
+
+  await applyD1Migrations(env.CONTROL_DB, migrations)
+})
+
+describe("deployment protocol migration upgrade", () => {
+  it("preserves duplicate legacy key IDs and backfills explicit lifecycle state", async () => {
+    const rows = await env.CONTROL_DB.prepare(
+      "SELECT k.deployment_id, k.algorithm, k.fingerprint, k.not_before, d.registered_at, d.registration_key_fingerprint FROM deployment_keys k JOIN deployments d ON d.id = k.deployment_id WHERE k.key_id = ? ORDER BY k.deployment_id",
+    ).bind(legacySharedKeyId).all<{
+      deployment_id: string
+      algorithm: string | null
+      fingerprint: string | null
+      not_before: string | null
+      registered_at: string | null
+      registration_key_fingerprint: string | null
+    }>()
+
+    expect(rows.results).toEqual([
+      {
+        deployment_id: legacyValidDeploymentId,
+        algorithm: "Ed25519",
+        fingerprint: "legacy:pending",
+        not_before: "2026-08-01T00:00:00.000Z",
+        registered_at: "2026-08-01T00:00:00.000Z",
+        registration_key_fingerprint: "legacy:pending",
+      },
+      {
+        deployment_id: legacyPrivateDeploymentId,
+        algorithm: "Ed25519",
+        fingerprint: "legacy:pending",
+        not_before: "2026-08-01T00:00:00.000Z",
+        registered_at: "2026-08-01T00:00:00.000Z",
+        registration_key_fingerprint: "legacy:pending",
+      },
+      {
+        deployment_id: legacyMalformedDeploymentId,
+        algorithm: "Ed25519",
+        fingerprint: "legacy:pending",
+        not_before: "2026-08-01T00:00:00.000Z",
+        registered_at: "2026-08-01T00:00:00.000Z",
+        registration_key_fingerprint: "legacy:pending",
+      },
+    ])
+  })
+
+  it("keeps a valid legacy public Ed25519 key active", async () => {
+    const response = await signedHeartbeat({
+      deploymentId: legacyValidDeploymentId,
+      keyId: legacySharedKeyId,
+      privateKey: legacyValidPrivateKey,
+    })
+    expect(response.status).toBe(202)
+  })
+
+  it("fails closed for private and malformed legacy JWK rows", async () => {
+    expect((await signedHeartbeat({
+      deploymentId: legacyPrivateDeploymentId,
+      keyId: legacySharedKeyId,
+      privateKey: legacyPrivatePrivateKey,
+    })).status).toBe(401)
+    expect((await signedHeartbeat({
+      deploymentId: legacyMalformedDeploymentId,
+      keyId: legacySharedKeyId,
+      privateKey: legacyValidPrivateKey,
+    })).status).toBe(401)
+  })
 })
 
 describe("deployment registration", () => {
@@ -551,8 +662,8 @@ describe("signed deployment heartbeats", () => {
       "SELECT COUNT(*) AS count FROM heartbeat_rollups WHERE deployment_id = ?",
     ).bind(fixture.deploymentId).first<{ count: number }>()).toEqual({ count: 2 })
     expect(await env.CONTROL_DB.prepare(
-      "SELECT COUNT(*) AS count FROM deployment_request_nonces WHERE deployment_key_id = (SELECT id FROM deployment_keys WHERE key_id = ?)",
-    ).bind(fixture.keyId).first<{ count: number }>()).toEqual({ count: 2 })
+      "SELECT COUNT(*) AS count FROM deployment_request_nonces WHERE deployment_key_id = (SELECT id FROM deployment_keys WHERE key_id = ? AND deployment_id = ?)",
+    ).bind(fixture.keyId, fixture.deploymentId).first<{ count: number }>()).toEqual({ count: 2 })
   })
 
   it("enforces five-minute freshness on both sides and canonical timestamp syntax", async () => {
@@ -587,8 +698,10 @@ describe("signed deployment heartbeats", () => {
   ])("rejects a %s key", async (_label, update) => {
     const fixture = await registeredDeployment()
     const [column, value] = Object.entries(update)[0]!
-    await env.CONTROL_DB.prepare(`UPDATE deployment_keys SET ${column} = ? WHERE key_id = ?`)
-      .bind(value, fixture.keyId)
+    await env.CONTROL_DB.prepare(
+      `UPDATE deployment_keys SET ${column} = ? WHERE key_id = ? AND deployment_id = ?`,
+    )
+      .bind(value, fixture.keyId, fixture.deploymentId)
       .run()
     expect((await signedHeartbeat({
       deploymentId: fixture.deploymentId,
@@ -600,11 +713,12 @@ describe("signed deployment heartbeats", () => {
   it("rejects expired and replaced keys", async () => {
     const expired = await registeredDeployment()
     await env.CONTROL_DB.prepare(
-      "UPDATE deployment_keys SET not_before = ?, expires_at = ? WHERE key_id = ?",
+      "UPDATE deployment_keys SET not_before = ?, expires_at = ? WHERE key_id = ? AND deployment_id = ?",
     ).bind(
       new Date(Date.now() - 60_000).toISOString(),
       new Date(Date.now() - 1).toISOString(),
       expired.keyId,
+      expired.deploymentId,
     ).run()
     expect((await signedHeartbeat({
       deploymentId: expired.deploymentId,
@@ -614,8 +728,8 @@ describe("signed deployment heartbeats", () => {
 
     const replaced = await registeredDeployment()
     await env.CONTROL_DB.prepare(
-      "UPDATE deployment_keys SET replaced_by_key_id = key_id WHERE key_id = ?",
-    ).bind(replaced.keyId).run()
+      "UPDATE deployment_keys SET replaced_by_key_id = key_id WHERE key_id = ? AND deployment_id = ?",
+    ).bind(replaced.keyId, replaced.deploymentId).run()
     expect((await signedHeartbeat({
       deploymentId: replaced.deploymentId,
       keyId: replaced.keyId,
@@ -710,7 +824,23 @@ describe("signed deployment heartbeats", () => {
     })
     expect(response.status).toBe(500)
     expect(await env.CONTROL_DB.prepare(
-      "SELECT COUNT(*) AS count FROM deployment_request_nonces WHERE deployment_key_id = (SELECT id FROM deployment_keys WHERE key_id = ?)",
-    ).bind(fixture.keyId).first<{ count: number }>()).toEqual({ count: 0 })
+      "SELECT COUNT(*) AS count FROM deployment_request_nonces WHERE deployment_key_id = (SELECT id FROM deployment_keys WHERE key_id = ? AND deployment_id = ?)",
+    ).bind(fixture.keyId, fixture.deploymentId).first<{ count: number }>()).toEqual({ count: 0 })
+  })
+
+  it("rejects deeply nested JSON within the byte limit without overflowing", async () => {
+    const fixture = await registeredDeployment()
+    const depth = 16_000
+    const body = `${"[".repeat(depth)}0${"]".repeat(depth)}`
+    expect(encoder.encode(body).byteLength).toBeLessThanOrEqual(32_768)
+
+    const response = await signedHeartbeat({
+      deploymentId: fixture.deploymentId,
+      keyId: fixture.keyId,
+      privateKey: fixture.pair.privateKey,
+      body,
+    })
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: "invalid_request" })
   })
 })

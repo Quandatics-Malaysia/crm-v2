@@ -130,7 +130,7 @@ export const deploymentKeys = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("deployment_keys_key_id_idx").on(table.keyId),
+    uniqueIndex("deployment_keys_deployment_key_id_idx").on(table.deploymentId, table.keyId),
     uniqueIndex("deployment_keys_registration_token_idx").on(table.registrationTokenId),
     index("deployment_keys_active_idx").on(table.deploymentId, table.revokedAt),
     index("deployment_keys_lifecycle_idx").on(

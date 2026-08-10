@@ -6,16 +6,28 @@ ALTER TABLE install_tokens ADD COLUMN registration_key_fingerprint TEXT;
 ALTER TABLE deployment_keys ADD COLUMN algorithm TEXT
 CHECK (algorithm IS NULL OR algorithm = 'Ed25519');
 ALTER TABLE deployment_keys ADD COLUMN fingerprint TEXT
-CHECK (fingerprint IS NULL OR length(fingerprint) = 43);
+CHECK (fingerprint IS NULL OR length(fingerprint) = 43 OR fingerprint = 'legacy:pending');
 ALTER TABLE deployment_keys ADD COLUMN not_before TEXT;
 ALTER TABLE deployment_keys ADD COLUMN expires_at TEXT;
-ALTER TABLE deployment_keys ADD COLUMN replaced_by_key_id TEXT
-REFERENCES deployment_keys(key_id);
+ALTER TABLE deployment_keys ADD COLUMN replaced_by_key_id TEXT;
 ALTER TABLE deployment_keys ADD COLUMN registration_token_id TEXT
 REFERENCES install_tokens(id);
 
-CREATE UNIQUE INDEX deployment_keys_key_id_idx
-ON deployment_keys (key_id);
+UPDATE deployment_keys
+SET algorithm = 'Ed25519',
+    fingerprint = 'legacy:pending',
+    not_before = created_at;
+
+UPDATE deployments
+SET registered_at = (
+      SELECT MIN(deployment_keys.created_at)
+      FROM deployment_keys
+      WHERE deployment_keys.deployment_id = deployments.id
+    ),
+    registration_key_fingerprint = 'legacy:pending'
+WHERE EXISTS (
+  SELECT 1 FROM deployment_keys WHERE deployment_keys.deployment_id = deployments.id
+);
 
 CREATE UNIQUE INDEX deployment_keys_registration_token_idx
 ON deployment_keys (registration_token_id)
@@ -42,12 +54,45 @@ BEFORE UPDATE OF key_id, algorithm, fingerprint, not_before, expires_at ON deplo
 WHEN NEW.algorithm IS NULL
   OR NEW.algorithm != 'Ed25519'
   OR NEW.fingerprint IS NULL
-  OR length(NEW.fingerprint) != 43
+  OR (length(NEW.fingerprint) != 43 AND NEW.fingerprint != 'legacy:pending')
   OR NEW.not_before IS NULL
   OR length(NEW.key_id) != 36
   OR (NEW.expires_at IS NOT NULL AND NEW.expires_at <= NEW.not_before)
 BEGIN
   SELECT RAISE(ABORT, 'deployment key protocol fields are invalid');
+END;
+
+CREATE TRIGGER deployment_key_identity_immutable
+BEFORE UPDATE OF key_id, algorithm, fingerprint ON deployment_keys
+WHEN NEW.key_id != OLD.key_id
+  OR NEW.algorithm != OLD.algorithm
+  OR NEW.fingerprint != OLD.fingerprint
+BEGIN
+  SELECT RAISE(ABORT, 'deployment key identity is immutable');
+END;
+
+CREATE TRIGGER deployment_key_replacement_insert
+BEFORE INSERT ON deployment_keys
+WHEN NEW.replaced_by_key_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM deployment_keys
+    WHERE deployment_id = NEW.deployment_id
+      AND key_id = NEW.replaced_by_key_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'replacement key must belong to deployment');
+END;
+
+CREATE TRIGGER deployment_key_replacement_update
+BEFORE UPDATE OF replaced_by_key_id ON deployment_keys
+WHEN NEW.replaced_by_key_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM deployment_keys
+    WHERE deployment_id = NEW.deployment_id
+      AND key_id = NEW.replaced_by_key_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'replacement key must belong to deployment');
 END;
 
 CREATE TRIGGER deployment_registration_key_gate

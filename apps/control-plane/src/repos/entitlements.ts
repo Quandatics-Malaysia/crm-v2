@@ -15,6 +15,8 @@ const DAY_MS = 24 * 60 * 60 * 1_000
 const HEARTBEAT_FRESHNESS_MS = 30 * 60 * 1_000
 const RENEWAL_HORIZON_MS = 6 * 60 * 60 * 1_000
 const CLAIM_TTL_MS = 2 * 60 * 1_000
+const RENEWAL_BATCH_SIZE = 50
+const MAX_RENEWAL_SCANS = 500
 const canonicalInstant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 type ReleaseChannel = "stable" | "beta" | "canary"
@@ -59,7 +61,14 @@ interface StoredEntitlementRow {
   issued_at: string
 }
 
-class DeploymentUnavailableError extends Error {}
+class DeploymentUnavailableError extends Error {
+  readonly snapshot: EntitlementStateRow
+
+  constructor(snapshot: EntitlementStateRow) {
+    super("Deployment is unavailable")
+    this.snapshot = snapshot
+  }
+}
 
 export interface EntitlementRecord {
   id: string
@@ -332,7 +341,7 @@ async function loadState(database: D1Database, deploymentId: string, contractId?
   ).bind(deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
   if (!row) throw notFound()
   if (row.client_id !== row.contract_client_id) throw badRequest()
-  if (row.deployment_status !== "active" || row.registered_at === null) throw new DeploymentUnavailableError()
+  if (row.deployment_status !== "active" || row.registered_at === null) throw new DeploymentUnavailableError(row)
   return row
 }
 
@@ -600,6 +609,30 @@ async function claimRenewal(
   return claim?.state === "claimed" && claim.claim_token === token ? token : null
 }
 
+async function updateScheduleFromSnapshot(
+  database: D1Database,
+  snapshot: EntitlementStateRow,
+  nextCheckAt: string,
+  updatedAt: string,
+): Promise<boolean> {
+  const result = await database.prepare(
+    "UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE deployment_id = ? AND contract_id = ? AND state_revision = ? AND latest_version IS ? AND EXISTS (SELECT 1 FROM contracts c WHERE c.id = ? AND c.entitlement_revision = ?) AND EXISTS (SELECT 1 FROM deployments d WHERE d.id = ? AND d.status = ? AND d.registered_at IS ?)",
+  ).bind(
+    nextCheckAt,
+    updatedAt,
+    snapshot.deployment_id,
+    snapshot.contract_id,
+    snapshot.state_revision,
+    snapshot.latest_version,
+    snapshot.contract_id,
+    snapshot.entitlement_revision,
+    snapshot.deployment_id,
+    snapshot.deployment_status,
+    snapshot.registered_at,
+  ).run()
+  return (result.meta.changes ?? 0) > 0
+}
+
 export async function runEntitlementRenewal(environment: CloudflareBindings, clock = new Date()): Promise<{
   checked: number
   issued: number
@@ -608,15 +641,25 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
 }> {
   const now = new Date(clock.getTime())
   const activeKeyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
-  const due = await environment.CONTROL_DB.prepare(
-    "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.next_check_at <= ? OR (e.key_id <> ? AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?)))) ORDER BY s.next_check_at, s.deployment_id LIMIT 50",
-  ).bind(now.toISOString(), activeKeyId, activeKeyId, now.toISOString(), now.toISOString()).all<{ deployment_id: string; contract_id: string }>()
-  const summary = { checked: due.results.length, issued: 0, skipped: 0, failed: 0 }
-  for (const schedule of due.results) {
+  const summary = { checked: 0, issued: 0, skipped: 0, failed: 0 }
+  let cursor = ""
+  let workCount = 0
+  while (workCount < RENEWAL_BATCH_SIZE && summary.checked < MAX_RENEWAL_SCANS) {
+    const due = await environment.CONTROL_DB.prepare(
+      "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.deployment_id > ? AND (s.next_check_at <= ? OR (e.key_id <> ? AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?))))) ORDER BY s.deployment_id LIMIT ?",
+    ).bind(cursor, now.toISOString(), activeKeyId, activeKeyId, now.toISOString(), now.toISOString(), RENEWAL_BATCH_SIZE)
+      .all<{ deployment_id: string; contract_id: string }>()
+    if (due.results.length === 0) break
+    cursor = due.results.at(-1)!.deployment_id
+    for (const schedule of due.results) {
+      if (workCount >= RENEWAL_BATCH_SIZE || summary.checked >= MAX_RENEWAL_SCANS) break
+      summary.checked += 1
     let activeIssuanceKey: string | null = null
     let activeClaimToken: string | null = null
+    let activeSnapshot: EntitlementStateRow | null = null
     try {
       const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, schedule.contract_id)
+      activeSnapshot = row
       const desired = await desiredLease(environment.CONTROL_DB, row, activeKeyId, now)
       const latestRow = await environment.CONTROL_DB.prepare(
         "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT 1",
@@ -625,10 +668,9 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
       const materialChange = latest === null || canonicalJson(comparableLease(latest.envelope.payload)) !== canonicalJson(comparableLease(desired))
       const withinHorizon = latest === null || Date.parse(latest.envelope.payload.leaseExpiresAt) <= now.getTime() + RENEWAL_HORIZON_MS
       if (!materialChange && !withinHorizon) {
-        await environment.CONTROL_DB.prepare(
-          "UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE deployment_id = ?",
-        ).bind(nextCheck(row, latest.envelope.payload, now), now.toISOString(), schedule.deployment_id).run()
+        await updateScheduleFromSnapshot(environment.CONTROL_DB, row, nextCheck(row, latest.envelope.payload, now), now.toISOString())
         summary.skipped += 1
+        workCount += 1
         continue
       }
       const desiredHash = await sha256Base64Url(canonicalJson(comparableLease(desired)))
@@ -636,6 +678,20 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
       activeIssuanceKey = issuanceKey
       const claimToken = await claimRenewal(environment.CONTROL_DB, schedule.deployment_id, issuanceKey, activeKeyId, now)
       if (claimToken === null) {
+        const claim = await environment.CONTROL_DB.prepare(
+          "SELECT state, claim_expires_at, retry_at FROM entitlement_renewal_claims WHERE deployment_id = ? AND issuance_key = ?",
+        ).bind(schedule.deployment_id, issuanceKey).first<{
+          state: "claimed" | "issued" | "failed"
+          claim_expires_at: string
+          retry_at: string | null
+        }>()
+        const blockedUntil = claim?.state === "claimed" ? claim.claim_expires_at
+          : claim?.state === "failed" ? claim.retry_at : null
+        if (blockedUntil !== null && Date.parse(blockedUntil) > now.getTime()) {
+          await updateScheduleFromSnapshot(environment.CONTROL_DB, row, blockedUntil, now.toISOString())
+        } else {
+          workCount += 1
+        }
         summary.skipped += 1
         continue
       }
@@ -649,16 +705,22 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         now,
       })
       summary.issued += 1
+      workCount += 1
     } catch (error) {
       if (error instanceof DeploymentUnavailableError) {
         summary.skipped += 1
-        await environment.CONTROL_DB.prepare(
-          "UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE deployment_id = ?",
-        ).bind(new Date(now.getTime() + DAY_MS).toISOString(), now.toISOString(), schedule.deployment_id).run()
+        workCount += 1
+        await updateScheduleFromSnapshot(
+          environment.CONTROL_DB,
+          error.snapshot,
+          new Date(now.getTime() + DAY_MS).toISOString(),
+          now.toISOString(),
+        ).catch(() => false)
         continue
       }
       if (error instanceof SafeHttpError && error.code === "entitlement_state_changed") {
         summary.failed += 1
+        workCount += 1
         if (activeIssuanceKey !== null && activeClaimToken !== null) {
           await environment.CONTROL_DB.prepare(
             "UPDATE entitlement_renewal_claims SET state = 'failed', retry_at = ?, last_error_code = 'entitlement_state_changed', updated_at = ? WHERE deployment_id = ? AND issuance_key = ? AND state = 'claimed' AND claim_token = ?",
@@ -667,6 +729,7 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         continue
       }
       summary.failed += 1
+      workCount += 1
       const signingConfigurationInvalid = error instanceof Error &&
         error.message === "Entitlement signing configuration is unavailable"
       const deterministic = signingConfigurationInvalid || error instanceof SafeHttpError
@@ -692,12 +755,16 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         ).run().catch(() => null)
         failureStillOwned = (result?.meta.changes ?? 0) > 0
       }
-      if (failureStillOwned) {
-        await environment.CONTROL_DB.prepare(
-          "UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE deployment_id = ?",
-        ).bind(retryAt, now.toISOString(), schedule.deployment_id).run().catch(() => undefined)
+      if (failureStillOwned && activeSnapshot !== null) {
+        await updateScheduleFromSnapshot(
+          environment.CONTROL_DB,
+          activeSnapshot,
+          retryAt,
+          now.toISOString(),
+        ).catch(() => false)
       }
     }
+  }
   }
   return summary
 }

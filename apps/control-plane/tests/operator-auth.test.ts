@@ -1,9 +1,17 @@
 import { applyD1Migrations, env, SELF, type D1Migration } from "cloudflare:test"
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose"
+import {
+  createLocalJWKSet,
+  errors as joseErrors,
+  exportJWK,
+  generateKeyPair,
+  SignJWT,
+  type JWK,
+} from "jose"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
 import {
   AccessTokenInvalidError,
+  AccessVerifierUnavailableError,
   createAccessVerifier,
   type AccessVerifier,
 } from "../src/auth/access"
@@ -81,6 +89,43 @@ describe("operator authentication", () => {
 
     await expect(verifier(token)).rejects.toBeInstanceOf(AccessTokenInvalidError)
     expect((await fetchSession(verifier, token)).status).toBe(401)
+  })
+
+  it("reports remote JWKS outages as unavailable instead of invalid identity", async () => {
+    const { token } = await signedAccessToken()
+    const verifier = createAccessVerifier({
+      teamDomain: "team.cloudflareaccess.com",
+      audience,
+      jwks: async () => {
+        throw new joseErrors.JWKSTimeout()
+      },
+      algorithms: ["EdDSA"],
+    })
+
+    await expect(verifier(token)).rejects.toBeInstanceOf(AccessVerifierUnavailableError)
+    expect((await fetchSession(verifier, token)).status).toBe(503)
+  })
+
+  it("rejects an injected verifier when bindings are not the test environment", async () => {
+    const id = crypto.randomUUID()
+    const subject = `production-${id}`
+    const email = `${id}@example.com`
+    const now = new Date().toISOString()
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        "INSERT INTO operator_users (id, email, status, access_subject, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)",
+      ).bind(id, email, subject, now, now),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO operator_roles (operator_id, role, created_at) VALUES (?, 'vendor_owner', ?)",
+      ).bind(id, now),
+    ])
+
+    const verifier: AccessVerifier = async () => ({ subject, email })
+    const response = await fetchSession(verifier, "injected-token", {
+      ENVIRONMENT: "production",
+    } as unknown as Partial<CloudflareBindings>)
+
+    expect(response.status).toBe(503)
   })
 
   it("bootstraps the exact normalized owner once and resolves its canonical role", async () => {
@@ -211,8 +256,18 @@ describe("operator audit", () => {
     expect(row?.metadata_json).toBe('{"after":{"role":"vendor_owner"},"before":null}')
   })
 
-  it("rejects secret-bearing and unbounded audit metadata", () => {
-    expect(() => sanitizeAuditMetadata({ accessJwt: "secret" })).toThrow("sensitive")
+  it.each([
+    "apiKey",
+    "access_token",
+    "authorizationHeader",
+    "cookieValue",
+    "privateJwk",
+    "install-token",
+  ])("rejects sensitive audit metadata key %s", (key) => {
+    expect(() => sanitizeAuditMetadata({ [key]: "secret" })).toThrow("sensitive")
+  })
+
+  it("rejects unbounded audit metadata", () => {
     expect(() => sanitizeAuditMetadata({ value: "x".repeat(9_000) })).toThrow("limit")
   })
 

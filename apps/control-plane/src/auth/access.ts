@@ -124,7 +124,16 @@ export function createAccessVerifier(options: AccessVerifierOptions): AccessVeri
       if (error instanceof AccessTokenInvalidError) {
         throw error
       }
-      if (error instanceof joseErrors.JOSEError) {
+      if (
+        error instanceof joseErrors.JWTClaimValidationFailed ||
+        error instanceof joseErrors.JWTExpired ||
+        error instanceof joseErrors.JOSEAlgNotAllowed ||
+        error instanceof joseErrors.JOSENotSupported ||
+        error instanceof joseErrors.JWSInvalid ||
+        error instanceof joseErrors.JWTInvalid ||
+        error instanceof joseErrors.JWSSignatureVerificationFailed ||
+        error instanceof joseErrors.JWKSNoMatchingKey
+      ) {
         throw new AccessTokenInvalidError()
       }
       throw new AccessVerifierUnavailableError()
@@ -272,6 +281,9 @@ export async function requireOperator(
   const assertion = context.req.header("Cf-Access-Jwt-Assertion")
   if (!assertion) {
     throw unauthorized()
+  }
+  if (verifierOverride && String(context.env.ENVIRONMENT) !== "test") {
+    throw authenticationUnavailable()
   }
 
   let identity: VerifiedAccessIdentity

@@ -4,7 +4,7 @@ const MAX_AUDIT_DEPTH = 6
 const MAX_AUDIT_NODES = 512
 const MAX_AUDIT_STRING_LENGTH = 2_048
 const sensitiveKeyPattern =
-  /authorization|cookie|password|secret|token|private.*(?:key|jwk)|access.*jwt|jwt.*assertion/i
+  /authorization|bearer|cookie|credential|password|passwd|secret|token|apikey|accesskey|private(?:key|jwk)|signingkey|encryptionkey|accessjwt|jwtassertion/
 
 export type AuditOutcome = "success" | "denied" | "error"
 type AuditPrimitive = boolean | number | string | null
@@ -71,7 +71,7 @@ function canonicalize(value: unknown, depth: number, state: { nodes: number }): 
 
     const canonical: Record<string, AuditValue> = {}
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      if (sensitiveKeyPattern.test(key.replace(/[_-]/g, ""))) {
+      if (sensitiveKeyPattern.test(key.replace(/[^a-z0-9]/gi, "").toLowerCase())) {
         throw new TypeError("Audit metadata contains sensitive field")
       }
       canonical[key] = canonicalize(

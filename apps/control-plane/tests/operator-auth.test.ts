@@ -91,19 +91,57 @@ describe("operator authentication", () => {
     expect((await fetchSession(verifier, token)).status).toBe(401)
   })
 
-  it("reports remote JWKS outages as unavailable instead of invalid identity", async () => {
+  it.each([
+    { label: "transport failure", error: new TypeError("fetch failed") },
+    { label: "malformed JWKS", error: new joseErrors.JWKSInvalid("malformed JWKS") },
+    {
+      label: "non-200 JWKS response",
+      error: new joseErrors.JOSEError("Expected 200 OK from the JSON Web Key Set HTTP response"),
+    },
+    { label: "JWKS timeout", error: new joseErrors.JWKSTimeout() },
+  ])("reports $label as verifier unavailable", async ({ error }) => {
     const { token } = await signedAccessToken()
     const verifier = createAccessVerifier({
       teamDomain: "team.cloudflareaccess.com",
       audience,
       jwks: async () => {
-        throw new joseErrors.JWKSTimeout()
+        throw error
       },
       algorithms: ["EdDSA"],
     })
 
     await expect(verifier(token)).rejects.toBeInstanceOf(AccessVerifierUnavailableError)
     expect((await fetchSession(verifier, token)).status).toBe(503)
+  })
+
+  it("reports a malformed token as invalid identity", async () => {
+    const verifier = createAccessVerifier({
+      teamDomain: "team.cloudflareaccess.com",
+      audience,
+      jwks: async () => {
+        throw new Error("JWKS must not be reached for a malformed token")
+      },
+      algorithms: ["EdDSA"],
+    })
+
+    await expect(verifier("not-a-jwt")).rejects.toBeInstanceOf(AccessTokenInvalidError)
+    expect((await fetchSession(verifier, "not-a-jwt")).status).toBe(401)
+  })
+
+  it("reports a bad signature as invalid identity", async () => {
+    const { token } = await signedAccessToken()
+    const { publicKey } = await generateKeyPair("EdDSA")
+    const unrelatedJwk = await exportJWK(publicKey)
+    Object.assign(unrelatedJwk, { kid: "test-key", alg: "EdDSA", use: "sig" })
+    const verifier = createAccessVerifier({
+      teamDomain: "team.cloudflareaccess.com",
+      audience,
+      jwks: createLocalJWKSet({ keys: [unrelatedJwk] }),
+      algorithms: ["EdDSA"],
+    })
+
+    await expect(verifier(token)).rejects.toBeInstanceOf(AccessTokenInvalidError)
+    expect((await fetchSession(verifier, token)).status).toBe(401)
   })
 
   it("rejects an injected verifier when bindings are not the test environment", async () => {
@@ -258,11 +296,13 @@ describe("operator audit", () => {
 
   it.each([
     "apiKey",
-    "access_token",
-    "authorizationHeader",
-    "cookieValue",
-    "privateJwk",
-    "install-token",
+    "signingKey",
+    "ENTITLEMENT_SIGNING_PRIVATE_JWK",
+    "installToken",
+    "INSTALL_TOKEN_PEPPER",
+    "authorization",
+    "cookie",
+    "accessToken",
   ])("rejects sensitive audit metadata key %s", (key) => {
     expect(() => sanitizeAuditMetadata({ [key]: "secret" })).toThrow("sensitive")
   })

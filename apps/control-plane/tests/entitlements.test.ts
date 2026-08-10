@@ -2,6 +2,7 @@ import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
 import { canonicalJson, evaluateLease, signEnvelope, verifyEnvelope, type EntitlementLease, type SignedEnvelope } from "@crm/control-protocol"
+import { deploymentRequestTranscript, lowercaseHex, sha256, toBase64Url } from "@crm/control-protocol/deployment-auth"
 import { createApp } from "../src/index"
 import { publicKeyFingerprint } from "../src/auth/deployment"
 import {
@@ -736,14 +737,13 @@ describe("scheduler and retrieval", () => {
       .bind(crypto.randomUUID(), fixture.deploymentId, keyId, JSON.stringify({ kty: "OKP", crv: "Ed25519", x: key.x }), await publicKeyFingerprint(key.x!), createdAt, createdAt).run()
     const path = `/v1/deployments/${fixture.deploymentId}/entitlement/1`
     const timestamp = new Date().toISOString()
-    const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
-    const nonce = base64(crypto.getRandomValues(new Uint8Array(32)))
-    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array()))].map((byte) => byte.toString(16).padStart(2, "0")).join("")
-    const transcript = new TextEncoder().encode(`crm-deployment-request-v1\nGET\n${path}\n${fixture.deploymentId}\n${keyId}\n${timestamp}\n${nonce}\nsha-256=${digest}\n`)
+    const nonce = toBase64Url(crypto.getRandomValues(new Uint8Array(32)))
+    const digest = lowercaseHex(await sha256(new Uint8Array()))
+    const transcript = deploymentRequestTranscript({ method: "GET", path, deploymentId: fixture.deploymentId, keyId, timestamp, nonce, bodyDigestHex: digest })
     const signature = await crypto.subtle.sign("Ed25519", keyPair.privateKey, transcript)
     const headers = {
       "X-Deployment-Key-Id": keyId, "X-Deployment-Timestamp": timestamp,
-      "X-Deployment-Nonce": nonce, "X-Deployment-Signature": base64(new Uint8Array(signature)),
+      "X-Deployment-Nonce": nonce, "X-Deployment-Signature": toBase64Url(new Uint8Array(signature)),
     }
     const response = await createApp().fetch(new Request(`https://control.invalid${path}`, { headers }), bindings())
     const stored = await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 1)
@@ -757,12 +757,12 @@ describe("scheduler and retrieval", () => {
     const other = await seed()
     await issue(other)
     const otherPath = `/v1/deployments/${other.deploymentId}/entitlement/1`
-    const otherNonce = base64(crypto.getRandomValues(new Uint8Array(32)))
-    const otherTranscript = new TextEncoder().encode(`crm-deployment-request-v1\nGET\n${otherPath}\n${other.deploymentId}\n${keyId}\n${timestamp}\n${otherNonce}\nsha-256=${digest}\n`)
+    const otherNonce = toBase64Url(crypto.getRandomValues(new Uint8Array(32)))
+    const otherTranscript = deploymentRequestTranscript({ method: "GET", path: otherPath, deploymentId: other.deploymentId, keyId, timestamp, nonce: otherNonce, bodyDigestHex: digest })
     const otherSignature = await crypto.subtle.sign("Ed25519", keyPair.privateKey, otherTranscript)
     const wrongDeployment = await createApp().fetch(new Request(`https://control.invalid${otherPath}`, { headers: {
       "X-Deployment-Key-Id": keyId, "X-Deployment-Timestamp": timestamp,
-      "X-Deployment-Nonce": otherNonce, "X-Deployment-Signature": base64(new Uint8Array(otherSignature)),
+      "X-Deployment-Nonce": otherNonce, "X-Deployment-Signature": toBase64Url(new Uint8Array(otherSignature)),
     } }), bindings())
     expect(wrongDeployment.status).toBe(401)
   })

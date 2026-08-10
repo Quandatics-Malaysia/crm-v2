@@ -21,6 +21,7 @@ interface InstallTokenRow {
   environment: string
   deployment_status: string
   registered_at: string | null
+  deployment_registration_key_fingerprint: string | null
 }
 
 export interface DeploymentKeyRow {
@@ -74,8 +75,65 @@ export async function issueInstallToken(
 
 async function tokenRow(database: D1Database, digest: string): Promise<InstallTokenRow | null> {
   return database.prepare(
-    "SELECT t.id, t.deployment_id, t.token_digest, t.expires_at, t.used_at, t.registration_key_fingerprint, d.environment, d.status AS deployment_status, d.registered_at FROM install_tokens t JOIN deployments d ON d.id = t.deployment_id WHERE t.token_digest = ?",
+    "SELECT t.id, t.deployment_id, t.token_digest, t.expires_at, t.used_at, t.registration_key_fingerprint, d.environment, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint AS deployment_registration_key_fingerprint FROM install_tokens t JOIN deployments d ON d.id = t.deployment_id WHERE t.token_digest = ?",
   ).bind(digest).first<InstallTokenRow>()
+}
+
+function digestStringMatches(left: string, right: string): boolean {
+  try {
+    return timingSafeDigestEqual(fromBase64Url(left, 32), fromBase64Url(right, 32))
+  } catch {
+    return false
+  }
+}
+
+async function recoverRegisteredKey(
+  database: D1Database,
+  input: {
+    row: InstallTokenRow
+    registration: DeploymentRegistration
+    fingerprint: string
+    requestCorrelationId: string | null
+    now: string
+  },
+): Promise<{ deploymentId: string; keyId: string } | null> {
+  if (
+    input.row.deployment_id !== input.registration.deploymentId ||
+    input.row.environment !== input.registration.environment ||
+    input.row.deployment_status !== "active" ||
+    !Number.isFinite(Date.parse(input.row.expires_at)) ||
+    input.row.expires_at < input.now ||
+    input.row.used_at === null ||
+    input.row.registered_at === null ||
+    input.row.registration_key_fingerprint === null ||
+    input.row.deployment_registration_key_fingerprint === null ||
+    !digestStringMatches(input.row.registration_key_fingerprint, input.fingerprint) ||
+    !digestStringMatches(input.row.deployment_registration_key_fingerprint, input.fingerprint)
+  ) {
+    return null
+  }
+  const key = await database.prepare(
+    "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND registration_token_id = ?",
+  ).bind(input.registration.deploymentId, input.row.id).first<{ key_id: string; fingerprint: string }>()
+  if (!key || !digestStringMatches(key.fingerprint, input.fingerprint)) return null
+
+  const audit = await prepareOperatorAuditStatement(database, {
+    operatorId: null,
+    action: "deployment.register.retry",
+    targetType: "deployment",
+    targetId: input.registration.deploymentId,
+    outcome: "success",
+    requestId: safeRequestId(input.requestCorrelationId),
+    metadata: {
+      claimId: input.row.id,
+      fingerprint: input.fingerprint,
+      keyId: key.key_id,
+      agentVersion: input.registration.agentVersion,
+    },
+    createdAt: input.now,
+  })
+  await database.batch([audit.statement])
+  return { deploymentId: input.registration.deploymentId, keyId: key.key_id }
 }
 
 export async function registerDeployment(
@@ -101,22 +159,36 @@ export async function registerDeployment(
     : new Uint8Array(32)
   const digestMatches = timingSafeDigestEqual(computedDigestBytes, storedDigestBytes)
   const now = new Date().toISOString()
+  const fingerprint = await publicKeyFingerprint(registration.publicKey.x)
   if (
     !row ||
     !digestMatches ||
     row.deployment_id !== registration.deploymentId ||
     row.environment !== registration.environment ||
     row.deployment_status !== "active" ||
-    row.registered_at !== null ||
-    row.used_at !== null ||
-    row.registration_key_fingerprint !== null ||
     !Number.isFinite(Date.parse(row.expires_at)) ||
     row.expires_at < now
   ) {
     throw unauthorized()
   }
 
-  const fingerprint = await publicKeyFingerprint(registration.publicKey.x)
+  if (
+    row.registered_at !== null ||
+    row.used_at !== null ||
+    row.registration_key_fingerprint !== null ||
+    row.deployment_registration_key_fingerprint !== null
+  ) {
+    const recovered = await recoverRegisteredKey(database, {
+      row,
+      registration,
+      fingerprint,
+      requestCorrelationId,
+      now,
+    })
+    if (recovered) return recovered
+    throw unauthorized()
+  }
+
   const keyRecordId = crypto.randomUUID()
   const keyId = crypto.randomUUID()
   const audit = await prepareOperatorAuditStatement(database, {
@@ -156,7 +228,16 @@ export async function registerDeployment(
     ])
   } catch (error) {
     const current = await tokenRow(database, digest)
-    if (current?.used_at !== null || current?.registered_at !== null) throw unauthorized()
+    if (current) {
+      const recovered = await recoverRegisteredKey(database, {
+        row: current,
+        registration,
+        fingerprint,
+        requestCorrelationId,
+        now: new Date().toISOString(),
+      })
+      if (recovered) return recovered
+    }
     throw error
   }
 

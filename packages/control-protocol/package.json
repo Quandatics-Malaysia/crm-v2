@@ -23,6 +23,14 @@
       "worker": "./src/heartbeat.ts",
       "node": "./dist/heartbeat.js",
       "default": "./src/heartbeat.ts"
+    },
+    "./deployment-auth": {
+      "types": "./src/deployment-auth.ts",
+      "development": "./src/deployment-auth.ts",
+      "browser": "./src/deployment-auth.ts",
+      "worker": "./src/deployment-auth.ts",
+      "node": "./dist/deployment-auth.js",
+      "default": "./src/deployment-auth.ts"
     }
   },
   "scripts": {

@@ -12,7 +12,13 @@ const OpaqueVersionSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)
 const CanonicalTimestampSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
-  .refine((value) => !Number.isNaN(Date.parse(value)))
+  .refine((value) => {
+    try {
+      return new Date(value).toISOString() === value
+    } catch {
+      return false
+    }
+  })
 
 export const DeploymentRegistrationSchema = z
   .object({
@@ -38,7 +44,7 @@ export const DeploymentHeartbeatSchema = z
     environment: z.enum(["development", "staging", "production"]),
     applicationVersion: SemverSchema,
     imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-    entitlementVersion: OpaqueVersionSchema.nullable(),
+    entitlementVersion: z.number().int().min(1).max(2_147_483_647).nullable(),
     configurationVersion: OpaqueVersionSchema.nullable(),
     activeUserCount: z.number().int().min(0).max(100_000),
     reservedInvitationCount: z.number().int().min(0).max(100_000),

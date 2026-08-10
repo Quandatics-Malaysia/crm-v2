@@ -52,7 +52,8 @@
 
 **Interfaces:**
 - First boot creates an Ed25519 keypair in `/var/lib/crm-agent`, registers a one-time token, and persists deployment identity with mode `0600` private material.
-- Every five minutes it posts `DeploymentHeartbeat`, fetches newer entitlement/config bundles, and sends them to `WEB_INTERNAL_URL` with `AGENT_WEB_SECRET`.
+- Every 15 minutes with ±15% jitter it posts `DeploymentHeartbeat`, fetches newer entitlement bundles, and sends them to `WEB_INTERNAL_URL` with `AGENT_WEB_SECRET`.
+- Configuration delivery is deferred until signed control-plane retrieval and authenticated web apply endpoints exist; the agent only reports the web application's current configuration version.
 - Retry uses capped exponential backoff with jitter and never clears cached bundles on network failure.
 
 - [ ] Write failing tests with fake control-plane and CRM servers.
@@ -165,4 +166,3 @@
 - [ ] Build images and run the scenario against Compose.
 - [ ] Inspect agent environment and mounts to prove no DB credential/source is present.
 - [ ] Commit with `test: cover deployment entitlement lifecycle`.
-

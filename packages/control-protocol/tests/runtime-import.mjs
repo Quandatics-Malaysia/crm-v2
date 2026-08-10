@@ -12,3 +12,12 @@ test("plain Node imports the billing subpath", async () => {
 
   assert.equal(billing.countMonthlyBillingPeriods("2026-08-05", "2027-08-04"), 12)
 })
+
+test("plain Node imports deployment authentication helpers", async () => {
+  const deploymentAuth = await import("@crm/control-protocol/deployment-auth")
+
+  assert.equal(
+    deploymentAuth.lowercaseHex(await deploymentAuth.sha256(new TextEncoder().encode("abc"))),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  )
+})

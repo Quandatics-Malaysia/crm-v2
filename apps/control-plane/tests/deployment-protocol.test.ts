@@ -1,4 +1,10 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
+import {
+  deploymentRequestTranscript,
+  lowercaseHex,
+  sha256,
+  toBase64Url,
+} from "@crm/control-protocol/deployment-auth"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
 import { publicKeyFingerprint } from "../src/auth/deployment"
@@ -48,12 +54,6 @@ function bindings(database: D1Database = env.CONTROL_DB): CloudflareBindings {
     ENVIRONMENT: "test",
     INSTALL_TOKEN_PEPPER: pepper,
   } as unknown as CloudflareBindings
-}
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 function randomNonce(): string {
@@ -132,7 +132,7 @@ function heartbeatBody(deploymentId: string, overrides: Record<string, unknown> 
     environment: "production",
     applicationVersion: "2.3.4",
     imageDigest: `sha256:${"a".repeat(64)}`,
-    entitlementVersion: "entitlement-42",
+    entitlementVersion: 42,
     configurationVersion: "config-7",
     activeUserCount: 17,
     reservedInvitationCount: 3,
@@ -153,16 +153,19 @@ function transcript(
   nonce: string,
   bodyDigest: string,
 ): Uint8Array<ArrayBuffer> {
-  return encoder.encode(
-    `crm-deployment-request-v1\nPOST\n/v1/deployments/${deploymentId}/heartbeat\n${deploymentId}\n${keyId}\n${timestamp}\n${nonce}\nsha-256=${bodyDigest}\n`,
-  )
+  return deploymentRequestTranscript({
+    method: "POST",
+    path: `/v1/deployments/${deploymentId}/heartbeat`,
+    deploymentId,
+    keyId,
+    timestamp,
+    nonce,
+    bodyDigestHex: bodyDigest,
+  })
 }
 
 async function lowercaseHexDigest(body: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(body))
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
+  return lowercaseHex(await sha256(encoder.encode(body)))
 }
 
 async function signedHeartbeat(options: {
@@ -451,9 +454,59 @@ describe("deployment registration", () => {
     ).bind(fixture.deploymentId).first<{ metadata_json: string }>()
     expect(audit?.metadata_json).not.toContain(fixture.token.token)
     expect(audit?.metadata_json).not.toContain(fixture.publicJwk.x!)
+
+    await env.CONTROL_DB.prepare("UPDATE install_tokens SET expires_at = ? WHERE id = ?")
+      .bind(new Date(Date.now() - 1_000).toISOString(), fixture.token.id).run()
+    const expiredRetry = await createApp().fetch(
+      new Request("https://control.invalid/v1/deployments/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installationToken: fixture.token.token,
+          deploymentId: fixture.deploymentId,
+          environment: "production",
+          publicKey: fixture.publicJwk,
+          agentVersion: "1.2.4",
+        }),
+      }),
+      bindings(),
+    )
+    expect(expiredRetry.status).toBe(401)
   })
 
-  it("rejects expiry, wrong deployment, replay, malformed and private JWKs", async () => {
+  it("recovers a lost registration response only for the exact consumed token and public key", async () => {
+    const fixture = await registrationFixture()
+    expect(fixture.response.status).toBe(201)
+    const first = await fixture.response.json() as { deploymentId: string; keyId: string }
+
+    const retry = await createApp().fetch(
+      new Request("https://control.invalid/v1/deployments/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installationToken: fixture.token.token,
+          deploymentId: fixture.deploymentId,
+          environment: "production",
+          publicKey: fixture.publicJwk,
+          agentVersion: "1.2.4",
+        }),
+      }),
+      bindings(),
+    )
+    expect(retry.status).toBe(201)
+    await expect(retry.json()).resolves.toEqual(first)
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_keys WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).first<{ count: number }>()).toEqual({ count: 1 })
+
+    const audit = await env.CONTROL_DB.prepare(
+      "SELECT metadata_json FROM operator_audit_log WHERE action = 'deployment.register.retry' AND target_id = ?",
+    ).bind(fixture.deploymentId).first<{ metadata_json: string }>()
+    expect(audit?.metadata_json).not.toContain(fixture.token.token)
+    expect(audit?.metadata_json).not.toContain(fixture.publicJwk.x!)
+  })
+
+  it("rejects expiry, wrong deployment, different-key replay, malformed and private JWKs", async () => {
     const expired = await registrationFixture({
       expiresAt: new Date(Date.now() - 1_000).toISOString(),
     })
@@ -467,8 +520,17 @@ describe("deployment registration", () => {
     })
     expect(wrong.response.status).toBe(401)
 
+    const stagingDeploymentId = await createDeployment({ environment: "staging" })
+    const wrongEnvironment = await registrationFixture({
+      deploymentId: stagingDeploymentId,
+      tokenDeploymentId: stagingDeploymentId,
+    })
+    expect(wrongEnvironment.response.status).toBe(401)
+
     const valid = await registrationFixture()
     expect(valid.response.status).toBe(201)
+    const differentPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const differentJwk = await crypto.subtle.exportKey("jwk", differentPair.publicKey)
     const replay = await createApp().fetch(
       new Request("https://control.invalid/v1/deployments/register", {
         method: "POST",
@@ -477,7 +539,7 @@ describe("deployment registration", () => {
           installationToken: valid.token.token,
           deploymentId: valid.deploymentId,
           environment: "production",
-          publicKey: valid.publicJwk,
+          publicKey: { kty: "OKP", crv: "Ed25519", x: differentJwk.x },
           agentVersion: "1.2.3",
         }),
       }),
@@ -493,7 +555,7 @@ describe("deployment registration", () => {
     expect(privateKey.response.status).toBe(400)
   })
 
-  it("allows exactly one concurrent registration and rolls back token claims when key insert fails", async () => {
+  it("returns one key for concurrent identical registration and rolls back failed token claims", async () => {
     const deploymentId = await createDeployment()
     const token = await issueInstallToken(
       env.CONTROL_DB,
@@ -518,8 +580,10 @@ describe("deployment registration", () => {
       }),
       bindings(),
     )
-    const statuses = (await Promise.all([request(), request()])).map((response) => response.status)
-    expect(statuses.filter((status) => status === 201)).toHaveLength(1)
+    const responses = await Promise.all([request(), request()])
+    expect(responses.map((response) => response.status)).toEqual([201, 201])
+    const results = await Promise.all(responses.map((response) => response.json() as Promise<{ keyId: string }>))
+    expect(new Set(results.map((result) => result.keyId)).size).toBe(1)
     expect(await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM deployment_keys WHERE deployment_id = ?",
     ).bind(deploymentId).first<{ count: number }>()).toEqual({ count: 1 })

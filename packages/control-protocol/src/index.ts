@@ -27,3 +27,17 @@ export {
   type DeploymentHeartbeat,
   type DeploymentRegistration,
 } from "./heartbeat.js"
+export {
+  DEPLOYMENT_REQUEST_MAX_SKEW_MS,
+  deploymentNonceDigest,
+  deploymentRequestTranscript,
+  fromBase64Url as fromDeploymentBase64Url,
+  heartbeatTranscript,
+  importStrictEd25519PublicJwk,
+  installTokenDigest,
+  lowercaseHex,
+  parseCanonicalRequestTimestamp,
+  publicKeyFingerprint,
+  sha256,
+  toBase64Url as toDeploymentBase64Url,
+} from "./deployment-auth.js"

@@ -16,6 +16,7 @@ import { provisionDeploymentRuntime } from "./provision-deployment-runtime.mjs"
 
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const prNumberPattern = /^[1-9][0-9]*$/
+const ownedTemporaryPattern = /^\.(?:deployment-runtime-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp|cleanup-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.env)$/
 
 function secureDirectory(path) {
   mkdirSync(path, { recursive: true, mode: 0o700 })
@@ -123,6 +124,31 @@ function cleanupEnvironmentPath(paths, prNumber) {
   return { path: temporary, temporary: true }
 }
 
+function removeOwnedTemporaryState(paths) {
+  try {
+    const entries = readdirSync(paths.previewDirectory, { withFileTypes: true })
+    const ownedFiles = []
+    for (const entry of entries) {
+      const path = join(paths.previewDirectory, entry.name)
+      const metadata = lstatSync(path)
+      if (
+        !ownedTemporaryPattern.test(entry.name) ||
+        entry.isSymbolicLink() || !entry.isFile() ||
+        metadata.isSymbolicLink() || !metadata.isFile()
+      ) {
+        throw new Error("Unexpected preview state")
+      }
+      ownedFiles.push(path)
+    }
+    for (const path of ownedFiles) unlinkSync(path)
+    if (readdirSync(paths.previewDirectory).length !== 0) throw new Error("Unexpected preview state")
+    rmdirSync(paths.previewDirectory)
+  } catch (error) {
+    if (error instanceof Error && error.message === "Unexpected preview state") throw error
+    throw new Error("Unexpected preview state")
+  }
+}
+
 function runDocker(arguments_) {
   const result = spawnSync("docker", arguments_, { encoding: "utf8" })
   if (result.error !== undefined || result.status !== 0) throw new Error("Docker command failed")
@@ -179,10 +205,13 @@ export function cleanupPreviewDeployment(options) {
       unlinkSync(paths.envFile)
       rmdirSync(paths.previewDirectory)
       removed = true
+    } else {
+      removeOwnedTemporaryState(paths)
+      removed = true
     }
   } finally {
     if (environment.temporary && existsSync(environment.path)) unlinkSync(environment.path)
-    if (environment.temporary && !removed && readdirSync(paths.previewDirectory).length === 0) {
+    if (environment.temporary && !removed && existsSync(paths.previewDirectory) && readdirSync(paths.previewDirectory).length === 0) {
       rmdirSync(paths.previewDirectory)
     }
   }

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import test from "node:test"
+import { cleanupPreviewDeployment } from "../scripts/manage-preview-deployment.mjs"
 
 const scriptPath = resolve(import.meta.dirname, "../scripts/manage-preview-deployment.mjs")
 function makeRepository(root) {
@@ -26,6 +27,19 @@ function runManager(command, { stateRoot, repoRoot, prNumber = "42", environment
     encoding: "utf8",
     env: { ...process.env, ...environment },
   })
+}
+
+function withEnvironment(environment, operation) {
+  const previous = new Map(Object.keys(environment).map((key) => [key, process.env[key]]))
+  Object.assign(process.env, environment)
+  try {
+    return operation()
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 }
 
 function readEnvironment(path) {
@@ -161,6 +175,100 @@ test("cleanup creates a secret-safe temporary env when state and release metadat
   const envFile = join(stateRoot, "Quandatics-Malaysia", "crm-v2", "pr-42", "runtime.env")
   assert.equal(existsSync(envFile), false)
   assert.equal(existsSync(dirname(envFile)), false)
+})
+
+test("missing-state cleanup removes only owned runtime and teardown remnants", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "crm-preview-owned-remnants-"))
+  const stateRoot = join(temporary, "state")
+  const checkout = join(temporary, "checkout")
+  const previewDirectory = join(stateRoot, "Quandatics-Malaysia", "crm-v2", "pr-42")
+  const tools = join(temporary, "bin")
+  mkdirSync(checkout)
+  mkdirSync(previewDirectory, { recursive: true })
+  mkdirSync(tools)
+  fakeDocker(tools)
+  writeFileSync(join(previewDirectory, ".deployment-runtime-11111111-1111-4111-8111-111111111111.tmp"), "orphaned-secret")
+  writeFileSync(join(previewDirectory, ".cleanup-22222222-2222-4222-8222-222222222222.env"), "orphaned-cleanup-secret")
+  const environment = {
+    PATH: `${tools}:${process.env.PATH}`,
+    FAKE_DOCKER_LOG: join(temporary, "docker.log"),
+    FAKE_DOCKER_SNAPSHOT: join(temporary, "runtime.snapshot"),
+  }
+
+  const result = runManager("cleanup", { stateRoot, repoRoot: checkout, environment })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, "")
+  assert.equal(result.stderr, "")
+  assert.equal(existsSync(previewDirectory), false)
+})
+
+test("missing-state cleanup rejects and preserves unknown entries with a bounded error", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "crm-preview-unknown-remnant-"))
+  const stateRoot = join(temporary, "state")
+  const checkout = join(temporary, "checkout")
+  const previewDirectory = join(stateRoot, "Quandatics-Malaysia", "crm-v2", "pr-42")
+  const unknown = join(previewDirectory, "keep-me.txt")
+  const tools = join(temporary, "bin")
+  mkdirSync(checkout)
+  mkdirSync(previewDirectory, { recursive: true })
+  mkdirSync(tools)
+  fakeDocker(tools)
+  writeFileSync(unknown, "customer-secret-must-remain")
+  const environment = {
+    PATH: `${tools}:${process.env.PATH}`,
+    FAKE_DOCKER_LOG: join(temporary, "docker.log"),
+    FAKE_DOCKER_SNAPSHOT: join(temporary, "runtime.snapshot"),
+  }
+  const options = {
+    stateRoot,
+    repository: "Quandatics-Malaysia/crm-v2",
+    prNumber: "42",
+    repoRoot: checkout,
+  }
+
+  assert.throws(
+    () => withEnvironment(environment, () => cleanupPreviewDeployment(options)),
+    { message: "Unexpected preview state" },
+  )
+  assert.equal(readFileSync(unknown, "utf8"), "customer-secret-must-remain")
+
+  const cliResult = runManager("cleanup", { stateRoot, repoRoot: checkout, environment })
+  assert.notEqual(cliResult.status, 0)
+  assert.equal(cliResult.stdout, "")
+  assert.equal(cliResult.stderr, "preview deployment management failed\n")
+  assert.doesNotMatch(`${cliResult.stdout}${cliResult.stderr}`, /customer-secret|keep-me/)
+  assert.equal(readFileSync(unknown, "utf8"), "customer-secret-must-remain")
+})
+
+test("missing-state cleanup rejects owned-pattern symlinks without touching their targets", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "crm-preview-symlink-remnant-"))
+  const stateRoot = join(temporary, "state")
+  const checkout = join(temporary, "checkout")
+  const previewDirectory = join(stateRoot, "Quandatics-Malaysia", "crm-v2", "pr-42")
+  const target = join(temporary, "outside-secret")
+  const link = join(previewDirectory, ".deployment-runtime-33333333-3333-4333-8333-333333333333.tmp")
+  const tools = join(temporary, "bin")
+  mkdirSync(checkout)
+  mkdirSync(previewDirectory, { recursive: true })
+  mkdirSync(tools)
+  fakeDocker(tools)
+  writeFileSync(target, "outside-secret-must-remain")
+  symlinkSync(target, link)
+  const environment = {
+    PATH: `${tools}:${process.env.PATH}`,
+    FAKE_DOCKER_LOG: join(temporary, "docker.log"),
+    FAKE_DOCKER_SNAPSHOT: join(temporary, "runtime.snapshot"),
+  }
+
+  const result = runManager("cleanup", { stateRoot, repoRoot: checkout, environment })
+
+  assert.notEqual(result.status, 0)
+  assert.equal(result.stdout, "")
+  assert.equal(result.stderr, "preview deployment management failed\n")
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /outside-secret/)
+  assert.equal(lstatSync(link).isSymbolicLink(), true)
+  assert.equal(readFileSync(target, "utf8"), "outside-secret-must-remain")
 })
 
 test("cleanup retains persisted state only when Docker teardown or verification fails", () => {

@@ -150,6 +150,16 @@ GRANT EXECUTE ON FUNCTION record_deployment_entitlement_rejection(text, text, bi
 GRANT EXECUTE ON FUNCTION apply_verified_deployment_entitlement(text, text, bigint, text, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, public.deployment_subscription_status, integer, text[], timestamp with time zone) TO crm_app;
 GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state(timestamp with time zone) TO crm_app;
 
+-- Deployment seat reservations are global and contain normalized identities.
+-- Only the fixed-shape aggregate may cross the application-role boundary.
+ALTER TABLE deployment_seat_reservations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_seat_reservations FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_runtime_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_runtime_metadata FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON deployment_seat_reservations FROM crm_app;
+REVOKE ALL ON deployment_runtime_metadata FROM crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_status_rollup() TO crm_app;
+
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
 -- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by
 -- the migrating superuser => bypasses api_keys RLS for THIS query only). It

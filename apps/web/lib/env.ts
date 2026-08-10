@@ -27,6 +27,12 @@ export const env = {
   // Versioned, public-only vendor Ed25519 trust set. Signing keys never enter web.
   VENDOR_ENTITLEMENT_TRUST_SET: read("VENDOR_ENTITLEMENT_TRUST_SET"),
 
+  // Machine-only deployment agent boundary. Parsed strictly on route use.
+  DEPLOYMENT_ID: read("DEPLOYMENT_ID"),
+  AGENT_WEB_SECRET: read("AGENT_WEB_SECRET"),
+  APPLICATION_VERSION: read("APPLICATION_VERSION"),
+  MIGRATION_VERSION: read("MIGRATION_VERSION"),
+
   // Microsoft Entra (single-tenant app registration)
   MICROSOFT_CLIENT_ID: read("MICROSOFT_CLIENT_ID"),
   MICROSOFT_CLIENT_SECRET: read("MICROSOFT_CLIENT_SECRET"),

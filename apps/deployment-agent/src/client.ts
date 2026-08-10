@@ -332,14 +332,13 @@ export function createDeploymentClient(input: {
         },
         now,
       )
-      if (!(response.status >= 200 && response.status < 300) && response.status !== 409) {
+      if (response.status !== 200) {
         throw new AgentRequestError(`http_${response.status}`, false)
       }
       const result = await parseJson(response, applyResponseSchema)
-      const accepted = result.revision === expectedVersion && (
-        response.status === 409 ? result.outcome === "idempotent" : true
-      )
-      if (!accepted) throw new AgentRequestError("entitlement_not_accepted", false)
+      if (result.revision !== expectedVersion) {
+        throw new AgentRequestError("entitlement_not_accepted", false)
+      }
     },
   }
 }

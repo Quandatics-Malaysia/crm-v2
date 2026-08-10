@@ -122,6 +122,7 @@ export type DeploymentAccess = {
   contractStartsAt: string | null
   contractEndsAt: string | null
   revision: number | null
+  configurationVersion: string | null
 }
 
 export interface DeploymentControlPersistence {
@@ -257,16 +258,12 @@ function unavailable(reason: string): DeploymentAccess {
     contractStartsAt: null,
     contractEndsAt: null,
     revision: null,
+    configurationVersion: null,
   }
 }
 
-async function getAccess(persistence: DeploymentControlPersistence, now: Date): Promise<DeploymentAccess> {
-  let state: DeploymentEntitlementState | null
-  try {
-    state = await persistence.getState(now)
-  } catch {
-    return unavailable("Entitlement state is unavailable")
-  }
+async function readAccess(persistence: DeploymentControlPersistence, now: Date): Promise<DeploymentAccess> {
+  const state = await persistence.getState(now)
   if (!state) return unavailable("No valid entitlement bundle is available")
 
   const access = evaluateLease(state.envelope.payload, {
@@ -282,6 +279,15 @@ async function getAccess(persistence: DeploymentControlPersistence, now: Date): 
     contractStartsAt: state.contractStartsAt.toISOString(),
     contractEndsAt: state.contractEndsAt.toISOString(),
     revision: state.revision,
+    configurationVersion: state.envelope.payload.configurationVersion,
+  }
+}
+
+async function getAccess(persistence: DeploymentControlPersistence, now: Date): Promise<DeploymentAccess> {
+  try {
+    return await readAccess(persistence, now)
+  } catch {
+    return unavailable("Entitlement state is unavailable")
   }
 }
 
@@ -404,4 +410,9 @@ export async function applySignedEntitlement(
 
 export function getDeploymentAccess(now = new Date()): Promise<DeploymentAccess> {
   return getAccess(postgresPersistence, now)
+}
+
+/** Status reporting must distinguish an absent lease from an unavailable database. */
+export function getDeploymentAccessForStatus(now = new Date()): Promise<DeploymentAccess> {
+  return readAccess(postgresPersistence, now)
 }

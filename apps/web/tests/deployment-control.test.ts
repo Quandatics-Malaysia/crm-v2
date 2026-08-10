@@ -337,6 +337,7 @@ describe("getDeploymentAccess", () => {
       contractStartsAt: null,
       contractEndsAt: null,
       revision: null,
+      configurationVersion: null,
     })
   })
 
@@ -349,7 +350,12 @@ describe("getDeploymentAccess", () => {
   ] as const)("evaluates exact lease and contract boundary %s", async (now, mode, writeAllowed) => {
     const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
     await service.applySignedEntitlement(await signed(), deploymentId)
-    await expect(service.getDeploymentAccess(new Date(now))).resolves.toMatchObject({ mode, writeAllowed, revision: 1 })
+    await expect(service.getDeploymentAccess(new Date(now))).resolves.toMatchObject({
+      mode,
+      writeAllowed,
+      revision: 1,
+      configurationVersion: "config-001",
+    })
   })
 
   it("uses a half-open contract term at the exact start boundary", async () => {

@@ -682,7 +682,7 @@ describe("deployment agent flow", () => {
       Response.json(status(null, { activeUserCount: 1 })),
       Response.json({ accepted: true, entitlement: { version: 5 } }, { status: 202 }),
       Response.json({ keyId: "vendor", payload: { revision: 5 }, signature: "valid" }),
-      Response.json({ outcome: "idempotent", revision: 5, mode: "active" }, { status: 409 }),
+      Response.json({ outcome: "idempotent", revision: 5, mode: "active" }, { status: 200 }),
     ]
     const agent = createDeploymentAgent({
       config: config(),
@@ -693,6 +693,29 @@ describe("deployment agent flow", () => {
     await agent.initialize()
     await agent.runOnce({ maxAttempts: 1 })
     expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(5)
+  })
+
+  it.each([201, 409])("does not advance runtime unless web apply returns exactly 200, got %i", async (statusCode) => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const responses = [
+      Response.json(status()),
+      Response.json({ accepted: true, entitlement: { version: 5 } }, { status: 202 }),
+      Response.json({ keyId: "vendor", payload: { revision: 5 }, signature: "valid" }),
+      Response.json({ outcome: "idempotent", revision: 5, mode: "active" }, { status: statusCode }),
+    ]
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch: async () => responses.shift()!,
+      random: () => 0,
+    })
+    await agent.initialize()
+
+    await expect(agent.runOnce({ maxAttempts: 1 })).rejects.toThrow()
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBeNull()
   })
 
   it("rejects status responses containing identity data before heartbeat", async () => {

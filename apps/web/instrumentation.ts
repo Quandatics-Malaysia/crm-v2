@@ -12,6 +12,8 @@
  *   3. If Microsoft Entra is configured, MICROSOFT_TENANT_ID must be a real
  *      directory GUID (not unset and not "common"), so we don't accept any
  *      Azure AD / personal account.
+ *   4. Machine-only deployment identity, secret, and release versions must be
+ *      canonical before any internal control endpoint can be served.
  */
 export async function register() {
   // Only the Node.js runtime can open a TCP Postgres connection (skip Edge).
@@ -32,6 +34,15 @@ export async function register() {
   if (process.env.NODE_ENV !== "production") return
 
   const errors: string[] = []
+
+  try {
+    const { loadInternalDeploymentEnv } = await import("@/lib/internal-agent-auth")
+    loadInternalDeploymentEnv(process.env)
+  } catch {
+    errors.push(
+      "DEPLOYMENT_ID, AGENT_WEB_SECRET, APPLICATION_VERSION, or MIGRATION_VERSION is missing or malformed."
+    )
+  }
 
   // 1. signing secret must not be the public dev default
   if ((process.env.BETTER_AUTH_SECRET ?? "") === "dev-secret-change-me-please") {

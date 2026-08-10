@@ -9,6 +9,8 @@ import {
   smallint,
   text,
   timestamp,
+  uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core"
 
 export const deploymentSubscriptionStatus = pgEnum("deployment_subscription_status", [
@@ -21,6 +23,13 @@ export const deploymentSubscriptionStatus = pgEnum("deployment_subscription_stat
 export const entitlementApplicationOutcome = pgEnum("entitlement_application_outcome", [
   "accepted",
   "rejected",
+])
+
+export const deploymentSeatReservationStatus = pgEnum("deployment_seat_reservation_status", [
+  "reserved",
+  "released",
+  "consumed",
+  "expired",
 ])
 
 /** One deployment-scoped, last-known-good signed entitlement. */
@@ -58,3 +67,32 @@ export const deploymentEntitlementHistory = pgTable(
   },
   (table) => [index("deployment_entitlement_history_received_idx").on(table.receivedAt)],
 )
+
+/** One row per invitation; duplicate identities consume one deployment seat. */
+export const deploymentSeatReservations = pgTable(
+  "deployment_seat_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invitationId: text("invitation_id").notNull(),
+    normalizedEmail: text("normalized_email").notNull(),
+    status: deploymentSeatReservationStatus("status").notNull().default("reserved"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("deployment_seat_reservations_invitation_uq").on(table.invitationId),
+    index("deployment_seat_reservations_live_identity_idx").on(
+      table.status,
+      table.expiresAt,
+      table.normalizedEmail,
+    ),
+  ],
+)
+
+/** Privileged migrator-published proof of the schema version actually applied. */
+export const deploymentRuntimeMetadata = pgTable("deployment_runtime_metadata", {
+  singleton: smallint("singleton").primaryKey().default(1),
+  migrationVersion: text("migration_version").notNull(),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+})

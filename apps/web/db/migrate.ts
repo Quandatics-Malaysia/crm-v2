@@ -5,6 +5,10 @@ import postgres from "postgres"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { migrate } from "drizzle-orm/postgres-js/migrator"
 import { ALL_PERMISSION_KEYS } from "@/lib/permissions"
+import {
+  latestAppliedMigrationVersion,
+  publishAppliedMigrationVersion,
+} from "@/db/migration-version"
 
 /**
  * Runs as the privileged (superuser) role. Applies Drizzle migrations, then the
@@ -18,9 +22,19 @@ async function main() {
 
   const sql = postgres(url, { max: 1 })
   const db = drizzle(sql)
+  const migrationsFolder = path.join(process.cwd(), "db/migrations")
+  const journal = JSON.parse(
+    readFileSync(path.join(migrationsFolder, "meta/_journal.json"), "utf8")
+  ) as unknown
+  const appliedMigrationVersion = latestAppliedMigrationVersion(journal)
 
   console.log("→ applying drizzle migrations…")
-  await migrate(db, { migrationsFolder: path.join(process.cwd(), "db/migrations") })
+  await migrate(db, { migrationsFolder })
+
+  // Publish only after every journalled migration completed. Web status reads
+  // this private DB value, never the source-tree journal, so partial/skipped
+  // migration runs cannot claim a newer applied version.
+  await publishAppliedMigrationVersion(sql, appliedMigrationVersion)
 
   // pg_trgm powers the fuzzy duplicate-account warnings (similarity()).
   // Requires superuser, which this job runs as; idempotent.

@@ -5,10 +5,17 @@ export const operatorUsers = sqliteTable(
   {
     id: text("id").primaryKey(),
     email: text("email").notNull(),
+    status: text("status", { enum: ["active", "disabled"] })
+      .notNull()
+      .default("active"),
+    accessSubject: text("access_subject"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
-  (table) => [uniqueIndex("operator_users_email_idx").on(table.email)],
+  (table) => [
+    uniqueIndex("operator_users_email_idx").on(table.email),
+    uniqueIndex("operator_users_access_subject_idx").on(table.accessSubject),
+  ],
 )
 
 export const operatorRoles = sqliteTable(
@@ -225,6 +232,9 @@ export const operatorAuditLog = sqliteTable(
     action: text("action").notNull(),
     targetType: text("target_type").notNull(),
     targetId: text("target_id").notNull(),
+    outcome: text("outcome", { enum: ["success", "denied", "error"] })
+      .notNull()
+      .default("success"),
     requestIdHash: text("request_id_hash").notNull(),
     metadataJson: text("metadata_json").notNull(),
     createdAt: text("created_at").notNull(),
@@ -232,5 +242,6 @@ export const operatorAuditLog = sqliteTable(
   (table) => [
     index("operator_audit_log_operator_created_idx").on(table.operatorId, table.createdAt),
     index("operator_audit_log_target_created_idx").on(table.targetType, table.targetId, table.createdAt),
+    index("operator_audit_log_action_created_idx").on(table.action, table.createdAt),
   ],
 )

@@ -55,6 +55,26 @@ function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
   }
 }
 
+function status(
+  revision: string | null = null,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    healthState: revision === null ? "unhealthy" : "healthy",
+    entitlement: {
+      revision,
+      configurationVersion: null,
+      mode: revision === null ? null : "active",
+      enabledModuleIds: [],
+    },
+    activeUserCount: 0,
+    reservedInvitationCount: 0,
+    applicationVersion: "2.3.4",
+    migrationVersion: "0066",
+    ...overrides,
+  }
+}
+
 afterEach(async () => {
   vi.restoreAllMocks()
 })
@@ -85,6 +105,7 @@ describe("agent configuration", () => {
       INSTALLATION_TOKEN: "short",
       AGENT_WEB_SECRET: "short",
       APPLICATION_VERSION: "latest",
+      AGENT_VERSION: "1.0.0-01",
       IMAGE_DIGEST: "sha256:ABC",
       MIGRATION_VERSION: "bad value",
     })) {
@@ -125,7 +146,8 @@ describe("durable identity and runtime state", () => {
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
 
-    expect(identity.keyId).toBeNull()
+    expect(identity.keyId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(await store.isRegistered(identity)).toBe(false)
     expect(identity.privateJwk).toEqual({
       kty: "OKP",
       crv: "Ed25519",
@@ -137,6 +159,47 @@ describe("durable identity and runtime state", () => {
     const disk = await readFile(join(directory, "identity.json"), "utf8")
     expect(disk).not.toContain(token)
     expect(await store.loadIdentity()).toEqual(identity)
+  })
+
+  it("concurrent first boot installs one immutable identity and both processes converge", async () => {
+    const directory = await stateDirectory()
+    let waiting = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => { release = resolve })
+    const beforeIdentityInstall = async () => {
+      waiting += 1
+      if (waiting === 2) release()
+      await barrier
+    }
+    const firstStore = await createStateStore(directory, { beforeIdentityInstall })
+    const secondStore = await createStateStore(directory, { beforeIdentityInstall })
+
+    const [first, second] = await Promise.all([
+      generateIdentity(config(), firstStore),
+      generateIdentity(config(), secondStore),
+    ])
+
+    expect(first).toEqual(second)
+    expect(await firstStore.loadIdentity()).toEqual(first)
+    expect(await firstStore.isRegistered(first)).toBe(false)
+  })
+
+  it("serializes registration state without overwriting a conflicting key ID", async () => {
+    const directory = await stateDirectory()
+    const firstStore = await createStateStore(directory)
+    const secondStore = await createStateStore(directory)
+    const identity = await generateIdentity(config(), firstStore)
+
+    await Promise.all([
+      firstStore.markRegistered(identity),
+      secondStore.markRegistered(identity),
+    ])
+    expect(await firstStore.isRegistered(identity)).toBe(true)
+    await expect(secondStore.markRegistered({
+      ...identity,
+      keyId: "33333333-3333-4333-8333-333333333333",
+    })).rejects.toThrow("does not match identity")
+    expect(await firstStore.isRegistered(identity)).toBe(true)
   })
 
   it("rejects unsafe directory, symlink, permissions, and corrupt identity", async () => {
@@ -244,7 +307,7 @@ describe("deployment agent flow", () => {
     const registeredDirectory = await stateDirectory()
     const registeredStore = await createStateStore(registeredDirectory)
     const registeredIdentity = await generateIdentity(config(), registeredStore)
-    await registeredStore.saveIdentity({ ...registeredIdentity, keyId })
+    await registeredStore.markRegistered(registeredIdentity)
     await expect(createDeploymentAgent({
       config: config({ installationToken: undefined }),
       store: registeredStore,
@@ -262,6 +325,8 @@ describe("deployment agent flow", () => {
     const controlRequests: RecordedRequest[] = []
     const webRequests: RecordedRequest[] = []
     let registeredPublicKey: JsonWebKey | null = null
+    let registeredKeyId: string | null = null
+    let webRevision: string | null = null
     const envelope = { keyId: "vendor-key", payload: { revision: 4 }, signature: "signed-envelope" }
 
     const control = await listen(async (request, response) => {
@@ -269,9 +334,10 @@ describe("deployment agent flow", () => {
       const path = request.url ?? ""
       controlRequests.push({ method: request.method ?? "", path, body, headers: request.headers })
       if (path === "/v1/deployments/register") {
-        const registration = JSON.parse(body) as { publicKey: JsonWebKey }
+        const registration = JSON.parse(body) as { keyId: string; publicKey: JsonWebKey }
         registeredPublicKey = registration.publicKey
-        json(response, 201, { deploymentId, keyId })
+        registeredKeyId = registration.keyId
+        json(response, 201, { deploymentId, keyId: registration.keyId })
         return
       }
       const timestamp = request.headers["x-deployment-timestamp"]
@@ -288,7 +354,7 @@ describe("deployment agent flow", () => {
           method: request.method as "GET" | "POST",
           path,
           deploymentId,
-          keyId,
+          keyId: registeredKeyId!,
           timestamp: timestamp as string,
           nonce: nonce as string,
           bodyDigestHex: lowercaseHex(await sha256(new TextEncoder().encode(body))),
@@ -301,8 +367,8 @@ describe("deployment agent flow", () => {
           deploymentId,
           applicationVersion: "2.3.4",
           migrationVersion: "0066",
-          entitlementVersion: null,
-          configurationVersion: "config-3",
+          entitlementVersion: webRevision,
+          configurationVersion: webRevision === null ? null : "config-3",
           activeUserCount: 9,
         })
         json(response, 202, { accepted: true, entitlement: { version: 4 } })
@@ -316,20 +382,20 @@ describe("deployment agent flow", () => {
       webRequests.push({ method: request.method ?? "", path, body, headers: request.headers })
       expect(request.headers.authorization).toBe(`Bearer ${secret}`)
       if (request.method === "GET") {
-        json(response, 200, {
-          applicationVersion: "2.3.4",
-          migrationVersion: "0066",
-          entitlementVersion: null,
-          configurationVersion: "config-3",
+        json(response, 200, status(webRevision, {
+          healthState: webRevision === null ? "unhealthy" : "healthy",
+          entitlement: {
+            revision: webRevision,
+            configurationVersion: webRevision === null ? null : "config-3",
+            mode: webRevision === null ? null : "active",
+            enabledModuleIds: webRevision === null ? [] : ["projects"],
+          },
           activeUserCount: 9,
           reservedInvitationCount: 1,
-          enabledModuleIds: ["projects"],
-          healthState: "healthy",
-          lastSuccessfulBackupAt: null,
-          lastRestoreTestAt: null,
-        })
+        }))
       } else {
         expect(body).toBe(JSON.stringify(envelope))
+        webRevision = "4"
         json(response, 200, { outcome: "accepted", revision: 4, mode: "active" })
       }
     })
@@ -343,7 +409,10 @@ describe("deployment agent flow", () => {
         random: () => 0,
       })
       await agent.initialize()
-      expect((await store.loadIdentity())?.keyId).toBe(keyId)
+      const persistedIdentity = await store.loadIdentity()
+      expect(persistedIdentity?.keyId).toBe(registeredKeyId)
+      expect(await store.isRegistered(persistedIdentity!)).toBe(true)
+      expect((await lstat(join(directory, "registration.json"))).mode & 0o777).toBe(0o600)
       await agent.runOnce()
       expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(4)
       await agent.runOnce()
@@ -363,43 +432,36 @@ describe("deployment agent flow", () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const seenKeys: string[] = []
+    const seenKeyIds: string[] = []
     let attempts = 0
     const fetch: typeof globalThis.fetch = async (_input, init) => {
       attempts += 1
-      const body = JSON.parse(String(init?.body)) as { publicKey: { x: string } }
+      const body = JSON.parse(String(init?.body)) as { keyId: string; publicKey: { x: string } }
       seenKeys.push(body.publicKey.x)
+      seenKeyIds.push(body.keyId)
       if (attempts === 1) throw new TypeError("connection reset after response")
-      return Response.json({ deploymentId, keyId }, { status: 201 })
+      return Response.json({ deploymentId, keyId: body.keyId }, { status: 201 })
     }
 
     const first = createDeploymentAgent({ config: config(), store, fetch, random: () => 0 })
     await expect(first.initialize({ maxAttempts: 1 })).rejects.toThrow()
     const pending = await store.loadIdentity()
-    expect(pending?.keyId).toBeNull()
+    expect(pending?.keyId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(await store.isRegistered(pending!)).toBe(false)
     const restarted = createDeploymentAgent({ config: config(), store, fetch, random: () => 0 })
     await restarted.initialize({ maxAttempts: 1 })
     expect(seenKeys).toEqual([pending?.privateJwk.x, pending?.privateJwk.x])
-    expect((await store.loadIdentity())?.keyId).toBe(keyId)
+    expect(new Set(seenKeyIds)).toEqual(new Set([pending!.keyId]))
+    expect(await store.isRegistered((await store.loadIdentity())!)).toBe(true)
   })
 
   it("does not advance runtime after fetch or apply failure and fails closed on control 401", async () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
+    await store.markRegistered(identity)
     const responses = [
-      Response.json({
-        applicationVersion: "2.3.4",
-        migrationVersion: "0066",
-        entitlementVersion: null,
-        configurationVersion: null,
-        activeUserCount: 0,
-        reservedInvitationCount: 0,
-        enabledModuleIds: [],
-        healthState: "healthy",
-        lastSuccessfulBackupAt: null,
-        lastRestoreTestAt: null,
-      }),
+      Response.json(status()),
       Response.json({ accepted: true, entitlement: { version: 2 } }, { status: 202 }),
       new Response("unavailable", { status: 503 }),
     ]
@@ -420,20 +482,9 @@ describe("deployment agent flow", () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
+    await store.markRegistered(identity)
     const responses = [
-      Response.json({
-        applicationVersion: "2.3.4",
-        migrationVersion: "0066",
-        entitlementVersion: null,
-        configurationVersion: null,
-        activeUserCount: 0,
-        reservedInvitationCount: 0,
-        enabledModuleIds: [],
-        healthState: "healthy",
-        lastSuccessfulBackupAt: null,
-        lastRestoreTestAt: null,
-      }),
+      Response.json(status()),
       Response.json({ accepted: true, entitlement: { version: 3 } }, { status: 202 }),
       Response.json({ keyId: "vendor", payload: { revision: 3 }, signature: "valid" }),
       new Response("rejected", { status: 400 }),
@@ -454,20 +505,9 @@ describe("deployment agent flow", () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
+    await store.markRegistered(identity)
     const responses = [
-      Response.json({
-        applicationVersion: "2.3.4",
-        migrationVersion: "0066",
-        entitlementVersion: 5,
-        configurationVersion: null,
-        activeUserCount: 1,
-        reservedInvitationCount: 0,
-        enabledModuleIds: [],
-        healthState: "healthy",
-        lastSuccessfulBackupAt: null,
-        lastRestoreTestAt: null,
-      }),
+      Response.json(status(null, { activeUserCount: 1 })),
       Response.json({ accepted: true, entitlement: { version: 5 } }, { status: 202 }),
       Response.json({ keyId: "vendor", payload: { revision: 5 }, signature: "valid" }),
       Response.json({ outcome: "idempotent", revision: 5, mode: "active" }, { status: 409 }),
@@ -487,46 +527,121 @@ describe("deployment agent flow", () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
-      applicationVersion: "2.3.4",
-      migrationVersion: "0066",
-      entitlementVersion: null,
-      configurationVersion: null,
+    await store.markRegistered(identity)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(status(null, {
       activeUserCount: 1,
-      reservedInvitationCount: 0,
-      enabledModuleIds: [],
-      healthState: "healthy",
-      lastSuccessfulBackupAt: null,
-      lastRestoreTestAt: null,
       users: ["person@example.com"],
-    }))
+    })))
     const agent = createDeploymentAgent({ config: config(), store, fetch })
     await agent.initialize()
     await expect(agent.runOnce({ maxAttempts: 1 })).rejects.toThrow("invalid_response")
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
+  it("repairs web entitlement loss even when runtime telemetry already has that revision", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    await store.saveRuntime({
+      schemaVersion: 1,
+      lastAppliedEntitlementVersion: 5,
+      lastAppliedConfigurationVersion: null,
+      hasAppliedValidEntitlement: true,
+      lastHeartbeatSucceededAt: null,
+      lastErrorCode: null,
+    })
+    const responses = [
+      Response.json(status()),
+      Response.json({ accepted: true, entitlement: { version: 5 } }, { status: 202 }),
+      Response.json({ keyId: "vendor", payload: { revision: 5 }, signature: "valid" }),
+      Response.json({ outcome: "accepted", revision: 5, mode: "active" }),
+    ]
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => responses.shift()!)
+    const agent = createDeploymentAgent({ config: config(), store, fetch, random: () => 0 })
+    await agent.initialize()
+    await agent.runOnce({ maxAttempts: 1 })
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(await readHealth(store)).toBe(true)
+  })
+
+  it("repairs from authoritative lower web revision and rejects control regression", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    await store.saveRuntime({
+      schemaVersion: 1,
+      lastAppliedEntitlementVersion: 9,
+      lastAppliedConfigurationVersion: null,
+      hasAppliedValidEntitlement: true,
+      lastHeartbeatSucceededAt: null,
+      lastErrorCode: null,
+    })
+    const repairResponses = [
+      Response.json(status("3")),
+      Response.json({ accepted: true, entitlement: { version: 4 } }, { status: 202 }),
+      Response.json({ keyId: "vendor", payload: { revision: 4 }, signature: "valid" }),
+      Response.json({ outcome: "accepted", revision: 4, mode: "active" }),
+    ]
+    const repair = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch: async () => repairResponses.shift()!,
+      random: () => 0,
+    })
+    await repair.initialize()
+    await repair.runOnce({ maxAttempts: 1 })
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(4)
+
+    const regressionFetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json(status("5")))
+      .mockResolvedValueOnce(Response.json({ accepted: true, entitlement: { version: 4 } }, { status: 202 }))
+    const regression = createDeploymentAgent({ config: config(), store, fetch: regressionFetch })
+    await regression.initialize()
+    await expect(regression.runOnce({ maxAttempts: 1 })).rejects.toThrow("control_entitlement_regressed")
+    expect(regressionFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("marks health false as soon as authenticated web status reports lost LKG", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    await store.saveRuntime({
+      schemaVersion: 1,
+      lastAppliedEntitlementVersion: 5,
+      lastAppliedConfigurationVersion: null,
+      hasAppliedValidEntitlement: true,
+      lastHeartbeatSucceededAt: null,
+      lastErrorCode: null,
+    })
+    const responses = [
+      Response.json(status()),
+      Response.json({ accepted: true, entitlement: { version: 5 } }, { status: 202 }),
+      new Response(null, { status: 503 }),
+    ]
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch: async () => responses.shift()!,
+      random: () => 0,
+    })
+    await agent.initialize()
+    await expect(agent.runOnce({ maxAttempts: 1 })).rejects.toThrow("http_503")
+    expect(await readHealth(store)).toBe(false)
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBeNull()
+  })
+
   it("retries transient failures with injected full-jitter delay", async () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
-    const status = {
-      applicationVersion: "2.3.4",
-      migrationVersion: "0066",
-      entitlementVersion: null,
-      configurationVersion: null,
-      activeUserCount: 0,
-      reservedInvitationCount: 0,
-      enabledModuleIds: [],
-      healthState: "healthy",
-      lastSuccessfulBackupAt: null,
-      lastRestoreTestAt: null,
-    }
+    await store.markRegistered(identity)
+    const currentStatus = status()
     const responses = [
       new Response(null, { status: 503 }),
-      Response.json(status),
+      Response.json(currentStatus),
       Response.json({ accepted: true, entitlement: null }, { status: 202 }),
     ]
     const delays: number[] = []
@@ -551,7 +666,7 @@ describe("deployment agent flow", () => {
     const directory = await stateDirectory()
     const store = await createStateStore(directory)
     const identity = await generateIdentity(config(), store)
-    await store.saveIdentity({ ...identity, keyId })
+    await store.markRegistered(identity)
     let aborted = false
     const fetch: typeof globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => {

@@ -1,5 +1,5 @@
 import { constants } from "node:fs"
-import { lstat, open, readFile, rename, unlink } from "node:fs/promises"
+import { link, lstat, open, readFile, rename, unlink } from "node:fs/promises"
 import { join } from "node:path"
 
 import { fromBase64Url } from "@crm/control-protocol/deployment-auth"
@@ -38,8 +38,15 @@ const identitySchema = z.object({
   schemaVersion: z.literal(1),
   deploymentId: uuidSchema,
   environment: z.enum(["development", "staging", "production"]),
-  keyId: uuidSchema.nullable(),
+  keyId: uuidSchema,
   privateJwk: privateJwkSchema,
+}).strict()
+
+const registrationSchema = z.object({
+  schemaVersion: z.literal(1),
+  deploymentId: uuidSchema,
+  keyId: uuidSchema,
+  registeredAt: timestampSchema,
 }).strict()
 
 const runtimeSchema = z.object({
@@ -53,7 +60,10 @@ const runtimeSchema = z.object({
 
 export type AgentIdentity = z.infer<typeof identitySchema>
 export type AgentRuntime = z.infer<typeof runtimeSchema>
-export type StateIoHooks = { beforeRename?: (target: "identity" | "runtime") => void | Promise<void> }
+export type StateIoHooks = {
+  beforeRename?: (target: "runtime") => void | Promise<void>
+  beforeIdentityInstall?: () => void | Promise<void>
+}
 
 const emptyRuntime = (): AgentRuntime => ({
   schemaVersion: 1,
@@ -66,6 +76,10 @@ const emptyRuntime = (): AgentRuntime => ({
 
 function isMissing(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
+}
+
+function isExists(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST"
 }
 
 async function validateDirectory(directory: string): Promise<void> {
@@ -95,10 +109,52 @@ async function validateFile(path: string, label: string, allowMissing: boolean):
 export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks: StateIoHooks = {}) {
   await validateDirectory(directory)
   const identityPath = join(directory, "identity.json")
+  const registrationPath = join(directory, "registration.json")
   const runtimePath = join(directory, "runtime.json")
 
+  async function syncDirectory(): Promise<void> {
+    const directoryHandle = await open(directory, constants.O_RDONLY)
+    try {
+      await directoryHandle.sync()
+    } finally {
+      await directoryHandle.close()
+    }
+  }
+
+  async function installExclusive(
+    target: "identity" | "registration",
+    path: string,
+    value: unknown,
+  ): Promise<boolean> {
+    await validateFile(path, target, true)
+    const temporaryPath = join(directory, `.${target}.${process.pid}.${crypto.randomUUID()}.tmp`)
+    let handle: Awaited<ReturnType<typeof open>> | null = null
+    try {
+      handle = await open(
+        temporaryPath,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      )
+      await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8")
+      await handle.sync()
+      await handle.close()
+      handle = null
+      if (target === "identity") await hooks.beforeIdentityInstall?.()
+      await link(temporaryPath, path)
+      await unlink(temporaryPath)
+      await validateFile(path, target, false)
+      await syncDirectory()
+      return true
+    } catch (error) {
+      await handle?.close().catch(() => undefined)
+      await unlink(temporaryPath).catch(() => undefined)
+      if (isExists(error)) return false
+      throw error
+    }
+  }
+
   async function atomicWrite(
-    target: "identity" | "runtime",
+    target: "runtime",
     path: string,
     value: unknown,
   ): Promise<void> {
@@ -118,12 +174,7 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
       await hooks.beforeRename?.(target)
       await rename(temporaryPath, path)
       await validateFile(path, target, false)
-      const directoryHandle = await open(directory, constants.O_RDONLY)
-      try {
-        await directoryHandle.sync()
-      } finally {
-        await directoryHandle.close()
-      }
+      await syncDirectory()
     } catch (error) {
       await handle?.close().catch(() => undefined)
       await unlink(temporaryPath).catch(() => undefined)
@@ -141,8 +192,31 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
         throw new Error("Agent identity is corrupt")
       }
     },
-    async saveIdentity(identity: AgentIdentity): Promise<void> {
-      await atomicWrite("identity", identityPath, identitySchema.parse(identity))
+    async installIdentity(identity: AgentIdentity): Promise<boolean> {
+      return installExclusive("identity", identityPath, identitySchema.parse(identity))
+    },
+    async isRegistered(identity: AgentIdentity): Promise<boolean> {
+      if (!await validateFile(registrationPath, "registration", true)) return false
+      let registration: z.infer<typeof registrationSchema>
+      try {
+        registration = registrationSchema.parse(JSON.parse(await readFile(registrationPath, "utf8")))
+      } catch {
+        throw new Error("Agent registration is corrupt")
+      }
+      if (registration.deploymentId !== identity.deploymentId || registration.keyId !== identity.keyId) {
+        throw new Error("Agent registration does not match identity")
+      }
+      return true
+    },
+    async markRegistered(identity: AgentIdentity): Promise<void> {
+      const candidate = registrationSchema.parse({
+        schemaVersion: 1,
+        deploymentId: identity.deploymentId,
+        keyId: identity.keyId,
+        registeredAt: new Date().toISOString(),
+      })
+      if (await installExclusive("registration", registrationPath, candidate)) return
+      if (!await this.isRegistered(identity)) throw new Error("Agent registration update failed")
     },
     async loadRuntime(): Promise<AgentRuntime> {
       if (!await validateFile(runtimePath, "runtime", true)) return emptyRuntime()
@@ -167,11 +241,14 @@ export async function generateIdentity(config: AgentConfig, store: AgentStateSto
     schemaVersion: 1,
     deploymentId: config.deploymentId,
     environment: config.environment,
-    keyId: null,
+    keyId: crypto.randomUUID(),
     privateJwk: { kty: "OKP", crv: "Ed25519", x: exported.x, d: exported.d },
   })
-  await store.saveIdentity(identity)
-  return identity
+  if (await store.installIdentity(identity)) return identity
+  const installed = await store.loadIdentity()
+  if (installed === null) throw new Error("Agent identity installation failed")
+  assertIdentityMatches(installed, config)
+  return installed
 }
 
 export function assertIdentityMatches(identity: AgentIdentity, config: AgentConfig): void {

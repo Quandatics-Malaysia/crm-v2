@@ -5,6 +5,8 @@ test("plain Node imports the built control protocol package", async () => {
   const protocol = await import("@crm/control-protocol")
 
   assert.equal(protocol.canonicalJson({ 2: "two", 10: "ten" }), '{"10":"ten","2":"two"}')
+  assert.equal(protocol.isStrictSemver("1.2.3-alpha.1+build.5"), true)
+  assert.equal(protocol.isStrictSemver("1.2.3-01"), false)
 })
 
 test("plain Node imports the billing subpath", async () => {

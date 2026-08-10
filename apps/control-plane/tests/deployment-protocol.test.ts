@@ -11,6 +11,7 @@ import { publicKeyFingerprint } from "../src/auth/deployment"
 import { createApp } from "../src/index"
 import { issueInstallToken } from "../src/repos/deployments"
 import { isSafeOpaqueLegacyKeyId } from "../src/routes/deployments"
+import { createDeploymentClient } from "../../deployment-agent/src/client.js"
 
 const pepper = "test-only-install-token-pepper"
 const encoder = new TextEncoder()
@@ -92,9 +93,11 @@ async function registrationFixture(options: {
   tokenDeploymentId?: string
   expiresAt?: string
   publicJwk?: JsonWebKey
+  keyId?: string
 } = {}) {
   const deploymentId = options.deploymentId ?? await createDeployment()
   const tokenDeploymentId = options.tokenDeploymentId ?? deploymentId
+  const keyId = options.keyId ?? crypto.randomUUID()
   const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
   const exportedPublicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
   const publicJwk = options.publicJwk ?? {
@@ -117,13 +120,14 @@ async function registrationFixture(options: {
         installationToken: token.token,
         deploymentId,
         environment: "production",
+        keyId,
         publicKey: publicJwk,
         agentVersion: "1.2.3",
       }),
     }),
     bindings(options.database),
   )
-  return { deploymentId, pair, publicJwk, token, response }
+  return { deploymentId, keyId, pair, publicJwk, token, response }
 }
 
 function heartbeatBody(deploymentId: string, overrides: Record<string, unknown> = {}) {
@@ -132,7 +136,7 @@ function heartbeatBody(deploymentId: string, overrides: Record<string, unknown> 
     environment: "production",
     applicationVersion: "2.3.4",
     imageDigest: `sha256:${"a".repeat(64)}`,
-    entitlementVersion: 42,
+    entitlementVersion: "42",
     configurationVersion: "config-7",
     activeUserCount: 17,
     reservedInvitationCount: 3,
@@ -418,12 +422,12 @@ describe("deployment registration", () => {
     expect(JSON.stringify(row)).not.toContain(issued.token)
   })
 
-  it("atomically consumes a deployment-bound token and creates one server-named public key", async () => {
+  it("atomically consumes a deployment-bound token and stores the client-precommitted key ID", async () => {
     const fixture = await registrationFixture()
     expect(fixture.response.status).toBe(201)
     await expect(fixture.response.json()).resolves.toMatchObject({
       deploymentId: fixture.deploymentId,
-      keyId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      keyId: fixture.keyId,
     })
 
     const state = await env.CONTROL_DB.prepare(
@@ -437,6 +441,7 @@ describe("deployment registration", () => {
     expect(state?.deployment_fingerprint).toBe(state?.token_fingerprint)
     expect(keys.results).toHaveLength(1)
     expect(keys.results[0]).toMatchObject({
+      key_id: fixture.keyId,
       algorithm: "Ed25519",
       fingerprint: state?.token_fingerprint,
       expires_at: null,
@@ -465,13 +470,34 @@ describe("deployment registration", () => {
           installationToken: fixture.token.token,
           deploymentId: fixture.deploymentId,
           environment: "production",
+          keyId: fixture.keyId,
           publicKey: fixture.publicJwk,
           agentVersion: "1.2.4",
         }),
       }),
       bindings(),
     )
-    expect(expiredRetry.status).toBe(401)
+    expect(expiredRetry.status).toBe(201)
+    await expect(expiredRetry.json()).resolves.toEqual({
+      deploymentId: fixture.deploymentId,
+      keyId: fixture.keyId,
+    })
+    const changedExpiredRetry = await createApp().fetch(
+      new Request("https://control.invalid/v1/deployments/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installationToken: fixture.token.token,
+          deploymentId: fixture.deploymentId,
+          environment: "production",
+          keyId: crypto.randomUUID(),
+          publicKey: fixture.publicJwk,
+          agentVersion: "1.2.4",
+        }),
+      }),
+      bindings(),
+    )
+    expect(changedExpiredRetry.status).toBe(401)
   })
 
   it("recovers a lost registration response only for the exact consumed token and public key", async () => {
@@ -487,6 +513,7 @@ describe("deployment registration", () => {
           installationToken: fixture.token.token,
           deploymentId: fixture.deploymentId,
           environment: "production",
+          keyId: fixture.keyId,
           publicKey: fixture.publicJwk,
           agentVersion: "1.2.4",
         }),
@@ -539,6 +566,7 @@ describe("deployment registration", () => {
           installationToken: valid.token.token,
           deploymentId: valid.deploymentId,
           environment: "production",
+          keyId: valid.keyId,
           publicKey: { kty: "OKP", crv: "Ed25519", x: differentJwk.x },
           agentVersion: "1.2.3",
         }),
@@ -546,6 +574,23 @@ describe("deployment registration", () => {
       bindings(),
     )
     expect(replay.status).toBe(401)
+
+    const differentKeyId = await createApp().fetch(
+      new Request("https://control.invalid/v1/deployments/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installationToken: valid.token.token,
+          deploymentId: valid.deploymentId,
+          environment: "production",
+          keyId: crypto.randomUUID(),
+          publicKey: valid.publicJwk,
+          agentVersion: "1.2.3",
+        }),
+      }),
+      bindings(),
+    )
+    expect(differentKeyId.status).toBe(401)
 
     const malformed = await registrationFixture({ publicJwk: { kty: "OKP", crv: "Ed25519", x: "AA" } })
     expect(malformed.response.status).toBe(400)
@@ -566,6 +611,7 @@ describe("deployment registration", () => {
     const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
     const exportedPublicKey = await crypto.subtle.exportKey("jwk", pair.publicKey)
     const publicKey = { kty: "OKP", crv: "Ed25519", x: exportedPublicKey.x }
+    const keyId = crypto.randomUUID()
     const request = () => createApp().fetch(
       new Request("https://control.invalid/v1/deployments/register", {
         method: "POST",
@@ -574,6 +620,7 @@ describe("deployment registration", () => {
           installationToken: token.token,
           deploymentId,
           environment: "production",
+          keyId,
           publicKey,
           agentVersion: "1.2.3",
         }),
@@ -608,6 +655,79 @@ describe("deployment registration", () => {
       "SELECT COUNT(*) AS count FROM deployment_keys WHERE deployment_id = ?",
     ).bind(rollbackDeploymentId).first<{ count: number }>()).toEqual({ count: 0 })
     expect(rollbackToken.token).not.toBe(failed.token.token)
+  })
+})
+
+describe("live agent/control interoperability", () => {
+  it("recovers a lost registration after expiry, then authenticates heartbeat and GET", async () => {
+    const deploymentId = await createDeployment({ environment: "development" })
+    const token = await issueInstallToken(
+      env.CONTROL_DB,
+      deploymentId,
+      pepper,
+      new Date(Date.now() + 60_000).toISOString(),
+    )
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey)
+    const keyId = crypto.randomUUID()
+    const identity = {
+      schemaVersion: 1 as const,
+      deploymentId,
+      environment: "development" as const,
+      keyId,
+      privateJwk: {
+        kty: "OKP" as const,
+        crv: "Ed25519" as const,
+        x: privateJwk.x!,
+        d: privateJwk.d!,
+      },
+    }
+    let loseFirstRegistrationResponse = true
+    const agentFetch: typeof globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init)
+      const response = await createApp().fetch(request, bindings())
+      if (request.url.endsWith("/v1/deployments/register") && loseFirstRegistrationResponse) {
+        loseFirstRegistrationResponse = false
+        throw new TypeError("response lost after server commit")
+      }
+      return response
+    }
+    const clientInput = {
+      config: {
+        controlPlaneUrl: "https://control.invalid",
+        deploymentId,
+        environment: "development",
+        installationToken: token.token,
+        webInternalUrl: "http://web.invalid",
+        webSecret: "A".repeat(43),
+        applicationVersion: "2.3.4",
+        agentVersion: "1.2.3",
+        imageDigest: `sha256:${"a".repeat(64)}`,
+        migrationVersion: "0066",
+      },
+      fetch: agentFetch,
+    } satisfies Parameters<typeof createDeploymentClient>[0]
+    const client = createDeploymentClient(clientInput)
+    const signal = new AbortController().signal
+
+    await expect(client.register(identity, signal)).rejects.toThrow("network_error")
+    await env.CONTROL_DB.prepare("UPDATE install_tokens SET expires_at = ? WHERE id = ?")
+      .bind(new Date(Date.now() - 1_000).toISOString(), token.id).run()
+    const restartedClient = createDeploymentClient(clientInput)
+    await expect(restartedClient.register(identity, signal)).resolves.toEqual({ deploymentId, keyId })
+
+    await expect(restartedClient.heartbeat(identity, heartbeatBody(deploymentId, {
+      environment: "development",
+      entitlementVersion: null,
+    }) as Parameters<typeof client.heartbeat>[1], signal)).resolves.toEqual({ accepted: true, entitlement: null })
+    await expect(restartedClient.entitlement(identity, 1, signal)).rejects.toThrow("http_404")
+
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_keys WHERE deployment_id = ? AND key_id = ?",
+    ).bind(deploymentId, keyId).first<{ count: number }>()).toEqual({ count: 1 })
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_request_nonces n JOIN deployment_keys k ON k.id = n.deployment_key_id WHERE k.deployment_id = ? AND k.key_id = ?",
+    ).bind(deploymentId, keyId).first<{ count: number }>()).toEqual({ count: 2 })
   })
 })
 

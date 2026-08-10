@@ -130,9 +130,9 @@ The vendor owner account must use SSO or a passkey with MFA. The owner must stor
 ### 6.1 Registration
 
 1. The vendor owner creates a client deployment and a single-use installation token.
-2. The deployment agent generates an Ed25519 identity key pair on the client server.
-3. The agent sends the token, deployment metadata, and public key to the registration endpoint over HTTPS.
-4. The control plane consumes the token once and binds the public-key fingerprint to the client and deployment.
+2. The deployment agent generates an Ed25519 identity key pair and canonical UUID key ID on the client server, then persists both before opening the registration request.
+3. The agent sends the token, deployment metadata, precommitted key ID, and public key to the registration endpoint over HTTPS.
+4. The control plane consumes the token once and binds the exact key ID and public-key fingerprint to the client and deployment. An identical retry returns that binding even after token expiry; any changed tuple is rejected.
 5. The agent stores its private key in a root-owned volume with mode `0600`.
 
 Each heartbeat includes a timestamp, nonce, body digest, and deployment signature. The control plane rejects reused nonces, stale timestamps, unknown key IDs, and invalid signatures. The agent pins the vendor entitlement-verification public key set.

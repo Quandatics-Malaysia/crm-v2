@@ -4,15 +4,32 @@ import {
   sha256,
   toBase64Url,
 } from "@crm/control-protocol/deployment-auth"
-import { ModuleIdSchema } from "@crm/control-protocol"
+import { ModuleIdSchema, StrictSemverSchema } from "@crm/control-protocol"
 import {
   DeploymentHeartbeatSchema,
   type DeploymentHeartbeat,
 } from "@crm/control-protocol/heartbeat"
 import { z } from "zod"
 
-import type { AgentConfig } from "./config.js"
-import type { AgentIdentity } from "./identity.js"
+export type DeploymentClientConfig = {
+  controlPlaneUrl: string
+  deploymentId: string
+  environment: "development" | "staging" | "production"
+  installationToken?: string
+  webInternalUrl: string
+  webSecret: string
+  applicationVersion: string
+  agentVersion: string
+  imageDigest: string
+  migrationVersion: string
+}
+
+export type DeploymentClientIdentity = {
+  deploymentId: string
+  environment: "development" | "staging" | "production"
+  keyId: string
+  privateJwk: { kty: "OKP"; crv: "Ed25519"; x: string; d: string }
+}
 
 const MAX_RESPONSE_BYTES = 131_072
 const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
@@ -25,22 +42,36 @@ const timestampSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.
     }
   })
 const opaqueVersionSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)
-const semverSchema = z.string().max(64).regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)
+const decimalRevisionSchema = z.string().regex(/^[1-9]\d{0,9}$/).refine((value) => Number(value) <= 2_147_483_647)
 
 const registrationResponseSchema = z.object({ deploymentId: uuidSchema, keyId: uuidSchema }).strict()
 const statusResponseSchema = z.object({
-  applicationVersion: semverSchema,
-  migrationVersion: opaqueVersionSchema,
-  entitlementVersion: z.number().int().min(1).max(2_147_483_647).nullable(),
-  configurationVersion: opaqueVersionSchema.nullable(),
+  healthState: z.enum(["healthy", "degraded", "unhealthy"]),
+  entitlement: z.object({
+    revision: decimalRevisionSchema.nullable(),
+    configurationVersion: opaqueVersionSchema.nullable(),
+    mode: z.enum(["active", "grace", "read_only"]).nullable(),
+    enabledModuleIds: z.array(ModuleIdSchema).max(32)
+      .refine((values) => new Set(values).size === values.length),
+  }).strict(),
   activeUserCount: z.number().int().min(0).max(100_000),
   reservedInvitationCount: z.number().int().min(0).max(100_000),
-  enabledModuleIds: z.array(ModuleIdSchema).max(32)
-    .refine((values) => new Set(values).size === values.length),
-  healthState: z.enum(["healthy", "degraded", "unhealthy"]),
-  lastSuccessfulBackupAt: timestampSchema.nullable(),
-  lastRestoreTestAt: timestampSchema.nullable(),
-}).strict()
+  applicationVersion: StrictSemverSchema,
+  migrationVersion: opaqueVersionSchema,
+}).strict().superRefine((status, context) => {
+  const hasEntitlement = status.entitlement.revision !== null
+  if (hasEntitlement && (status.entitlement.mode === null || status.healthState === "unhealthy")) {
+    context.addIssue({ code: "custom", path: ["entitlement"], message: "inconsistent entitlement status" })
+  }
+  if (!hasEntitlement && (
+    status.entitlement.mode !== null ||
+    status.entitlement.configurationVersion !== null ||
+    status.entitlement.enabledModuleIds.length !== 0 ||
+    status.healthState !== "unhealthy"
+  )) {
+    context.addIssue({ code: "custom", path: ["entitlement"], message: "inconsistent missing entitlement" })
+  }
+})
 const heartbeatResponseSchema = z.object({
   accepted: z.literal(true),
   entitlement: z.object({ version: z.number().int().min(1).max(2_147_483_647) }).strict().nullable(),
@@ -150,7 +181,7 @@ async function parseJson<T>(response: Response, schema: z.ZodType<T>): Promise<T
   }
 }
 
-async function importPrivateKey(identity: AgentIdentity): Promise<CryptoKey> {
+async function importPrivateKey(identity: DeploymentClientIdentity): Promise<CryptoKey> {
   try {
     return await crypto.subtle.importKey(
       "jwk",
@@ -165,7 +196,7 @@ async function importPrivateKey(identity: AgentIdentity): Promise<CryptoKey> {
 }
 
 export function createDeploymentClient(input: {
-  config: AgentConfig
+  config: DeploymentClientConfig
   fetch?: typeof globalThis.fetch
   now?: () => Date
   randomBytes?: (length: number) => Uint8Array<ArrayBuffer>
@@ -175,12 +206,11 @@ export function createDeploymentClient(input: {
   const randomBytes = input.randomBytes ?? ((length: number) => crypto.getRandomValues(new Uint8Array(length)))
 
   async function signedHeaders(
-    identity: AgentIdentity,
+    identity: DeploymentClientIdentity,
     method: "GET" | "POST",
     path: string,
     bodyBytes: Uint8Array<ArrayBuffer>,
   ): Promise<Headers> {
-    if (identity.keyId === null) throw new Error("Agent identity is not registered")
     const timestamp = now().toISOString()
     const nonce = toBase64Url(randomBytes(32))
     const transcript = deploymentRequestTranscript({
@@ -206,12 +236,13 @@ export function createDeploymentClient(input: {
   }
 
   return {
-    async register(identity: AgentIdentity, signal: AbortSignal): Promise<{ deploymentId: string; keyId: string }> {
+    async register(identity: DeploymentClientIdentity, signal: AbortSignal): Promise<{ deploymentId: string; keyId: string }> {
       if (!input.config.installationToken) throw new Error("Installation token is required")
       const body = JSON.stringify({
         installationToken: input.config.installationToken,
         deploymentId: input.config.deploymentId,
         environment: input.config.environment,
+        keyId: identity.keyId,
         publicKey: { kty: "OKP", crv: "Ed25519", x: identity.privateJwk.x },
         agentVersion: input.config.agentVersion,
       })
@@ -223,7 +254,9 @@ export function createDeploymentClient(input: {
       )
       if (response.status !== 201) throw new AgentRequestError(`http_${response.status}`, false)
       const result = await parseJson(response, registrationResponseSchema)
-      if (result.deploymentId !== input.config.deploymentId) throw new AgentRequestError("deployment_mismatch", false)
+      if (result.deploymentId !== input.config.deploymentId || result.keyId !== identity.keyId) {
+        throw new AgentRequestError("deployment_mismatch", false)
+      }
       return result
     },
 
@@ -239,7 +272,7 @@ export function createDeploymentClient(input: {
     },
 
     async heartbeat(
-      identity: AgentIdentity,
+      identity: DeploymentClientIdentity,
       heartbeat: DeploymentHeartbeat,
       signal: AbortSignal,
     ): Promise<z.infer<typeof heartbeatResponseSchema>> {
@@ -260,7 +293,7 @@ export function createDeploymentClient(input: {
     },
 
     async entitlement(
-      identity: AgentIdentity,
+      identity: DeploymentClientIdentity,
       version: number,
       signal: AbortSignal,
     ): Promise<{ raw: string; envelope: z.infer<typeof entitlementEnvelopeSchema> }> {

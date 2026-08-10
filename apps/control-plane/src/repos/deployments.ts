@@ -101,8 +101,6 @@ async function recoverRegisteredKey(
     input.row.deployment_id !== input.registration.deploymentId ||
     input.row.environment !== input.registration.environment ||
     input.row.deployment_status !== "active" ||
-    !Number.isFinite(Date.parse(input.row.expires_at)) ||
-    input.row.expires_at < input.now ||
     input.row.used_at === null ||
     input.row.registered_at === null ||
     input.row.registration_key_fingerprint === null ||
@@ -113,9 +111,12 @@ async function recoverRegisteredKey(
     return null
   }
   const key = await database.prepare(
-    "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND registration_token_id = ?",
-  ).bind(input.registration.deploymentId, input.row.id).first<{ key_id: string; fingerprint: string }>()
-  if (!key || !digestStringMatches(key.fingerprint, input.fingerprint)) return null
+    "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND key_id = ? AND registration_token_id = ?",
+  ).bind(input.registration.deploymentId, input.registration.keyId, input.row.id)
+    .first<{ key_id: string; fingerprint: string }>()
+  if (!key || key.key_id !== input.registration.keyId || !digestStringMatches(key.fingerprint, input.fingerprint)) {
+    return null
+  }
 
   const audit = await prepareOperatorAuditStatement(database, {
     operatorId: null,
@@ -166,8 +167,7 @@ export async function registerDeployment(
     row.deployment_id !== registration.deploymentId ||
     row.environment !== registration.environment ||
     row.deployment_status !== "active" ||
-    !Number.isFinite(Date.parse(row.expires_at)) ||
-    row.expires_at < now
+    !Number.isFinite(Date.parse(row.expires_at))
   ) {
     throw unauthorized()
   }
@@ -189,8 +189,10 @@ export async function registerDeployment(
     throw unauthorized()
   }
 
+  if (row.expires_at < now) throw unauthorized()
+
   const keyRecordId = crypto.randomUUID()
-  const keyId = crypto.randomUUID()
+  const keyId = registration.keyId
   const audit = await prepareOperatorAuditStatement(database, {
     operatorId: null,
     action: "deployment.register",

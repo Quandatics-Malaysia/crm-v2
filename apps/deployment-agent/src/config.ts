@@ -1,8 +1,8 @@
 import { fromBase64Url } from "@crm/control-protocol/deployment-auth"
+import { StrictSemverSchema } from "@crm/control-protocol"
 import { z } from "zod"
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const opaqueVersionPattern = /^[A-Za-z0-9._-]{1,128}$/
 const base64Url32 = z.string().regex(/^[A-Za-z0-9_-]{43}$/).refine((value) => {
   try {
@@ -20,8 +20,8 @@ const rawConfigSchema = z.object({
   INSTALLATION_TOKEN: base64Url32.optional(),
   WEB_INTERNAL_URL: z.string(),
   AGENT_WEB_SECRET: base64Url32,
-  APPLICATION_VERSION: z.string().max(64).regex(semverPattern),
-  AGENT_VERSION: z.string().max(64).regex(semverPattern),
+  APPLICATION_VERSION: StrictSemverSchema,
+  AGENT_VERSION: StrictSemverSchema,
   IMAGE_DIGEST: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   MIGRATION_VERSION: z.string().regex(opaqueVersionPattern),
 }).strict()

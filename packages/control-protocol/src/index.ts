@@ -41,3 +41,4 @@ export {
   sha256,
   toBase64Url as toDeploymentBase64Url,
 } from "./deployment-auth.js"
+export { isStrictSemver, STRICT_SEMVER_PATTERN, StrictSemverSchema } from "./version.js"

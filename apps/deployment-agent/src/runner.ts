@@ -112,12 +112,12 @@ export function createDeploymentAgent(input: {
       identity = await generateIdentity(input.config, input.store)
     }
     assertIdentityMatches(identity, input.config)
-    if (identity.keyId !== null) return
+    if (await input.store.isRegistered(identity)) return
     if (!input.config.installationToken) throw new Error("Installation token is required")
     try {
       const registration = await attempt((signal) => client.register(identity!, signal), options)
-      identity = { ...identity, keyId: registration.keyId }
-      await input.store.saveIdentity(identity)
+      if (registration.keyId !== identity.keyId) throw new Error("Registration key does not match identity")
+      await input.store.markRegistered(identity)
       logger.info("deployment_registration_succeeded")
     } catch (error) {
       logger.error(`deployment_registration_failed code=${errorCode(error)}`)
@@ -126,7 +126,7 @@ export function createDeploymentAgent(input: {
   }
 
   async function cycle(signal: AbortSignal): Promise<void> {
-    if (identity === null || identity.keyId === null) throw new Error("Agent is not initialized")
+    if (identity === null || !await input.store.isRegistered(identity)) throw new Error("Agent is not initialized")
     let runtime = await input.store.loadRuntime()
     const status = await client.status(signal)
     if (
@@ -135,36 +135,50 @@ export function createDeploymentAgent(input: {
     ) {
       throw new AgentRequestError("web_metadata_mismatch", false)
     }
+    const webRevision = status.entitlement.revision === null
+      ? null
+      : Number(status.entitlement.revision)
+    runtime = {
+      ...runtime,
+      lastAppliedEntitlementVersion: webRevision,
+      lastAppliedConfigurationVersion: status.entitlement.configurationVersion,
+      hasAppliedValidEntitlement: webRevision !== null,
+      lastErrorCode: null,
+    }
+    await input.store.saveRuntime(runtime)
     const heartbeat: DeploymentHeartbeat = {
       deploymentId: input.config.deploymentId,
       environment: input.config.environment,
       applicationVersion: status.applicationVersion,
       imageDigest: input.config.imageDigest,
-      entitlementVersion: status.entitlementVersion,
-      configurationVersion: status.configurationVersion,
+      entitlementVersion: status.entitlement.revision,
+      configurationVersion: status.entitlement.configurationVersion,
       activeUserCount: status.activeUserCount,
       reservedInvitationCount: status.reservedInvitationCount,
-      enabledModuleIds: status.enabledModuleIds,
+      enabledModuleIds: status.entitlement.enabledModuleIds,
       healthState: status.healthState,
       migrationVersion: status.migrationVersion,
-      lastSuccessfulBackupAt: status.lastSuccessfulBackupAt,
-      lastRestoreTestAt: status.lastRestoreTestAt,
+      lastSuccessfulBackupAt: null,
+      lastRestoreTestAt: null,
       agentVersion: input.config.agentVersion,
     }
     const response = await client.heartbeat(identity, heartbeat, signal)
     runtime = {
       ...runtime,
-      lastAppliedConfigurationVersion: status.configurationVersion,
       lastHeartbeatSucceededAt: now().toISOString(),
       lastErrorCode: null,
     }
     await input.store.saveRuntime(runtime)
 
     const version = response.entitlement?.version
-    if (version === undefined || version === runtime.lastAppliedEntitlementVersion) return
-    if (runtime.lastAppliedEntitlementVersion !== null && version < runtime.lastAppliedEntitlementVersion) {
-      throw new AgentRequestError("entitlement_version_regressed", false)
+    if (version === undefined) {
+      if (webRevision !== null) throw new AgentRequestError("control_entitlement_regressed", false)
+      return
     }
+    if (webRevision !== null && webRevision > version) {
+      throw new AgentRequestError("control_entitlement_regressed", false)
+    }
+    if (webRevision === version) return
     const candidate = await client.entitlement(identity, version, signal)
     await client.applyEntitlement(candidate.raw, version, signal)
     runtime = {

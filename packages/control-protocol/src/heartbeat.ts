@@ -1,13 +1,11 @@
 import { z } from "zod"
 
 import { ModuleIdSchema } from "./entitlement.js"
+import { StrictSemverSchema } from "./version.js"
 
 const DeploymentIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
+const CanonicalUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 const Base64Url32Schema = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
-const SemverSchema = z
-  .string()
-  .max(64)
-  .regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)
 const OpaqueVersionSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)
 const CanonicalTimestampSchema = z
   .string()
@@ -25,6 +23,7 @@ export const DeploymentRegistrationSchema = z
     installationToken: Base64Url32Schema,
     deploymentId: DeploymentIdSchema,
     environment: z.enum(["development", "staging", "production"]),
+    keyId: CanonicalUuidSchema,
     publicKey: z
       .object({
         kty: z.literal("OKP"),
@@ -32,7 +31,7 @@ export const DeploymentRegistrationSchema = z
         x: Base64Url32Schema,
       })
       .strict(),
-    agentVersion: SemverSchema,
+    agentVersion: StrictSemverSchema,
   })
   .strict()
 
@@ -42,9 +41,9 @@ export const DeploymentHeartbeatSchema = z
   .object({
     deploymentId: DeploymentIdSchema,
     environment: z.enum(["development", "staging", "production"]),
-    applicationVersion: SemverSchema,
+    applicationVersion: StrictSemverSchema,
     imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-    entitlementVersion: z.number().int().min(1).max(2_147_483_647).nullable(),
+    entitlementVersion: OpaqueVersionSchema.nullable(),
     configurationVersion: OpaqueVersionSchema.nullable(),
     activeUserCount: z.number().int().min(0).max(100_000),
     reservedInvitationCount: z.number().int().min(0).max(100_000),
@@ -56,7 +55,7 @@ export const DeploymentHeartbeatSchema = z
     migrationVersion: OpaqueVersionSchema,
     lastSuccessfulBackupAt: CanonicalTimestampSchema.nullable(),
     lastRestoreTestAt: CanonicalTimestampSchema.nullable(),
-    agentVersion: SemverSchema,
+    agentVersion: StrictSemverSchema,
   })
   .strict()
 

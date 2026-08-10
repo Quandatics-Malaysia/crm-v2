@@ -633,6 +633,20 @@ async function updateScheduleFromSnapshot(
   return (result.meta.changes ?? 0) > 0
 }
 
+function retryAtOrCommercialBoundary(row: EntitlementStateRow, retryAt: string, now: Date): string {
+  try {
+    const candidates = [assertInstant(retryAt)]
+    const { endsAt } = contractBounds(row)
+    candidates.push(endsAt)
+    for (const value of [row.suspension_at, row.seat_limit_effective_at]) {
+      if (value !== null) candidates.push(assertInstant(value))
+    }
+    return new Date(Math.min(...candidates.filter((candidate) => candidate > now.getTime()))).toISOString()
+  } catch {
+    return retryAt
+  }
+}
+
 export async function runEntitlementRenewal(environment: CloudflareBindings, clock = new Date()): Promise<{
   checked: number
   issued: number
@@ -688,7 +702,12 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         const blockedUntil = claim?.state === "claimed" ? claim.claim_expires_at
           : claim?.state === "failed" ? claim.retry_at : null
         if (blockedUntil !== null && Date.parse(blockedUntil) > now.getTime()) {
-          await updateScheduleFromSnapshot(environment.CONTROL_DB, row, blockedUntil, now.toISOString())
+          await updateScheduleFromSnapshot(
+            environment.CONTROL_DB,
+            row,
+            retryAtOrCommercialBoundary(row, blockedUntil, now),
+            now.toISOString(),
+          )
         } else {
           workCount += 1
         }
@@ -759,7 +778,7 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         await updateScheduleFromSnapshot(
           environment.CONTROL_DB,
           activeSnapshot,
-          retryAt,
+          retryAtOrCommercialBoundary(activeSnapshot, retryAt, now),
           now.toISOString(),
         ).catch(() => false)
       }

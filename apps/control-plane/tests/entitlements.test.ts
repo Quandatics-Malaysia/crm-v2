@@ -544,8 +544,57 @@ describe("scheduler and retrieval", () => {
     await runEntitlementRenewal(bindings(), new Date(now.getTime() + 2))
   })
 
+  it("wakes at a future suspension boundary before a signing backoff", async () => {
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    const fixture = await seed()
+    await issue(fixture)
+    const boundary = "2026-08-10T13:00:00.000Z"
+    await updateEntitlementControls(env.CONTROL_DB, fixture.contractId, { suspensionAt: boundary }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+    await assignEntitlementSchedule(env.CONTROL_DB, {
+      deploymentId: fixture.deploymentId,
+      contractId: fixture.contractId,
+      configurationVersion: "config-suspension",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+      approvedImageDigest: `sha256:${"a".repeat(64)}`,
+    }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+    expect((await runEntitlementRenewal(bindings(env.CONTROL_DB, { ENTITLEMENT_SIGNING_PRIVATE_JWK: "" }), now)).failed).toBe(1)
+    expect((await env.CONTROL_DB.prepare(
+      "SELECT next_check_at FROM deployment_entitlement_schedules WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).first<{ next_check_at: string }>())?.next_check_at).toBe(boundary)
+    expect((await runEntitlementRenewal(bindings(), new Date("2026-08-10T12:59:59.999Z"))).checked).toBe(0)
+    expect((await runEntitlementRenewal(bindings(), new Date(boundary))).issued).toBe(1)
+    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.envelope.payload.subscriptionStatus).toBe("suspended")
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+  })
+
+  it("wakes at a future seat-reduction boundary before a signing backoff", async () => {
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    const fixture = await seed({ seatLimit: 25 })
+    await issue(fixture)
+    const boundary = "2026-08-10T14:00:00.000Z"
+    await updateEntitlementControls(env.CONTROL_DB, fixture.contractId, { seatLimit: 10, effectiveAt: boundary }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+    await assignEntitlementSchedule(env.CONTROL_DB, {
+      deploymentId: fixture.deploymentId,
+      contractId: fixture.contractId,
+      configurationVersion: "config-seat-reduction",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+      approvedImageDigest: `sha256:${"a".repeat(64)}`,
+    }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+    expect((await runEntitlementRenewal(bindings(env.CONTROL_DB, { ENTITLEMENT_SIGNING_PRIVATE_JWK: "" }), now)).failed).toBe(1)
+    expect((await env.CONTROL_DB.prepare(
+      "SELECT next_check_at FROM deployment_entitlement_schedules WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).first<{ next_check_at: string }>())?.next_check_at).toBe(boundary)
+    expect((await runEntitlementRenewal(bindings(), new Date("2026-08-10T13:59:59.999Z"))).checked).toBe(0)
+    expect((await runEntitlementRenewal(bindings(), new Date(boundary))).issued).toBe(1)
+    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.envelope.payload.maxActiveUsers).toBe(10)
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+  })
+
   it("backs off failed key rotations without starving untouched mismatches", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    await env.CONTROL_DB.prepare("UPDATE contracts SET ends_at = '2026-12-31', suspension_at = NULL, scheduled_seat_limit = NULL, seat_limit_effective_at = NULL").run()
     const current = await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM deployment_entitlement_schedules s JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE e.key_id = 'vendor-key-a'",
     ).first<{ count: number }>()

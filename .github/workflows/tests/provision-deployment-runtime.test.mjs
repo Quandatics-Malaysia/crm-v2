@@ -147,6 +147,44 @@ test("staging requires a protected valid trust set and preserves valid existing 
   assert.deepEqual(JSON.parse(environment.VENDOR_ENTITLEMENT_TRUST_SET), JSON.parse(trustSet))
 })
 
+test("staging accepts verifier-compatible ISO offsets and normalizes trust windows to UTC", () => {
+  const target = fixture()
+  writeFileSync(target.envFile, "POSTGRES_PASSWORD=test\n")
+  const trustSet = JSON.parse(validTrustSet())
+  trustSet.keys[0].validFrom = "2026-01-01T08:00+08:00"
+  trustSet.keys[0].validUntil = "2027-01-01T07:30:00+07:30"
+
+  const result = runProvision(target, "staging", {
+    VENDOR_ENTITLEMENT_TRUST_SET: JSON.stringify(trustSet),
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const persisted = JSON.parse(readEnvironment(target.envFile).VENDOR_ENTITLEMENT_TRUST_SET)
+  assert.equal(persisted.keys[0].validFrom, "2026-01-01T00:00:00.000Z")
+  assert.equal(persisted.keys[0].validUntil, "2027-01-01T00:00:00.000Z")
+})
+
+test("staging rejects invalid calendar dates and non-instant trust windows atomically", () => {
+  for (const invalidTimestamp of [
+    "2026-02-30T00:00:00Z",
+    "2026-01-01",
+    "2026-01-01T00:00:00+24:00",
+  ]) {
+    const target = fixture()
+    const original = "POSTGRES_PASSWORD=test\n"
+    writeFileSync(target.envFile, original)
+    const trustSet = JSON.parse(validTrustSet())
+    trustSet.keys[0].validFrom = invalidTimestamp
+
+    const result = runProvision(target, "staging", {
+      VENDOR_ENTITLEMENT_TRUST_SET: JSON.stringify(trustSet),
+    })
+
+    assert.notEqual(result.status, 0, invalidTimestamp)
+    assert.equal(readFileSync(target.envFile, "utf8"), original)
+  }
+})
+
 test("preview refuses to reuse a non-preview trust set", () => {
   const target = fixture()
   const original = `VENDOR_ENTITLEMENT_TRUST_SET=${validTrustSet()}\n`

@@ -19,6 +19,8 @@ const base64Url32Pattern = /^[A-Za-z0-9_-]{43}$/
 const migrationVersionPattern = /^[0-9]{4}$/
 const strictSemverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
 const generatedPlaceholderUuidPattern = /^11111111-1111-4111-8111-11111111111[1-3]$/
+const isoDatePattern = "(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|02-(?:0[1-9]|1\\d|2[0-8])))"
+const isoInstantPattern = new RegExp(`^${isoDatePattern}T(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$`)
 
 function parsedJson(path) {
   return JSON.parse(readFileSync(path, "utf8"))
@@ -67,6 +69,13 @@ function canonicalBase64Url32(value) {
   return decoded.length === 32 && decoded.toString("base64url") === value
 }
 
+function canonicalInstant(value) {
+  if (typeof value !== "string" || !isoInstantPattern.test(value)) throw new TypeError("Invalid trust set")
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) throw new TypeError("Invalid trust set")
+  return new Date(timestamp).toISOString()
+}
+
 function parseTrustSet(source) {
   if (typeof source !== "string" || source.length === 0 || source.includes("\n") || source.includes("\r")) {
     throw new TypeError("Invalid trust set")
@@ -77,6 +86,8 @@ function parseTrustSet(source) {
   }
   const keyIds = new Set()
   for (const key of value.keys) {
+    const validFrom = canonicalInstant(key?.validFrom)
+    const validUntil = canonicalInstant(key?.validUntil)
     if (
       !exactKeys(key, ["keyId", "publicJwk", "validFrom", "validUntil"]) ||
       typeof key.keyId !== "string" || key.keyId.length < 1 || key.keyId.length > 128 || keyIds.has(key.keyId) ||
@@ -88,14 +99,13 @@ function parseTrustSet(source) {
         !Array.isArray(key.publicJwk.key_ops) || key.publicJwk.key_ops.length > 1 ||
         key.publicJwk.key_ops.some((operation) => operation !== "verify")
       )) ||
-      typeof key.validFrom !== "string" || typeof key.validUntil !== "string" ||
-      new Date(key.validFrom).toISOString() !== key.validFrom ||
-      new Date(key.validUntil).toISOString() !== key.validUntil ||
-      Date.parse(key.validUntil) <= Date.parse(key.validFrom)
+      Date.parse(validUntil) <= Date.parse(validFrom)
     ) {
       throw new TypeError("Invalid trust set")
     }
     createPublicKey({ key: key.publicJwk, format: "jwk" })
+    key.validFrom = validFrom
+    key.validUntil = validUntil
     keyIds.add(key.keyId)
   }
   return JSON.stringify(value)

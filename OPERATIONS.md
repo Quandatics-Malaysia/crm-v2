@@ -390,7 +390,11 @@ only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` 
 
 **One-time setup (do once):**
 
-1. **Server checkout** — clone a second working tree on the `staging` branch and
+1. **Protected trust set** — create the GitHub `staging` environment and set its
+   `STAGING_VENDOR_ENTITLEMENT_TRUST_SET` secret to the vendor-issued public-key
+   JSON. The deploy fails closed when this secret is absent or malformed; never
+   put a signing private key in GitHub or the web environment.
+2. **Server checkout** — clone a second working tree on the `staging` branch and
    create its env file from the template:
    ```bash
    git clone https://github.com/Quandatics-Malaysia/crm-v2.git ~/crm-v2-staging
@@ -399,19 +403,22 @@ only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` 
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
    # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
    ```
-2. **Cloudflare tunnel route** — Zero Trust → your existing tunnel → **Public
+3. **Cloudflare tunnel route** — Zero Trust → your existing tunnel → **Public
    Hostname** → add `staging.quandatics.com` → `http://localhost:8091`.
-3. **Cloudflare Access (gate it to the team)** — Zero Trust → **Access →
+4. **Cloudflare Access (gate it to the team)** — Zero Trust → **Access →
    Applications** → add an application protecting `staging.quandatics.com` with a
    policy allowing your team's emails. Staging seeds well-known demo credentials,
    so this keeps the public out.
-4. The existing self-hosted runner already serves this repo — no new runner needed.
+5. The existing self-hosted runner already serves this repo — no new runner needed.
 
 **Deploy:** push or merge into `staging`:
 ```bash
 git push origin <feature-branch>:staging     # or merge a PR into staging
 ```
-`deploy-staging` runs the quality gate then rebuilds the `crm-staging` stack.
+`deploy-staging` runs the quality gate, upgrades retained legacy env files with
+a stable generated deployment UUID/shared secret, pins versions from the
+checked-out package and migration journal, injects the protected public trust
+set, then rebuilds the `crm-staging` stack.
 Review at `https://staging.quandatics.com`, then merge to `main` for prod. The
 staging deploy has its own concurrency group, so it never cancels a prod deploy.
 

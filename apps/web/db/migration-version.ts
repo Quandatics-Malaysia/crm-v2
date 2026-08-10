@@ -47,24 +47,47 @@ function validatedAppliedTimestamp(value: AppliedTimestamp): bigint {
 export function resolveAppliedMigrationVersion(
   journal: unknown,
   latestAppliedTimestamp: AppliedTimestamp,
+  publishedMigrationVersion?: string | null,
 ): string | null {
   const entries = validatedJournalEntries(journal)
   const appliedTimestamp = validatedAppliedTimestamp(latestAppliedTimestamp)
   const latestSourceTimestamp = BigInt(entries.at(-1)!.when)
-  if (appliedTimestamp > latestSourceTimestamp) return null
+  if (appliedTimestamp > latestSourceTimestamp) {
+    const latestSourceVersion = Number(entries.at(-1)!.tag.slice(0, 4))
+    if (
+      publishedMigrationVersion === null || publishedMigrationVersion === undefined ||
+      !migrationVersionPattern.test(publishedMigrationVersion) ||
+      Number(publishedMigrationVersion) <= latestSourceVersion
+    ) {
+      throw new TypeError("Invalid future migration metadata")
+    }
+    return null
+  }
   const appliedEntry = entries.find((entry) => BigInt(entry.when) === appliedTimestamp)
   if (appliedEntry === undefined) throw new TypeError("Invalid applied migration history")
   return appliedEntry.tag.slice(0, 4)
 }
 
 export async function readActualAppliedMigrationVersion(database: Sql, journal: unknown): Promise<string | null> {
-  const rows = await database<{ created_at: string }[]>`
-    SELECT created_at
-    FROM drizzle.__drizzle_migrations
-    ORDER BY created_at DESC
-    LIMIT 1
+  const rows = await database<{ created_at: string | null; migration_version: string | null }[]>`
+    SELECT
+      (
+        SELECT history.created_at
+        FROM drizzle.__drizzle_migrations history
+        ORDER BY history.created_at DESC
+        LIMIT 1
+      ) AS created_at,
+      (
+        SELECT metadata.migration_version
+        FROM deployment_runtime_metadata metadata
+        WHERE metadata.singleton = 1
+      ) AS migration_version
   `
-  return resolveAppliedMigrationVersion(journal, rows[0]?.created_at ?? null)
+  return resolveAppliedMigrationVersion(
+    journal,
+    rows[0]?.created_at ?? null,
+    rows[0]?.migration_version ?? null,
+  )
 }
 
 export async function publishAppliedMigrationVersion(database: Sql, version: string): Promise<string> {
@@ -103,10 +126,13 @@ export async function publishAppliedMigrationVersion(database: Sql, version: str
 export async function publishAfterSuccessfulMigration(
   applyMigrations: () => Promise<void>,
   readAppliedVersion: () => Promise<string | null>,
-  publish: (version: string) => Promise<unknown>,
+  publish: (version: string) => Promise<string>,
 ): Promise<string | null> {
   await applyMigrations()
   const version = await readAppliedVersion()
-  if (version !== null) await publish(version)
+  if (version !== null) {
+    const publishedVersion = await publish(version)
+    if (publishedVersion !== version) throw new TypeError("Applied migration version was not published")
+  }
   return version
 }

@@ -1,13 +1,23 @@
 import postgres, { type Sql } from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
-import { publishAppliedMigrationVersion } from "@/db/migration-version"
+import {
+  publishAfterSuccessfulMigration,
+  publishAppliedMigrationVersion,
+  readActualAppliedMigrationVersion,
+} from "@/db/migration-version"
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const appUrl = process.env.TEST_DATABASE_URL
 const databaseTestsRequired = process.env.REQUIRE_DEPLOYMENT_CONTROL_DB_TESTS === "1"
 const integration = adminUrl && appUrl ? describe.sequential : databaseTestsRequired ? describe.sequential : describe.skip
 const prefix = "task3-status-test-"
+const localJournal = {
+  entries: [
+    { idx: 66, when: 1_786_368_000_000, tag: "0066_deployment_control" },
+    { idx: 67, when: 1_786_381_200_000, tag: "0067_deployment_status" },
+  ],
+}
 
 integration("deployment status PostgreSQL boundary", () => {
   let admin: Sql
@@ -127,5 +137,50 @@ integration("deployment status PostgreSQL boundary", () => {
     })).rejects.toThrow("simulated failed release transaction")
     const [after] = await admin`select migration_version, published_at from deployment_runtime_metadata where singleton = 1`
     expect(after).toEqual(before)
+  })
+
+  it("requires trustworthy ahead metadata before tolerating future migration history", async () => {
+    try {
+      await admin`
+        insert into drizzle.__drizzle_migrations (hash, created_at)
+        values ('task3-future-0068-test', 1786467600000)
+      `
+      await expect(readActualAppliedMigrationVersion(admin, localJournal)).rejects.toThrow(
+        "Invalid future migration metadata",
+      )
+
+      await admin`delete from deployment_runtime_metadata where singleton = 1`
+      await expect(readActualAppliedMigrationVersion(admin, localJournal)).rejects.toThrow(
+        "Invalid future migration metadata",
+      )
+
+      await admin`
+        insert into deployment_runtime_metadata (singleton, migration_version)
+        values (1, '0068')
+      `
+      await expect(readActualAppliedMigrationVersion(admin, localJournal)).resolves.toBeNull()
+      await admin`update deployment_runtime_metadata set migration_version = '0069' where singleton = 1`
+      await expect(readActualAppliedMigrationVersion(admin, localJournal)).resolves.toBeNull()
+    } finally {
+      await admin`delete from drizzle.__drizzle_migrations where hash = 'task3-future-0068-test'`
+      await admin`
+        insert into deployment_runtime_metadata (singleton, migration_version)
+        values (1, '0067')
+        on conflict (singleton) do update set migration_version = excluded.migration_version
+      `
+    }
+  })
+
+  it("fails when a conflicting metadata row prevents publication", async () => {
+    try {
+      await admin`update deployment_runtime_metadata set migration_version = '0068' where singleton = 1`
+      await expect(publishAfterSuccessfulMigration(
+        async () => undefined,
+        () => readActualAppliedMigrationVersion(admin, localJournal),
+        (version) => publishAppliedMigrationVersion(admin, version),
+      )).rejects.toThrow("Applied migration version was not published")
+    } finally {
+      await admin`update deployment_runtime_metadata set migration_version = '0067' where singleton = 1`
+    }
   })
 })

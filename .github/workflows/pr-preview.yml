@@ -31,6 +31,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm test
+      - run: pnpm run test:workflows
       - run: pnpm run build
 
   deploy-preview:
@@ -54,25 +55,28 @@ jobs:
           ADMIN_EMAIL="owner-pr-${PR_NUMBER}@quandatics-preview.local"
 
           mkdir -p "$(dirname "$PREVIEW_ENV")"
-          {
-            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
-            echo "CRM_APP_PASSWORD=$(openssl rand -hex 24)"
-            echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
-            echo "PLATFORM_MASTER_EMAIL=${ADMIN_EMAIL}"
-            echo "PLATFORM_MASTER_PASSWORD=$(openssl rand -hex 16)"
-            echo "DEMO_ADMIN_EMAIL=${ADMIN_EMAIL}"
-            echo "DEMO_ADMIN_PASSWORD=$(openssl rand -hex 16)"
-            echo "DEMO_TENANT_ID=demo-pr-${PR_NUMBER}"
-            echo "DEMO_TENANT_NAME=PR-${PR_NUMBER} Demo Workspace"
-            echo "SEED_SAMPLE_DATA=true"
-            echo "SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)"
-            echo "CADDY_BIND_HOST=127.0.0.1"
-            echo "DB_HOST_PORT=0"
-            echo "CADDY_HOST_PORT=0"
-            echo "BETTER_AUTH_URL=http://127.0.0.1"
-            echo "APP_URL=http://127.0.0.1"
-            echo "DOMAIN=preview.quandatics.local"
-          } > "$PREVIEW_ENV"
+          if [ ! -f "$PREVIEW_ENV" ]; then
+            {
+              echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+              echo "CRM_APP_PASSWORD=$(openssl rand -hex 24)"
+              echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
+              echo "PLATFORM_MASTER_EMAIL=${ADMIN_EMAIL}"
+              echo "PLATFORM_MASTER_PASSWORD=$(openssl rand -hex 16)"
+              echo "DEMO_ADMIN_EMAIL=${ADMIN_EMAIL}"
+              echo "DEMO_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+              echo "DEMO_TENANT_ID=demo-pr-${PR_NUMBER}"
+              echo "DEMO_TENANT_NAME=PR-${PR_NUMBER} Demo Workspace"
+              echo "SEED_SAMPLE_DATA=true"
+              echo "SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)"
+              echo "CADDY_BIND_HOST=127.0.0.1"
+              echo "DB_HOST_PORT=0"
+              echo "CADDY_HOST_PORT=0"
+              echo "BETTER_AUTH_URL=http://127.0.0.1"
+              echo "APP_URL=http://127.0.0.1"
+              echo "DOMAIN=preview.quandatics.local"
+            } > "$PREVIEW_ENV"
+          fi
+          node .github/workflows/scripts/provision-deployment-runtime.mjs --mode preview --env-file "$PREVIEW_ENV"
 
           docker compose \
             -p "$PROJECT" \

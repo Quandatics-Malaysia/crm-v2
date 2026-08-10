@@ -30,7 +30,27 @@ describe("applied migration version publication", () => {
   })
 
   it("preserves future database metadata when an older image performs a no-op migrate", () => {
-    expect(resolveAppliedMigrationVersion(journal, 1_786_467_600_000)).toBeNull()
+    expect(resolveAppliedMigrationVersion(journal, 1_786_467_600_000, "0068")).toBeNull()
+    expect(resolveAppliedMigrationVersion(journal, 1_786_467_600_000, "0069")).toBeNull()
+  })
+
+  it.each([null, "0067", "future", "099"])(
+    "refuses future database history unless metadata is already safely ahead: %s",
+    (metadataVersion) => {
+      expect(() => resolveAppliedMigrationVersion(
+        journal,
+        1_786_467_600_000,
+        metadataVersion,
+      )).toThrow("Invalid future migration metadata")
+    },
+  )
+
+  it("does not mask a publication that preserved a conflicting version", async () => {
+    await expect(publishAfterSuccessfulMigration(
+      async () => undefined,
+      async () => "0067",
+      async () => "0068",
+    )).rejects.toThrow("Applied migration version was not published")
   })
 
   it("refuses unknown or missing actual history instead of guessing", () => {
@@ -39,7 +59,7 @@ describe("applied migration version publication", () => {
   })
 
   it("publishes only after migration succeeds and skips future history", async () => {
-    const publish = vi.fn(async (_version: string) => undefined)
+    const publish = vi.fn(async (version: string) => version)
     await expect(publishAfterSuccessfulMigration(
       async () => { throw new Error("migration failed") },
       async () => "0067",

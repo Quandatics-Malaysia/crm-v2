@@ -117,11 +117,11 @@ class MemoryPersistence implements DeploymentControlPersistence {
   }
 
   async getState(observedAt?: Date): Promise<DeploymentEntitlementState | null> {
-    if (this.state !== null && observedAt !== undefined) {
-      this.state.greatestTrustedAt = new Date(Math.max(
-        this.state.greatestTrustedAt.getTime(),
-        observedAt.getTime(),
-      ))
+    if (
+      this.state !== null && observedAt !== undefined &&
+      observedAt.getTime() >= this.state.greatestTrustedAt.getTime() + 60_000
+    ) {
+      this.state.greatestTrustedAt = new Date(observedAt)
     }
     return this.state === null ? null : structuredClone(this.state)
   }

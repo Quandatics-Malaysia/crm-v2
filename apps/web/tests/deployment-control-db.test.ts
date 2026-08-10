@@ -26,16 +26,45 @@ integration("deployment control PostgreSQL boundary", () => {
     admin = postgres(adminUrl!, { max: 1 })
     appA = postgres(appUrl!, { max: 1 })
     appB = postgres(appUrl!, { max: 1 })
+    await admin.unsafe(`
+      CREATE TABLE deployment_control_state_update_probe (
+        singleton boolean PRIMARY KEY DEFAULT true,
+        writes integer NOT NULL DEFAULT 0
+      );
+      INSERT INTO deployment_control_state_update_probe DEFAULT VALUES;
+      CREATE FUNCTION count_deployment_control_state_update()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = ''
+      AS $$
+      BEGIN
+        UPDATE public.deployment_control_state_update_probe SET writes = writes + 1 WHERE singleton;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER deployment_control_state_update_probe_trigger
+      AFTER UPDATE ON deployment_control_state
+      FOR EACH ROW EXECUTE FUNCTION count_deployment_control_state_update();
+    `)
   })
 
   beforeEach(async () => {
     await admin`truncate table deployment_entitlement_history restart identity`
     await admin`truncate table deployment_control_state`
     await admin`insert into deployment_control_state (singleton, current_revision) values (1, 0)`
+    await admin`update deployment_control_state_update_probe set writes = 0 where singleton`
   })
 
   afterAll(async () => {
-    if (admin && appA && appB) await Promise.all([admin.end(), appA.end(), appB.end()])
+    if (admin && appA && appB) {
+      await admin.unsafe(`
+        DROP TRIGGER deployment_control_state_update_probe_trigger ON deployment_control_state;
+        DROP FUNCTION count_deployment_control_state_update();
+        DROP TABLE deployment_control_state_update_probe;
+      `)
+      await Promise.all([admin.end(), appA.end(), appB.end()])
+    }
   })
 
   async function apply(client: Sql, revision: number, canonicalEnvelope = `envelope-${revision}`) {
@@ -44,12 +73,12 @@ integration("deployment control PostgreSQL boundary", () => {
       select * from apply_verified_deployment_entitlement(
         ${"quandatics-production"}, ${"quandatics-production"}, ${revision},
         ${canonicalEnvelope}, ${`payload-${revision}`}, ${"a".repeat(64)},
-        ${"vendor-key"}, ${"signature"}, ${issuedAt},
-        ${new Date(issuedAt.getTime() + 24 * 60 * 60 * 1_000)},
-        ${new Date("2026-08-01T00:00:00.000Z")}, ${new Date("2027-08-01T00:00:00.000Z")},
-        ${new Date(issuedAt.getTime() + 8 * 24 * 60 * 60 * 1_000)},
+        ${"vendor-key"}, ${"signature"}, ${issuedAt.toISOString()},
+        ${new Date(issuedAt.getTime() + 24 * 60 * 60 * 1_000).toISOString()},
+        ${"2026-08-01T00:00:00.000Z"}, ${"2027-08-01T00:00:00.000Z"},
+        ${new Date(issuedAt.getTime() + 8 * 24 * 60 * 60 * 1_000).toISOString()},
         ${"active"}::deployment_subscription_status, ${25},
-        ${"{projects}"}::text[], ${new Date()}
+        ${"{projects}"}::text[], ${new Date().toISOString()}
       )
     ` as unknown as Array<{ outcome: string; reason: string; current_revision: string }>
   }
@@ -198,6 +227,47 @@ integration("deployment control PostgreSQL boundary", () => {
     expect(state.greatest_trusted_at.toISOString()).toBe(replayReceivedAt.toISOString())
   })
 
+  it("keeps repeated and concurrent access reads within the checkpoint interval write-free", async () => {
+    await apply(appA, 1)
+    await admin`update deployment_control_state_update_probe set writes = 0 where singleton`
+    const [before] = await admin`
+      select xmin::text as xmin, ctid::text as ctid, greatest_trusted_at
+      from deployment_control_state where singleton = 1
+    `
+    const observedAt = new Date(before.greatest_trusted_at.getTime() + 59_999).toISOString()
+
+    await Promise.all(Array.from({ length: 40 }, (_, index) =>
+      (index % 2 === 0 ? appA : appB)`select * from read_deployment_entitlement_state(${observedAt})`))
+
+    const [after] = await admin`
+      select xmin::text as xmin, ctid::text as ctid, greatest_trusted_at
+      from deployment_control_state where singleton = 1
+    `
+    const [probe] = await admin`select writes from deployment_control_state_update_probe where singleton`
+    expect(probe.writes).toBe(0)
+    expect(after).toMatchObject({ xmin: before.xmin, ctid: before.ctid })
+    expect(after.greatest_trusted_at.toISOString()).toBe(before.greatest_trusted_at.toISOString())
+  })
+
+  it("uses a CAS checkpoint so concurrent boundary readers produce one durable write", async () => {
+    await apply(appA, 1)
+    await admin`update deployment_control_state_update_probe set writes = 0 where singleton`
+    const [before] = await admin`
+      select greatest_trusted_at from deployment_control_state where singleton = 1
+    `
+    const observedAt = new Date(before.greatest_trusted_at.getTime() + 60_000).toISOString()
+
+    await Promise.all(Array.from({ length: 40 }, (_, index) =>
+      (index % 2 === 0 ? appA : appB)`select * from read_deployment_entitlement_state(${observedAt})`))
+
+    const [after] = await admin`
+      select greatest_trusted_at from deployment_control_state where singleton = 1
+    `
+    const [probe] = await admin`select writes from deployment_control_state_update_probe where singleton`
+    expect(probe.writes).toBe(1)
+    expect(after.greatest_trusted_at.toISOString()).toBe(observedAt)
+  })
+
   it("durably advances access time so a later host rollback cannot regain writes", async () => {
     const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
     const privateJwk = await crypto.subtle.exportKey("jwk", keys.privateKey)
@@ -224,7 +294,7 @@ integration("deployment control PostgreSQL boundary", () => {
       minimumSupportedAppVersion: "1.0.0",
     }
     const database = drizzle(appA) as unknown as typeof db
-    let observedAt = new Date(lease.issuedAt)
+    let observedAt = new Date("2026-08-17T23:59:00.000Z")
     const service = createDeploymentControlService({
       persistence: createPostgresDeploymentControlPersistence(database),
       trustSet: {
@@ -239,6 +309,11 @@ integration("deployment control PostgreSQL boundary", () => {
       now: () => observedAt,
     })
     await service.applySignedEntitlement(await signEnvelope(lease, lease.keyId, privateJwk), lease.deploymentId)
+
+    observedAt = new Date("2026-08-17T23:59:59.999Z")
+    await expect(service.getDeploymentAccess(observedAt)).resolves.toMatchObject({ mode: "grace" })
+    const [withinCheckpoint] = await admin`select greatest_trusted_at from deployment_control_state where singleton = 1`
+    expect(withinCheckpoint.greatest_trusted_at.toISOString()).toBe("2026-08-17T23:59:00.000Z")
 
     observedAt = new Date("2026-08-18T00:00:00.001Z")
     await expect(service.getDeploymentAccess(observedAt)).resolves.toMatchObject({ mode: "read_only" })

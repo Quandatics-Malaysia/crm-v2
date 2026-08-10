@@ -22,7 +22,6 @@
     {
       "binding": "CONTROL_DB",
       "database_name": "crm-control-plane",
-      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
@@ -45,49 +44,5 @@
     "enabled": true,
     "logs": { "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.01 }
-  },
-  "env": {
-    "staging": {
-      "name": "crm-control-plane-staging",
-      "vars": {
-        "ENVIRONMENT": "staging",
-        "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
-        "ACCESS_AUD": "replace-with-staging-access-application-audience",
-        "BOOTSTRAP_OWNER_EMAIL": "owner@example.com",
-        "OPERATOR_ORIGIN": "https://control-staging.example.com",
-        "ENTITLEMENT_SIGNING_KEY_ID": "vendor-staging-1"
-      },
-      "d1_databases": [{
-        "binding": "CONTROL_DB",
-        "database_name": "crm-control-plane-staging",
-        "database_id": "00000000-0000-0000-0000-000000000001",
-        "migrations_dir": "migrations"
-      }],
-      "r2_buckets": [{ "binding": "BACKUP_VAULT", "bucket_name": "crm-backup-vault-staging" }],
-      "services": [{ "binding": "ASSETS", "service": "crm-control-plane-assets-staging" }],
-      "secrets": { "required": ["ENTITLEMENT_SIGNING_PRIVATE_JWK", "INSTALL_TOKEN_PEPPER"] },
-      "triggers": { "crons": ["*/15 * * * *"] }
-    },
-    "production": {
-      "name": "crm-control-plane-production",
-      "vars": {
-        "ENVIRONMENT": "production",
-        "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
-        "ACCESS_AUD": "replace-with-production-access-application-audience",
-        "BOOTSTRAP_OWNER_EMAIL": "owner@example.com",
-        "OPERATOR_ORIGIN": "https://control.example.com",
-        "ENTITLEMENT_SIGNING_KEY_ID": "vendor-production-1"
-      },
-      "d1_databases": [{
-        "binding": "CONTROL_DB",
-        "database_name": "crm-control-plane-production",
-        "database_id": "00000000-0000-0000-0000-000000000002",
-        "migrations_dir": "migrations"
-      }],
-      "r2_buckets": [{ "binding": "BACKUP_VAULT", "bucket_name": "crm-backup-vault-production" }],
-      "services": [{ "binding": "ASSETS", "service": "crm-control-plane-assets-production" }],
-      "secrets": { "required": ["ENTITLEMENT_SIGNING_PRIVATE_JWK", "INSTALL_TOKEN_PEPPER"] },
-      "triggers": { "crons": ["*/15 * * * *"] }
-    }
   }
 }

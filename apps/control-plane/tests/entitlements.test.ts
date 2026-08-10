@@ -138,6 +138,75 @@ describe("entitlement issuance", () => {
     expect(sequence?.next_version).toBe(5)
   })
 
+  it("aborts a stale signed issuance when controls change before its batch", async () => {
+    const fixture = await seed({ status: "active" })
+    let interleaved = false
+    const database = new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!interleaved) {
+              interleaved = true
+              await updateEntitlementControls(target, fixture.contractId, { status: "suspended" }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+            }
+            return target.batch(statements)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+
+    await expect(issue(fixture, now, bindings(database))).rejects.toMatchObject({
+      status: 409,
+      code: "entitlement_state_changed",
+    })
+    expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
+    expect(await count("operator_audit_log", "WHERE action = 'entitlement.issue' AND target_id = ?", [fixture.deploymentId])).toBe(0)
+    const state = await env.CONTROL_DB.prepare(
+      "SELECT c.status, s.next_check_at FROM contracts c JOIN deployment_entitlement_schedules s ON s.contract_id = c.id WHERE c.id = ?",
+    ).bind(fixture.contractId).first<{ status: string; next_check_at: string }>()
+    expect(state).toEqual({ status: "suspended", next_check_at: now.toISOString() })
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+  })
+
+  it("aborts automatic issuance when renewal claim ownership changes before commit", async () => {
+    const fixture = await seed()
+    const issuanceKey = "auto:0:claim-race"
+    const createdAt = now.toISOString()
+    await env.CONTROL_DB.prepare(
+      "INSERT INTO entitlement_renewal_claims (deployment_id, issuance_key, claim_token, state, claim_expires_at, attempt_count, created_at, updated_at) VALUES (?, ?, 'original', 'claimed', ?, 1, ?, ?)",
+    ).bind(fixture.deploymentId, issuanceKey, new Date(now.getTime() + 60_000).toISOString(), createdAt, createdAt).run()
+    let intercepted = false
+    const database = new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!intercepted) {
+              intercepted = true
+              await target.prepare(
+                "UPDATE entitlement_renewal_claims SET claim_token = 'reclaimed' WHERE deployment_id = ? AND issuance_key = ?",
+              ).bind(fixture.deploymentId, issuanceKey).run()
+            }
+            return target.batch(statements)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    await expect(issueEntitlement(bindings(database), {
+      deploymentId: fixture.deploymentId,
+      contractId: fixture.contractId,
+      issuanceKey,
+      claimToken: "original",
+      actor: { operatorId: null, requestId: crypto.randomUUID(), source: "scheduled" },
+      now,
+    })).rejects.toMatchObject({ status: 409, code: "entitlement_state_changed" })
+    expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+  })
+
   it("fails closed for missing/malformed secrets and never persists private key material", async () => {
     const fixture = await seed()
     for (const secret of ["", "not-json", JSON.stringify({ kty: "OKP", crv: "Ed25519", x: "bad" })]) {
@@ -170,6 +239,51 @@ describe("entitlement issuance", () => {
 })
 
 describe("commercial controls and boundaries", () => {
+  it("serializes parallel control changes and preserves both after explicit retry", async () => {
+    const fixture = await seed()
+    let arrivals = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => { release = resolve })
+    const database = () => new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            arrivals += 1
+            if (arrivals === 2) release()
+            await barrier
+            return target.batch(statements)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    const changes = [
+      { renewalPolicy: "non_renewing" as const },
+      { suspensionAt: "2026-08-12T00:00:00.000Z" },
+    ]
+    const results = await Promise.allSettled(changes.map((change) =>
+      updateEntitlementControls(database(), fixture.contractId, change, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)))
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    const rejectedIndex = results.findIndex((result) => result.status === "rejected")
+    expect(rejectedIndex).toBeGreaterThanOrEqual(0)
+    expect((results[rejectedIndex] as PromiseRejectedResult).reason).toMatchObject({
+      status: 409,
+      code: "entitlement_state_changed",
+    })
+    await updateEntitlementControls(env.CONTROL_DB, fixture.contractId, changes[rejectedIndex]!, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)
+    const state = await env.CONTROL_DB.prepare(
+      "SELECT c.renewal_policy, c.suspension_at, c.entitlement_revision, s.state_revision FROM contracts c JOIN deployment_entitlement_schedules s ON s.contract_id = c.id WHERE c.id = ?",
+    ).bind(fixture.contractId).first<Record<string, string | number | null>>()
+    expect(state).toMatchObject({
+      renewal_policy: "non_renewing",
+      suspension_at: "2026-08-12T00:00:00.000Z",
+      entitlement_revision: 3,
+      state_revision: 3,
+    })
+    expect(await count("operator_audit_log", "WHERE action = 'entitlement.controls.update' AND target_id = ? AND outcome = 'success'", [fixture.contractId])).toBe(2)
+  })
+
   it("keeps past_due write-allowed but suspends exactly at suspension_at", async () => {
     const fixture = await seed({ status: "past_due" })
     await expect(updateEntitlementControls(env.CONTROL_DB, fixture.contractId, { suspensionAt: now.toISOString() }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)).rejects.toThrow()
@@ -212,18 +326,24 @@ describe("commercial controls and boundaries", () => {
     expect((await issue(fixture, new Date("2026-08-11T00:00:00.000Z"))).envelope.payload.maxActiveUsers).toBe(10)
   })
 
-  it("rejects stale/unhealthy/future usage and invalid dependency catalogs without history", async () => {
+  it("rejects stale/unhealthy/future usage and inactive, unknown, or cyclic dependency catalogs without history", async () => {
     for (const observedAt of ["2026-08-10T11:29:59.999Z", "2026-08-10T12:00:00.001Z"] as const) {
       const fixture = await seed()
       await env.CONTROL_DB.prepare("INSERT INTO heartbeat_rollups (id, deployment_id, observed_at, occupied_seats, application_version, health_status, active_user_count, reserved_invitation_count, created_at) VALUES (?, ?, ?, 1, '1.0.0', 'healthy', 1, 0, ?)")
         .bind(crypto.randomUUID(), fixture.deploymentId, observedAt, observedAt).run()
       await expect(updateEntitlementControls(env.CONTROL_DB, fixture.contractId, { seatLimit: 1 }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)).rejects.toThrow()
     }
-    const fixture = await seed()
-    await env.CONTROL_DB.prepare("UPDATE module_catalog SET dependency_ids_json = '[\"documentation\"]' WHERE module_id = 'projects'").run()
-    await expect(issue(fixture)).rejects.toThrow()
-    expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
-    await env.CONTROL_DB.prepare("UPDATE module_catalog SET dependency_ids_json = '[]' WHERE module_id = 'projects'").run()
+    for (const corrupt of [
+      "UPDATE module_catalog SET active = 0 WHERE module_id = 'projects'",
+      "UPDATE module_catalog SET dependency_ids_json = '[\"unknown\"]' WHERE module_id = 'projects'",
+      "UPDATE module_catalog SET dependency_ids_json = '[\"salesOrders\"]' WHERE module_id = 'projects'",
+    ]) {
+      const fixture = await seed()
+      await env.CONTROL_DB.prepare(corrupt).run()
+      await expect(issue(fixture)).rejects.toThrow()
+      expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
+      await env.CONTROL_DB.prepare("UPDATE module_catalog SET active = 1, dependency_ids_json = '[]' WHERE module_id = 'projects'").run()
+    }
   })
 })
 
@@ -231,9 +351,13 @@ describe("scheduler and retrieval", () => {
   it("renews only when missing, within six hours, or desired inputs change and is idempotent", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
     const fixture = await seed()
+    const expectedInitial = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.next_check_at <= ? OR e.key_id <> 'vendor-key-a'",
+    ).bind(now.toISOString()).first<{ count: number }>()
     const first = await runEntitlementRenewal(bindings(), now)
-    expect(first).toMatchObject({ issued: 1 })
+    expect(first).toMatchObject({ checked: expectedInitial?.count, issued: expectedInitial?.count })
     expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + 1))).issued).toBe(0)
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = ? WHERE deployment_id = ?").bind("2026-08-11T06:00:00.000Z", fixture.deploymentId).run()
     expect((await runEntitlementRenewal(bindings(), new Date("2026-08-11T05:59:59.999Z"))).issued).toBe(0)
     expect((await runEntitlementRenewal(bindings(), new Date("2026-08-11T06:00:00.000Z"))).issued).toBe(1)
@@ -245,11 +369,49 @@ describe("scheduler and retrieval", () => {
   it("reclaims expired claims without duplicate issuance", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
     const fixture = await seed()
-    await env.CONTROL_DB.prepare("INSERT INTO entitlement_renewal_claims (deployment_id, issuance_key, claim_token, state, claim_expires_at, attempt_count, retry_at, created_at, updated_at) VALUES (?, 'auto:0:stale', 'dead', 'claimed', ?, 1, NULL, ?, ?)")
-      .bind(fixture.deploymentId, new Date(now.getTime() - 1).toISOString(), now.toISOString(), now.toISOString()).run()
+    const failing = new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") return (statements: D1PreparedStatement[]) => target.batch([
+          ...statements,
+          target.prepare("INSERT INTO entitlement_versions (id) VALUES ('forced-claim-failure')"),
+        ])
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    expect((await runEntitlementRenewal(bindings(failing), now)).failed).toBe(1)
+    const claim = await env.CONTROL_DB.prepare("SELECT issuance_key FROM entitlement_renewal_claims WHERE deployment_id = ?")
+      .bind(fixture.deploymentId).first<{ issuance_key: string }>()
+    expect(claim?.issuance_key).toMatch(/^auto:0:/)
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("UPDATE entitlement_renewal_claims SET state = 'claimed', claim_token = 'dead', claim_expires_at = ?, retry_at = NULL WHERE deployment_id = ? AND issuance_key = ?")
+        .bind(new Date(now.getTime() - 1).toISOString(), fixture.deploymentId, claim!.issuance_key),
+      env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = ? WHERE deployment_id = ?")
+        .bind(now.toISOString(), fixture.deploymentId),
+    ])
     const summaries = await Promise.all([runEntitlementRenewal(bindings(), now), runEntitlementRenewal(bindings(), now)])
     expect(summaries.reduce((sum, item) => sum + item.issued, 0)).toBe(1)
     expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(1)
+  })
+
+  it("renews immediately when active signing key changes even before next_check_at", async () => {
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    const fixture = await seed()
+    await issue(fixture)
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const rotatedPrivate = await crypto.subtle.exportKey("jwk", pair.privateKey)
+    const rotated = bindings(env.CONTROL_DB, {
+      ENTITLEMENT_SIGNING_KEY_ID: "vendor-key-b",
+      ENTITLEMENT_SIGNING_PRIVATE_JWK: JSON.stringify(rotatedPrivate),
+    })
+    const expected = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_entitlement_schedules s JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE e.key_id <> 'vendor-key-b'",
+    ).first<{ count: number }>()
+    const summary = await runEntitlementRenewal(rotated, new Date(now.getTime() + 1))
+    expect(summary).toMatchObject({ checked: expected?.count, issued: expected?.count })
+    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.keyId).toBe("vendor-key-b")
+    expect(await count("operator_audit_log", "WHERE action = 'entitlement.renew' AND target_id = ?", [fixture.deploymentId])).toBe(1)
+    await runEntitlementRenewal(bindings(), new Date(now.getTime() + 2))
   })
 
   it("advances invalid schedules and backs off failed signing without persisting a lease", async () => {
@@ -289,14 +451,29 @@ describe("scheduler and retrieval", () => {
     const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array()))].map((byte) => byte.toString(16).padStart(2, "0")).join("")
     const transcript = new TextEncoder().encode(`crm-deployment-request-v1\nGET\n${path}\n${fixture.deploymentId}\n${keyId}\n${timestamp}\n${nonce}\nsha-256=${digest}\n`)
     const signature = await crypto.subtle.sign("Ed25519", keyPair.privateKey, transcript)
-    const response = await createApp().fetch(new Request(`https://control.invalid${path}`, { headers: {
+    const headers = {
       "X-Deployment-Key-Id": keyId, "X-Deployment-Timestamp": timestamp,
       "X-Deployment-Nonce": nonce, "X-Deployment-Signature": base64(new Uint8Array(signature)),
-    } }), bindings())
+    }
+    const response = await createApp().fetch(new Request(`https://control.invalid${path}`, { headers }), bindings())
     const stored = await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 1)
     expect(response.status).toBe(200)
     expect(await response.text()).toBe(stored?.envelopeJson)
     expect(response.headers.get("Cache-Control")).toBe("private, no-store")
     expect(response.headers.get("ETag")).toMatch(/^"[A-Za-z0-9_-]{43}"$/)
+    const replay = await createApp().fetch(new Request(`https://control.invalid${path}`, { headers }), bindings())
+    expect(replay.status).toBe(401)
+
+    const other = await seed()
+    await issue(other)
+    const otherPath = `/v1/deployments/${other.deploymentId}/entitlement/1`
+    const otherNonce = base64(crypto.getRandomValues(new Uint8Array(32)))
+    const otherTranscript = new TextEncoder().encode(`crm-deployment-request-v1\nGET\n${otherPath}\n${other.deploymentId}\n${keyId}\n${timestamp}\n${otherNonce}\nsha-256=${digest}\n`)
+    const otherSignature = await crypto.subtle.sign("Ed25519", keyPair.privateKey, otherTranscript)
+    const wrongDeployment = await createApp().fetch(new Request(`https://control.invalid${otherPath}`, { headers: {
+      "X-Deployment-Key-Id": keyId, "X-Deployment-Timestamp": timestamp,
+      "X-Deployment-Nonce": otherNonce, "X-Deployment-Signature": base64(new Uint8Array(otherSignature)),
+    } }), bindings())
+    expect(wrongDeployment.status).toBe(401)
   })
 })

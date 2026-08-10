@@ -42,6 +42,8 @@ interface EntitlementStateRow {
   approved_image_digest: string | null
   next_check_at: string
   latest_version: number | null
+  entitlement_revision: number
+  state_revision: number
 }
 
 interface StoredEntitlementRow {
@@ -161,7 +163,7 @@ export async function assignEntitlementSchedule(
   })
   await database.batch([
     database.prepare(
-      "INSERT INTO deployment_entitlement_schedules (deployment_id, contract_id, next_check_at, latest_version, configuration_version, release_channel, minimum_supported_app_version, approved_image_digest, updated_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?) ON CONFLICT(deployment_id) DO UPDATE SET contract_id = excluded.contract_id, next_check_at = excluded.next_check_at, configuration_version = excluded.configuration_version, release_channel = excluded.release_channel, minimum_supported_app_version = excluded.minimum_supported_app_version, approved_image_digest = excluded.approved_image_digest, updated_at = excluded.updated_at",
+      "INSERT INTO deployment_entitlement_schedules (deployment_id, contract_id, next_check_at, latest_version, configuration_version, release_channel, minimum_supported_app_version, approved_image_digest, state_revision, updated_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 1, ?) ON CONFLICT(deployment_id) DO UPDATE SET contract_id = excluded.contract_id, next_check_at = excluded.next_check_at, configuration_version = excluded.configuration_version, release_channel = excluded.release_channel, minimum_supported_app_version = excluded.minimum_supported_app_version, approved_image_digest = excluded.approved_image_digest, state_revision = deployment_entitlement_schedules.state_revision + 1, updated_at = excluded.updated_at",
     ).bind(
       input.deploymentId,
       input.contractId,
@@ -216,8 +218,9 @@ export async function updateEntitlementControls(
   actor: MutationActor,
   now = new Date(),
 ): Promise<void> {
+  if (Object.keys(input).length === 0) throw badRequest()
   const contract = await database.prepare(
-    "SELECT status, starts_at, ends_at, seat_limit, renewal_policy, suspension_at, scheduled_seat_limit, seat_limit_effective_at FROM contracts WHERE id = ?",
+    "SELECT status, starts_at, ends_at, seat_limit, renewal_policy, suspension_at, scheduled_seat_limit, seat_limit_effective_at, entitlement_revision FROM contracts WHERE id = ?",
   ).bind(contractId).first<{
     status: SubscriptionStatus
     starts_at: string
@@ -227,6 +230,7 @@ export async function updateEntitlementControls(
     suspension_at: string | null
     scheduled_seat_limit: number | null
     seat_limit_effective_at: string | null
+    entitlement_revision: number
   }>()
   if (!contract) throw notFound()
   if (input.status !== undefined && !["active", "past_due", "suspended", "cancelled"].includes(input.status)) throw badRequest()
@@ -278,28 +282,53 @@ export async function updateEntitlementControls(
     },
     createdAt: at,
   })
-  await database.batch([
+  const statements: D1PreparedStatement[] = [
     database.prepare(
-      "UPDATE contracts SET status = ?, renewal_policy = ?, suspension_at = ?, seat_limit = ?, scheduled_seat_limit = ?, seat_limit_effective_at = ?, updated_at = ? WHERE id = ?",
-    ).bind(
-      status,
-      input.renewalPolicy ?? contract.renewal_policy,
-      suspensionAt,
-      seatLimit,
-      scheduledSeatLimit,
-      seatLimitEffectiveAt,
-      at,
-      contractId,
-    ),
-    database.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE contract_id = ?")
-      .bind(at, at, contractId),
+      "INSERT INTO entitlement_control_operations (id, contract_id, expected_revision, created_at) VALUES (?, ?, ?, ?)",
+    ).bind(crypto.randomUUID(), contractId, contract.entitlement_revision, at),
+  ]
+  if (input.status !== undefined) {
+    statements.push(database.prepare(
+      "UPDATE contracts SET status = ?, suspension_at = CASE WHEN ? = 'suspended' THEN NULL ELSE suspension_at END, updated_at = ? WHERE id = ?",
+    ).bind(input.status, input.status, at, contractId))
+  }
+  if (input.renewalPolicy !== undefined) {
+    statements.push(database.prepare(
+      "UPDATE contracts SET renewal_policy = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.renewalPolicy, at, contractId))
+  }
+  if (input.suspensionAt !== undefined && input.status !== "suspended") {
+    statements.push(database.prepare(
+      "UPDATE contracts SET suspension_at = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.suspensionAt, at, contractId))
+  }
+  if (input.seatLimit !== undefined) {
+    statements.push(database.prepare(
+      "UPDATE contracts SET seat_limit = ?, scheduled_seat_limit = ?, seat_limit_effective_at = ?, updated_at = ? WHERE id = ?",
+    ).bind(seatLimit, scheduledSeatLimit, seatLimitEffectiveAt, at, contractId))
+  }
+  statements.push(
+    database.prepare(
+      "UPDATE contracts SET entitlement_revision = entitlement_revision + 1, updated_at = ? WHERE id = ? AND entitlement_revision = ?",
+    ).bind(at, contractId, contract.entitlement_revision),
+    database.prepare(
+      "UPDATE deployment_entitlement_schedules SET state_revision = state_revision + 1, next_check_at = ?, updated_at = ? WHERE contract_id = ?",
+    ).bind(at, at, contractId),
     audit.statement,
-  ])
+  )
+  try {
+    await database.batch(statements)
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("contract entitlement revision changed")) {
+      throw new SafeHttpError(409, "entitlement_state_changed")
+    }
+    throw error
+  }
 }
 
 async function loadState(database: D1Database, deploymentId: string, contractId?: string): Promise<EntitlementStateRow> {
   const row = await database.prepare(
-    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.client_id, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
+    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.client_id, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, c.entitlement_revision, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version, s.state_revision FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
   ).bind(deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
   if (!row) throw notFound()
   if (row.client_id !== row.contract_client_id) throw badRequest()
@@ -504,8 +533,8 @@ export async function issueEntitlement(
       "INSERT INTO deployment_entitlement_sequences (deployment_id, next_version) VALUES (?, 2) ON CONFLICT(deployment_id) DO UPDATE SET next_version = deployment_entitlement_sequences.next_version + 1",
     ).bind(input.deploymentId),
     environment.CONTROL_DB.prepare(
-      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json) SELECT ?, ?, ?, next_version - 1, ?, ?, ?, ?, ?, ?, ? FROM deployment_entitlement_sequences WHERE deployment_id = ?",
-    ).bind(id, input.deploymentId, row.contract_id, keyId, payloadJson, envelope.signature, now.toISOString(), now.toISOString(), issuanceKey, envelopeJson, input.deploymentId),
+      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json, contract_revision, schedule_revision, renewal_claim_token) SELECT ?, ?, ?, next_version - 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM deployment_entitlement_sequences WHERE deployment_id = ?",
+    ).bind(id, input.deploymentId, row.contract_id, keyId, payloadJson, envelope.signature, now.toISOString(), now.toISOString(), issuanceKey, envelopeJson, row.entitlement_revision, row.state_revision, input.claimToken ?? null, input.deploymentId),
   ]
   if (input.claimToken !== undefined) {
     statements.push(environment.CONTROL_DB.prepare(
@@ -525,6 +554,9 @@ export async function issueEntitlement(
       "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? AND issuance_key = ?",
     ).bind(input.deploymentId, issuanceKey).first<StoredEntitlementRow>()
     if (raced) return fromStored(raced)
+    if (error instanceof Error && error.message.includes("entitlement state changed")) {
+      throw new SafeHttpError(409, "entitlement_state_changed")
+    }
     throw error
   }
   const stored = await environment.CONTROL_DB.prepare(
@@ -570,8 +602,8 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
 }> {
   const now = new Date(clock.getTime())
   const due = await environment.CONTROL_DB.prepare(
-    "SELECT deployment_id, contract_id FROM deployment_entitlement_schedules WHERE next_check_at <= ? ORDER BY next_check_at, deployment_id LIMIT 50",
-  ).bind(now.toISOString()).all<{ deployment_id: string; contract_id: string }>()
+    "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.next_check_at <= ? OR e.key_id <> ? ORDER BY s.next_check_at, s.deployment_id LIMIT 50",
+  ).bind(now.toISOString(), environment.ENTITLEMENT_SIGNING_KEY_ID).all<{ deployment_id: string; contract_id: string }>()
   const summary = { checked: due.results.length, issued: 0, skipped: 0, failed: 0 }
   for (const schedule of due.results) {
     let activeIssuanceKey: string | null = null
@@ -614,6 +646,15 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         await environment.CONTROL_DB.prepare(
           "UPDATE deployment_entitlement_schedules SET next_check_at = ?, updated_at = ? WHERE deployment_id = ?",
         ).bind(new Date(now.getTime() + DAY_MS).toISOString(), now.toISOString(), schedule.deployment_id).run()
+        continue
+      }
+      if (error instanceof SafeHttpError && error.code === "entitlement_state_changed") {
+        summary.failed += 1
+        if (activeIssuanceKey !== null) {
+          await environment.CONTROL_DB.prepare(
+            "UPDATE entitlement_renewal_claims SET state = 'failed', retry_at = ?, last_error_code = 'entitlement_state_changed', updated_at = ? WHERE deployment_id = ? AND issuance_key = ? AND state = 'claimed'",
+          ).bind(now.toISOString(), now.toISOString(), schedule.deployment_id, activeIssuanceKey).run().catch(() => undefined)
+        }
         continue
       }
       summary.failed += 1

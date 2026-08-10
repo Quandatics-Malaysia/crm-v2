@@ -167,6 +167,7 @@ export const contracts = sqliteTable(
     suspensionAt: text("suspension_at"),
     scheduledSeatLimit: integer("scheduled_seat_limit"),
     seatLimitEffectiveAt: text("seat_limit_effective_at"),
+    entitlementRevision: integer("entitlement_revision").notNull().default(1),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -252,6 +253,9 @@ export const entitlementVersions = sqliteTable(
     issuedAt: text("issued_at").notNull(),
     issuanceKey: text("issuance_key"),
     envelopeJson: text("envelope_json"),
+    contractRevision: integer("contract_revision"),
+    scheduleRevision: integer("schedule_revision"),
+    renewalClaimToken: text("renewal_claim_token"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -287,6 +291,7 @@ export const deploymentEntitlementSchedules = sqliteTable(
     releaseChannel: text("release_channel", { enum: ["stable", "beta", "canary"] }).notNull(),
     minimumSupportedAppVersion: text("minimum_supported_app_version").notNull(),
     approvedImageDigest: text("approved_image_digest"),
+    stateRevision: integer("state_revision").notNull().default(1),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [index("deployment_entitlement_schedules_due_idx").on(table.nextCheckAt, table.deploymentId)],
@@ -312,6 +317,13 @@ export const entitlementRenewalClaims = sqliteTable(
     index("entitlement_renewal_claims_retry_idx").on(table.state, table.retryAt, table.claimExpiresAt),
   ],
 )
+
+export const entitlementControlOperations = sqliteTable("entitlement_control_operations", {
+  id: text("id").primaryKey(),
+  contractId: text("contract_id").notNull().references(() => contracts.id),
+  expectedRevision: integer("expected_revision").notNull(),
+  createdAt: text("created_at").notNull(),
+})
 
 export const heartbeatRollups = sqliteTable(
   "heartbeat_rollups",

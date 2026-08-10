@@ -298,6 +298,32 @@ describe("contract and invoice administration", () => {
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
   })
 
+  it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {
+    const before = await env.CONTROL_DB.prepare(
+      "SELECT entitlement_revision FROM contracts WHERE id = ?",
+    ).bind(contractId).first<{ entitlement_revision: number }>()
+    for (const json of [{}, { unknownControl: true }]) {
+      const response = await operatorRequest(`/operator/contracts/${contractId}/entitlement-controls`, {
+        method: "POST",
+        token: "billing-token",
+        json,
+        jsonGuard: true,
+      })
+      expect(response.status).toBe(400)
+    }
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT entitlement_revision FROM contracts WHERE id = ?",
+    ).bind(contractId).first<{ entitlement_revision: number }>()).toEqual(before)
+    expect(await countRows(
+      "SELECT COUNT(*) AS count FROM entitlement_control_operations WHERE contract_id = ?",
+      contractId,
+    )).toBe(0)
+    expect(await countRows(
+      "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'entitlement.controls.update' AND target_id = ? AND outcome = 'success'",
+      contractId,
+    )).toBe(0)
+  })
+
   it.each([
     ["invalid currency", { currency: "XXX" }],
     ["invalid money", { totalCents: "-1" }],

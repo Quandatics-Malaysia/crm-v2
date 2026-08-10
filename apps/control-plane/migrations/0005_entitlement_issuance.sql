@@ -78,6 +78,7 @@ CREATE TABLE entitlement_renewal_claims (
   deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
   issuance_key TEXT NOT NULL,
   claim_token TEXT NOT NULL,
+  target_key_id TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('claimed', 'issued', 'failed')),
   claim_expires_at TEXT NOT NULL,
   attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),

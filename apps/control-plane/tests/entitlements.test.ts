@@ -175,7 +175,7 @@ describe("entitlement issuance", () => {
     const issuanceKey = "auto:0:claim-race"
     const createdAt = now.toISOString()
     await env.CONTROL_DB.prepare(
-      "INSERT INTO entitlement_renewal_claims (deployment_id, issuance_key, claim_token, state, claim_expires_at, attempt_count, created_at, updated_at) VALUES (?, ?, 'original', 'claimed', ?, 1, ?, ?)",
+      "INSERT INTO entitlement_renewal_claims (deployment_id, issuance_key, claim_token, target_key_id, state, claim_expires_at, attempt_count, created_at, updated_at) VALUES (?, ?, 'original', 'vendor-key-a', 'claimed', ?, 1, ?, ?)",
     ).bind(fixture.deploymentId, issuanceKey, new Date(now.getTime() + 60_000).toISOString(), createdAt, createdAt).run()
     let intercepted = false
     const database = new Proxy(env.CONTROL_DB, {
@@ -394,6 +394,43 @@ describe("scheduler and retrieval", () => {
     expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(1)
   })
 
+  it("does not let an expired worker fail a replacement renewal claim", async () => {
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    const fixture = await seed()
+    let reclaimed = false
+    const staleWorker = new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!reclaimed) {
+              reclaimed = true
+              const claim = await target.prepare(
+                "SELECT issuance_key FROM entitlement_renewal_claims WHERE deployment_id = ? AND state = 'claimed'",
+              ).bind(fixture.deploymentId).first<{ issuance_key: string }>()
+              await target.prepare(
+                "UPDATE entitlement_renewal_claims SET claim_token = 'replacement-worker', claim_expires_at = ?, attempt_count = attempt_count + 1 WHERE deployment_id = ? AND issuance_key = ?",
+              ).bind(new Date(now.getTime() + 10 * 60_000).toISOString(), fixture.deploymentId, claim!.issuance_key).run()
+            }
+            return target.batch(statements)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+    expect((await runEntitlementRenewal(bindings(staleWorker), now)).failed).toBe(1)
+    const claim = await env.CONTROL_DB.prepare(
+      "SELECT claim_token, state, retry_at, last_error_code FROM entitlement_renewal_claims WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).first<{ claim_token: string; state: string; retry_at: string | null; last_error_code: string | null }>()
+    expect(claim).toEqual({
+      claim_token: "replacement-worker",
+      state: "claimed",
+      retry_at: null,
+      last_error_code: null,
+    })
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+  })
+
   it("renews immediately when active signing key changes even before next_check_at", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
     const fixture = await seed()
@@ -412,6 +449,43 @@ describe("scheduler and retrieval", () => {
     expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.keyId).toBe("vendor-key-b")
     expect(await count("operator_audit_log", "WHERE action = 'entitlement.renew' AND target_id = ?", [fixture.deploymentId])).toBe(1)
     await runEntitlementRenewal(bindings(), new Date(now.getTime() + 2))
+  })
+
+  it("backs off failed key rotations without starving untouched mismatches", async () => {
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    const current = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM deployment_entitlement_schedules s JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE e.key_id = 'vendor-key-a'",
+    ).first<{ count: number }>()
+    for (let index = current?.count ?? 0; index < 51; index += 1) {
+      const fixture = await seed()
+      await issue(fixture)
+      await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
+    }
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const correctedPrivate = await crypto.subtle.exportKey("jwk", pair.privateKey)
+    const failedRotation = bindings(env.CONTROL_DB, {
+      ENTITLEMENT_SIGNING_KEY_ID: "vendor-key-c",
+      ENTITLEMENT_SIGNING_PRIVATE_JWK: "",
+    })
+    expect(await runEntitlementRenewal(failedRotation, now)).toMatchObject({ checked: 50, failed: 50, issued: 0 })
+
+    const correctedRotation = bindings(env.CONTROL_DB, {
+      ENTITLEMENT_SIGNING_KEY_ID: "vendor-key-c",
+      ENTITLEMENT_SIGNING_PRIVATE_JWK: JSON.stringify(correctedPrivate),
+    })
+    expect(await runEntitlementRenewal(correctedRotation, new Date(now.getTime() + 1))).toMatchObject({
+      checked: 1,
+      issued: 1,
+      skipped: 0,
+    })
+    await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+    expect(await runEntitlementRenewal(correctedRotation, new Date(now.getTime() + DAY_MS - 1))).toMatchObject({ checked: 0 })
+    expect(await runEntitlementRenewal(correctedRotation, new Date(now.getTime() + DAY_MS))).toMatchObject({
+      checked: 50,
+      issued: 50,
+    })
+    expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + DAY_MS + 1))).issued).toBe(50)
+    expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + DAY_MS + 2))).issued).toBe(1)
   })
 
   it("advances invalid schedules and backs off failed signing without persisting a lease", async () => {

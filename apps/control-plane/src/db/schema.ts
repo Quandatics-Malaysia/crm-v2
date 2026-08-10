@@ -303,6 +303,7 @@ export const entitlementRenewalClaims = sqliteTable(
     deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
     issuanceKey: text("issuance_key").notNull(),
     claimToken: text("claim_token").notNull(),
+    targetKeyId: text("target_key_id").notNull(),
     state: text("state", { enum: ["claimed", "issued", "failed"] }).notNull(),
     claimExpiresAt: text("claim_expires_at").notNull(),
     attemptCount: integer("attempt_count").notNull().default(0),

@@ -5,12 +5,14 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
+    "test:runtime": "pnpm run build && node --test tests/runtime-import.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

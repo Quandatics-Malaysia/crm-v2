@@ -52,11 +52,11 @@ export const EntitlementLeaseSchema = z
         message: "leaseExpiresAt must be exactly 24 hours after issuedAt",
       })
     }
-    if (graceUntil < leaseExpiresAt) {
+    if (graceUntil !== leaseExpiresAt + 7 * 24 * 60 * 60 * 1000) {
       context.addIssue({
         code: "custom",
         path: ["graceUntil"],
-        message: "graceUntil must not precede leaseExpiresAt",
+        message: "graceUntil must be exactly seven days after leaseExpiresAt",
       })
     }
     if (contractEndsAt < contractStartsAt) {

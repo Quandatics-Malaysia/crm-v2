@@ -3,23 +3,30 @@
  * applies a stable recursive object-key ordering before serializing.
  */
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value))
+  return serialize(value)
 }
 
-function canonicalize(value: unknown): null | boolean | number | string | CanonicalValue[] | CanonicalObject {
+function serialize(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
-    return value
+    return JSON.stringify(value)
   }
 
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       throw new TypeError("Canonical JSON does not support non-finite numbers")
     }
-    return value
+    return JSON.stringify(value)
   }
 
   if (Array.isArray(value)) {
-    return value.map(canonicalize)
+    const values: string[] = []
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        throw new TypeError("Canonical JSON does not support sparse arrays")
+      }
+      values.push(serialize(value[index]))
+    }
+    return `[${values.join(",")}]`
   }
 
   if (typeof value === "object") {
@@ -28,15 +35,12 @@ function canonicalize(value: unknown): null | boolean | number | string | Canoni
       throw new TypeError("Canonical JSON supports plain objects only")
     }
 
-    const result: CanonicalObject = Object.create(null) as CanonicalObject
-    for (const key of Object.keys(value).sort()) {
-      result[key] = canonicalize((value as Record<string, unknown>)[key])
-    }
-    return result
+    const object = value as Record<string, unknown>
+    const entries = Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${serialize(object[key])}`)
+    return `{${entries.join(",")}}`
   }
 
   throw new TypeError(`Canonical JSON does not support ${typeof value} values`)
 }
-
-type CanonicalValue = null | boolean | number | string | CanonicalValue[] | CanonicalObject
-type CanonicalObject = { [key: string]: CanonicalValue }

@@ -50,6 +50,18 @@ describe("canonicalJson", () => {
     )
   })
 
+  it("sorts numeric-string keys lexicographically", () => {
+    expect(canonicalJson({ 2: "two", 10: "ten", a: "letter" })).toBe(
+      '{"10":"ten","2":"two","a":"letter"}',
+    )
+  })
+
+  it("rejects sparse arrays", () => {
+    const sparse = ["first", , "third"]
+
+    expect(() => canonicalJson(sparse)).toThrow()
+  })
+
   it("rejects non-finite numbers and unsupported values", () => {
     expect(() => canonicalJson({ value: Number.NaN })).toThrow()
     expect(() => canonicalJson({ value: undefined })).toThrow()
@@ -108,9 +120,16 @@ describe("EntitlementLeaseSchema", () => {
     )
   })
 
-  it("rejects a grace deadline before lease expiry", () => {
+  it("requires grace to end exactly seven days after lease expiry", () => {
+    expect(EntitlementLeaseSchema.safeParse(lease()).success).toBe(true)
     expect(
       EntitlementLeaseSchema.safeParse(lease({ graceUntil: "2026-08-10T23:59:59.999Z" })).success,
+    ).toBe(false)
+    expect(
+      EntitlementLeaseSchema.safeParse(lease({ graceUntil: "2026-08-17T23:59:59.999Z" })).success,
+    ).toBe(false)
+    expect(
+      EntitlementLeaseSchema.safeParse(lease({ graceUntil: "2026-08-18T00:00:00.001Z" })).success,
     ).toBe(false)
   })
 })

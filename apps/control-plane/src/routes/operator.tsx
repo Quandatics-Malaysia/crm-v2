@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context, type MiddlewareHandler } from "hono"
 import { csrf } from "hono/csrf"
+import { HTTPException } from "hono/http-exception"
 
 import { prepareOperatorAuditStatement } from "../audit"
 import { requireOperatorRole } from "../auth/rbac"
@@ -12,6 +13,8 @@ import {
   createDeployment,
   getClientDetail,
   listClients,
+  parseClientChildPagination,
+  parseNamedPagination,
   parsePagination,
 } from "../repos/clients"
 import { createContract, getContractDetail } from "../repos/contracts"
@@ -73,40 +76,101 @@ async function mutationData(context: OperatorContext): Promise<MutationData> {
   return result
 }
 
-async function auditMutationFailure(
+function mutationDescriptor(pathname: string): {
+  action: string
+  targetType: string
+  targetId: string
+} {
+  if (pathname === "/operator/clients") {
+    return { action: "client.create", targetType: "client", targetId: "pending" }
+  }
+  if (/^\/operator\/clients\/[^/]+\/organisations$/.test(pathname)) {
+    return {
+      action: "client_organisation.create",
+      targetType: "client_organisation",
+      targetId: "request-target",
+    }
+  }
+  if (/^\/operator\/clients\/[^/]+\/deployments$/.test(pathname)) {
+    return { action: "deployment.create", targetType: "deployment", targetId: "request-target" }
+  }
+  if (/^\/operator\/clients\/[^/]+\/contracts$/.test(pathname)) {
+    return { action: "contract.create", targetType: "contract", targetId: "request-target" }
+  }
+  if (/^\/operator\/contracts\/[^/]+\/invoices$/.test(pathname)) {
+    return { action: "invoice.create", targetType: "invoice", targetId: "request-target" }
+  }
+  return { action: "operator.mutation", targetType: "operator_route", targetId: "unmatched" }
+}
+
+function safeFailure(error: unknown): { code: string; outcome: "denied" | "error" } {
+  if (error instanceof SafeHttpError) {
+    return {
+      code: error.code,
+      outcome: error.status === 401 || error.status === 403 ? "denied" : "error",
+    }
+  }
+  if (error instanceof HTTPException) {
+    return {
+      code: error.status === 403 ? "forbidden" : "invalid_request",
+      outcome: error.status === 401 || error.status === 403 ? "denied" : "error",
+    }
+  }
+  return { code: "internal_error", outcome: "error" }
+}
+
+function responseFailure(status: number): { code: string; outcome: "denied" | "error" } {
+  if (status === 401) return { code: "unauthorized", outcome: "denied" }
+  if (status === 403) return { code: "forbidden", outcome: "denied" }
+  if (status === 404) return { code: "not_found", outcome: "error" }
+  if (status === 409) return { code: "conflict", outcome: "error" }
+  if (status >= 400 && status < 500) return { code: "invalid_request", outcome: "error" }
+  return { code: "internal_error", outcome: "error" }
+}
+
+async function writeFailureAudit(
   context: OperatorContext,
-  action: string,
-  targetType: string,
-  targetId: string,
-  error: SafeHttpError,
+  failure: { code: string; outcome: "denied" | "error" },
 ): Promise<void> {
+  const descriptor = mutationDescriptor(new URL(context.req.url).pathname)
   const audit = await prepareOperatorAuditStatement(context.env.CONTROL_DB, {
     operatorId: context.get("operator").operatorId,
-    action,
-    targetType,
-    targetId,
-    outcome: error.status === 403 ? "denied" : "error",
+    action: descriptor.action,
+    targetType: descriptor.targetType,
+    targetId: descriptor.targetId,
+    outcome: failure.outcome,
     requestId: requestId(context),
-    metadata: { errorCode: error.code },
+    metadata: { errorCode: failure.code },
   })
   await context.env.CONTROL_DB.batch([audit.statement])
 }
 
-async function runMutation(
-  context: OperatorContext,
-  options: { action: string; targetType: string; targetId: string; run: (data: MutationData) => Promise<string> },
-) {
+const auditMutationFailures: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(context.req.method)) {
+    await next()
+    return
+  }
+
   try {
-    const data = await mutationData(context)
-    const id = await options.run(data)
-    if (isJson(context)) return context.json({ id }, 201)
-    return context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+    await next()
   } catch (error) {
-    if (error instanceof SafeHttpError) {
-      await auditMutationFailure(context, options.action, options.targetType, options.targetId, error)
-    }
+    await writeFailureAudit(context, safeFailure(error))
     throw error
   }
+
+  if (context.res.status >= 400) {
+    await writeFailureAudit(context, responseFailure(context.res.status))
+  }
+}
+
+async function runMutation(
+  context: OperatorContext,
+  run: (data: MutationData) => Promise<string>,
+) {
+  const data = await mutationData(context)
+  const id = await run(data)
+  if (isJson(context)) return context.json({ id }, 201)
+  return context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
 }
 
 function actor(context: OperatorContext) {
@@ -125,6 +189,7 @@ export function createOperatorRoutes() {
     context.header("Referrer-Policy", "no-referrer")
     await next()
   })
+  routes.use("*", auditMutationFailures)
   routes.use("*", csrf())
 
   routes.get("/", (context) =>
@@ -142,13 +207,18 @@ export function createOperatorRoutes() {
     )
   })
   routes.get("/clients/:clientId", async (context) => {
-    const client = await getClientDetail(context.env.CONTROL_DB, context.req.param("clientId"))
+    const client = await getClientDetail(
+      context.env.CONTROL_DB,
+      context.req.param("clientId"),
+      parseClientChildPagination(context.req.url),
+    )
     return context.html(<ClientPage client={client} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
       context.env.CONTROL_DB,
       context.req.param("contractId"),
+      parseNamedPagination(context.req.url, "invoices"),
     )
     return context.html(<ContractPage contract={contract} />)
   })
@@ -157,12 +227,10 @@ export function createOperatorRoutes() {
     "/clients",
     sameOriginMutation,
     requireOperatorRole("vendor_owner"),
-    (context) => runMutation(context, {
-      action: "client.create",
-      targetType: "client",
-      targetId: "pending",
-      run: (data) => createClient(context.env.CONTROL_DB, data as never, actor(context)),
-    }),
+    (context) => runMutation(
+      context,
+      (data) => createClient(context.env.CONTROL_DB, data as never, actor(context)),
+    ),
   )
   routes.post(
     "/clients/:clientId/organisations",
@@ -170,12 +238,10 @@ export function createOperatorRoutes() {
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
-      return runMutation(context, {
-        action: "client_organisation.create",
-        targetType: "client",
-        targetId: clientId,
-        run: (data) => createClientOrganisation(context.env.CONTROL_DB, clientId, data as never, actor(context)),
-      })
+      return runMutation(
+        context,
+        (data) => createClientOrganisation(context.env.CONTROL_DB, clientId, data as never, actor(context)),
+      )
     },
   )
   routes.post(
@@ -184,12 +250,10 @@ export function createOperatorRoutes() {
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
-      return runMutation(context, {
-        action: "deployment.create",
-        targetType: "client",
-        targetId: clientId,
-        run: (data) => createDeployment(context.env.CONTROL_DB, clientId, data as never, actor(context)),
-      })
+      return runMutation(
+        context,
+        (data) => createDeployment(context.env.CONTROL_DB, clientId, data as never, actor(context)),
+      )
     },
   )
   routes.post(
@@ -198,12 +262,10 @@ export function createOperatorRoutes() {
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const clientId = context.req.param("clientId")
-      return runMutation(context, {
-        action: "contract.create",
-        targetType: "client",
-        targetId: clientId,
-        run: (data) => createContract(context.env.CONTROL_DB, clientId, data as never, actor(context)),
-      })
+      return runMutation(
+        context,
+        (data) => createContract(context.env.CONTROL_DB, clientId, data as never, actor(context)),
+      )
     },
   )
   routes.post(
@@ -212,12 +274,10 @@ export function createOperatorRoutes() {
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const contractId = context.req.param("contractId")
-      return runMutation(context, {
-        action: "invoice.create",
-        targetType: "contract",
-        targetId: contractId,
-        run: (data) => createInvoice(context.env.CONTROL_DB, contractId, data as never, actor(context)),
-      })
+      return runMutation(
+        context,
+        (data) => createInvoice(context.env.CONTROL_DB, contractId, data as never, actor(context)),
+      )
     },
   )
 

@@ -6,7 +6,7 @@ import {
 
 import { prepareOperatorAuditStatement } from "../audit"
 import { badRequest, notFound } from "../http/errors"
-import type { MutationActor } from "./clients"
+import type { MutationActor, PageRequest, PageResult } from "./clients"
 
 export const MODULE_CATALOG = {
   projects: { displayName: "Projects", dependencies: [] },
@@ -41,7 +41,7 @@ export interface ContractDetail {
   endsAt: string
   seatLimit: number
   totalCents: number
-  invoices: Array<{ id: string; invoiceNumber: string; status: string; currency: string; totalCents: number }>
+  invoices: PageResult<{ id: string; invoiceNumber: string; status: string; currency: string; totalCents: number }>
 }
 
 function boundedText(value: unknown, maximum: number): string {
@@ -189,6 +189,7 @@ export async function createContract(
 export async function getContractDetail(
   database: D1Database,
   contractId: string,
+  invoicePagination: PageRequest,
 ): Promise<ContractDetail> {
   const contract = await database.prepare(
     "SELECT id, client_id, plan_id, status, starts_at, ends_at, seat_limit, total_cents FROM contracts WHERE id = ?",
@@ -204,8 +205,12 @@ export async function getContractDetail(
   }>()
   if (!contract) throw notFound()
   const invoices = await database.prepare(
-    "SELECT id, invoice_number, status, currency, total_cents FROM invoices WHERE contract_id = ? ORDER BY created_at DESC LIMIT 500",
-  ).bind(contractId).all<{
+    "SELECT id, invoice_number, status, currency, total_cents FROM invoices WHERE contract_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+  ).bind(
+    contractId,
+    invoicePagination.pageSize + 1,
+    invoicePagination.offset,
+  ).all<{
     id: string
     invoice_number: string
     status: string
@@ -221,12 +226,17 @@ export async function getContractDetail(
     endsAt: contract.ends_at,
     seatLimit: contract.seat_limit,
     totalCents: contract.total_cents,
-    invoices: invoices.results.map((invoice) => ({
-      id: invoice.id,
-      invoiceNumber: invoice.invoice_number,
-      status: invoice.status,
-      currency: invoice.currency,
-      totalCents: invoice.total_cents,
-    })),
+    invoices: {
+      items: invoices.results.slice(0, invoicePagination.pageSize).map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        status: invoice.status,
+        currency: invoice.currency,
+        totalCents: invoice.total_cents,
+      })),
+      page: invoicePagination.page,
+      pageSize: invoicePagination.pageSize,
+      hasNext: invoices.results.length > invoicePagination.pageSize,
+    },
   }
 }

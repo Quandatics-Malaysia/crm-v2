@@ -52,14 +52,21 @@ function frequency(value: unknown): CollectionFrequency {
 function parseWeights(value: unknown, expectedCount: number, selectedFrequency: CollectionFrequency) {
   if (selectedFrequency === "upfront") return undefined
   if (typeof value !== "string") throw badRequest()
-  const weights = value.split(",").map((part) => Number(part.trim()))
-  if (
-    weights.length !== expectedCount ||
-    weights.some((weight) => !Number.isFinite(weight) || weight < 0) ||
-    weights.reduce((sum, weight) => sum + weight, 0) <= 0
-  ) {
-    throw badRequest()
+  const tokens = value.split(",")
+  if (tokens.length !== expectedCount) throw badRequest()
+
+  const weights: number[] = []
+  let totalWeight = 0
+  for (const token of tokens) {
+    const normalized = token.trim()
+    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,12})?$/.test(normalized)) throw badRequest()
+    const weight = Number(normalized)
+    if (!Number.isFinite(weight) || weight < 0 || weight > 1_000_000) throw badRequest()
+    totalWeight += weight
+    if (!Number.isFinite(totalWeight)) throw badRequest()
+    weights.push(weight)
   }
+  if (totalWeight <= 0) throw badRequest()
   return weights
 }
 
@@ -120,26 +127,25 @@ export async function createInvoice(
     metadata: { contractId, currency, invoiceNumber, totalCents },
     createdAt: now,
   })
-  const milestoneStatements = milestones.map((milestone) =>
-    database.prepare(
-      "INSERT INTO invoice_collection_milestones (id, invoice_id, sequence, title, due_at, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).bind(
-      crypto.randomUUID(),
-      id,
-      milestone.sequence,
-      milestone.title,
-      milestone.dueAt,
-      milestone.amountCents,
-      now,
-    ),
+  const milestoneRowsJson = JSON.stringify(
+    milestones.map((milestone) => ({
+      id: crypto.randomUUID(),
+      sequence: milestone.sequence,
+      title: milestone.title,
+      dueAt: milestone.dueAt,
+      amountCents: milestone.amountCents,
+    })),
   )
+  const milestoneStatement = database.prepare(
+    "INSERT INTO invoice_collection_milestones (id, invoice_id, sequence, title, due_at, amount_cents, created_at) SELECT json_extract(value, '$.id'), ?, CAST(json_extract(value, '$.sequence') AS INTEGER), json_extract(value, '$.title'), json_extract(value, '$.dueAt'), CAST(json_extract(value, '$.amountCents') AS INTEGER), ? FROM json_each(?)",
+  ).bind(id, now, milestoneRowsJson)
 
   try {
     await database.batch([
       database.prepare(
         "INSERT INTO invoices (id, contract_id, invoice_number, status, issued_at, due_at, paid_at, currency, total_cents, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
       ).bind(id, contractId, invoiceNumber, status, issuedAt, dueAt, currency, totalCents, now, now),
-      ...milestoneStatements,
+      milestoneStatement,
       audit.statement,
     ])
   } catch (error) {

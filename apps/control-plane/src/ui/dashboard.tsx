@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { MODULE_CATALOG, type ContractDetail } from "../repos/contracts"
-import type { ClientDetail, ClientListItem } from "../repos/clients"
+import type { ClientDetail, ClientListItem, PageResult } from "../repos/clients"
 import { OperatorLayout } from "./layout"
 
 export function Dashboard(props: { operatorEmail: string }) {
@@ -32,8 +32,39 @@ export function ClientList(props: { clients: ClientListItem[]; page: number; pag
   )
 }
 
+function CollectionPager(props: {
+  basePath: string
+  name: string
+  collection: Pick<PageResult<unknown>, "page" | "pageSize" | "hasNext">
+  preserved: Record<string, Pick<PageResult<unknown>, "page" | "pageSize">>
+}) {
+  const href = (page: number) => {
+    const parameters = new URLSearchParams()
+    for (const [name, collection] of Object.entries(props.preserved)) {
+      parameters.set(`${name}Page`, String(name === props.name ? page : collection.page))
+      parameters.set(`${name}PageSize`, String(collection.pageSize))
+    }
+    return `${props.basePath}?${parameters.toString()}`
+  }
+  return (
+    <nav aria-label={`${props.name} pagination`}>
+      {props.collection.page > 1 ? (
+        <a href={href(props.collection.page - 1)}>Previous</a>
+      ) : null}
+      {props.collection.hasNext ? (
+        <a href={href(props.collection.page + 1)}>Next</a>
+      ) : null}
+    </nav>
+  )
+}
+
 export function ClientPage(props: { client: ClientDetail }) {
   const client = props.client
+  const childPagination = {
+    organisations: client.organisations,
+    deployments: client.deployments,
+    contracts: client.contracts,
+  }
   return (
     <OperatorLayout title={client.displayName}>
       <h1>{client.displayName}</h1>
@@ -41,7 +72,8 @@ export function ClientPage(props: { client: ClientDetail }) {
 
       <section>
         <h2>Organisations</h2>
-        <ul>{client.organisations.map((item) => <li>{item.displayName} ({item.organisationKey})</li>)}</ul>
+        <ul>{client.organisations.items.map((item) => <li>{item.displayName} ({item.organisationKey})</li>)}</ul>
+        <CollectionPager basePath={`/operator/clients/${client.id}`} name="organisations" collection={client.organisations} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/organisations`}>
           <input name="organisationKey" required placeholder="stable-key" />
           <input name="displayName" required placeholder="Display name" />
@@ -52,7 +84,8 @@ export function ClientPage(props: { client: ClientDetail }) {
 
       <section>
         <h2>Deployments</h2>
-        <ul>{client.deployments.map((item) => <li>{item.deploymentKey} ({item.environment})</li>)}</ul>
+        <ul>{client.deployments.items.map((item) => <li>{item.deploymentKey} ({item.environment})</li>)}</ul>
+        <CollectionPager basePath={`/operator/clients/${client.id}`} name="deployments" collection={client.deployments} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/deployments`}>
           <input name="deploymentKey" required placeholder="stable-key" />
           <select name="environment"><option>development</option><option>staging</option><option>production</option></select>
@@ -63,7 +96,8 @@ export function ClientPage(props: { client: ClientDetail }) {
 
       <section>
         <h2>Contracts</h2>
-        <ul>{client.contracts.map((item) => <li><a href={`/operator/contracts/${item.id}`}>{item.startsAt}–{item.endsAt}</a>, {item.seatLimit} seats</li>)}</ul>
+        <ul>{client.contracts.items.map((item) => <li><a href={`/operator/contracts/${item.id}`}>{item.startsAt}–{item.endsAt}</a>, {item.seatLimit} seats</li>)}</ul>
+        <CollectionPager basePath={`/operator/clients/${client.id}`} name="contracts" collection={client.contracts} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/contracts`}>
           <input name="planId" required placeholder="Plan ID" />
           <select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select>
@@ -93,7 +127,8 @@ export function ContractPage(props: { contract: ContractDetail }) {
       <h1>Contract</h1>
       <p>{contract.startsAt}–{contract.endsAt}; {contract.seatLimit} seats; {contract.totalCents} cents.</p>
       <h2>Invoices</h2>
-      <ul>{contract.invoices.map((invoice) => <li>{invoice.invoiceNumber}: {invoice.totalCents} {invoice.currency} cents</li>)}</ul>
+      <ul>{contract.invoices.items.map((invoice) => <li>{invoice.invoiceNumber}: {invoice.totalCents} {invoice.currency} cents</li>)}</ul>
+      <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />
       <form method="post" action={`/operator/contracts/${contract.id}/invoices`}>
         <input name="invoiceNumber" required placeholder="Invoice number" />
         <select name="status"><option>draft</option><option>issued</option><option>paid</option><option>void</option></select>

@@ -30,10 +30,29 @@ export interface ClientListItem {
   status: string
 }
 
+export interface PageRequest {
+  page: number
+  pageSize: number
+  offset: number
+}
+
+export interface PageResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  hasNext: boolean
+}
+
+export interface ClientChildPagination {
+  organisations: PageRequest
+  deployments: PageRequest
+  contracts: PageRequest
+}
+
 export interface ClientDetail extends ClientListItem {
-  organisations: Array<{ id: string; organisationKey: string; displayName: string }>
-  deployments: Array<{ id: string; deploymentKey: string; environment: string; status: string }>
-  contracts: Array<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
+  organisations: PageResult<{ id: string; organisationKey: string; displayName: string }>
+  deployments: PageResult<{ id: string; deploymentKey: string; environment: string; status: string }>
+  contracts: PageResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
 }
 
 function textField(value: unknown, maximum: number): string {
@@ -213,6 +232,37 @@ export function parsePagination(url: string): { page: number; pageSize: number; 
   return { page, pageSize, offset: (page - 1) * pageSize }
 }
 
+export function parseNamedPagination(url: string, name: string): PageRequest {
+  if (!/^[a-z]+$/i.test(name)) throw badRequest()
+  const search = new URL(url).searchParams
+  const pageValue = search.get(`${name}Page`) ?? "1"
+  const pageSizeValue = search.get(`${name}PageSize`) ?? "25"
+  if (!/^\d+$/.test(pageValue) || !/^\d+$/.test(pageSizeValue)) throw badRequest()
+  const page = Number(pageValue)
+  const pageSize = Number(pageSizeValue)
+  if (!Number.isInteger(page) || page < 1 || page > 100_000 || pageSize < 1 || pageSize > 50) {
+    throw badRequest()
+  }
+  return { page, pageSize, offset: (page - 1) * pageSize }
+}
+
+export function parseClientChildPagination(url: string): ClientChildPagination {
+  return {
+    organisations: parseNamedPagination(url, "organisations"),
+    deployments: parseNamedPagination(url, "deployments"),
+    contracts: parseNamedPagination(url, "contracts"),
+  }
+}
+
+function pageResult<T>(rows: T[], request: PageRequest): PageResult<T> {
+  return {
+    items: rows.slice(0, request.pageSize),
+    page: request.page,
+    pageSize: request.pageSize,
+    hasNext: rows.length > request.pageSize,
+  }
+}
+
 export async function listClients(
   database: D1Database,
   pageSize: number,
@@ -237,6 +287,7 @@ export async function listClients(
 export async function getClientDetail(
   database: D1Database,
   clientId: string,
+  pagination: ClientChildPagination,
 ): Promise<ClientDetail> {
   const client = await database.prepare(
     "SELECT id, client_key, display_name, status FROM clients WHERE id = ?",
@@ -250,14 +301,26 @@ export async function getClientDetail(
 
   const [organisations, deployments, contracts] = await Promise.all([
     database.prepare(
-      "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT 500",
-    ).bind(clientId).all<{ id: string; organisation_key: string; display_name: string }>(),
+      "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT ? OFFSET ?",
+    ).bind(
+      clientId,
+      pagination.organisations.pageSize + 1,
+      pagination.organisations.offset,
+    ).all<{ id: string; organisation_key: string; display_name: string }>(),
     database.prepare(
-      "SELECT id, deployment_key, environment, status FROM deployments WHERE client_id = ? ORDER BY deployment_key LIMIT 500",
-    ).bind(clientId).all<{ id: string; deployment_key: string; environment: string; status: string }>(),
+      "SELECT id, deployment_key, environment, status FROM deployments WHERE client_id = ? ORDER BY deployment_key LIMIT ? OFFSET ?",
+    ).bind(
+      clientId,
+      pagination.deployments.pageSize + 1,
+      pagination.deployments.offset,
+    ).all<{ id: string; deployment_key: string; environment: string; status: string }>(),
     database.prepare(
-      "SELECT id, status, starts_at, ends_at, seat_limit FROM contracts WHERE client_id = ? ORDER BY created_at DESC LIMIT 500",
-    ).bind(clientId).all<{
+      "SELECT id, status, starts_at, ends_at, seat_limit FROM contracts WHERE client_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+    ).bind(
+      clientId,
+      pagination.contracts.pageSize + 1,
+      pagination.contracts.offset,
+    ).all<{
       id: string
       status: string
       starts_at: string
@@ -271,23 +334,32 @@ export async function getClientDetail(
     clientKey: client.client_key,
     displayName: client.display_name,
     status: client.status,
-    organisations: organisations.results.map((row) => ({
-      id: row.id,
-      organisationKey: row.organisation_key,
-      displayName: row.display_name,
-    })),
-    deployments: deployments.results.map((row) => ({
-      id: row.id,
-      deploymentKey: row.deployment_key,
-      environment: row.environment,
-      status: row.status,
-    })),
-    contracts: contracts.results.map((row) => ({
-      id: row.id,
-      status: row.status,
-      startsAt: row.starts_at,
-      endsAt: row.ends_at,
-      seatLimit: row.seat_limit,
-    })),
+    organisations: pageResult(
+      organisations.results.map((row) => ({
+        id: row.id,
+        organisationKey: row.organisation_key,
+        displayName: row.display_name,
+      })),
+      pagination.organisations,
+    ),
+    deployments: pageResult(
+      deployments.results.map((row) => ({
+        id: row.id,
+        deploymentKey: row.deployment_key,
+        environment: row.environment,
+        status: row.status,
+      })),
+      pagination.deployments,
+    ),
+    contracts: pageResult(
+      contracts.results.map((row) => ({
+        id: row.id,
+        status: row.status,
+        startsAt: row.starts_at,
+        endsAt: row.ends_at,
+        seatLimit: row.seat_limit,
+      })),
+      pagination.contracts,
+    ),
   }
 }

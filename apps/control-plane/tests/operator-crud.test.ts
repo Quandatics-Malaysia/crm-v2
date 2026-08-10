@@ -14,6 +14,7 @@ const clientKey = `client-${crypto.randomUUID()}`
 const secondClientKey = `client-${crypto.randomUUID()}`
 const deploymentKey = `deployment-${crypto.randomUUID()}`
 const invoiceNumber = `INV-${crypto.randomUUID()}`
+const hugeFiniteWeight = "1".padEnd(309, "0")
 let clientId = ""
 let secondClientId = ""
 let contractId = ""
@@ -30,9 +31,10 @@ const accessVerifier: AccessVerifier = async (token) => {
 
 const app = createApp({ accessVerifier })
 
-function bindings(): CloudflareBindings {
+function bindings(database: D1Database = env.CONTROL_DB): CloudflareBindings {
   return {
     ...env,
+    CONTROL_DB: database,
     ENVIRONMENT: "test",
     BOOTSTRAP_OWNER_EMAIL: "owner@example.com",
     OPERATOR_ORIGIN: "https://control.invalid",
@@ -49,6 +51,7 @@ function operatorRequest(
     origin?: string | null
     jsonGuard?: boolean
     host?: string
+    database?: D1Database
   } = {},
 ) {
   const method = options.method ?? "GET"
@@ -81,8 +84,23 @@ function operatorRequest(
 
   return app.fetch(
     new Request(`${options.host ?? "https://control.invalid"}${path}`, { method, headers, body }),
-    bindings(),
+    bindings(options.database),
   )
+}
+
+function trackBatchSizes(batchSizes: number[]): D1Database {
+  return new Proxy(env.CONTROL_DB, {
+    get(target, property) {
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          batchSizes.push(statements.length)
+          return target.batch(statements)
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
 }
 
 async function countRows(sql: string, value: string): Promise<number> {
@@ -122,6 +140,11 @@ describe("operator mutation protection and client administration", () => {
     })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", { method: "POST", form, token: "billing-token" })).status).toBe(403)
 
+    const denialAudits = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'denied'",
+    ).first<{ count: number }>()
+    expect(denialAudits?.count).toBe(3)
+
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)
 
@@ -151,6 +174,10 @@ describe("operator mutation protection and client administration", () => {
 
     expect(response.status).toBe(409)
     expect(await response.text()).not.toContain("UNIQUE constraint")
+    const failureAudits = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'error'",
+    ).first<{ count: number }>()
+    expect(failureAudits?.count).toBe(1)
   })
 
   it("accepts guarded same-origin JSON but rejects unguarded JSON", async () => {
@@ -185,6 +212,15 @@ describe("operator mutation protection and client administration", () => {
       method: "POST",
       form: { organisationKey: "hq", displayName: "Second HQ", metadataJson: "{}" },
     })).status).toBe(303)
+
+    const laterPage = await operatorRequest(
+      `/operator/clients/${clientId}?organisationsPage=2&organisationsPageSize=1&deploymentsPage=1&deploymentsPageSize=1&contractsPage=1&contractsPageSize=1`,
+    )
+    const html = await laterPage.text()
+    expect(html).toContain("HQ")
+    expect(html).not.toContain("DELIVERY")
+    expect(html).toContain("organisationsPage=1")
+    expect(html).toContain("deploymentsPage=1")
   })
 
   it("creates deployments with prepared values and rejects duplicate deployment keys", async () => {
@@ -267,6 +303,11 @@ describe("contract and invoice administration", () => {
     ["invalid money", { totalCents: "-1" }],
     ["invalid tax-like floating amount", { totalCents: "1.5" }],
     ["invalid weights", { weights: "1,-1,1" }],
+    ["empty lexical weight segment", { weights: "1,,1" }],
+    ["whitespace lexical weight segment", { weights: "1,   ,1" }],
+    ["NaN weight", { weights: "1,NaN,1" }],
+    ["Infinity weight", { weights: "1,Infinity,1" }],
+    ["overflowing finite decimal weight sum", { weights: `${hugeFiniteWeight},${hugeFiniteWeight},${hugeFiniteWeight}` }],
   ])("rejects invoice %s", async (_label, override) => {
     const response = await operatorRequest(`/operator/contracts/${contractId}/invoices`, {
       method: "POST",
@@ -324,6 +365,39 @@ describe("contract and invoice administration", () => {
       method: "POST",
       form,
     })).status).toBe(409)
+  })
+
+  it("persists a 1,200-period schedule with a bounded atomic batch", async () => {
+    const batchSizes: number[] = []
+    const database = trackBatchSizes(batchSizes)
+    const largeInvoiceNumber = `INV-LARGE-${crypto.randomUUID()}`
+    const response = await operatorRequest(`/operator/contracts/${contractId}/invoices`, {
+      method: "POST",
+      token: "billing-token",
+      database,
+      form: {
+        invoiceNumber: largeInvoiceNumber,
+        status: "issued",
+        issuedAt: "2026-08-10T00:00:00.000Z",
+        dueAt: "2026-08-31T00:00:00.000Z",
+        currency: "MYR",
+        totalCents: "100",
+        collectionFrequency: "monthly",
+        billingPeriods: "1200",
+        firstDueAt: "2026-08-31",
+        weights: Array.from({ length: 1_200 }, () => "1").join(","),
+      },
+    })
+
+    expect(response.status).toBe(303)
+    expect(batchSizes).toEqual([3])
+    const invoice = await env.CONTROL_DB.prepare(
+      "SELECT id FROM invoices WHERE invoice_number = ?",
+    ).bind(largeInvoiceNumber).first<{ id: string }>()
+    const schedule = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count, SUM(amount_cents) AS total FROM invoice_collection_milestones WHERE invoice_id = ?",
+    ).bind(invoice?.id).first<{ count: number; total: number }>()
+    expect(schedule).toEqual({ count: 1_200, total: 100 })
   })
 
   it("bounds operator list pagination", async () => {

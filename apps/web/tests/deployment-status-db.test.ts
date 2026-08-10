@@ -101,13 +101,31 @@ integration("deployment status PostgreSQL boundary", () => {
     expect(security).toEqual({ relrowsecurity: true, relforcerowsecurity: true })
   })
 
-  it("reports a later successfully published migration version without changing the rollup function", async () => {
+  it("publishes migration versions monotonically across upgrade, replay, and an older image", async () => {
     try {
       await publishAppliedMigrationVersion(admin, "0068")
+      await publishAppliedMigrationVersion(admin, "0068")
+      await publishAppliedMigrationVersion(admin, "0067")
       const [rollup] = await app`select * from read_deployment_status_rollup()`
       expect(rollup.applied_migration_version).toBe("0068")
+
+      await publishAppliedMigrationVersion(admin, "0099")
+      await publishAppliedMigrationVersion(admin, "0100")
+      await publishAppliedMigrationVersion(admin, "0099")
+      const [numericBoundaryRollup] = await app`select * from read_deployment_status_rollup()`
+      expect(numericBoundaryRollup.applied_migration_version).toBe("0100")
     } finally {
       await admin`update deployment_runtime_metadata set migration_version = '0067' where singleton = 1`
     }
+  })
+
+  it("rolls publication back with its database transaction", async () => {
+    const [before] = await admin`select migration_version, published_at from deployment_runtime_metadata where singleton = 1`
+    await expect(admin.begin(async (transaction) => {
+      await publishAppliedMigrationVersion(transaction as unknown as Sql, "0068")
+      throw new Error("simulated failed release transaction")
+    })).rejects.toThrow("simulated failed release transaction")
+    const [after] = await admin`select migration_version, published_at from deployment_runtime_metadata where singleton = 1`
+    expect(after).toEqual(before)
   })
 })

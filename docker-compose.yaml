@@ -85,6 +85,13 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       APP_URL: ${APP_URL:-${BETTER_AUTH_URL:-http://localhost}}
+      # Machine-only deployment control. Identity and shared secret have no
+      # defaults; release metadata is pinned by the deployed image/release.
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
+      AGENT_WEB_SECRET: ${AGENT_WEB_SECRET:?AGENT_WEB_SECRET must be set}
+      APPLICATION_VERSION: ${APPLICATION_VERSION:?APPLICATION_VERSION must be set}
+      MIGRATION_VERSION: ${MIGRATION_VERSION:?MIGRATION_VERSION must be set}
+      VENDOR_ENTITLEMENT_TRUST_SET: ${VENDOR_ENTITLEMENT_TRUST_SET:?VENDOR_ENTITLEMENT_TRUST_SET must be set}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}

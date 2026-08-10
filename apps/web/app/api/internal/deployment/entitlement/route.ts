@@ -46,13 +46,11 @@ type EntitlementRouteDependencies = {
   log(entry: InternalDeploymentApiLog): void
 }
 
-const productionDependencies: EntitlementRouteDependencies = {
-  authenticate: authenticateInternalAgent,
-  loadEnvironment: loadInternalDeploymentEnv,
-  readBody: readInternalJsonObject,
+export type ProductionEntitlementDal = Pick<EntitlementRouteDependencies, "apply" | "getAccess">
+
+const productionDal: ProductionEntitlementDal = {
   apply: applySignedEntitlement,
   getAccess: getDeploymentAccess,
-  log: logInternalDeploymentApi,
 }
 
 export function createEntitlementRoute(dependencies: EntitlementRouteDependencies) {
@@ -151,4 +149,16 @@ export function createEntitlementRoute(dependencies: EntitlementRouteDependencie
   }
 }
 
-export const PUT = createEntitlementRoute(productionDependencies)
+export function createProductionEntitlementRoute(
+  dal: ProductionEntitlementDal = productionDal,
+) {
+  return createEntitlementRoute({
+    authenticate: authenticateInternalAgent,
+    loadEnvironment: loadInternalDeploymentEnv,
+    readBody: readInternalJsonObject,
+    log: logInternalDeploymentApi,
+    ...dal,
+  })
+}
+
+export const PUT = createProductionEntitlementRoute()

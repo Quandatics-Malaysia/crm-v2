@@ -109,6 +109,9 @@ Notes:
 #   DOMAIN=crm.example.com  ACME_EMAIL=you@example.com
 #   POSTGRES_PASSWORD=…  CRM_APP_PASSWORD=…  BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 #   PLATFORM_MASTER_EMAIL=… PLATFORM_MASTER_PASSWORD=…  # REQUIRED in prod; never use defaults
+#   DEPLOYMENT_ID=<vendor-issued UUID>  AGENT_WEB_SECRET=<canonical base64url 32-byte secret>
+#   VENDOR_ENTITLEMENT_TRUST_SET=<vendor-issued public-key JSON>
+#   APPLICATION_VERSION=<image SemVer>  MIGRATION_VERSION=<bundled/applied migration, e.g. 0067>
 #   BETTER_AUTH_URL=https://crm.example.com  APP_URL=https://crm.example.com
 #   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET / MICROSOFT_TENANT_ID  # tenant GUID, not "common"
 #   BOOTSTRAP_OWNER_EMAIL=you@example.com   # first sign-in becomes Owner
@@ -117,6 +120,7 @@ docker compose up -d --build
 - `caddy` terminates HTTPS (automatic Let's Encrypt for `DOMAIN`) and proxies to `web`.
 - `migrate` runs once (migrations → RLS → views → seed), then `web` starts.
 - Postgres is internal-only; the app connects (`DATABASE_URL`) as the RLS-enforced, non-privileged `crm_app` role — never the superuser (the app refuses to boot otherwise).
+- Deployment-control identity, shared secret, trust set, and release versions are required by Compose and are passed only to `web`; pin versions to the deployed image rather than mutable host defaults.
 - Register this Entra redirect URI **exactly** (it must match the code's callback): `${BETTER_AUTH_URL}/api/auth/oauth2/callback/microsoft-entra-id` (e.g. `https://<DOMAIN>/api/auth/oauth2/callback/microsoft-entra-id`).
 - Health check: `GET /api/health`.
 

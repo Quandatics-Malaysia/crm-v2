@@ -42,6 +42,7 @@ const timestampSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.
     }
   })
 const opaqueVersionSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)
+const migrationVersionSchema = z.string().regex(/^[0-9]{4}$/)
 const decimalRevisionSchema = z.string().regex(/^[1-9]\d{0,9}$/).refine((value) => Number(value) <= 2_147_483_647)
 
 const registrationResponseSchema = z.object({ deploymentId: uuidSchema, keyId: uuidSchema }).strict()
@@ -57,7 +58,7 @@ const statusResponseSchema = z.object({
   activeUserCount: z.number().int().min(0).max(100_000),
   reservedInvitationCount: z.number().int().min(0).max(100_000),
   applicationVersion: StrictSemverSchema,
-  migrationVersion: opaqueVersionSchema,
+  migrationVersion: migrationVersionSchema,
 }).strict().superRefine((status, context) => {
   const hasEntitlement = status.entitlement.revision !== null
   if (hasEntitlement && (status.entitlement.mode === null || status.healthState === "unhealthy")) {

@@ -3,7 +3,7 @@ import { StrictSemverSchema } from "@crm/control-protocol"
 import { z } from "zod"
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const opaqueVersionPattern = /^[A-Za-z0-9._-]{1,128}$/
+const migrationVersionPattern = /^[0-9]{4}$/
 const base64Url32 = z.string().regex(/^[A-Za-z0-9_-]{43}$/).refine((value) => {
   try {
     fromBase64Url(value, 32)
@@ -23,7 +23,7 @@ const rawConfigSchema = z.object({
   APPLICATION_VERSION: StrictSemverSchema,
   AGENT_VERSION: StrictSemverSchema,
   IMAGE_DIGEST: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  MIGRATION_VERSION: z.string().regex(opaqueVersionPattern),
+  MIGRATION_VERSION: z.string().regex(migrationVersionPattern),
 }).strict()
 
 export type AgentConfig = {

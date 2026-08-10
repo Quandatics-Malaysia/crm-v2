@@ -108,7 +108,7 @@ describe("agent configuration", () => {
       APPLICATION_VERSION: "latest",
       AGENT_VERSION: "1.0.0-01",
       IMAGE_DIGEST: "sha256:ABC",
-      MIGRATION_VERSION: "bad value",
+      MIGRATION_VERSION: "6",
     })) {
       expect(() => loadAgentConfig({ ...validEnvironment, [name]: value })).toThrowError(
         "Invalid deployment agent configuration",
@@ -726,6 +726,20 @@ describe("deployment agent flow", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(status(null, {
       activeUserCount: 1,
       users: ["person@example.com"],
+    })))
+    const agent = createDeploymentAgent({ config: config(), store, fetch })
+    await agent.initialize()
+    await expect(agent.runOnce({ maxAttempts: 1 })).rejects.toThrow("invalid_response")
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects status responses with a noncanonical migration version before heartbeat", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(status(null, {
+      migrationVersion: "6",
     })))
     const agent = createDeploymentAgent({ config: config(), store, fetch })
     await agent.initialize()

@@ -64,6 +64,12 @@ these stacks while the deployment workflows remain disabled.
    here if `.env` is absent. Recreate it with fresh values from the production
    variables listed in `README.md`; never copy staging secrets into production.
 
+   Confirm it contains the vendor-issued `DEPLOYMENT_ID`, canonical
+   `AGENT_WEB_SECRET`, `VENDOR_ENTITLEMENT_TRUST_SET`, and immutable
+   `APPLICATION_VERSION` / `MIGRATION_VERSION` for the exact image. Compose
+   refuses to render without them, and production web startup validates the
+   identity, secret, and version formats before serving traffic.
+
 3. Start the existing stack. Compose reuses the retained database and upload
    volumes, runs pending migrations, then starts the web, proxy, and backup
    services:

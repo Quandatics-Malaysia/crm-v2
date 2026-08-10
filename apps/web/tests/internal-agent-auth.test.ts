@@ -86,6 +86,7 @@ describe("internal deployment environment", () => {
     ["AGENT_WEB_SECRET", "secret"],
     ["APPLICATION_VERSION", "latest"],
     ["APPLICATION_VERSION", "1.0.0-01"],
+    ["MIGRATION_VERSION", "6"],
     ["MIGRATION_VERSION", "0067 pending"],
     ["MIGRATION_VERSION", ""],
   ])("rejects malformed %s without returning its value", (name, value) => {

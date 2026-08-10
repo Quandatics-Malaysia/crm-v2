@@ -21,11 +21,10 @@ type StatusRouteDependencies = {
   log(entry: InternalDeploymentApiLog): void
 }
 
-const productionDependencies: StatusRouteDependencies = {
-  authenticate: authenticateInternalAgent,
-  loadEnvironment: loadInternalDeploymentEnv,
+export type ProductionStatusDal = Pick<StatusRouteDependencies, "getStatus">
+
+const productionDal: ProductionStatusDal = {
   getStatus: getDeploymentStatus,
-  log: logInternalDeploymentApi,
 }
 
 export function createStatusRoute(dependencies: StatusRouteDependencies) {
@@ -80,4 +79,13 @@ export function createStatusRoute(dependencies: StatusRouteDependencies) {
   }
 }
 
-export const GET = createStatusRoute(productionDependencies)
+export function createProductionStatusRoute(dal: ProductionStatusDal = productionDal) {
+  return createStatusRoute({
+    authenticate: authenticateInternalAgent,
+    loadEnvironment: loadInternalDeploymentEnv,
+    log: logInternalDeploymentApi,
+    ...dal,
+  })
+}
+
+export const GET = createProductionStatusRoute()

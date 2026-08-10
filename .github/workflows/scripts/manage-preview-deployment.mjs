@@ -124,27 +124,44 @@ function cleanupEnvironmentPath(paths, prNumber) {
   return { path: temporary, temporary: true }
 }
 
-function removeOwnedTemporaryState(paths) {
+function validatedCleanupState(paths, environment) {
   try {
     const entries = readdirSync(paths.previewDirectory, { withFileTypes: true })
     const ownedFiles = []
+    let runtimeFiles = 0
     for (const entry of entries) {
       const path = join(paths.previewDirectory, entry.name)
       const metadata = lstatSync(path)
+      const isRuntime = entry.name === "runtime.env"
       if (
-        !ownedTemporaryPattern.test(entry.name) ||
+        (!isRuntime && !ownedTemporaryPattern.test(entry.name)) ||
+        (isRuntime && environment.temporary) ||
         entry.isSymbolicLink() || !entry.isFile() ||
         metadata.isSymbolicLink() || !metadata.isFile()
       ) {
         throw new Error("Unexpected preview state")
       }
+      if (isRuntime) runtimeFiles += 1
       ownedFiles.push(path)
     }
+    if ((!environment.temporary && runtimeFiles !== 1) || (environment.temporary && runtimeFiles !== 0)) {
+      throw new Error("Unexpected preview state")
+    }
+    if (!ownedFiles.includes(environment.path)) throw new Error("Unexpected preview state")
+    return ownedFiles
+  } catch (error) {
+    if (error instanceof Error && error.message === "Unexpected preview state") throw error
+    throw new Error("Unexpected preview state")
+  }
+}
+
+function removeVerifiedPreviewState(paths, environment) {
+  const ownedFiles = validatedCleanupState(paths, environment)
+  try {
     for (const path of ownedFiles) unlinkSync(path)
     if (readdirSync(paths.previewDirectory).length !== 0) throw new Error("Unexpected preview state")
     rmdirSync(paths.previewDirectory)
-  } catch (error) {
-    if (error instanceof Error && error.message === "Unexpected preview state") throw error
+  } catch {
     throw new Error("Unexpected preview state")
   }
 }
@@ -195,25 +212,15 @@ export function previewEnvironmentPath(options) {
 export function cleanupPreviewDeployment(options) {
   const paths = previewPaths(options)
   const environment = cleanupEnvironmentPath(paths, options.prNumber)
-  let removed = false
+  let teardownVerified = false
   try {
+    validatedCleanupState(paths, environment)
     runDocker(composeArguments(paths, resolve(options.repoRoot), environment.path))
     verifyProjectRemoved(paths.project)
-    if (!environment.temporary) {
-      const contents = readdirSync(paths.previewDirectory)
-      if (contents.length !== 1 || contents[0] !== "runtime.env") throw new Error("Unexpected preview state")
-      unlinkSync(paths.envFile)
-      rmdirSync(paths.previewDirectory)
-      removed = true
-    } else {
-      removeOwnedTemporaryState(paths)
-      removed = true
-    }
+    teardownVerified = true
+    if (teardownVerified) removeVerifiedPreviewState(paths, environment)
   } finally {
     if (environment.temporary && existsSync(environment.path)) unlinkSync(environment.path)
-    if (environment.temporary && !removed && existsSync(paths.previewDirectory) && readdirSync(paths.previewDirectory).length === 0) {
-      rmdirSync(paths.previewDirectory)
-    }
   }
 }
 

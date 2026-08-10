@@ -14,6 +14,7 @@ export {
   EntitlementLeaseSchema,
   evaluateLease,
   ModuleIdSchema,
+  verifyEntitlementEnvelope,
   type EntitlementLease,
   type LeaseAccess,
   type LeaseClock,

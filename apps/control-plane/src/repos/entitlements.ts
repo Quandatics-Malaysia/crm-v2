@@ -425,12 +425,14 @@ async function desiredLease(
   database: D1Database,
   row: EntitlementStateRow,
   keyId: string,
+  revision: number,
   now: Date,
 ): Promise<EntitlementLease> {
   const effective = effectiveState(row, now)
   const issuedAt = now.toISOString()
   const payload = {
     schemaVersion: 1 as const,
+    revision,
     keyId,
     leaseId: crypto.randomUUID(),
     clientId: row.client_id,
@@ -451,6 +453,16 @@ async function desiredLease(
     ...(row.approved_image_digest === null ? {} : { approvedImageDigest: row.approved_image_digest }),
   }
   return EntitlementLeaseSchema.parse(payload)
+}
+
+async function allocateEntitlementRevision(database: D1Database, deploymentId: string): Promise<number> {
+  const allocated = await database.prepare(
+    "INSERT INTO deployment_entitlement_sequences (deployment_id, next_version) VALUES (?, 2) ON CONFLICT(deployment_id) DO UPDATE SET next_version = deployment_entitlement_sequences.next_version + 1 RETURNING next_version - 1 AS revision",
+  ).bind(deploymentId).first<{ revision: number }>()
+  if (!allocated || !Number.isSafeInteger(allocated.revision) || allocated.revision < 1) {
+    throw new Error("Entitlement revision allocation failed")
+  }
+  return allocated.revision
 }
 
 function nextCheck(row: EntitlementStateRow, lease: EntitlementLease, now: Date): string {
@@ -521,7 +533,8 @@ export async function issueEntitlement(
   const now = input.now ?? new Date()
   const row = await loadState(environment.CONTROL_DB, input.deploymentId, input.contractId)
   const keyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
-  const payload = await desiredLease(environment.CONTROL_DB, row, keyId, now)
+  const revision = await allocateEntitlementRevision(environment.CONTROL_DB, input.deploymentId)
+  const payload = await desiredLease(environment.CONTROL_DB, row, keyId, revision, now)
   const envelope = await signEnvelope(payload, keyId, privateSigningJwk(environment))
   const payloadJson = canonicalJson(payload)
   const envelopeJson = canonicalJson(envelope)
@@ -539,11 +552,8 @@ export async function issueEntitlement(
   })
   const statements: D1PreparedStatement[] = [
     environment.CONTROL_DB.prepare(
-      "INSERT INTO deployment_entitlement_sequences (deployment_id, next_version) VALUES (?, 2) ON CONFLICT(deployment_id) DO UPDATE SET next_version = deployment_entitlement_sequences.next_version + 1",
-    ).bind(input.deploymentId),
-    environment.CONTROL_DB.prepare(
-      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json, contract_revision, schedule_revision, renewal_claim_token) SELECT ?, ?, ?, next_version - 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM deployment_entitlement_sequences WHERE deployment_id = ?",
-    ).bind(id, input.deploymentId, row.contract_id, keyId, payloadJson, envelope.signature, now.toISOString(), now.toISOString(), issuanceKey, envelopeJson, row.entitlement_revision, row.state_revision, input.claimToken ?? null, input.deploymentId),
+      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json, contract_revision, schedule_revision, renewal_claim_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(id, input.deploymentId, row.contract_id, revision, keyId, payloadJson, envelope.signature, now.toISOString(), now.toISOString(), issuanceKey, envelopeJson, row.entitlement_revision, row.state_revision, input.claimToken ?? null),
   ]
   if (input.claimToken !== undefined) {
     statements.push(environment.CONTROL_DB.prepare(
@@ -552,8 +562,8 @@ export async function issueEntitlement(
   }
   statements.push(
     environment.CONTROL_DB.prepare(
-      "UPDATE deployment_entitlement_schedules SET latest_version = (SELECT next_version - 1 FROM deployment_entitlement_sequences WHERE deployment_id = ?), next_check_at = ?, updated_at = ? WHERE deployment_id = ? AND contract_id = ?",
-    ).bind(input.deploymentId, nextCheck(row, payload, now), now.toISOString(), input.deploymentId, row.contract_id),
+      "UPDATE deployment_entitlement_schedules SET latest_version = CASE WHEN latest_version IS NULL OR latest_version < ? THEN ? ELSE latest_version END, next_check_at = ?, updated_at = ? WHERE deployment_id = ? AND contract_id = ?",
+    ).bind(revision, revision, nextCheck(row, payload, now), now.toISOString(), input.deploymentId, row.contract_id),
     audit.statement,
   )
   try {
@@ -576,7 +586,14 @@ export async function issueEntitlement(
 }
 
 function comparableLease(payload: EntitlementLease) {
-  const { leaseId: _leaseId, issuedAt: _issuedAt, leaseExpiresAt: _leaseExpiresAt, graceUntil: _graceUntil, ...desired } = payload
+  const {
+    revision: _revision,
+    leaseId: _leaseId,
+    issuedAt: _issuedAt,
+    leaseExpiresAt: _leaseExpiresAt,
+    graceUntil: _graceUntil,
+    ...desired
+  } = payload
   return desired
 }
 
@@ -674,7 +691,7 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
     try {
       const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, schedule.contract_id)
       activeSnapshot = row
-      const desired = await desiredLease(environment.CONTROL_DB, row, activeKeyId, now)
+      const desired = await desiredLease(environment.CONTROL_DB, row, activeKeyId, (row.latest_version ?? 0) + 1, now)
       const latestRow = await environment.CONTROL_DB.prepare(
         "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT 1",
       ).bind(schedule.deployment_id).first<StoredEntitlementRow>()

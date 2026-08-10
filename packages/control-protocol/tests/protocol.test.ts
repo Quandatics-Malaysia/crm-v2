@@ -5,6 +5,7 @@ import {
   canonicalJson,
   evaluateLease,
   signEnvelope,
+  verifyEntitlementEnvelope,
   verifyEnvelope,
   type EntitlementLease,
 } from "../src/index.js"
@@ -16,6 +17,7 @@ const graceUntil = "2026-08-18T00:00:00.000Z"
 function lease(overrides: Partial<EntitlementLease> = {}): EntitlementLease {
   return {
     schemaVersion: 1,
+    revision: 1,
     keyId: "vendor-2026-08",
     leaseId: "lease-001",
     clientId: "quandatics",
@@ -69,6 +71,27 @@ describe("canonicalJson", () => {
 })
 
 describe("signed envelopes", () => {
+  it("rejects an envelope whose key ID differs from its signed payload key ID", async () => {
+    const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
+    const privateKey = await crypto.subtle.exportKey("jwk", keyPair.privateKey)
+    const publicKey = await crypto.subtle.exportKey("jwk", keyPair.publicKey)
+    const envelope = await signEnvelope(lease({ keyId: "payload-key" }), "envelope-key", privateKey)
+
+    await expect(verifyEnvelope(envelope, { "envelope-key": publicKey })).resolves.toBeNull()
+  })
+
+  it("strictly parses an entitlement only after its signature verifies", async () => {
+    const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
+    const privateKey = await crypto.subtle.exportKey("jwk", keyPair.privateKey)
+    const publicKey = await crypto.subtle.exportKey("jwk", keyPair.publicKey)
+    const malformed = { ...lease(), unexpected: true }
+    const envelope = await signEnvelope(malformed, "vendor-2026-08", privateKey)
+
+    await expect(
+      verifyEntitlementEnvelope(envelope, { "vendor-2026-08": publicKey }, "quandatics-production"),
+    ).resolves.toBeNull()
+  })
+
   it("rejects an altered payload after signing", async () => {
     const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])
     const privateKey = await crypto.subtle.exportKey("jwk", keyPair.privateKey)
@@ -108,6 +131,15 @@ describe("signed envelopes", () => {
 })
 
 describe("EntitlementLeaseSchema", () => {
+  it("requires a signed positive monotonic revision", () => {
+    expect(EntitlementLeaseSchema.safeParse(lease({ revision: 1 })).success).toBe(true)
+    expect(EntitlementLeaseSchema.safeParse(lease({ revision: 0 })).success).toBe(false)
+    expect(EntitlementLeaseSchema.safeParse(lease({ revision: -1 })).success).toBe(false)
+    expect(EntitlementLeaseSchema.safeParse(lease({ revision: 1.5 })).success).toBe(false)
+    const { revision: _revision, ...missingRevision } = lease()
+    expect(EntitlementLeaseSchema.safeParse(missingRevision).success).toBe(false)
+  })
+
   it("accepts only a 24-hour lease and known module IDs", () => {
     expect(EntitlementLeaseSchema.safeParse(lease()).success).toBe(true)
     expect(

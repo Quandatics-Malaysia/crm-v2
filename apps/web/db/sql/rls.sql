@@ -136,6 +136,20 @@ CREATE POLICY tenant_isolation ON api_keys
   WITH CHECK (organization_id = current_setting('app.current_tenant', true));
 GRANT SELECT, INSERT, UPDATE ON api_keys TO crm_app;
 
+-- Deployment entitlement state is global, not tenant-owned. The app role has
+-- no direct table access: narrowly-scoped SECURITY DEFINER functions serialize
+-- verified applies, record bounded rejection metadata, and expose one safe row.
+ALTER TABLE deployment_control_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_control_state FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_entitlement_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_entitlement_history FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON deployment_control_state FROM crm_app;
+REVOKE ALL ON deployment_entitlement_history FROM crm_app;
+REVOKE ALL ON SEQUENCE deployment_entitlement_history_id_seq FROM crm_app;
+GRANT EXECUTE ON FUNCTION record_deployment_entitlement_rejection(text, text, bigint, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION apply_verified_deployment_entitlement(text, text, bigint, text, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, public.deployment_subscription_status, integer, text[], timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state() TO crm_app;
+
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
 -- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by
 -- the migrating superuser => bypasses api_keys RLS for THIS query only). It

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 
 /** Literal runtime module IDs from apps/web/modules.config.ts. */
 export const ModuleIdSchema = z.enum([
@@ -16,6 +17,7 @@ const IsoTimestampSchema = z.iso.datetime({ offset: true })
 export const EntitlementLeaseSchema = z
   .object({
     schemaVersion: z.literal(1),
+    revision: z.number().int().positive(),
     keyId: z.string().min(1),
     leaseId: z.string().min(1),
     clientId: z.string().min(1),
@@ -69,6 +71,18 @@ export const EntitlementLeaseSchema = z
   })
 
 export type EntitlementLease = z.infer<typeof EntitlementLeaseSchema>
+
+/** Verifies signature/scope first, then strictly parses the signed lease. */
+export async function verifyEntitlementEnvelope(
+  envelope: SignedEnvelope<unknown>,
+  publicKeys: Record<string, SigningKey>,
+  expectedDeploymentId?: string,
+): Promise<EntitlementLease | null> {
+  const verified = await verifyEnvelope(envelope, publicKeys, expectedDeploymentId)
+  if (verified === null) return null
+  const parsed = EntitlementLeaseSchema.safeParse(verified)
+  return parsed.success ? parsed.data : null
+}
 
 export type LeaseClock = {
   currentTime: Date | string

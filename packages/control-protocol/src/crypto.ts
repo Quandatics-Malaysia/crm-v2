@@ -36,6 +36,10 @@ export async function verifyEnvelope<T>(
   publicKeys: Record<string, SigningKey>,
   expectedDeploymentId?: string,
 ): Promise<T | null> {
+  if (isKeyBound(envelope.payload) && envelope.payload.keyId !== envelope.keyId) {
+    return null
+  }
+
   const publicKey = publicKeys[envelope.keyId]
   if (publicKey === undefined) {
     return null
@@ -59,6 +63,10 @@ export async function verifyEnvelope<T>(
   } catch {
     return null
   }
+}
+
+function isKeyBound(value: unknown): value is { keyId: string } {
+  return typeof value === "object" && value !== null && "keyId" in value && typeof value.keyId === "string"
 }
 
 function isDeploymentScoped(value: unknown): value is { deploymentId: string } {

@@ -24,6 +24,9 @@ export const env = {
   // from demo credentials; production provisioning must set both values.
   PLATFORM_MASTER_EMAIL: read("PLATFORM_MASTER_EMAIL"),
 
+  // Versioned, public-only vendor Ed25519 trust set. Signing keys never enter web.
+  VENDOR_ENTITLEMENT_TRUST_SET: read("VENDOR_ENTITLEMENT_TRUST_SET"),
+
   // Microsoft Entra (single-tenant app registration)
   MICROSOFT_CLIENT_ID: read("MICROSOFT_CLIENT_ID"),
   MICROSOFT_CLIENT_SECRET: read("MICROSOFT_CLIENT_SECRET"),

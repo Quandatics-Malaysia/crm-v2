@@ -6,6 +6,7 @@ import { createApp } from "../src/index"
 import { publicKeyFingerprint } from "../src/auth/deployment"
 import {
   assignEntitlementSchedule,
+  getCurrentEntitlementReference,
   getEntitlement,
   issueEntitlement,
   runEntitlementRenewal,
@@ -105,7 +106,7 @@ describe("entitlement issuance", () => {
     const envelope = stored?.envelope as SignedEnvelope<EntitlementLease>
     await expect(verifyEnvelope(envelope, { "vendor-key-a": publicJwk }, fixture.deploymentId)).resolves.toEqual(envelope.payload)
     expect(envelope.payload).toMatchObject({
-      clientId: fixture.clientId, deploymentId: fixture.deploymentId, keyId: "vendor-key-a",
+      clientId: fixture.clientId, deploymentId: fixture.deploymentId, keyId: "vendor-key-a", revision: 1,
       subscriptionStatus: "active", maxActiveUsers: 25,
       moduleIds: ["finance", "projects", "salesOrders"],
       contractStartsAt: "2026-08-01T00:00:00.000Z",
@@ -117,10 +118,11 @@ describe("entitlement issuance", () => {
     await expect(env.CONTROL_DB.prepare("DELETE FROM entitlement_versions WHERE id = ?").bind(stored?.id).run()).rejects.toThrow(/immutable/)
   })
 
-  it("allocates unique contiguous versions and makes issuance/audit rollback atomic", async () => {
+  it("allocates unique signed revisions, permits failed-allocation gaps, and keeps issuance/audit atomic", async () => {
     const fixture = await seed()
     const results = await Promise.all(Array.from({ length: 4 }, () => issue(fixture)))
     expect(results.map((result) => result.version).sort((a, b) => a - b)).toEqual([1, 2, 3, 4])
+    expect(results.every((result) => result.envelope.payload.revision === result.version)).toBe(true)
 
     const failing = new Proxy(env.CONTROL_DB, {
       get(target, property) {
@@ -135,7 +137,7 @@ describe("entitlement issuance", () => {
     await expect(issue(fixture, now, bindings(failing))).rejects.toThrow()
     expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(4)
     const sequence = await env.CONTROL_DB.prepare("SELECT next_version FROM deployment_entitlement_sequences WHERE deployment_id = ?").bind(fixture.deploymentId).first<{ next_version: number }>()
-    expect(sequence?.next_version).toBe(5)
+    expect(sequence?.next_version).toBe(6)
   })
 
   it("aborts a stale signed issuance when controls change before its batch", async () => {
@@ -564,7 +566,8 @@ describe("scheduler and retrieval", () => {
     ).bind(fixture.deploymentId).first<{ next_check_at: string }>())?.next_check_at).toBe(boundary)
     expect((await runEntitlementRenewal(bindings(), new Date("2026-08-10T12:59:59.999Z"))).checked).toBe(0)
     expect((await runEntitlementRenewal(bindings(), new Date(boundary))).issued).toBe(1)
-    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.envelope.payload.subscriptionStatus).toBe("suspended")
+    const current = await getCurrentEntitlementReference(env.CONTROL_DB, fixture.deploymentId)
+    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, current!.version))?.envelope.payload.subscriptionStatus).toBe("suspended")
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
   })
 
@@ -588,7 +591,8 @@ describe("scheduler and retrieval", () => {
     ).bind(fixture.deploymentId).first<{ next_check_at: string }>())?.next_check_at).toBe(boundary)
     expect((await runEntitlementRenewal(bindings(), new Date("2026-08-10T13:59:59.999Z"))).checked).toBe(0)
     expect((await runEntitlementRenewal(bindings(), new Date(boundary))).issued).toBe(1)
-    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2))?.envelope.payload.maxActiveUsers).toBe(10)
+    const current = await getCurrentEntitlementReference(env.CONTROL_DB, fixture.deploymentId)
+    expect((await getEntitlement(env.CONTROL_DB, fixture.deploymentId, current!.version))?.envelope.payload.maxActiveUsers).toBe(10)
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?").bind(fixture.deploymentId).run()
   })
 

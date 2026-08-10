@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import {
   chmodSync,
   existsSync,
@@ -70,11 +70,15 @@ function initialEnvironment(prNumber) {
   ].join("\n")
 }
 
-function ensureEnvironment(paths, repoRoot, prNumber) {
+function securePreviewDirectories(paths) {
   secureDirectory(paths.root)
   secureDirectory(paths.ownerDirectory)
   secureDirectory(paths.repositoryDirectory)
   secureDirectory(paths.previewDirectory)
+}
+
+function ensureEnvironment(paths, repoRoot, prNumber) {
+  securePreviewDirectories(paths)
   if (!existsSync(paths.envFile)) {
     writeFileSync(paths.envFile, initialEnvironment(prNumber), { encoding: "utf8", mode: 0o600, flag: "wx" })
   } else {
@@ -83,6 +87,40 @@ function ensureEnvironment(paths, repoRoot, prNumber) {
   }
   chmodSync(paths.envFile, 0o600)
   provisionDeploymentRuntime({ envFile: paths.envFile, mode: "preview", repoRoot })
+}
+
+function cleanupEnvironment(prNumber) {
+  const { publicKey } = generateKeyPairSync("ed25519")
+  const trustSet = JSON.stringify({
+    version: 1,
+    keys: [{
+      keyId: `cleanup-${randomUUID()}`,
+      publicJwk: publicKey.export({ format: "jwk" }),
+      validFrom: "2000-01-01T00:00:00.000Z",
+      validUntil: "2100-01-01T00:00:00.000Z",
+    }],
+  })
+  return `${initialEnvironment(prNumber)}${[
+    `DEPLOYMENT_ID=${randomUUID()}`,
+    `AGENT_WEB_SECRET=${randomBytes(32).toString("base64url")}`,
+    "APPLICATION_VERSION=0.0.0",
+    "MIGRATION_VERSION=0000",
+    `VENDOR_ENTITLEMENT_TRUST_SET=${trustSet}`,
+    "",
+  ].join("\n")}`
+}
+
+function cleanupEnvironmentPath(paths, prNumber) {
+  securePreviewDirectories(paths)
+  if (existsSync(paths.envFile)) {
+    const entry = lstatSync(paths.envFile)
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new TypeError("Invalid environment file")
+    chmodSync(paths.envFile, 0o600)
+    return { path: paths.envFile, temporary: false }
+  }
+  const temporary = join(paths.previewDirectory, `.cleanup-${randomUUID()}.env`)
+  writeFileSync(temporary, cleanupEnvironment(prNumber), { encoding: "utf8", mode: 0o600, flag: "wx" })
+  return { path: temporary, temporary: true }
 }
 
 function runDocker(arguments_) {
@@ -102,14 +140,14 @@ function verifyProjectRemoved(project) {
   }
 }
 
-function composeArguments(paths, repoRoot) {
+function composeArguments(paths, repoRoot, envFile) {
   return [
     "compose",
     "-p", paths.project,
     "-f", join(repoRoot, "docker-compose.yaml"),
     "-f", join(repoRoot, "docker-compose.pr-preview.yaml"),
     "-f", join(repoRoot, "docker-compose.staging-tunnel.yaml"),
-    "--env-file", paths.envFile,
+    "--env-file", envFile,
     "down", "-v", "--remove-orphans",
   ]
 }
@@ -130,13 +168,24 @@ export function previewEnvironmentPath(options) {
 
 export function cleanupPreviewDeployment(options) {
   const paths = previewPaths(options)
-  ensureEnvironment(paths, resolve(options.repoRoot), options.prNumber)
-  runDocker(composeArguments(paths, resolve(options.repoRoot)))
-  verifyProjectRemoved(paths.project)
-  const contents = readdirSync(paths.previewDirectory)
-  if (contents.length !== 1 || contents[0] !== "runtime.env") throw new Error("Unexpected preview state")
-  unlinkSync(paths.envFile)
-  rmdirSync(paths.previewDirectory)
+  const environment = cleanupEnvironmentPath(paths, options.prNumber)
+  let removed = false
+  try {
+    runDocker(composeArguments(paths, resolve(options.repoRoot), environment.path))
+    verifyProjectRemoved(paths.project)
+    if (!environment.temporary) {
+      const contents = readdirSync(paths.previewDirectory)
+      if (contents.length !== 1 || contents[0] !== "runtime.env") throw new Error("Unexpected preview state")
+      unlinkSync(paths.envFile)
+      rmdirSync(paths.previewDirectory)
+      removed = true
+    }
+  } finally {
+    if (environment.temporary && existsSync(environment.path)) unlinkSync(environment.path)
+    if (environment.temporary && !removed && readdirSync(paths.previewDirectory).length === 0) {
+      rmdirSync(paths.previewDirectory)
+    }
+  }
 }
 
 function cliArguments(argv) {

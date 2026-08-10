@@ -152,13 +152,22 @@ GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state(timestamp with time 
 
 -- Deployment seat reservations are global and contain normalized identities.
 -- Only the fixed-shape aggregate may cross the application-role boundary.
+ALTER TABLE deployment_seat_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_seat_state FORCE ROW LEVEL SECURITY;
 ALTER TABLE deployment_seat_reservations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deployment_seat_reservations FORCE ROW LEVEL SECURITY;
 ALTER TABLE deployment_runtime_metadata ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deployment_runtime_metadata FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON deployment_seat_state FROM crm_app;
 REVOKE ALL ON deployment_seat_reservations FROM crm_app;
 REVOKE ALL ON deployment_runtime_metadata FROM crm_app;
 GRANT EXECUTE ON FUNCTION read_deployment_status_rollup() TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_seat_usage(timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION reserve_deployment_seat(text, text, timestamp with time zone, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION activate_deployment_seat(text, text, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION release_deployment_membership_seat(text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION release_deployment_invitation_seat(text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION reconcile_expired_deployment_seat_reservations(timestamp with time zone) TO crm_app;
 
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
 -- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by

@@ -752,8 +752,8 @@ export async function updateSettings(
     input.subscriptionSeatLimit !== undefined ||
     input.subscriptionStartsAt !== undefined ||
     input.subscriptionEndsAt !== undefined
-  if (subscriptionMutationRequested && !ctx.isSuperadmin) {
-    throw new Error("Only the platform master can change subscription licensing.")
+  if (subscriptionMutationRequested) {
+    throw new Error("Subscription licensing is controlled by the signed deployment entitlement.")
   }
 
   const currency = (input.defaultCurrency ?? "").trim().toUpperCase()

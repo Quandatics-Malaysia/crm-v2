@@ -1,14 +1,12 @@
 import "server-only"
-import { randomUUID } from "node:crypto"
-import { and, asc, eq, sql } from "drizzle-orm"
-import { db } from "@/db"
+import { and, asc, eq } from "drizzle-orm"
+import { db, runInTenant } from "@/db"
 import {
   member,
   organization,
-  membershipProfiles,
-  memberRoles,
   roles,
 } from "@/db/schema"
+import { activateMembership } from "@/lib/deployment-seats"
 
 /**
  * First-login provisioning. If the (deterministically selected) default entity
@@ -26,69 +24,44 @@ export async function ensureBootstrap(
 ): Promise<boolean> {
   const bootstrapEmail = process.env.BOOTSTRAP_OWNER_EMAIL?.toLowerCase()
 
-  return db.transaction(async (tx) => {
-    // Deterministic org selection — oldest org first (stable across deploys),
-    // not an arbitrary `.limit(1)`.
-    const [org] = await tx
+  const [org] = await db
       .select()
       .from(organization)
       .orderBy(asc(organization.createdAt), asc(organization.id))
       .limit(1)
-    if (!org) return false
-
-    // Lock this org's member rows for the duration of the tx so the
-    // count + claim decision can't race another concurrent first-login.
-    const existing = await tx
-      .select({ id: member.id, userId: member.userId })
-      .from(member)
-      .where(eq(member.organizationId, org.id))
-      .for("update")
-
-    // Already a member of this org?
-    if (existing.some((m) => m.userId === userId)) return false
-
-    const allowed =
-      existing.length === 0 ||
-      (!!bootstrapEmail && bootstrapEmail === userEmail.toLowerCase())
-    if (!allowed) return false
-
-    const memberId = randomUUID()
-    await tx.insert(member).values({
-      id: memberId,
-      organizationId: org.id,
-      userId,
-      role: "owner",
-      createdAt: new Date(),
-    })
-
-    // membership_profiles + roles are RLS-scoped: set the tenant GUC for the
-    // rest of this transaction so the inserts/reads pass the policies.
-    await tx.execute(
-      sql`select set_config('app.current_tenant', ${org.id}, true)`
-    )
-
-    const [ownerRole] = await tx
+  if (!org) return false
+  const [ownerRole] = await runInTenant(org.id, (tx) => tx
       .select({ id: roles.id })
       .from(roles)
       .where(and(eq(roles.name, "Owner"), eq(roles.tenantId, org.id)))
       .limit(1)
+  )
+  if (!ownerRole) return false
 
-    await tx.insert(membershipProfiles).values({
-      memberId,
+  try {
+    await activateMembership({
       tenantId: org.id,
       roleId: ownerRole?.id ?? null,
       tierLevel: 100,
-      status: "active",
+      userId,
+      actor: { userId },
+      guard: async (tx) => {
+        const existing = await tx
+          .select({ userId: member.userId })
+          .from(member)
+          .where(eq(member.organizationId, org.id))
+          .for("update")
+        if (existing.some((row) => row.userId === userId)) throw new Error("ALREADY_BOOTSTRAPPED")
+        if (existing.length > 0 && bootstrapEmail !== userEmail.toLowerCase()) {
+          throw new Error("BOOTSTRAP_NOT_ALLOWED")
+        }
+      },
     })
-    // member_roles = effective-permission source (union of assigned roles).
-    if (ownerRole?.id) {
-      await tx.insert(memberRoles).values({
-        tenantId: org.id,
-        memberId,
-        roleId: ownerRole.id,
-      })
-    }
-
     return true
-  })
+  } catch (error) {
+    if (error instanceof Error && ["ALREADY_BOOTSTRAPPED", "BOOTSTRAP_NOT_ALLOWED"].includes(error.message)) {
+      return false
+    }
+    throw error
+  }
 }

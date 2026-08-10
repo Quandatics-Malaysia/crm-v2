@@ -71,11 +71,34 @@ export async function getServerContext(): Promise<ServerContext | null> {
 
   // is_superadmin lives on our user table extension.
   const [u] = await db
-    .select({ isSuperadmin: userTable.isSuperadmin })
+    .select({
+      isSuperadmin: userTable.isSuperadmin,
+      isVendorSupport: userTable.isVendorSupport,
+    })
     .from(userTable)
     .where(eq(userTable.id, sessionUser.id))
     .limit(1)
   const isSuperadmin = u?.isSuperadmin ?? false
+
+  // Support identities are operational principals, never tenant principals.
+  // Even a stale legacy member row must not grant standing CRM access.
+  if (u?.isVendorSupport) {
+    return {
+      userId: sessionUser.id,
+      userName: sessionUser.name,
+      userEmail: sessionUser.email,
+      isSuperadmin: false,
+      tenantId: "",
+      memberId: null,
+      tierLevel: 0,
+      roleName: null,
+      status: "disabled",
+      tenantSuspended: false,
+      subscriptionInactive: false,
+      permissions: new Set(),
+      can: () => false,
+    }
+  }
 
   if (!memberRow) {
     return {

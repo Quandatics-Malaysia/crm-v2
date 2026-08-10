@@ -12,7 +12,6 @@ import {
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core"
-import { sql } from "drizzle-orm"
 import { organization, member } from "./auth"
 import { timestamps } from "./_helpers"
 
@@ -271,6 +270,8 @@ export const pendingInvites = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
+    normalizedEmail: text("normalized_email").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     roleId: uuid("role_id").references(() => roles.id, { onDelete: "set null" }),
     tierLevel: integer("tier_level").notNull().default(0),
     invitedByMemberId: text("invited_by_member_id").references(() => member.id, {
@@ -281,7 +282,7 @@ export const pendingInvites = pgTable(
   (t) => [
     uniqueIndex("pending_invites_email_uq").on(
       t.tenantId,
-      sql`lower(${t.email})`
+      t.normalizedEmail
     ),
   ]
 )

@@ -7,7 +7,13 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS, permLabel } from "@/lib/permissions"
-import { canActivateAdditionalMembers, getLicenseStateForTenant } from "@/lib/subscription-licensing"
+import {
+  activateMembership,
+  disableOrRemoveMembership,
+  normalizeSeatEmail,
+  releaseInvitation,
+  reserveInvitation,
+} from "@/lib/deployment-seats"
 import {
   member,
   membershipProfiles,
@@ -611,13 +617,11 @@ export async function addMember(input: {
 }): Promise<ActionResult<{ invited: boolean }>> {
   return runAction(async () => {
   const ctx = await requireContext()
-  if (!ctx.isSuperadmin) {
-    throw new Error("Only the platform master can add or invite tenant users.")
-  }
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
-  const email = (input.email ?? "").trim()
-  if (email.length === 0) throw new Error("Email is required.")
+  const rawEmail = input.email ?? ""
+  if (!rawEmail.trim()) throw new Error("Email is required.")
+  const email = normalizeSeatEmail(rawEmail)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("Enter a valid email address.")
   }
@@ -645,107 +649,44 @@ export async function addMember(input: {
   // Validate the role (tenant ownership, tier ceiling, permission subset)
   // BEFORE creating the member row — a failed insert below would otherwise
   // leave a profile-less but `active`-resolving member (an unintended foothold).
-  await runInTenant(ctx.tenantId, async (tx) => {
+  const roleTier = await runInTenant(ctx.tenantId, async (tx) => {
     const [role] = await tx
-      .select({ id: roles.id })
+      .select({ id: roles.id, tier: roles.defaultTierLevel })
       .from(roles)
       .where(and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId)))
       .limit(1)
     if (!role) throw new Error("Role not found.")
     // Can't confer (via a role) a permission the actor doesn't hold.
     await assertCanAssignRole(tx, ctx, input.roleId)
+    return role.tier
   })
 
   // No user with that email yet: record a PENDING INVITE that the auth hooks
   // consume on their first sign-in (creating the member + profile with this
   // role/tier). Upsert so re-inviting updates the role/tier.
   if (!u) {
-    await runInTenant(ctx.tenantId, async (tx) => {
-      // Delete-then-insert (the unique index is on an expression —
-      // lower(email) — which ON CONFLICT targeting can't name via the ORM).
-      await tx
-        .delete(pendingInvites)
-        .where(
-          and(
-            eq(pendingInvites.tenantId, ctx.tenantId),
-            sql`lower(${pendingInvites.email}) = lower(${email})`
-          )
-        )
-      await tx.insert(pendingInvites).values({
-        tenantId: ctx.tenantId,
-        email,
-        roleId: input.roleId,
-        invitedByMemberId: ctx.memberId,
-      })
-      await writeAudit(tx, ctx, {
-        action: "member.invited",
-        entityType: "pending_invite",
-        entityId: email,
-        after: { email, roleId: input.roleId },
-      })
+    await reserveInvitation({
+      tenantId: ctx.tenantId,
+      email,
+      roleId: input.roleId,
+      tierLevel: roleTier,
+      invitedByMemberId: ctx.memberId,
+      actor: { userId: ctx.userId, memberId: ctx.memberId },
     })
     revalidatePath("/team")
     return { invited: true }
   }
 
-  const memberId = crypto.randomUUID()
-  await db.insert(member).values({
-    id: memberId,
-    organizationId: ctx.tenantId,
+  await activateMembership({
+    tenantId: ctx.tenantId,
     userId: u.id,
-    role: "member",
+    roleId: input.roleId,
+    tierLevel: roleTier,
+    actor: { userId: ctx.userId, memberId: ctx.memberId },
   })
-  // A direct add supersedes any pending invite for the same email.
-  await runInTenant(ctx.tenantId, (tx) =>
-    tx
-      .delete(pendingInvites)
-      .where(
-        and(
-          eq(pendingInvites.tenantId, ctx.tenantId),
-          sql`lower(${pendingInvites.email}) = lower(${email})`
-        )
-      )
-  )
-
-  // Insert the profile; if it fails, compensate by removing the orphan member
-  // row so we never leave a profile-less active member behind.
-  let invitedBySeatLimit = false
-  try {
-    await runInTenant(ctx.tenantId, async (tx) => {
-      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
-      invitedBySeatLimit = !canActivateAdditionalMembers(license, 1, new Date())
-
-      await tx.insert(membershipProfiles).values({
-        memberId,
-        tenantId: ctx.tenantId,
-        roleId: input.roleId,
-        status: invitedBySeatLimit ? "invited" : "active",
-      })
-      // Mirror the primary role into member_roles (the union-permission source).
-      await tx.insert(memberRoles).values({
-        tenantId: ctx.tenantId,
-        memberId,
-        roleId: input.roleId,
-      })
-
-      await writeAudit(tx, ctx, {
-        action: "member.added",
-        entityType: "member",
-        entityId: memberId,
-        after: { email, roleId: input.roleId },
-      })
-    })
-  } catch (err) {
-    await db
-      .delete(member)
-      .where(
-        and(eq(member.id, memberId), eq(member.organizationId, ctx.tenantId))
-      )
-    throw err
-  }
 
   revalidatePath("/team")
-  return { invited: invitedBySeatLimit }
+  return { invited: false }
   })
 }
 
@@ -787,17 +728,10 @@ export async function revokePendingInvite(
   return runAction(async () => {
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
-    await runInTenant(ctx.tenantId, async (tx) => {
-      const [row] = await tx
-        .delete(pendingInvites)
-        .where(eq(pendingInvites.id, id))
-        .returning({ email: pendingInvites.email })
-      if (!row) throw new Error("Invite not found.")
-      await writeAudit(tx, ctx, {
-        action: "member.invite_revoked",
-        entityType: "pending_invite",
-        entityId: row.email,
-      })
+    await releaseInvitation({
+      tenantId: ctx.tenantId,
+      invitationId: id,
+      actor: { userId: ctx.userId, memberId: ctx.memberId },
     })
     revalidatePath("/team")
   })
@@ -954,38 +888,43 @@ export async function setMemberStatus(
     throw new Error("You can't change your own status.")
   }
 
-  await runInTenant(ctx.tenantId, async (tx) => {
-    const [memberRow] = await tx
-      .select({ status: membershipProfiles.status })
+  const memberRow = await runInTenant(ctx.tenantId, async (tx) => {
+    const [profile] = await tx
+      .select({
+        status: membershipProfiles.status,
+        roleId: membershipProfiles.roleId,
+        tierLevel: membershipProfiles.tierLevel,
+      })
       .from(membershipProfiles)
       .where(eq(membershipProfiles.memberId, memberId))
       .limit(1)
-    if (!memberRow) throw new Error("Member profile not found.")
-
-    // Don't let the last Owner be disabled (would orphan the tenant).
-    if (status === "disabled" && (await isLastOwner(tx, memberId))) {
-      throw new Error("You can't disable the last Owner.")
-    }
-    if (status === "active" && memberRow.status !== "active") {
-      const license = await getLicenseStateForTenant(tx, ctx.tenantId)
-      if (!canActivateAdditionalMembers(license, 1, new Date())) {
-        throw new Error("Subscription seat limit has been reached.")
-      }
-    }
-    const [updated] = await tx
-      .update(membershipProfiles)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(membershipProfiles.memberId, memberId))
-      .returning({ id: membershipProfiles.id })
-    if (!updated) throw new Error("Member profile not found.")
-
-    await writeAudit(tx, ctx, {
-      action: "member.status_changed",
-      entityType: "member",
-      entityId: memberId,
-      after: { status },
-    })
+    if (!profile) throw new Error("Member profile not found.")
+    return profile
   })
+
+  if (status === "active" && memberRow.status !== "active") {
+    const [target] = await db.select({ userId: member.userId }).from(member)
+      .where(and(eq(member.id, memberId), eq(member.organizationId, ctx.tenantId))).limit(1)
+    if (!target) throw new Error("Member profile not found.")
+    await activateMembership({
+      tenantId: ctx.tenantId,
+      memberId,
+      userId: target.userId,
+      roleId: memberRow.roleId,
+      tierLevel: memberRow.tierLevel,
+      actor: { userId: ctx.userId, memberId: ctx.memberId },
+    })
+  } else if (status === "disabled" && memberRow.status !== "disabled") {
+    await disableOrRemoveMembership({
+      tenantId: ctx.tenantId,
+      memberId,
+      remove: false,
+      actor: { userId: ctx.userId, memberId: ctx.memberId },
+      guard: async (tx) => {
+        if (await isLastOwner(tx, memberId)) throw new Error("You can't disable the last Owner.")
+      },
+    })
+  }
 
   revalidatePath("/team")
   })
@@ -1000,28 +939,15 @@ export async function removeMember(memberId: string): Promise<ActionResult<void>
     throw new Error("You can't remove yourself.")
   }
 
-  // Delete the RLS-scoped profile inside the tenant transaction.
-  await runInTenant(ctx.tenantId, async (tx) => {
-    if (await isLastOwner(tx, memberId)) {
-      throw new Error("You can't remove the last Owner.")
-    }
-    await tx
-      .delete(membershipProfiles)
-      .where(eq(membershipProfiles.memberId, memberId))
-
-    await writeAudit(tx, ctx, {
-      action: "member.removed",
-      entityType: "member",
-      entityId: memberId,
-    })
+  await disableOrRemoveMembership({
+    tenantId: ctx.tenantId,
+    memberId,
+    remove: true,
+    actor: { userId: ctx.userId, memberId: ctx.memberId },
+    guard: async (tx) => {
+      if (await isLastOwner(tx, memberId)) throw new Error("You can't remove the last Owner.")
+    },
   })
-
-  // member is not RLS — scope the delete to the active tenant.
-  await db
-    .delete(member)
-    .where(
-      and(eq(member.id, memberId), eq(member.organizationId, ctx.tenantId))
-    )
 
   revalidatePath("/team")
   })

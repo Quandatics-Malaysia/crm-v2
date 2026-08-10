@@ -216,6 +216,8 @@ export async function issueSeatLicence(
 ): Promise<ActionResult<SubscriptionAdminView>> {
   return runAction(async () => {
     const ctx = requirePlatformMaster(await requireContext())
+    throw new Error("Seat licences are issued by the signed deployment control plane, not tenant settings.")
+    /* c8 ignore start -- retained invoice implementation is unreachable until external billing owns signing */
     const plan = input.plan.trim()
     if (!plan || plan.length > 120) throw new Error("Plan name is required.")
     if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 10000) {
@@ -352,5 +354,6 @@ export async function issueSeatLicence(
     revalidatePath("/team")
     revalidatePath("/", "layout")
     return view
+    /* c8 ignore stop */
   })
 }

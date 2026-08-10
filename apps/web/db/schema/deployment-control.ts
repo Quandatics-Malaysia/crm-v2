@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { user } from "./auth"
 
 export const deploymentSubscriptionStatus = pgEnum("deployment_subscription_status", [
   "active",
@@ -79,6 +80,10 @@ export const deploymentSeatReservations = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    consumedUserId: text("consumed_user_id").references(() => user.id, { onDelete: "set null" }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("deployment_seat_reservations_invitation_uq").on(table.invitationId),
@@ -89,6 +94,12 @@ export const deploymentSeatReservations = pgTable(
     ),
   ],
 )
+
+/** Stable deployment-wide serialization mutex; contains no identity data. */
+export const deploymentSeatState = pgTable("deployment_seat_state", {
+  singleton: smallint("singleton").primaryKey().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
 
 /** Privileged migrator-published proof of the schema version actually applied. */
 export const deploymentRuntimeMetadata = pgTable("deployment_runtime_metadata", {

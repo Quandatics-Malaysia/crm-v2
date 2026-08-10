@@ -1,33 +1,25 @@
 "use server"
 
 import { headers } from "next/headers"
-import { randomUUID } from "node:crypto"
 import { and, eq, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import {
   member,
-  membershipProfiles,
-  memberRoles,
-  pendingInvites,
+  organization,
   roles,
-  tenantSettings,
   user,
 } from "@/db/schema"
 import { getServerContext } from "@/lib/server-context"
 import { seedTenant } from "@/server/services/tenant-seed"
-import { writeAuthAudit } from "@/server/audit"
+import {
+  normalizeSeatEmail,
+  provisionEntitySeats,
+} from "@/lib/deployment-seats"
 
 const ALLOWED_INITIAL_ROLES = new Set([
   "Owner", "Admin", "Developer", "Manager", "Senior Rep", "Rep", "Viewer",
 ])
-
-function parseDate(value: string, field: string, endOfDay = false): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${field} must be a valid date.`)
-  const date = new Date(`${value}${endOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z"}`)
-  if (Number.isNaN(date.getTime())) throw new Error(`${field} must be a valid date.`)
-  return date
-}
 
 /**
  * Create a new entity (tenant/organization): provision the org via Better Auth
@@ -49,21 +41,13 @@ export async function createEntity(input: {
   if (!ctx.isSuperadmin) throw new Error("Only the platform master can create organizations.")
   const name = input.name.trim()
   if (!name) throw new Error("Entity name is required")
-  const plan = input.plan.trim()
-  if (!plan) throw new Error("Plan name is required")
-  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 10000) {
-    throw new Error("Seats must be a whole number between 1 and 10,000.")
-  }
-  const startsAt = parseDate(input.startsAt, "Valid from")
-  const endsAt = parseDate(input.endsAt, "Valid until", true)
-  if (startsAt > endsAt) throw new Error("Valid from must be before valid until.")
-  const invites = input.invites
-    .map((invite) => ({ email: invite.email.trim().toLowerCase(), roleName: invite.roleName }))
-    .filter((invite) => invite.email)
+  const invites = input.invites.flatMap((invite) => {
+    if (!invite.email.trim()) return []
+    return [{ email: normalizeSeatEmail(invite.email), roleName: invite.roleName }]
+  })
   if (new Set(invites.map((invite) => invite.email)).size !== invites.length) {
     throw new Error("Each invited email may only appear once.")
   }
-  if (invites.length > input.seats) throw new Error("Invited users cannot exceed issued seats.")
   for (const invite of invites) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invite.email)) throw new Error(`Invalid email: ${invite.email}`)
     if (invite.email === ctx.userEmail.toLowerCase()) {
@@ -95,108 +79,44 @@ export async function createEntity(input: {
   const orgId = org?.id
   if (!orgId) throw new Error("Could not create the entity")
 
-  const ownerRoleId = await runInTenant(orgId, (tx) =>
-    seedTenant(tx, orgId, { entityCode: input.entityCode })
-  )
-
-  const [m] = await db
+  const ownerRoleId = await runInTenant(orgId, (tx) => seedTenant(tx, orgId, { entityCode: input.entityCode }))
+  const [creatorMember] = await db
     .select()
     .from(member)
     .where(and(eq(member.userId, ctx.userId), eq(member.organizationId, orgId)))
     .limit(1)
-  if (m) {
-    await runInTenant(orgId, async (tx) => {
-      await tx
-        .update(tenantSettings)
-        .set({
-          subscriptionPlan: plan,
-          subscriptionStatus: "active",
-          subscriptionSeatLimit: input.seats,
-          subscriptionStartsAt: startsAt,
-          subscriptionEndsAt: endsAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(tenantSettings.organizationId, orgId))
-      await tx
-        .insert(membershipProfiles)
-        .values({
-          memberId: m.id,
-          tenantId: orgId,
-          roleId: ownerRoleId,
-          tierLevel: 100,
-          status: "active",
-        })
-        .onConflictDoNothing()
-      // member_roles = effective-permission source (union of assigned roles).
-      if (ownerRoleId) {
-        await tx
-          .insert(memberRoles)
-          .values({ tenantId: orgId, memberId: m.id, roleId: ownerRoleId })
-          .onConflictDoNothing()
-      }
-      const roleRows = await tx
-        .select({ id: roles.id, name: roles.name, tier: roles.defaultTierLevel })
-        .from(roles)
-        .where(eq(roles.tenantId, orgId))
-      const roleByName = new Map(roleRows.map((role) => [role.name, role]))
+  if (!creatorMember) throw new Error("Could not provision the entity owner")
 
-      for (const invite of invites) {
-        const role = roleByName.get(invite.roleName)
-        if (!role) throw new Error(`Role ${invite.roleName} was not seeded.`)
-        const [existingUser] = await tx
-          .select({ id: user.id })
-          .from(user)
-          .where(sql`lower(${user.email}) = ${invite.email}`)
-          .limit(1)
-        if (!existingUser) {
-          await tx.insert(pendingInvites).values({
-            tenantId: orgId,
-            email: invite.email,
-            roleId: role.id,
-            tierLevel: role.tier,
-            invitedByMemberId: m.id,
-          })
-          continue
-        }
-        const invitedMemberId = randomUUID()
-        await tx.insert(member).values({
-          id: invitedMemberId,
-          organizationId: orgId,
-          userId: existingUser.id,
-          role: "member",
-        })
-        await tx.insert(membershipProfiles).values({
-          memberId: invitedMemberId,
-          tenantId: orgId,
-          roleId: role.id,
-          tierLevel: role.tier,
-          status: "active",
-        })
-        await tx.insert(memberRoles).values({
-          tenantId: orgId,
-          memberId: invitedMemberId,
-          roleId: role.id,
-        })
+  const roleRows = await runInTenant(orgId, (tx) => tx
+    .select({ id: roles.id, name: roles.name, tier: roles.defaultTierLevel })
+    .from(roles)
+    .where(eq(roles.tenantId, orgId)))
+  const roleByName = new Map(roleRows.map((role) => [role.name, role]))
+  try {
+    const entries: Parameters<typeof provisionEntitySeats>[0]["entries"] = [{
+      kind: "active", userId: ctx.userId, memberId: creatorMember.id,
+      roleId: ownerRoleId, tierLevel: 100,
+    }]
+    for (const invite of invites) {
+      const role = roleByName.get(invite.roleName)
+      if (!role) throw new Error(`Role ${invite.roleName} was not seeded.`)
+      const [existingUser] = await db.select({ id: user.id }).from(user)
+        .where(sql`lower(btrim(${user.email})) = ${invite.email}`).limit(1)
+      if (existingUser) {
+        entries.push({ kind: "active", userId: existingUser.id, roleId: role.id, tierLevel: role.tier })
+      } else {
+        entries.push({ kind: "invite", email: invite.email, roleId: role.id, tierLevel: role.tier })
       }
-
-      await writeAuthAudit(tx, {
-        tenantId: orgId,
-        action: "entity.created",
-        actorUserId: ctx.userId,
-        actorMemberId: m.id,
-        entityType: "organization",
-        entityId: orgId,
-        after: {
-          name,
-          slug,
-          plan,
-          seats: input.seats,
-          startsAt,
-          endsAt,
-          invites: invites.map(({ email, roleName }) => ({ email, roleName })),
-        },
-      })
+    }
+    await provisionEntitySeats({
+      tenantId: orgId,
+      actor: { userId: ctx.userId, memberId: creatorMember.id },
+      entries,
+      entityAudit: { name, slug, invites: invites.map(({ email, roleName }) => ({ email, roleName })) },
     })
+  } catch (error) {
+    await db.delete(organization).where(eq(organization.id, orgId)).catch(() => undefined)
+    throw error
   }
 
   try {

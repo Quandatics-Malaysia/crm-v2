@@ -445,11 +445,11 @@ function MemberRowActions({
 function MembersTab({
   members,
   roles,
-  isSuperadmin,
+  canManageUsers,
 }: {
   members: TeamMemberView[]
   roles: TeamRoleView[]
-  isSuperadmin: boolean
+  canManageUsers: boolean
 }) {
   const columns = React.useMemo<ColumnDef<TeamMemberView>[]>(
     () => [
@@ -546,7 +546,7 @@ function MembersTab({
         { columnId: "roles", title: "Role" },
         { columnId: "manager", title: "Manager" },
       ]}
-      toolbar={isSuperadmin ? <AddMemberDialog roles={roles} /> : undefined}
+      toolbar={canManageUsers ? <AddMemberDialog roles={roles} /> : undefined}
     />
   )
 }
@@ -825,12 +825,12 @@ export function TeamClient({
   members,
   roles,
   invites = [],
-  isSuperadmin,
+  canManageUsers,
 }: {
   members: TeamMemberView[]
   roles: TeamRoleView[]
   invites?: PendingInviteView[]
-  isSuperadmin: boolean
+  canManageUsers: boolean
 }) {
   return (
     <Tabs defaultValue="members" className="w-full">
@@ -841,7 +841,7 @@ export function TeamClient({
 
       <TabsContent value="members" className="mt-4 grid gap-4">
         <PendingInvitesCard invites={invites} />
-        <MembersTab members={members} roles={roles} isSuperadmin={isSuperadmin} />
+        <MembersTab members={members} roles={roles} canManageUsers={canManageUsers} />
       </TabsContent>
 
       <TabsContent value="roles" className="mt-4">

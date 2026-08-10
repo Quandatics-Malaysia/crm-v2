@@ -477,6 +477,13 @@
 			"when": 1786381200000,
 			"tag": "0067_deployment_status",
 			"breakpoints": true
+		},
+		{
+			"idx": 68,
+			"version": "7",
+			"when": 1786467600000,
+			"tag": "0068_deployment_seats",
+			"breakpoints": true
 		}
 	]
 }

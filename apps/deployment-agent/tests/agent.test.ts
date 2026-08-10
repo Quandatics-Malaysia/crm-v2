@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -17,6 +17,7 @@ import {
   createStateStore,
   generateIdentity,
   type AgentIdentity,
+  type StateIoHooks,
 } from "../src/identity.js"
 import {
   backoffDelayMs,
@@ -182,6 +183,177 @@ describe("durable identity and runtime state", () => {
     expect(first).toEqual(second)
     expect(await firstStore.loadIdentity()).toEqual(first)
     expect(await firstStore.isRegistered(first)).toBe(false)
+  })
+
+  it("does not register an observed identity until its directory entry is durable", async () => {
+    const directory = await stateDirectory()
+    let releaseFirstLink!: () => void
+    let releaseObserverLink!: () => void
+    let releasePublisherSync!: () => void
+    let releaseObserverSync!: () => void
+    let signalFirstReady!: () => void
+    let signalObserverReady!: () => void
+    let signalPublished!: () => void
+    let signalObserverBarrier!: () => void
+    let signalServerAttempt!: () => void
+    const firstReady = new Promise<void>((resolve) => { signalFirstReady = resolve })
+    const firstMayLink = new Promise<void>((resolve) => { releaseFirstLink = resolve })
+    const observerReady = new Promise<void>((resolve) => { signalObserverReady = resolve })
+    const observerMayLink = new Promise<void>((resolve) => { releaseObserverLink = resolve })
+    const published = new Promise<void>((resolve) => { signalPublished = resolve })
+    const publisherMaySync = new Promise<void>((resolve) => { releasePublisherSync = resolve })
+    const observerBarrier = new Promise<void>((resolve) => { signalObserverBarrier = resolve })
+    const observerMaySync = new Promise<void>((resolve) => { releaseObserverSync = resolve })
+    const serverAttempt = new Promise<void>((resolve) => { signalServerAttempt = resolve })
+    let observerSyncPaused = false
+    let serverCommits = 0
+    const firstHooks: StateIoHooks = {
+      beforeIdentityInstall: async () => {
+        signalFirstReady()
+        await firstMayLink
+      },
+      beforePublishDirectorySync: async (target) => {
+        if (target !== "identity") return
+        signalPublished()
+        await publisherMaySync
+      },
+    }
+    const observerHooks: StateIoHooks = {
+      beforeIdentityInstall: async () => {
+        signalObserverReady()
+        await observerMayLink
+      },
+      beforeDirectorySync: async (target) => {
+        if (target !== "identity" || observerSyncPaused) return
+        observerSyncPaused = true
+        signalObserverBarrier()
+        await observerMaySync
+      },
+    }
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init)
+      const registration = await request.json() as { keyId: string }
+      serverCommits += 1
+      signalServerAttempt()
+      return Response.json({ deploymentId, keyId: registration.keyId }, { status: 201 })
+    }
+    const firstStore = await createStateStore(directory, firstHooks)
+    const first = createDeploymentAgent({ config: config(), store: firstStore, fetch })
+    const firstInitialization = first.initialize({ maxAttempts: 1 })
+
+    await firstReady
+    const observerStore = await createStateStore(directory, observerHooks)
+    const observer = createDeploymentAgent({ config: config(), store: observerStore, fetch })
+    const observerInitialization = observer.initialize({ maxAttempts: 1 })
+    await observerReady
+    releaseFirstLink()
+    const firstEvent = await Promise.race([
+      published.then(() => "published" as const),
+      serverAttempt.then(() => "server" as const),
+    ])
+
+    try {
+      expect(firstEvent).toBe("published")
+      expect(serverCommits).toBe(0)
+
+      releaseObserverLink()
+      const observerEvent = await Promise.race([
+        observerBarrier.then(() => "durability" as const),
+        serverAttempt.then(() => "server" as const),
+      ])
+      expect(observerEvent).toBe("durability")
+      expect(serverCommits).toBe(0)
+
+      releaseObserverSync()
+      await observerInitialization
+      expect(serverCommits).toBe(1)
+      releasePublisherSync()
+      await firstInitialization
+      expect(serverCommits).toBe(1)
+    } finally {
+      releaseObserverLink()
+      releaseObserverSync()
+      releasePublisherSync()
+      await observerInitialization.catch(() => undefined)
+      await firstInitialization.catch(() => undefined)
+    }
+  })
+
+  it("does not accept an observed registration marker until its directory entry is durable", async () => {
+    const directory = await stateDirectory()
+    const identity = await generateIdentity(config(), await createStateStore(directory))
+    let releasePublisherSync!: () => void
+    let releaseObserverSync!: () => void
+    let signalPublished!: () => void
+    let signalObserverBarrier!: () => void
+    const published = new Promise<void>((resolve) => { signalPublished = resolve })
+    const publisherMaySync = new Promise<void>((resolve) => { releasePublisherSync = resolve })
+    const observerBarrier = new Promise<void>((resolve) => { signalObserverBarrier = resolve })
+    const observerMaySync = new Promise<void>((resolve) => { releaseObserverSync = resolve })
+    const publisherHooks: StateIoHooks = {
+      beforePublishDirectorySync: async (target) => {
+        if (target !== "registration") return
+        signalPublished()
+        await publisherMaySync
+      },
+    }
+    const observerHooks: StateIoHooks = {
+      beforeDirectorySync: async (target) => {
+        if (target !== "registration") return
+        signalObserverBarrier()
+        await observerMaySync
+      },
+    }
+    const publisherStore = await createStateStore(directory, publisherHooks)
+    const observerStore = await createStateStore(directory, observerHooks)
+    const publisher = publisherStore.markRegistered(identity)
+    const firstEvent = await Promise.race([
+      published.then(() => "published" as const),
+      publisher.then(() => "accepted" as const),
+    ])
+
+    try {
+      expect(firstEvent).toBe("published")
+      const observer = observerStore.markRegistered(identity)
+      const observerEvent = await Promise.race([
+        observerBarrier.then(() => "durability" as const),
+        observer.then(() => "accepted" as const),
+      ])
+      expect(observerEvent).toBe("durability")
+
+      releaseObserverSync()
+      await observer
+      releasePublisherSync()
+      await publisher
+      expect(await observerStore.isRegistered(identity)).toBe(true)
+    } finally {
+      releaseObserverSync()
+      releasePublisherSync()
+      await publisher.catch(() => undefined)
+    }
+  })
+
+  it("does not register or leave temporary files when identity directory sync fails", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory, {
+      beforePublishDirectorySync(target) {
+        if (target === "identity") throw new Error("simulated directory sync failure")
+      },
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init)
+      const registration = await request.json() as { keyId: string }
+      return Response.json({ deploymentId, keyId: registration.keyId }, { status: 201 })
+    })
+    const agent = createDeploymentAgent({ config: config(), store, fetch })
+
+    await expect(agent.initialize({ maxAttempts: 1 })).rejects.toThrow("simulated directory sync failure")
+    expect(fetch).not.toHaveBeenCalled()
+    expect((await readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(JSON.parse(await readFile(join(directory, "identity.json"), "utf8"))).toMatchObject({
+      deploymentId,
+      keyId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    })
   })
 
   it("serializes registration state without overwriting a conflicting key ID", async () => {

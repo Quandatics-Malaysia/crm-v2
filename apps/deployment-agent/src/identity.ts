@@ -60,9 +60,13 @@ const runtimeSchema = z.object({
 
 export type AgentIdentity = z.infer<typeof identitySchema>
 export type AgentRuntime = z.infer<typeof runtimeSchema>
+type DurableTarget = "identity" | "registration" | "runtime"
+type PublishTarget = Exclude<DurableTarget, "runtime">
 export type StateIoHooks = {
   beforeRename?: (target: "runtime") => void | Promise<void>
   beforeIdentityInstall?: () => void | Promise<void>
+  beforeDirectorySync?: (target: DurableTarget) => void | Promise<void>
+  beforePublishDirectorySync?: (target: PublishTarget) => void | Promise<void>
 }
 
 const emptyRuntime = (): AgentRuntime => ({
@@ -112,7 +116,8 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
   const registrationPath = join(directory, "registration.json")
   const runtimePath = join(directory, "runtime.json")
 
-  async function syncDirectory(): Promise<void> {
+  async function syncDirectory(target: DurableTarget): Promise<void> {
+    await hooks.beforeDirectorySync?.(target)
     const directoryHandle = await open(directory, constants.O_RDONLY)
     try {
       await directoryHandle.sync()
@@ -121,12 +126,29 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
     }
   }
 
-  async function installExclusive(
-    target: "identity" | "registration",
+  async function parseStored<T>(
+    target: PublishTarget,
     path: string,
-    value: unknown,
+    schema: z.ZodType<T>,
+  ): Promise<T> {
+    try {
+      return schema.parse(JSON.parse(await readFile(path, "utf8")))
+    } catch {
+      throw new Error(`Agent ${target} is corrupt`)
+    }
+  }
+
+  async function installExclusive<T>(
+    target: PublishTarget,
+    path: string,
+    value: T,
+    schema: z.ZodType<T>,
   ): Promise<boolean> {
-    await validateFile(path, target, true)
+    if (await validateFile(path, target, true)) {
+      await parseStored(target, path, schema)
+      await syncDirectory(target)
+      return false
+    }
     const temporaryPath = join(directory, `.${target}.${process.pid}.${crypto.randomUUID()}.tmp`)
     let handle: Awaited<ReturnType<typeof open>> | null = null
     try {
@@ -143,12 +165,19 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
       await link(temporaryPath, path)
       await unlink(temporaryPath)
       await validateFile(path, target, false)
-      await syncDirectory()
+      await parseStored(target, path, schema)
+      await hooks.beforePublishDirectorySync?.(target)
+      await syncDirectory(target)
       return true
     } catch (error) {
       await handle?.close().catch(() => undefined)
       await unlink(temporaryPath).catch(() => undefined)
-      if (isExists(error)) return false
+      if (isExists(error)) {
+        await validateFile(path, target, false)
+        await parseStored(target, path, schema)
+        await syncDirectory(target)
+        return false
+      }
       throw error
     }
   }
@@ -174,7 +203,7 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
       await hooks.beforeRename?.(target)
       await rename(temporaryPath, path)
       await validateFile(path, target, false)
-      await syncDirectory()
+      await syncDirectory(target)
     } catch (error) {
       await handle?.close().catch(() => undefined)
       await unlink(temporaryPath).catch(() => undefined)
@@ -186,26 +215,20 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
     directory,
     async loadIdentity(): Promise<AgentIdentity | null> {
       if (!await validateFile(identityPath, "identity", true)) return null
-      try {
-        return identitySchema.parse(JSON.parse(await readFile(identityPath, "utf8")))
-      } catch {
-        throw new Error("Agent identity is corrupt")
-      }
+      const identity = await parseStored("identity", identityPath, identitySchema)
+      await syncDirectory("identity")
+      return identity
     },
     async installIdentity(identity: AgentIdentity): Promise<boolean> {
-      return installExclusive("identity", identityPath, identitySchema.parse(identity))
+      return installExclusive("identity", identityPath, identitySchema.parse(identity), identitySchema)
     },
     async isRegistered(identity: AgentIdentity): Promise<boolean> {
       if (!await validateFile(registrationPath, "registration", true)) return false
-      let registration: z.infer<typeof registrationSchema>
-      try {
-        registration = registrationSchema.parse(JSON.parse(await readFile(registrationPath, "utf8")))
-      } catch {
-        throw new Error("Agent registration is corrupt")
-      }
+      const registration = await parseStored("registration", registrationPath, registrationSchema)
       if (registration.deploymentId !== identity.deploymentId || registration.keyId !== identity.keyId) {
         throw new Error("Agent registration does not match identity")
       }
+      await syncDirectory("registration")
       return true
     },
     async markRegistered(identity: AgentIdentity): Promise<void> {
@@ -215,7 +238,7 @@ export async function createStateStore(directory = AGENT_STATE_DIRECTORY, hooks:
         keyId: identity.keyId,
         registeredAt: new Date().toISOString(),
       })
-      if (await installExclusive("registration", registrationPath, candidate)) return
+      if (await installExclusive("registration", registrationPath, candidate, registrationSchema)) return
       if (!await this.isRegistered(identity)) throw new Error("Agent registration update failed")
     },
     async loadRuntime(): Promise<AgentRuntime> {

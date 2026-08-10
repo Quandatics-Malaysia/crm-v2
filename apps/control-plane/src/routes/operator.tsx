@@ -19,6 +19,11 @@ import {
 } from "../repos/clients"
 import { createContract, getContractDetail } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
+import {
+  assignEntitlementSchedule,
+  issueEntitlement,
+  updateEntitlementControls,
+} from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
@@ -99,6 +104,15 @@ function mutationDescriptor(pathname: string): {
   }
   if (/^\/operator\/contracts\/[^/]+\/invoices$/.test(pathname)) {
     return { action: "invoice.create", targetType: "invoice", targetId: "request-target" }
+  }
+  if (/^\/operator\/deployments\/[^/]+\/entitlements\/schedule$/.test(pathname)) {
+    return { action: "entitlement.schedule.assign", targetType: "deployment", targetId: "request-target" }
+  }
+  if (/^\/operator\/deployments\/[^/]+\/entitlements\/issue$/.test(pathname)) {
+    return { action: "entitlement.issue", targetType: "deployment", targetId: "request-target" }
+  }
+  if (/^\/operator\/contracts\/[^/]+\/entitlement-controls$/.test(pathname)) {
+    return { action: "entitlement.controls.update", targetType: "contract", targetId: "request-target" }
   }
   return { action: "operator.mutation", targetType: "operator_route", targetId: "unmatched" }
 }
@@ -278,6 +292,62 @@ export function createOperatorRoutes() {
         context,
         (data) => createInvoice(context.env.CONTROL_DB, contractId, data as never, actor(context)),
       )
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/entitlements/schedule",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "billing_operator"),
+    async (context) => {
+      const deploymentId = context.req.param("deploymentId")
+      const data = await mutationData(context)
+      await assignEntitlementSchedule(context.env.CONTROL_DB, {
+        deploymentId,
+        contractId: String(data.contractId ?? ""),
+        configurationVersion: String(data.configurationVersion ?? ""),
+        releaseChannel: String(data.releaseChannel ?? "") as "stable" | "beta" | "canary",
+        minimumSupportedAppVersion: String(data.minimumSupportedAppVersion ?? ""),
+        approvedImageDigest: data.approvedImageDigest === undefined || data.approvedImageDigest === ""
+          ? null
+          : String(data.approvedImageDigest),
+      }, actor(context))
+      return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/entitlements/issue",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "billing_operator"),
+    async (context) => {
+      const deploymentId = context.req.param("deploymentId")
+      const data = await mutationData(context)
+      const issued = await issueEntitlement(context.env, {
+        deploymentId,
+        contractId: typeof data.contractId === "string" ? data.contractId : undefined,
+        issuanceKey: typeof data.idempotencyKey === "string" ? `manual:${data.idempotencyKey}` : `manual:${crypto.randomUUID()}`,
+        actor: { ...actor(context), source: "operator" },
+      })
+      return context.json({ id: issued.id, version: issued.version }, 201)
+    },
+  )
+  routes.post(
+    "/contracts/:contractId/entitlement-controls",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "billing_operator"),
+    async (context) => {
+      const contractId = context.req.param("contractId")
+      const data = await mutationData(context)
+      const seatLimit = data.seatLimit === undefined || data.seatLimit === ""
+        ? undefined
+        : Number(data.seatLimit)
+      await updateEntitlementControls(context.env.CONTROL_DB, contractId, {
+        status: data.status === undefined ? undefined : String(data.status) as "active" | "past_due" | "suspended" | "cancelled",
+        renewalPolicy: data.renewalPolicy === undefined ? undefined : String(data.renewalPolicy) as "auto_renew" | "non_renewing",
+        suspensionAt: data.suspensionAt === undefined ? undefined : data.suspensionAt === "" ? null : String(data.suspensionAt),
+        seatLimit,
+        effectiveAt: data.effectiveAt === undefined || data.effectiveAt === "" ? undefined : String(data.effectiveAt),
+      }, actor(context))
+      return context.json({ id: contractId }, 200)
     },
   )
 

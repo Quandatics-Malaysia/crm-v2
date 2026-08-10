@@ -9,7 +9,9 @@ import {
 import { verifyControlDatabase } from "./db/client"
 import { SafeHttpError } from "./http/errors"
 import { createDeploymentRoutes } from "./routes/deployments"
+import { createEntitlementRoutes } from "./routes/entitlements"
 import { createOperatorRoutes } from "./routes/operator"
+import { runEntitlementRenewal } from "./repos/entitlements"
 
 export interface ControlPlaneEnvironment {
   Bindings: CloudflareBindings
@@ -67,10 +69,16 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
   })
   app.route("/operator", createOperatorRoutes())
   app.route("/v1/deployments", createDeploymentRoutes())
+  app.route("/v1/deployments", createEntitlementRoutes())
 
   return app
 }
 
 const app = createApp()
 
-export default app
+export default {
+  fetch: app.fetch,
+  scheduled(_controller, environment, context) {
+    context.waitUntil(runEntitlementRenewal(environment))
+  },
+} satisfies ExportedHandler<CloudflareBindings>

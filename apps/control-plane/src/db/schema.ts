@@ -161,6 +161,12 @@ export const contracts = sqliteTable(
     collectionFrequency: text("collection_frequency", { enum: ["monthly", "upfront"] })
       .notNull(),
     totalCents: integer("total_cents").notNull(),
+    renewalPolicy: text("renewal_policy", { enum: ["auto_renew", "non_renewing"] })
+      .notNull()
+      .default("auto_renew"),
+    suspensionAt: text("suspension_at"),
+    scheduledSeatLimit: integer("scheduled_seat_limit"),
+    seatLimitEffectiveAt: text("seat_limit_effective_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -244,11 +250,66 @@ export const entitlementVersions = sqliteTable(
     payloadJson: text("payload_json").notNull(),
     signature: text("signature").notNull(),
     issuedAt: text("issued_at").notNull(),
+    issuanceKey: text("issuance_key"),
+    envelopeJson: text("envelope_json"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("entitlement_versions_deployment_version_idx").on(table.deploymentId, table.version),
     index("entitlement_versions_contract_id_idx").on(table.contractId),
+    uniqueIndex("entitlement_versions_deployment_issuance_key_idx").on(
+      table.deploymentId,
+      table.issuanceKey,
+    ),
+  ],
+)
+
+export const deploymentEntitlementSequences = sqliteTable(
+  "deployment_entitlement_sequences",
+  {
+    deploymentId: text("deployment_id")
+      .primaryKey()
+      .references(() => deployments.id, { onDelete: "cascade" }),
+    nextVersion: integer("next_version").notNull(),
+  },
+)
+
+export const deploymentEntitlementSchedules = sqliteTable(
+  "deployment_entitlement_schedules",
+  {
+    deploymentId: text("deployment_id")
+      .primaryKey()
+      .references(() => deployments.id, { onDelete: "cascade" }),
+    contractId: text("contract_id").notNull().references(() => contracts.id),
+    nextCheckAt: text("next_check_at").notNull(),
+    latestVersion: integer("latest_version"),
+    configurationVersion: text("configuration_version").notNull(),
+    releaseChannel: text("release_channel", { enum: ["stable", "beta", "canary"] }).notNull(),
+    minimumSupportedAppVersion: text("minimum_supported_app_version").notNull(),
+    approvedImageDigest: text("approved_image_digest"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("deployment_entitlement_schedules_due_idx").on(table.nextCheckAt, table.deploymentId)],
+)
+
+export const entitlementRenewalClaims = sqliteTable(
+  "entitlement_renewal_claims",
+  {
+    deploymentId: text("deployment_id").notNull().references(() => deployments.id, { onDelete: "cascade" }),
+    issuanceKey: text("issuance_key").notNull(),
+    claimToken: text("claim_token").notNull(),
+    state: text("state", { enum: ["claimed", "issued", "failed"] }).notNull(),
+    claimExpiresAt: text("claim_expires_at").notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    retryAt: text("retry_at"),
+    lastErrorCode: text("last_error_code"),
+    entitlementVersionId: text("entitlement_version_id").references(() => entitlementVersions.id),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.issuanceKey] }),
+    index("entitlement_renewal_claims_retry_idx").on(table.state, table.retryAt, table.claimExpiresAt),
   ],
 )
 

@@ -25,9 +25,10 @@ import {
   recordHeartbeat,
   registerDeployment,
 } from "../repos/deployments"
+import { getCurrentEntitlementReference } from "../repos/entitlements"
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const legacyKeyIdPattern = /^[A-Za-z0-9._-]{1,128}$/
 const LEGACY_PENDING_FINGERPRINT = "legacy:pending"
 const MAX_JSON_DEPTH = 64
@@ -164,7 +165,7 @@ async function requestJson(request: Request): Promise<{ bytes: Uint8Array; value
   return { bytes, value: parseJsonWithoutDuplicateKeys(decodeUtf8(bytes)) }
 }
 
-function storedPublicJwk(
+export function storedPublicJwk(
   value: string,
   allowLegacyMetadata: boolean,
 ): { kty: "OKP"; crv: "Ed25519"; x: string } {
@@ -319,7 +320,11 @@ export function createDeploymentRoutes() {
       requestCorrelationId: requestId(headers),
       payloadBytes: bodyBytes.byteLength,
     })
-    return context.json({ accepted: true }, 202, { "Cache-Control": "no-store" })
+    const entitlement = await getCurrentEntitlementReference(
+      context.env.CONTROL_DB,
+      deploymentId,
+    )
+    return context.json({ accepted: true, entitlement }, 202, { "Cache-Control": "no-store" })
   })
 
   return routes

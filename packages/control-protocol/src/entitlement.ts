@@ -97,20 +97,21 @@ export function evaluateLease(lease: EntitlementLease, now: Date | string | Leas
   }
 
   const effectiveTime = Math.max(currentTime, greatestTrustedTime)
-  if (lease.subscriptionStatus !== "active") {
+  if (lease.subscriptionStatus === "suspended" || lease.subscriptionStatus === "cancelled") {
     return readOnly(`Subscription is ${lease.subscriptionStatus}`)
   }
   if (effectiveTime < Date.parse(lease.contractStartsAt)) {
     return readOnly("Contract has not started")
   }
-  if (effectiveTime > Date.parse(lease.contractEndsAt)) {
+  if (effectiveTime >= Date.parse(lease.contractEndsAt)) {
     return readOnly("Contract has ended")
   }
+  const warning = lease.subscriptionStatus === "past_due" ? "; subscription is past_due" : ""
   if (effectiveTime <= Date.parse(lease.leaseExpiresAt)) {
-    return { mode: "active", reason: "Lease is active", writeAllowed: true }
+    return { mode: "active", reason: `Lease is active${warning}`, writeAllowed: true }
   }
   if (effectiveTime <= Date.parse(lease.graceUntil)) {
-    return { mode: "grace", reason: "Lease is in offline grace", writeAllowed: true }
+    return { mode: "grace", reason: `Lease is in offline grace${warning}`, writeAllowed: true }
   }
   return readOnly("Lease grace period has ended")
 }

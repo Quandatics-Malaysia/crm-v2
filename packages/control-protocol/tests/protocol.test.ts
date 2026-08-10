@@ -164,4 +164,37 @@ describe("evaluateLease", () => {
       }),
     ).toMatchObject({ mode: "read_only", writeAllowed: false })
   })
+
+  it("treats past due as warning-only during lease and grace", () => {
+    expect(evaluateLease(lease({ subscriptionStatus: "past_due" }), leaseExpiresAt)).toEqual({
+      mode: "active",
+      reason: "Lease is active; subscription is past_due",
+      writeAllowed: true,
+    })
+    expect(evaluateLease(lease({ subscriptionStatus: "past_due" }), graceUntil)).toEqual({
+      mode: "grace",
+      reason: "Lease is in offline grace; subscription is past_due",
+      writeAllowed: true,
+    })
+  })
+
+  it("uses a half-open contract term and inclusive lease/grace deadlines", () => {
+    expect(evaluateLease(lease(), issuedAt).writeAllowed).toBe(true)
+    expect(evaluateLease(lease(), leaseExpiresAt).mode).toBe("active")
+    expect(evaluateLease(lease(), graceUntil).mode).toBe("grace")
+    expect(evaluateLease(lease(), "2027-08-10T00:00:00.000Z")).toMatchObject({
+      mode: "read_only",
+      reason: "Contract has ended",
+      writeAllowed: false,
+    })
+  })
+
+  it("makes suspended and cancelled leases immediately read-only", () => {
+    for (const subscriptionStatus of ["suspended", "cancelled"] as const) {
+      expect(evaluateLease(lease({ subscriptionStatus }), issuedAt)).toMatchObject({
+        mode: "read_only",
+        writeAllowed: false,
+      })
+    }
+  })
 })

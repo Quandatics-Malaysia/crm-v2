@@ -91,8 +91,24 @@ export function heartbeatTranscript(input: {
   nonce: string
   bodyDigestHex: string
 }): Uint8Array<ArrayBuffer> {
+  return deploymentRequestTranscript({
+    method: "POST",
+    path: `/v1/deployments/${input.deploymentId}/heartbeat`,
+    ...input,
+  })
+}
+
+export function deploymentRequestTranscript(input: {
+  method: "GET" | "POST"
+  path: string
+  deploymentId: string
+  keyId: string
+  timestamp: string
+  nonce: string
+  bodyDigestHex: string
+}): Uint8Array<ArrayBuffer> {
   return encoder.encode(
-    `crm-deployment-request-v1\nPOST\n/v1/deployments/${input.deploymentId}/heartbeat\n${input.deploymentId}\n${input.keyId}\n${input.timestamp}\n${input.nonce}\nsha-256=${input.bodyDigestHex}\n`,
+    `crm-deployment-request-v1\n${input.method}\n${input.path}\n${input.deploymentId}\n${input.keyId}\n${input.timestamp}\n${input.nonce}\nsha-256=${input.bodyDigestHex}\n`,
   )
 }
 

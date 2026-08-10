@@ -556,7 +556,7 @@ describe("signed deployment heartbeats", () => {
       privateKey: fixture.pair.privateKey,
     })
     expect(response.status).toBe(202)
-    await expect(response.json()).resolves.toEqual({ accepted: true })
+    await expect(response.json()).resolves.toEqual({ accepted: true, entitlement: null })
 
     const row = await env.CONTROL_DB.prepare(
       "SELECT occupied_seats, active_user_count, reserved_invitation_count, application_version, image_digest, enabled_module_ids_json, health_status, client_timestamp FROM heartbeat_rollups WHERE deployment_id = ?",

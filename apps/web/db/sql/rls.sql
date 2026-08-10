@@ -148,7 +148,7 @@ REVOKE ALL ON deployment_entitlement_history FROM crm_app;
 REVOKE ALL ON SEQUENCE deployment_entitlement_history_id_seq FROM crm_app;
 GRANT EXECUTE ON FUNCTION record_deployment_entitlement_rejection(text, text, bigint, timestamp with time zone) TO crm_app;
 GRANT EXECUTE ON FUNCTION apply_verified_deployment_entitlement(text, text, bigint, text, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, public.deployment_subscription_status, integer, text[], timestamp with time zone) TO crm_app;
-GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state() TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state(timestamp with time zone) TO crm_app;
 
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
 -- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by

@@ -127,7 +127,7 @@ export type DeploymentAccess = {
 export interface DeploymentControlPersistence {
   applyVerified(input: VerifiedEntitlementApplication): Promise<EntitlementApplicationResult>
   recordRejected(entry: DeploymentControlHistoryEntry): Promise<void>
-  getState(): Promise<DeploymentEntitlementState | null>
+  getState(observedAt?: Date): Promise<DeploymentEntitlementState | null>
 }
 
 function modulesAreValid(moduleIds: EntitlementLease["moduleIds"]): boolean {
@@ -199,7 +199,11 @@ export function createDeploymentControlService(input: {
       }
 
       const signedAt = Date.parse(lease.issuedAt)
-      if (signedAt < Date.parse(trustKey.validFrom) || signedAt >= Date.parse(trustKey.validUntil)) {
+      const receivedTime = receivedAt.getTime()
+      if (
+        signedAt < Date.parse(trustKey.validFrom) || signedAt >= Date.parse(trustKey.validUntil) ||
+        receivedTime < Date.parse(trustKey.validFrom) || receivedTime >= Date.parse(trustKey.validUntil)
+      ) {
         return reject(input.persistence, "trust_key_not_valid", digest, lease.revision)
       }
       if (!Number.isFinite(receivedAt.getTime()) || receivedAt.getTime() > Date.parse(lease.graceUntil)) {
@@ -259,7 +263,7 @@ function unavailable(reason: string): DeploymentAccess {
 async function getAccess(persistence: DeploymentControlPersistence, now: Date): Promise<DeploymentAccess> {
   let state: DeploymentEntitlementState | null
   try {
-    state = await persistence.getState()
+    state = await persistence.getState(now)
   } catch {
     return unavailable("Entitlement state is unavailable")
   }
@@ -336,8 +340,10 @@ export function createPostgresDeploymentControlPersistence(
     `)
   },
 
-  async getState() {
-    const rows = await database.execute(sql`select * from read_deployment_entitlement_state()`) as unknown as StateRow[]
+  async getState(observedAt) {
+    const rows = await database.execute(sql`
+      select * from read_deployment_entitlement_state(${observedAt?.toISOString() ?? null}::timestamp with time zone)
+    `) as unknown as StateRow[]
     const row = rows[0]
     if (!row) return null
 

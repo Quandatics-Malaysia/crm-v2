@@ -1,7 +1,7 @@
 import { signEnvelope, type EntitlementLease } from "@crm/control-protocol"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres, { type Sql } from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { db } from "@/db"
 import {
@@ -11,7 +11,8 @@ import {
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const appUrl = process.env.TEST_DATABASE_URL
-const integration = adminUrl && appUrl ? describe : describe.skip
+const databaseTestsRequired = process.env.REQUIRE_DEPLOYMENT_CONTROL_DB_TESTS === "1"
+const integration = adminUrl && appUrl ? describe : databaseTestsRequired ? describe : describe.skip
 
 integration("deployment control PostgreSQL boundary", () => {
   let admin: Sql
@@ -19,16 +20,22 @@ integration("deployment control PostgreSQL boundary", () => {
   let appB: Sql
 
   beforeAll(async () => {
+    if (!adminUrl || !appUrl) {
+      throw new Error("Deployment control PostgreSQL tests require TEST_DATABASE_ADMIN_URL and TEST_DATABASE_URL")
+    }
     admin = postgres(adminUrl!, { max: 1 })
     appA = postgres(appUrl!, { max: 1 })
     appB = postgres(appUrl!, { max: 1 })
+  })
+
+  beforeEach(async () => {
     await admin`truncate table deployment_entitlement_history restart identity`
     await admin`truncate table deployment_control_state`
     await admin`insert into deployment_control_state (singleton, current_revision) values (1, 0)`
   })
 
   afterAll(async () => {
-    await Promise.all([admin.end(), appA.end(), appB.end()])
+    if (admin && appA && appB) await Promise.all([admin.end(), appA.end(), appB.end()])
   })
 
   async function apply(client: Sql, revision: number, canonicalEnvelope = `envelope-${revision}`) {
@@ -72,15 +79,11 @@ integration("deployment control PostgreSQL boundary", () => {
   })
 
   it("applies and reads a signed lease through the production PostgreSQL persistence", async () => {
-    await admin`truncate table deployment_entitlement_history restart identity`
-    await admin`truncate table deployment_control_state`
-    await admin`insert into deployment_control_state (singleton, current_revision) values (1, 0)`
-
     const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
     const privateJwk = await crypto.subtle.exportKey("jwk", keys.privateKey)
     const publicJwk = await crypto.subtle.exportKey("jwk", keys.publicKey)
     const lease: EntitlementLease = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       revision: 5,
       keyId: "vendor-test",
       leaseId: "lease-production-persistence",
@@ -125,5 +128,179 @@ integration("deployment control PostgreSQL boundary", () => {
       seatLimit: 25,
       moduleIds: ["projects"],
     })
+  })
+
+  it("persists delayed apply receipt time as the greatest trusted clock", async () => {
+    const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const privateJwk = await crypto.subtle.exportKey("jwk", keys.privateKey)
+    const publicJwk = await crypto.subtle.exportKey("jwk", keys.publicKey)
+    const lease: EntitlementLease = {
+      schemaVersion: 2,
+      revision: 1,
+      keyId: "vendor-clock",
+      leaseId: "lease-delayed",
+      clientId: "quandatics",
+      deploymentId: "quandatics-production",
+      issuedAt: "2026-08-10T00:00:00.000Z",
+      leaseExpiresAt: "2026-08-11T00:00:00.000Z",
+      contractStartsAt: "2026-08-01T00:00:00.000Z",
+      contractEndsAt: "2027-08-01T00:00:00.000Z",
+      graceUntil: "2026-08-18T00:00:00.000Z",
+      subscriptionStatus: "active",
+      planId: "professional",
+      maxActiveUsers: 25,
+      moduleIds: ["projects"],
+      addonIds: [],
+      configurationVersion: "config-1",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+    }
+    const database = drizzle(appA) as unknown as typeof db
+    const service = createDeploymentControlService({
+      persistence: createPostgresDeploymentControlPersistence(database),
+      trustSet: {
+        version: 1,
+        keys: [{
+          keyId: lease.keyId,
+          publicJwk,
+          validFrom: "2026-01-01T00:00:00.000Z",
+          validUntil: "2027-01-01T00:00:00.000Z",
+        }],
+      },
+      now: () => new Date("2026-08-12T00:00:00.000Z"),
+    })
+
+    await expect(service.applySignedEntitlement(
+      await signEnvelope(lease, lease.keyId, privateJwk), lease.deploymentId,
+    )).resolves.toMatchObject({ outcome: "accepted" })
+    const [state] = await admin`select greatest_trusted_at from deployment_control_state where singleton = 1`
+    expect(state.greatest_trusted_at.toISOString()).toBe("2026-08-12T00:00:00.000Z")
+  })
+
+  it("advances trusted time on a byte-identical idempotent replay", async () => {
+    const invoke = (receivedAt: string) => appA`
+      select * from apply_verified_deployment_entitlement(
+        ${"quandatics-production"}, ${"quandatics-production"}, ${1},
+        ${"identical-envelope"}, ${"payload-1"}, ${"a".repeat(64)},
+        ${"vendor-key"}, ${"signature"}, ${"2026-08-11T00:00:00.000Z"},
+        ${"2026-08-12T00:00:00.000Z"}, ${"2026-08-01T00:00:00.000Z"},
+        ${"2027-08-01T00:00:00.000Z"}, ${"2026-08-19T00:00:00.000Z"},
+        ${"active"}::deployment_subscription_status, ${25},
+        ${"{projects}"}::text[], ${receivedAt}
+      )
+    `
+    await invoke("2026-08-11T00:00:00.000Z")
+
+    const replayReceivedAt = new Date("2026-08-17T00:00:00.000Z")
+    const rows = await invoke(replayReceivedAt.toISOString())
+    expect(rows).toMatchObject([{ outcome: "idempotent" }])
+    const [state] = await admin`select greatest_trusted_at from deployment_control_state where singleton = 1`
+    expect(state.greatest_trusted_at.toISOString()).toBe(replayReceivedAt.toISOString())
+  })
+
+  it("durably advances access time so a later host rollback cannot regain writes", async () => {
+    const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const privateJwk = await crypto.subtle.exportKey("jwk", keys.privateKey)
+    const publicJwk = await crypto.subtle.exportKey("jwk", keys.publicKey)
+    const lease: EntitlementLease = {
+      schemaVersion: 2,
+      revision: 1,
+      keyId: "vendor-clock",
+      leaseId: "lease-access-clock",
+      clientId: "quandatics",
+      deploymentId: "quandatics-production",
+      issuedAt: "2026-08-10T00:00:00.000Z",
+      leaseExpiresAt: "2026-08-11T00:00:00.000Z",
+      contractStartsAt: "2026-08-01T00:00:00.000Z",
+      contractEndsAt: "2027-08-01T00:00:00.000Z",
+      graceUntil: "2026-08-18T00:00:00.000Z",
+      subscriptionStatus: "active",
+      planId: "professional",
+      maxActiveUsers: 25,
+      moduleIds: ["projects"],
+      addonIds: [],
+      configurationVersion: "config-1",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+    }
+    const database = drizzle(appA) as unknown as typeof db
+    let observedAt = new Date(lease.issuedAt)
+    const service = createDeploymentControlService({
+      persistence: createPostgresDeploymentControlPersistence(database),
+      trustSet: {
+        version: 1,
+        keys: [{
+          keyId: lease.keyId,
+          publicJwk,
+          validFrom: "2026-01-01T00:00:00.000Z",
+          validUntil: "2027-01-01T00:00:00.000Z",
+        }],
+      },
+      now: () => observedAt,
+    })
+    await service.applySignedEntitlement(await signEnvelope(lease, lease.keyId, privateJwk), lease.deploymentId)
+
+    observedAt = new Date("2026-08-18T00:00:00.001Z")
+    await expect(service.getDeploymentAccess(observedAt)).resolves.toMatchObject({ mode: "read_only" })
+    const [advanced] = await admin`select greatest_trusted_at from deployment_control_state where singleton = 1`
+    expect(advanced.greatest_trusted_at.toISOString()).toBe(observedAt.toISOString())
+
+    await expect(service.getDeploymentAccess(new Date("2026-08-10T00:00:00.000Z"))).resolves.toMatchObject({
+      mode: "read_only",
+      writeAllowed: false,
+    })
+  })
+
+  it("does not advance trusted time or replace state for invalid input", async () => {
+    const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const privateJwk = await crypto.subtle.exportKey("jwk", keys.privateKey)
+    const publicJwk = await crypto.subtle.exportKey("jwk", keys.publicKey)
+    const lease: EntitlementLease = {
+      schemaVersion: 2,
+      revision: 1,
+      keyId: "vendor-clock",
+      leaseId: "lease-invalid-clock",
+      clientId: "quandatics",
+      deploymentId: "quandatics-production",
+      issuedAt: "2026-08-10T00:00:00.000Z",
+      leaseExpiresAt: "2026-08-11T00:00:00.000Z",
+      contractStartsAt: "2026-08-01T00:00:00.000Z",
+      contractEndsAt: "2027-08-01T00:00:00.000Z",
+      graceUntil: "2026-08-18T00:00:00.000Z",
+      subscriptionStatus: "active",
+      planId: "professional",
+      maxActiveUsers: 25,
+      moduleIds: ["projects"],
+      addonIds: [],
+      configurationVersion: "config-1",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+    }
+    const database = drizzle(appA) as unknown as typeof db
+    let observedAt = new Date("2026-08-12T00:00:00.000Z")
+    const service = createDeploymentControlService({
+      persistence: createPostgresDeploymentControlPersistence(database),
+      trustSet: {
+        version: 1,
+        keys: [{
+          keyId: lease.keyId,
+          publicJwk,
+          validFrom: "2026-01-01T00:00:00.000Z",
+          validUntil: "2027-01-01T00:00:00.000Z",
+        }],
+      },
+      now: () => observedAt,
+    })
+    const envelope = await signEnvelope(lease, lease.keyId, privateJwk)
+    await service.applySignedEntitlement(envelope, lease.deploymentId)
+    const canonicalBefore = (await admin`select canonical_envelope from deployment_control_state where singleton = 1`)[0].canonical_envelope
+
+    observedAt = new Date("2026-08-17T00:00:00.000Z")
+    const tampered = structuredClone(envelope)
+    tampered.payload.maxActiveUsers = 99
+    await expect(service.applySignedEntitlement(tampered, lease.deploymentId)).resolves.toMatchObject({ outcome: "rejected" })
+    const [state] = await admin`select canonical_envelope, greatest_trusted_at from deployment_control_state where singleton = 1`
+    expect(state.canonical_envelope).toBe(canonicalBefore)
+    expect(state.greatest_trusted_at.toISOString()).toBe("2026-08-12T00:00:00.000Z")
   })
 })

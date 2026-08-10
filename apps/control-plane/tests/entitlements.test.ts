@@ -1,7 +1,7 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
-import { canonicalJson, evaluateLease, verifyEnvelope, type EntitlementLease, type SignedEnvelope } from "@crm/control-protocol"
+import { canonicalJson, evaluateLease, signEnvelope, verifyEnvelope, type EntitlementLease, type SignedEnvelope } from "@crm/control-protocol"
 import { createApp } from "../src/index"
 import { publicKeyFingerprint } from "../src/auth/deployment"
 import {
@@ -106,6 +106,7 @@ describe("entitlement issuance", () => {
     const envelope = stored?.envelope as SignedEnvelope<EntitlementLease>
     await expect(verifyEnvelope(envelope, { "vendor-key-a": publicJwk }, fixture.deploymentId)).resolves.toEqual(envelope.payload)
     expect(envelope.payload).toMatchObject({
+      schemaVersion: 2,
       clientId: fixture.clientId, deploymentId: fixture.deploymentId, keyId: "vendor-key-a", revision: 1,
       subscriptionStatus: "active", maxActiveUsers: 25,
       moduleIds: ["finance", "projects", "salesOrders"],
@@ -118,11 +119,69 @@ describe("entitlement issuance", () => {
     await expect(env.CONTROL_DB.prepare("DELETE FROM entitlement_versions WHERE id = ?").bind(stored?.id).run()).rejects.toThrow(/immutable/)
   })
 
+  async function insertLegacyV1Entitlement(fixture: Awaited<ReturnType<typeof seed>>) {
+    const payload = {
+      schemaVersion: 1,
+      keyId: "vendor-key-a",
+      leaseId: "legacy-lease-001",
+      clientId: fixture.clientId,
+      deploymentId: fixture.deploymentId,
+      issuedAt: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + DAY_MS).toISOString(),
+      contractStartsAt: "2026-08-01T00:00:00.000Z",
+      contractEndsAt: "2027-01-01T00:00:00.000Z",
+      graceUntil: new Date(now.getTime() + 8 * DAY_MS).toISOString(),
+      subscriptionStatus: "active",
+      planId: "plan-pro",
+      maxActiveUsers: 25,
+      moduleIds: ["finance", "projects", "salesOrders"],
+      addonIds: [],
+      configurationVersion: "config-1",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+      approvedImageDigest: `sha256:${"a".repeat(64)}`,
+    }
+    const envelope = await signEnvelope(payload, payload.keyId, privateJwk)
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json, contract_revision, schedule_revision, renewal_claim_token) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 'legacy:v1', ?, 1, 1, NULL)",
+      ).bind(crypto.randomUUID(), fixture.deploymentId, fixture.contractId, payload.keyId, canonicalJson(payload), envelope.signature, now.toISOString(), now.toISOString(), canonicalJson(envelope)),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO deployment_entitlement_sequences (deployment_id, next_version) VALUES (?, 2)",
+      ).bind(fixture.deploymentId),
+      env.CONTROL_DB.prepare(
+        "UPDATE deployment_entitlement_schedules SET latest_version = 1, next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?",
+      ).bind(fixture.deploymentId),
+    ])
+    return envelope
+  }
+
+  it("retrieves immutable legacy schema-v1 history and promptly reissues its current pointer as v2", async () => {
+    const fixture = await seed()
+    const legacy = await insertLegacyV1Entitlement(fixture)
+
+    expect(await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 1)).toMatchObject({
+      envelopeJson: canonicalJson(legacy),
+      envelope: legacy,
+    })
+    expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + 1))).issued).toBe(1)
+    expect(await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 1)).toMatchObject({
+      envelopeJson: canonicalJson(legacy),
+      envelope: { payload: { schemaVersion: 1 } },
+    })
+    const current = await getCurrentEntitlementReference(env.CONTROL_DB, fixture.deploymentId)
+    expect(current?.version).toBe(2)
+    expect(await getEntitlement(env.CONTROL_DB, fixture.deploymentId, 2)).toMatchObject({
+      envelope: { payload: { schemaVersion: 2, revision: 2 } },
+    })
+  })
+
   it("allocates unique signed revisions, permits failed-allocation gaps, and keeps issuance/audit atomic", async () => {
     const fixture = await seed()
     const results = await Promise.all(Array.from({ length: 4 }, () => issue(fixture)))
     expect(results.map((result) => result.version).sort((a, b) => a - b)).toEqual([1, 2, 3, 4])
-    expect(results.every((result) => result.envelope.payload.revision === result.version)).toBe(true)
+    expect(results.every((result) =>
+      result.envelope.payload.schemaVersion === 2 && result.envelope.payload.revision === result.version)).toBe(true)
 
     const failing = new Proxy(env.CONTROL_DB, {
       get(target, property) {

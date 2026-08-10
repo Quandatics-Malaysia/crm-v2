@@ -12,10 +12,12 @@ export {
 export { signEnvelope, verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 export {
   EntitlementLeaseSchema,
+  LegacyEntitlementLeaseSchema,
   evaluateLease,
   ModuleIdSchema,
   verifyEntitlementEnvelope,
   type EntitlementLease,
+  type LegacyEntitlementLease,
   type LeaseAccess,
   type LeaseClock,
 } from "./entitlement.js"

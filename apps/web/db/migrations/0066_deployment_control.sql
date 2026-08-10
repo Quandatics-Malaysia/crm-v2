@@ -158,6 +158,9 @@ BEGIN
 
   IF p_revision = current_state.current_revision THEN
     IF p_canonical_envelope = current_state.canonical_envelope THEN
+      UPDATE public.deployment_control_state state
+      SET greatest_trusted_at = GREATEST(state.greatest_trusted_at, p_issued_at, p_received_at)
+      WHERE state.singleton = 1;
       INSERT INTO public.deployment_entitlement_history (outcome, reason, envelope_digest, revision, received_at)
       VALUES ('accepted', 'idempotent_replay', p_digest, p_revision, p_received_at);
       RETURN QUERY SELECT 'idempotent'::text, 'idempotent_replay'::text, current_state.current_revision;
@@ -178,7 +181,7 @@ BEGIN
     1, p_deployment_id, p_revision, p_canonical_envelope, p_canonical_payload,
     p_digest, p_key_id, p_signature, p_issued_at, p_lease_expires_at,
     p_contract_starts_at, p_contract_ends_at, p_grace_until, p_subscription_status,
-    p_seat_limit, p_module_ids, p_issued_at, p_received_at
+    p_seat_limit, p_module_ids, GREATEST(p_issued_at, p_received_at), p_received_at
   )
   ON CONFLICT (singleton) DO UPDATE SET
     deployment_id = EXCLUDED.deployment_id,
@@ -196,7 +199,10 @@ BEGIN
     subscription_status = EXCLUDED.subscription_status,
     seat_limit = EXCLUDED.seat_limit,
     module_ids = EXCLUDED.module_ids,
-    greatest_trusted_at = GREATEST(COALESCE(public.deployment_control_state.greatest_trusted_at, EXCLUDED.issued_at), EXCLUDED.issued_at),
+    greatest_trusted_at = GREATEST(
+      COALESCE(public.deployment_control_state.greatest_trusted_at, EXCLUDED.greatest_trusted_at),
+      EXCLUDED.greatest_trusted_at
+    ),
     accepted_at = EXCLUDED.accepted_at;
 
   INSERT INTO public.deployment_entitlement_history (outcome, reason, envelope_digest, revision, received_at)
@@ -205,7 +211,9 @@ BEGIN
 END;
 $$;
 --> statement-breakpoint
-CREATE FUNCTION read_deployment_entitlement_state()
+CREATE FUNCTION read_deployment_entitlement_state(
+  p_observed_at timestamp with time zone DEFAULT NULL
+)
 RETURNS TABLE(
   deployment_id text,
   current_revision bigint,
@@ -222,17 +230,26 @@ RETURNS TABLE(
   module_ids text[],
   greatest_trusted_at timestamp with time zone
 )
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
+VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+BEGIN
+  IF p_observed_at IS NOT NULL THEN
+    UPDATE public.deployment_control_state state
+    SET greatest_trusted_at = GREATEST(state.greatest_trusted_at, p_observed_at)
+    WHERE state.singleton = 1 AND state.current_revision > 0;
+  END IF;
+
+  RETURN QUERY
   SELECT
-    deployment_id, current_revision, canonical_envelope, canonical_payload,
-    key_id, issued_at, lease_expires_at, contract_starts_at, contract_ends_at,
-    grace_until, subscription_status, seat_limit, module_ids, greatest_trusted_at
-  FROM public.deployment_control_state
-  WHERE singleton = 1 AND current_revision > 0;
+    state.deployment_id, state.current_revision, state.canonical_envelope, state.canonical_payload,
+    state.key_id, state.issued_at, state.lease_expires_at, state.contract_starts_at, state.contract_ends_at,
+    state.grace_until, state.subscription_status, state.seat_limit, state.module_ids, state.greatest_trusted_at
+  FROM public.deployment_control_state state
+  WHERE state.singleton = 1 AND state.current_revision > 0;
+END;
 $$;
 --> statement-breakpoint
 ALTER TABLE deployment_control_state ENABLE ROW LEVEL SECURITY;
@@ -245,4 +262,4 @@ REVOKE ALL ON deployment_entitlement_history FROM PUBLIC;
 REVOKE ALL ON SEQUENCE deployment_entitlement_history_id_seq FROM PUBLIC;
 REVOKE ALL ON FUNCTION record_deployment_entitlement_rejection(text, text, bigint, timestamp with time zone) FROM PUBLIC;
 REVOKE ALL ON FUNCTION apply_verified_deployment_entitlement(text, text, bigint, text, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, public.deployment_subscription_status, integer, text[], timestamp with time zone) FROM PUBLIC;
-REVOKE ALL ON FUNCTION read_deployment_entitlement_state() FROM PUBLIC;
+REVOKE ALL ON FUNCTION read_deployment_entitlement_state(timestamp with time zone) FROM PUBLIC;

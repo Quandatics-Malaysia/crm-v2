@@ -1,8 +1,10 @@
 import {
   EntitlementLeaseSchema,
+  LegacyEntitlementLeaseSchema,
   canonicalJson,
   signEnvelope,
   type EntitlementLease,
+  type LegacyEntitlementLease,
   type SignedEnvelope,
 } from "@crm/control-protocol"
 
@@ -70,6 +72,8 @@ class DeploymentUnavailableError extends Error {
   }
 }
 
+type StoredEntitlementLease = EntitlementLease | LegacyEntitlementLease
+
 export interface EntitlementRecord {
   id: string
   deploymentId: string
@@ -77,7 +81,7 @@ export interface EntitlementRecord {
   version: number
   keyId: string
   issuanceKey: string | null
-  envelope: SignedEnvelope<EntitlementLease>
+  envelope: SignedEnvelope<StoredEntitlementLease>
   envelopeJson: string
   issuedAt: string
 }
@@ -431,7 +435,7 @@ async function desiredLease(
   const effective = effectiveState(row, now)
   const issuedAt = now.toISOString()
   const payload = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     revision,
     keyId,
     leaseId: crypto.randomUUID(),
@@ -484,8 +488,29 @@ function fromStored(row: StoredEntitlementRow): EntitlementRecord {
   })
   const candidate: unknown = JSON.parse(envelopeJson)
   if (candidate === null || Array.isArray(candidate) || typeof candidate !== "object") throw new Error("Stored entitlement is invalid")
-  const envelope = candidate as SignedEnvelope<EntitlementLease>
-  envelope.payload = EntitlementLeaseSchema.parse(envelope.payload)
+  const record = candidate as Record<string, unknown>
+  if (Object.keys(record).sort().join(",") !== "keyId,payload,signature" ||
+      typeof record.keyId !== "string" || typeof record.signature !== "string") {
+    throw new Error("Stored entitlement is invalid")
+  }
+  const current = EntitlementLeaseSchema.safeParse(record.payload)
+  let payload: StoredEntitlementLease
+  if (current.success) {
+    payload = current.data
+  } else {
+    const legacy = LegacyEntitlementLeaseSchema.safeParse(record.payload)
+    if (!legacy.success) throw new Error("Stored entitlement is invalid")
+    payload = legacy.data
+  }
+  const envelope: SignedEnvelope<StoredEntitlementLease> = {
+    keyId: record.keyId,
+    payload,
+    signature: record.signature,
+  }
+  if (envelope.keyId !== payload.keyId || envelope.keyId !== row.key_id || envelope.signature !== row.signature ||
+      canonicalJson(payload) !== row.payload_json || canonicalJson(envelope) !== envelopeJson) {
+    throw new Error("Stored entitlement is invalid")
+  }
   return {
     id: row.id,
     deploymentId: row.deployment_id,
@@ -677,7 +702,7 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
   let workCount = 0
   while (workCount < RENEWAL_BATCH_SIZE && summary.checked < MAX_RENEWAL_SCANS) {
     const due = await environment.CONTROL_DB.prepare(
-      "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.deployment_id > ? AND (s.next_check_at <= ? OR (e.key_id <> ? AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?))))) ORDER BY s.deployment_id LIMIT ?",
+      "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.deployment_id > ? AND (s.next_check_at <= ? OR (e.id IS NOT NULL AND (e.key_id <> ? OR COALESCE(json_extract(e.payload_json, '$.schemaVersion'), 0) <> 2) AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?))))) ORDER BY s.deployment_id LIMIT ?",
     ).bind(cursor, now.toISOString(), activeKeyId, activeKeyId, now.toISOString(), now.toISOString(), RENEWAL_BATCH_SIZE)
       .all<{ deployment_id: string; contract_id: string }>()
     if (due.results.length === 0) break
@@ -696,10 +721,12 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT 1",
       ).bind(schedule.deployment_id).first<StoredEntitlementRow>()
       const latest = latestRow ? fromStored(latestRow) : null
-      const materialChange = latest === null || canonicalJson(comparableLease(latest.envelope.payload)) !== canonicalJson(comparableLease(desired))
+      const latestCurrentLease = latest?.envelope.payload.schemaVersion === 2 ? latest.envelope.payload : null
+      const materialChange = latestCurrentLease === null ||
+        canonicalJson(comparableLease(latestCurrentLease)) !== canonicalJson(comparableLease(desired))
       const withinHorizon = latest === null || Date.parse(latest.envelope.payload.leaseExpiresAt) <= now.getTime() + RENEWAL_HORIZON_MS
-      if (!materialChange && !withinHorizon) {
-        await updateScheduleFromSnapshot(environment.CONTROL_DB, row, nextCheck(row, latest.envelope.payload, now), now.toISOString())
+      if (latestCurrentLease !== null && !materialChange && !withinHorizon) {
+        await updateScheduleFromSnapshot(environment.CONTROL_DB, row, nextCheck(row, latestCurrentLease, now), now.toISOString())
         summary.skipped += 1
         workCount += 1
         continue

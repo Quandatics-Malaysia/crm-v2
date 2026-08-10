@@ -9,6 +9,7 @@ import {
   verifyEnvelope,
   type EntitlementLease,
 } from "../src/index.js"
+import * as protocol from "../src/index.js"
 
 const issuedAt = "2026-08-10T00:00:00.000Z"
 const leaseExpiresAt = "2026-08-11T00:00:00.000Z"
@@ -16,7 +17,7 @@ const graceUntil = "2026-08-18T00:00:00.000Z"
 
 function lease(overrides: Partial<EntitlementLease> = {}): EntitlementLease {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 1,
     keyId: "vendor-2026-08",
     leaseId: "lease-001",
@@ -131,6 +132,27 @@ describe("signed envelopes", () => {
 })
 
 describe("EntitlementLeaseSchema", () => {
+  it("uses schema v2 for revision-bearing enforcement leases", () => {
+    const current = { ...lease(), schemaVersion: 2 }
+    const { revision: _revision, ...withoutRevision } = lease()
+    const legacy = { ...withoutRevision, schemaVersion: 1 }
+
+    expect(EntitlementLeaseSchema.safeParse(current).success).toBe(true)
+    expect(EntitlementLeaseSchema.safeParse(legacy).success).toBe(false)
+  })
+
+  it("exposes an explicit legacy-v1 parser without admitting v1 to enforcement", () => {
+    expect("LegacyEntitlementLeaseSchema" in protocol).toBe(true)
+    const legacySchema = (protocol as unknown as {
+      LegacyEntitlementLeaseSchema: { safeParse(value: unknown): { success: boolean } }
+    }).LegacyEntitlementLeaseSchema
+    const { revision: _revision, ...withoutRevision } = lease()
+    const legacy = { ...withoutRevision, schemaVersion: 1 }
+
+    expect(legacySchema.safeParse(legacy).success).toBe(true)
+    expect(legacySchema.safeParse(lease()).success).toBe(false)
+  })
+
   it("requires a signed positive monotonic revision", () => {
     expect(EntitlementLeaseSchema.safeParse(lease({ revision: 1 })).success).toBe(true)
     expect(EntitlementLeaseSchema.safeParse(lease({ revision: 0 })).success).toBe(false)

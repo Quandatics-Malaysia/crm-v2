@@ -20,7 +20,7 @@ let publicJwk: JsonWebKey
 
 function lease(overrides: Partial<EntitlementLease> = {}): EntitlementLease {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 1,
     keyId: "vendor-2026-08",
     leaseId: "lease-001",
@@ -101,6 +101,7 @@ class MemoryPersistence implements DeploymentControlPersistence {
         moduleIds: [...input.lease.moduleIds],
         greatestTrustedAt: new Date(Math.max(
           Date.parse(input.lease.issuedAt),
+          input.receivedAt.getTime(),
           current?.greatestTrustedAt.getTime() ?? Number.NEGATIVE_INFINITY,
         )),
       }
@@ -115,7 +116,13 @@ class MemoryPersistence implements DeploymentControlPersistence {
     this.history.push(structuredClone(entry))
   }
 
-  async getState(): Promise<DeploymentEntitlementState | null> {
+  async getState(observedAt?: Date): Promise<DeploymentEntitlementState | null> {
+    if (this.state !== null && observedAt !== undefined) {
+      this.state.greatestTrustedAt = new Date(Math.max(
+        this.state.greatestTrustedAt.getTime(),
+        observedAt.getTime(),
+      ))
+    }
     return this.state === null ? null : structuredClone(this.state)
   }
 }
@@ -134,7 +141,11 @@ beforeEach(() => {
 
 describe("applySignedEntitlement", () => {
   it("verifies and persists exact canonical last-known-good bytes", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = createDeploymentControlService({
+      persistence,
+      trustSet: trustSet(),
+      now: () => new Date(issuedAt),
+    })
     const envelope = await signed()
 
     await expect(service.applySignedEntitlement(envelope, deploymentId)).resolves.toMatchObject({
@@ -178,12 +189,76 @@ describe("applySignedEntitlement", () => {
       trustSet({ validFrom: "2026-08-10T00:00:00.001Z" }),
       trustSet({ validUntil: issuedAt }),
     ]) {
-      const service = createDeploymentControlService({ persistence: new MemoryPersistence(), trustSet: invalidTrust })
+      const service = createDeploymentControlService({
+        persistence: new MemoryPersistence(),
+        trustSet: invalidTrust,
+        now: () => new Date(issuedAt),
+      })
       await expect(service.applySignedEntitlement(await signed(), deploymentId)).resolves.toMatchObject({
         outcome: "rejected",
         reason: "trust_key_not_valid",
       })
     }
+  })
+
+  it.each([
+    ["2026-08-10T00:00:00.000Z", "accepted"],
+    ["2026-08-10T23:59:59.999Z", "accepted"],
+    ["2026-08-09T23:59:59.999Z", "rejected"],
+    ["2026-08-11T00:00:00.000Z", "rejected"],
+  ] as const)("requires receipt time %s inside the half-open trust window", async (receivedAt, outcome) => {
+    const store = new MemoryPersistence()
+    const service = createDeploymentControlService({
+      persistence: store,
+      trustSet: trustSet({
+        validFrom: "2026-08-10T00:00:00.000Z",
+        validUntil: "2026-08-11T00:00:00.000Z",
+      }),
+      now: () => new Date(receivedAt),
+    })
+
+    await expect(service.applySignedEntitlement(await signed(), deploymentId)).resolves.toMatchObject({ outcome })
+  })
+
+  it("rejects a newly applied bundle after its signing key is revoked from the trust set", async () => {
+    const service = createDeploymentControlService({
+      persistence,
+      trustSet: trustSet({ keyId: "replacement-key" }),
+      now: () => new Date(issuedAt),
+    })
+
+    await expect(service.applySignedEntitlement(await signed(), deploymentId)).resolves.toMatchObject({
+      outcome: "rejected",
+      reason: "unknown_key",
+    })
+  })
+
+  it("continues evaluating an accepted last-known-good lease after its trust key expires", async () => {
+    const service = createDeploymentControlService({
+      persistence,
+      trustSet: trustSet({ validUntil: "2026-08-10T06:00:00.000Z" }),
+      now: () => new Date("2026-08-10T05:00:00.000Z"),
+    })
+    await service.applySignedEntitlement(await signed(), deploymentId)
+
+    await expect(service.getDeploymentAccess(new Date("2026-08-10T12:00:00.000Z"))).resolves.toMatchObject({
+      mode: "active",
+      writeAllowed: true,
+    })
+  })
+
+  it("rejects signed legacy schema-v1 bundles from new enforcement state", async () => {
+    const service = createDeploymentControlService({
+      persistence,
+      trustSet: trustSet(),
+      now: () => new Date(issuedAt),
+    })
+    const { revision: _revision, ...withoutRevision } = lease()
+    const legacy = { ...withoutRevision, schemaVersion: 1 }
+
+    await expect(service.applySignedEntitlement(
+      await signEnvelope(legacy, legacy.keyId, privateJwk), deploymentId,
+    )).resolves.toMatchObject({ outcome: "rejected", reason: "invalid_payload" })
   })
 
   it("rejects an already-expired incoming lease without replacing last-known-good", async () => {
@@ -242,7 +317,7 @@ describe("applySignedEntitlement", () => {
     const revisions = await Promise.all([2, 4, 3].map(async (revision) =>
       service.applySignedEntitlement(await signed(lease({ revision, leaseId: `lease-${revision}` })), deploymentId)))
 
-    expect(Math.max(...revisions.map((result) => result.revision))).toBe(4)
+    expect(revisions.some((result) => result.revision === 4)).toBe(true)
     expect(persistence.state?.revision).toBe(4)
     expect(persistence.history).toHaveLength(3)
   })
@@ -278,7 +353,11 @@ describe("getDeploymentAccess", () => {
   })
 
   it("uses a half-open contract term at the exact start boundary", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = createDeploymentControlService({
+      persistence,
+      trustSet: trustSet(),
+      now: () => new Date(issuedAt),
+    })
     await service.applySignedEntitlement(await signed(lease({
       contractStartsAt: "2026-08-10T12:00:00.000Z",
     })), deploymentId)
@@ -310,6 +389,19 @@ describe("getDeploymentAccess", () => {
     await service.applySignedEntitlement(await signed(), deploymentId)
     persistence.state!.greatestTrustedAt = new Date("2026-08-18T00:00:00.001Z")
 
+    await expect(service.getDeploymentAccess(new Date("2026-08-10T00:00:00.000Z"))).resolves.toMatchObject({
+      mode: "read_only",
+      writeAllowed: false,
+    })
+  })
+
+  it("durably advances trusted time during access before a later wall-clock rollback", async () => {
+    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    await service.applySignedEntitlement(await signed(), deploymentId)
+
+    await expect(service.getDeploymentAccess(new Date("2026-08-18T00:00:00.001Z"))).resolves.toMatchObject({
+      mode: "read_only",
+    })
     await expect(service.getDeploymentAccess(new Date("2026-08-10T00:00:00.000Z"))).resolves.toMatchObject({
       mode: "read_only",
       writeAllowed: false,

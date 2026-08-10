@@ -7,6 +7,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./billing": {
+      "types": "./src/billing.ts",
+      "development": "./src/billing.ts",
+      "browser": "./src/billing.ts",
+      "worker": "./src/billing.ts",
+      "node": "./dist/billing.js",
+      "default": "./src/billing.ts"
     }
   },
   "scripts": {

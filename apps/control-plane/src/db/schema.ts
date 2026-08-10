@@ -43,6 +43,28 @@ export const clients = sqliteTable(
   (table) => [uniqueIndex("clients_client_key_idx").on(table.clientKey)],
 )
 
+export const clientOrganisations = sqliteTable(
+  "client_organisations",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    organisationKey: text("organisation_key").notNull(),
+    displayName: text("display_name").notNull(),
+    metadataJson: text("metadata_json").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("client_organisations_client_key_idx").on(
+      table.clientId,
+      table.organisationKey,
+    ),
+    index("client_organisations_client_id_idx").on(table.clientId),
+  ],
+)
+
 export const plans = sqliteTable(
   "plans",
   {
@@ -119,6 +141,11 @@ export const contracts = sqliteTable(
     startsAt: text("starts_at").notNull(),
     endsAt: text("ends_at").notNull(),
     seatLimit: integer("seat_limit").notNull(),
+    monthlySeatPriceCents: integer("monthly_seat_price_cents").notNull(),
+    taxBasisPoints: integer("tax_basis_points").notNull(),
+    collectionFrequency: text("collection_frequency", { enum: ["monthly", "upfront"] })
+      .notNull(),
+    totalCents: integer("total_cents").notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -162,6 +189,28 @@ export const invoices = sqliteTable(
   (table) => [
     uniqueIndex("invoices_invoice_number_idx").on(table.invoiceNumber),
     index("invoices_contract_status_idx").on(table.contractId, table.status),
+  ],
+)
+
+export const invoiceCollectionMilestones = sqliteTable(
+  "invoice_collection_milestones",
+  {
+    id: text("id").primaryKey(),
+    invoiceId: text("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    title: text("title").notNull(),
+    dueAt: text("due_at").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("invoice_collection_milestones_invoice_sequence_idx").on(
+      table.invoiceId,
+      table.sequence,
+    ),
+    index("invoice_collection_milestones_invoice_id_idx").on(table.invoiceId),
   ],
 )
 

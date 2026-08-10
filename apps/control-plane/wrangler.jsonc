@@ -7,7 +7,8 @@
     "ENVIRONMENT": "development",
     "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
     "ACCESS_AUD": "replace-with-access-application-audience",
-    "BOOTSTRAP_OWNER_EMAIL": "owner@example.com"
+    "BOOTSTRAP_OWNER_EMAIL": "owner@example.com",
+    "OPERATOR_ORIGIN": "https://control.example.com"
   },
   "secrets": {
     "required": [

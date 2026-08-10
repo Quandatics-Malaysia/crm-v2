@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { HTTPException } from "hono/http-exception"
 
 import {
   createOperatorAuthMiddleware,
@@ -7,6 +8,7 @@ import {
 } from "./auth/access"
 import { verifyControlDatabase } from "./db/client"
 import { SafeHttpError } from "./http/errors"
+import { createOperatorRoutes } from "./routes/operator"
 
 export interface ControlPlaneEnvironment {
   Bindings: CloudflareBindings
@@ -23,6 +25,9 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
   app.onError((error, context) => {
     if (error instanceof SafeHttpError) {
       return context.json({ error: error.code }, error.status)
+    }
+    if (error instanceof HTTPException && error.status === 403) {
+      return context.json({ error: "forbidden" }, 403)
     }
 
     return context.json({ error: "internal_error" }, 500)
@@ -59,6 +64,7 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
       roles: [...operator.roles].sort(),
     })
   })
+  app.route("/operator", createOperatorRoutes())
 
   return app
 }

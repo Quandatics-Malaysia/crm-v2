@@ -1,4 +1,14 @@
 export { canonicalJson } from "./canonical-json.js"
+export {
+  addCalendarMonths,
+  buildCollectionMilestones,
+  calculateContractTotal,
+  countMonthlyBillingPeriods,
+  getMonthlyBillingPeriods,
+  type CollectionFrequency,
+  type CollectionMilestone,
+  type MonthlyBillingPeriod,
+} from "./billing.js"
 export { signEnvelope, verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 export {
   EntitlementLeaseSchema,

@@ -1,4 +1,4 @@
-export type SafeHttpStatus = 400 | 401 | 403 | 409 | 503
+export type SafeHttpStatus = 400 | 401 | 403 | 404 | 409 | 503
 
 export class SafeHttpError extends Error {
   readonly status: SafeHttpStatus
@@ -18,6 +18,18 @@ export function unauthorized(): SafeHttpError {
 
 export function forbidden(): SafeHttpError {
   return new SafeHttpError(403, "forbidden")
+}
+
+export function badRequest(): SafeHttpError {
+  return new SafeHttpError(400, "invalid_request")
+}
+
+export function notFound(): SafeHttpError {
+  return new SafeHttpError(404, "not_found")
+}
+
+export function conflict(): SafeHttpError {
+  return new SafeHttpError(409, "conflict")
 }
 
 export function authenticationUnavailable(): SafeHttpError {

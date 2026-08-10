@@ -1,0 +1,293 @@
+import { prepareOperatorAuditStatement } from "../audit"
+import { badRequest, conflict, notFound } from "../http/errors"
+
+export interface MutationActor {
+  operatorId: string
+  requestId: string
+}
+
+export interface ClientInput {
+  clientKey: unknown
+  displayName: unknown
+}
+
+export interface OrganisationInput {
+  organisationKey: unknown
+  displayName: unknown
+  metadataJson: unknown
+}
+
+export interface DeploymentInput {
+  deploymentKey: unknown
+  environment: unknown
+  status: unknown
+}
+
+export interface ClientListItem {
+  id: string
+  clientKey: string
+  displayName: string
+  status: string
+}
+
+export interface ClientDetail extends ClientListItem {
+  organisations: Array<{ id: string; organisationKey: string; displayName: string }>
+  deployments: Array<{ id: string; deploymentKey: string; environment: string; status: string }>
+  contracts: Array<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
+}
+
+function textField(value: unknown, maximum: number): string {
+  if (typeof value !== "string") throw badRequest()
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || trimmed.length > maximum) throw badRequest()
+  return trimmed
+}
+
+function stableKey(value: unknown): string {
+  const key = textField(value, 64).toLowerCase()
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(key)) throw badRequest()
+  return key
+}
+
+function parseMetadata(value: unknown): string {
+  if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > 8_192) {
+    throw badRequest()
+  }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+      throw badRequest()
+    }
+    return JSON.stringify(parsed)
+  } catch (error) {
+    if (error instanceof Error && error.name === "SafeHttpError") throw error
+    throw badRequest()
+  }
+}
+
+async function rowExists(database: D1Database, sql: string, ...values: unknown[]): Promise<boolean> {
+  return (await database.prepare(sql).bind(...values).first()) !== null
+}
+
+export async function createClient(
+  database: D1Database,
+  input: ClientInput,
+  actor: MutationActor,
+): Promise<string> {
+  const clientKey = stableKey(input.clientKey)
+  const displayName = textField(input.displayName, 160)
+  if (await rowExists(database, "SELECT 1 FROM clients WHERE client_key = ?", clientKey)) {
+    throw conflict()
+  }
+
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const audit = await prepareOperatorAuditStatement(database, {
+    operatorId: actor.operatorId,
+    action: "client.create",
+    targetType: "client",
+    targetId: id,
+    outcome: "success",
+    requestId: actor.requestId,
+    metadata: { clientKey },
+    createdAt: now,
+  })
+
+  try {
+    await database.batch([
+      database.prepare(
+        "INSERT INTO clients (id, client_key, display_name, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
+      ).bind(id, clientKey, displayName, now, now),
+      audit.statement,
+    ])
+  } catch (error) {
+    if (String(error).includes("UNIQUE constraint failed")) throw conflict()
+    throw error
+  }
+  return id
+}
+
+export async function createClientOrganisation(
+  database: D1Database,
+  clientId: string,
+  input: OrganisationInput,
+  actor: MutationActor,
+): Promise<string> {
+  if (!(await rowExists(database, "SELECT 1 FROM clients WHERE id = ?", clientId))) {
+    throw notFound()
+  }
+  const organisationKey = stableKey(input.organisationKey)
+  const displayName = textField(input.displayName, 160)
+  const metadataJson = parseMetadata(input.metadataJson)
+  if (
+    await rowExists(
+      database,
+      "SELECT 1 FROM client_organisations WHERE client_id = ? AND organisation_key = ?",
+      clientId,
+      organisationKey,
+    )
+  ) {
+    throw conflict()
+  }
+
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const audit = await prepareOperatorAuditStatement(database, {
+    operatorId: actor.operatorId,
+    action: "client_organisation.create",
+    targetType: "client_organisation",
+    targetId: id,
+    outcome: "success",
+    requestId: actor.requestId,
+    metadata: { clientId, organisationKey },
+    createdAt: now,
+  })
+  try {
+    await database.batch([
+      database.prepare(
+        "INSERT INTO client_organisations (id, client_id, organisation_key, display_name, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).bind(id, clientId, organisationKey, displayName, metadataJson, now, now),
+      audit.statement,
+    ])
+  } catch (error) {
+    if (String(error).includes("UNIQUE constraint failed")) throw conflict()
+    throw error
+  }
+  return id
+}
+
+export async function createDeployment(
+  database: D1Database,
+  clientId: string,
+  input: DeploymentInput,
+  actor: MutationActor,
+): Promise<string> {
+  if (!(await rowExists(database, "SELECT 1 FROM clients WHERE id = ?", clientId))) {
+    throw notFound()
+  }
+  const deploymentKey = stableKey(input.deploymentKey)
+  const environment = textField(input.environment, 32)
+  const status = textField(input.status, 32)
+  if (!["development", "staging", "production"].includes(environment)) throw badRequest()
+  if (!["active", "disabled"].includes(status)) throw badRequest()
+  if (await rowExists(database, "SELECT 1 FROM deployments WHERE deployment_key = ?", deploymentKey)) {
+    throw conflict()
+  }
+
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const audit = await prepareOperatorAuditStatement(database, {
+    operatorId: actor.operatorId,
+    action: "deployment.create",
+    targetType: "deployment",
+    targetId: id,
+    outcome: "success",
+    requestId: actor.requestId,
+    metadata: { clientId, deploymentKey, environment },
+    createdAt: now,
+  })
+  try {
+    await database.batch([
+      database.prepare(
+        "INSERT INTO deployments (id, client_id, deployment_key, environment, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).bind(id, clientId, deploymentKey, environment, status, now, now),
+      audit.statement,
+    ])
+  } catch (error) {
+    if (String(error).includes("UNIQUE constraint failed")) throw conflict()
+    throw error
+  }
+  return id
+}
+
+export function parsePagination(url: string): { page: number; pageSize: number; offset: number } {
+  const search = new URL(url).searchParams
+  const pageValue = search.get("page") ?? "1"
+  const pageSizeValue = search.get("pageSize") ?? "25"
+  if (!/^\d+$/.test(pageValue) || !/^\d+$/.test(pageSizeValue)) throw badRequest()
+  const page = Number(pageValue)
+  const pageSize = Number(pageSizeValue)
+  if (!Number.isInteger(page) || page < 1 || page > 100_000 || pageSize < 1 || pageSize > 50) {
+    throw badRequest()
+  }
+  return { page, pageSize, offset: (page - 1) * pageSize }
+}
+
+export async function listClients(
+  database: D1Database,
+  pageSize: number,
+  offset: number,
+): Promise<ClientListItem[]> {
+  const result = await database.prepare(
+    "SELECT id, client_key, display_name, status FROM clients ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+  ).bind(pageSize, offset).all<{
+    id: string
+    client_key: string
+    display_name: string
+    status: string
+  }>()
+  return result.results.map((row) => ({
+    id: row.id,
+    clientKey: row.client_key,
+    displayName: row.display_name,
+    status: row.status,
+  }))
+}
+
+export async function getClientDetail(
+  database: D1Database,
+  clientId: string,
+): Promise<ClientDetail> {
+  const client = await database.prepare(
+    "SELECT id, client_key, display_name, status FROM clients WHERE id = ?",
+  ).bind(clientId).first<{
+    id: string
+    client_key: string
+    display_name: string
+    status: string
+  }>()
+  if (!client) throw notFound()
+
+  const [organisations, deployments, contracts] = await Promise.all([
+    database.prepare(
+      "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT 500",
+    ).bind(clientId).all<{ id: string; organisation_key: string; display_name: string }>(),
+    database.prepare(
+      "SELECT id, deployment_key, environment, status FROM deployments WHERE client_id = ? ORDER BY deployment_key LIMIT 500",
+    ).bind(clientId).all<{ id: string; deployment_key: string; environment: string; status: string }>(),
+    database.prepare(
+      "SELECT id, status, starts_at, ends_at, seat_limit FROM contracts WHERE client_id = ? ORDER BY created_at DESC LIMIT 500",
+    ).bind(clientId).all<{
+      id: string
+      status: string
+      starts_at: string
+      ends_at: string
+      seat_limit: number
+    }>(),
+  ])
+
+  return {
+    id: client.id,
+    clientKey: client.client_key,
+    displayName: client.display_name,
+    status: client.status,
+    organisations: organisations.results.map((row) => ({
+      id: row.id,
+      organisationKey: row.organisation_key,
+      displayName: row.display_name,
+    })),
+    deployments: deployments.results.map((row) => ({
+      id: row.id,
+      deploymentKey: row.deployment_key,
+      environment: row.environment,
+      status: row.status,
+    })),
+    contracts: contracts.results.map((row) => ({
+      id: row.id,
+      status: row.status,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      seatLimit: row.seat_limit,
+    })),
+  }
+}

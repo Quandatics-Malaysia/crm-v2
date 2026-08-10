@@ -8,6 +8,7 @@ import {
 } from "./auth/access"
 import { verifyControlDatabase } from "./db/client"
 import { SafeHttpError } from "./http/errors"
+import { createDeploymentRoutes } from "./routes/deployments"
 import { createOperatorRoutes } from "./routes/operator"
 
 export interface ControlPlaneEnvironment {
@@ -65,6 +66,7 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
     })
   })
   app.route("/operator", createOperatorRoutes())
+  app.route("/v1/deployments", createDeploymentRoutes())
 
   return app
 }

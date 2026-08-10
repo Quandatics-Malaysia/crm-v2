@@ -15,6 +15,14 @@
       "worker": "./src/billing.ts",
       "node": "./dist/billing.js",
       "default": "./src/billing.ts"
+    },
+    "./heartbeat": {
+      "types": "./src/heartbeat.ts",
+      "development": "./src/heartbeat.ts",
+      "browser": "./src/heartbeat.ts",
+      "worker": "./src/heartbeat.ts",
+      "node": "./dist/heartbeat.js",
+      "default": "./src/heartbeat.ts"
     }
   },
   "scripts": {

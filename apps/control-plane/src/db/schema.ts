@@ -100,6 +100,8 @@ export const deployments = sqliteTable(
     deploymentKey: text("deployment_key").notNull(),
     environment: text("environment").notNull(),
     status: text("status").notNull(),
+    registeredAt: text("registered_at"),
+    registrationKeyFingerprint: text("registration_key_fingerprint"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -117,13 +119,26 @@ export const deploymentKeys = sqliteTable(
       .notNull()
       .references(() => deployments.id, { onDelete: "cascade" }),
     keyId: text("key_id").notNull(),
+    algorithm: text("algorithm").notNull(),
     publicJwkJson: text("public_jwk_json").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    notBefore: text("not_before").notNull(),
+    expiresAt: text("expires_at"),
     revokedAt: text("revoked_at"),
+    replacedByKeyId: text("replaced_by_key_id"),
+    registrationTokenId: text("registration_token_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("deployment_keys_deployment_key_id_idx").on(table.deploymentId, table.keyId),
+    uniqueIndex("deployment_keys_key_id_idx").on(table.keyId),
+    uniqueIndex("deployment_keys_registration_token_idx").on(table.registrationTokenId),
     index("deployment_keys_active_idx").on(table.deploymentId, table.revokedAt),
+    index("deployment_keys_lifecycle_idx").on(
+      table.deploymentId,
+      table.revokedAt,
+      table.notBefore,
+      table.expiresAt,
+    ),
   ],
 )
 
@@ -248,6 +263,17 @@ export const heartbeatRollups = sqliteTable(
     occupiedSeats: integer("occupied_seats").notNull(),
     applicationVersion: text("application_version").notNull(),
     healthStatus: text("health_status").notNull(),
+    clientTimestamp: text("client_timestamp"),
+    imageDigest: text("image_digest"),
+    entitlementVersion: text("entitlement_version"),
+    configurationVersion: text("configuration_version"),
+    activeUserCount: integer("active_user_count"),
+    reservedInvitationCount: integer("reserved_invitation_count"),
+    enabledModuleIdsJson: text("enabled_module_ids_json"),
+    migrationVersion: text("migration_version"),
+    lastSuccessfulBackupAt: text("last_successful_backup_at"),
+    lastRestoreTestAt: text("last_restore_test_at"),
+    agentVersion: text("agent_version"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -265,11 +291,28 @@ export const installTokens = sqliteTable(
     tokenDigest: text("token_digest").notNull(),
     expiresAt: text("expires_at").notNull(),
     usedAt: text("used_at"),
+    registrationKeyFingerprint: text("registration_key_fingerprint"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("install_tokens_token_digest_idx").on(table.tokenDigest),
     index("install_tokens_deployment_expiry_idx").on(table.deploymentId, table.expiresAt),
+  ],
+)
+
+export const deploymentRequestNonces = sqliteTable(
+  "deployment_request_nonces",
+  {
+    deploymentKeyId: text("deployment_key_id")
+      .notNull()
+      .references(() => deploymentKeys.id, { onDelete: "cascade" }),
+    nonceDigest: text("nonce_digest").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentKeyId, table.nonceDigest] }),
+    index("deployment_request_nonces_expiry_idx").on(table.expiresAt),
   ],
 )
 

@@ -46,6 +46,20 @@ integration("deployment control PostgreSQL boundary", () => {
       CREATE TRIGGER deployment_control_state_update_probe_trigger
       AFTER UPDATE ON deployment_control_state
       FOR EACH ROW EXECUTE FUNCTION count_deployment_control_state_update();
+      CREATE FUNCTION delay_exact_checkpoint_update()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.greatest_trusted_at = OLD.greatest_trusted_at + interval '60 seconds' THEN
+          PERFORM pg_sleep(0.2);
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER deployment_control_state_checkpoint_race_probe
+      BEFORE UPDATE ON deployment_control_state
+      FOR EACH ROW EXECUTE FUNCTION delay_exact_checkpoint_update();
     `)
   })
 
@@ -59,6 +73,8 @@ integration("deployment control PostgreSQL boundary", () => {
   afterAll(async () => {
     if (admin && appA && appB) {
       await admin.unsafe(`
+        DROP TRIGGER deployment_control_state_checkpoint_race_probe ON deployment_control_state;
+        DROP FUNCTION delay_exact_checkpoint_update();
         DROP TRIGGER deployment_control_state_update_probe_trigger ON deployment_control_state;
         DROP FUNCTION count_deployment_control_state_update();
         DROP TABLE deployment_control_state_update_probe;
@@ -266,6 +282,29 @@ integration("deployment control PostgreSQL boundary", () => {
     const [probe] = await admin`select writes from deployment_control_state_update_probe where singleton`
     expect(probe.writes).toBe(1)
     expect(after.greatest_trusted_at.toISOString()).toBe(observedAt)
+  })
+
+  it("preserves the highest materially later observation across a stale concurrent race", async () => {
+    await apply(appA, 1)
+    await admin`update deployment_control_state_update_probe set writes = 0 where singleton`
+    const [before] = await admin`
+      select greatest_trusted_at from deployment_control_state where singleton = 1
+    `
+    const boundaryAt = new Date(before.greatest_trusted_at.getTime() + 60_000).toISOString()
+    const highestAt = new Date(before.greatest_trusted_at.getTime() + 60 * 60_000).toISOString()
+
+    const boundaryRead = Promise.resolve(appA`select * from read_deployment_entitlement_state(${boundaryAt})`)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const highestRead = Promise.resolve(appB`select * from read_deployment_entitlement_state(${highestAt})`)
+    await Promise.all([boundaryRead, highestRead])
+
+    await appA`select * from read_deployment_entitlement_state(${before.greatest_trusted_at.toISOString()})`
+    const [after] = await admin`
+      select greatest_trusted_at from deployment_control_state where singleton = 1
+    `
+    const [probe] = await admin`select writes from deployment_control_state_update_probe where singleton`
+    expect(after.greatest_trusted_at.toISOString()).toBe(highestAt)
+    expect(probe.writes).toBe(2)
   })
 
   it("durably advances access time so a later host rollback cannot regain writes", async () => {

@@ -236,27 +236,20 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  checkpoint_at timestamp with time zone;
   checkpoint_interval constant interval := interval '60 seconds';
 BEGIN
   -- The common path is read-only. A wall-time observation is durably
   -- checkpointed at most once per 60 seconds, bounding rollback recovery
   -- without turning every authorization read into a row update/WAL write.
   IF p_observed_at IS NOT NULL THEN
-    SELECT state.greatest_trusted_at INTO checkpoint_at
-    FROM public.deployment_control_state state
-    WHERE state.singleton = 1 AND state.current_revision > 0;
-
-    IF FOUND AND p_observed_at >= checkpoint_at + checkpoint_interval THEN
-      -- Compare-and-set: concurrent boundary readers may observe the same old
-      -- checkpoint, but only one can update it. Losers reread below.
-      UPDATE public.deployment_control_state state
-      SET greatest_trusted_at = p_observed_at
-      WHERE state.singleton = 1
-        AND state.current_revision > 0
-        AND state.greatest_trusted_at = checkpoint_at
-        AND p_observed_at >= state.greatest_trusted_at + checkpoint_interval;
-    END IF;
+    -- PostgreSQL rechecks this predicate after waiting for a concurrent row
+    -- lock. Identical boundary observations therefore write once, while a
+    -- materially later waiter still advances to the highest observed time.
+    UPDATE public.deployment_control_state state
+    SET greatest_trusted_at = GREATEST(state.greatest_trusted_at, p_observed_at)
+    WHERE state.singleton = 1
+      AND state.current_revision > 0
+      AND state.greatest_trusted_at <= p_observed_at - checkpoint_interval;
   END IF;
 
   RETURN QUERY

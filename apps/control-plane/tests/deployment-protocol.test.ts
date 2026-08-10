@@ -1,15 +1,43 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
+import { publicKeyFingerprint } from "../src/auth/deployment"
 import { createApp } from "../src/index"
 import { issueInstallToken } from "../src/repos/deployments"
+import { isSafeOpaqueLegacyKeyId } from "../src/routes/deployments"
 
 const pepper = "test-only-install-token-pepper"
 const encoder = new TextEncoder()
-const legacySharedKeyId = "11111111-1111-4111-8111-111111111111"
+const legacySharedKeyId = "legacy-agent-key"
 const legacyValidDeploymentId = "22222222-2222-4222-8222-222222222222"
 const legacyPrivateDeploymentId = "33333333-3333-4333-8333-333333333333"
 const legacyMalformedDeploymentId = "44444444-4444-4444-8444-444444444444"
+const unsafeLegacyKeys = [
+  {
+    label: "unsafe punctuation",
+    deploymentId: "88888888-8888-4888-8888-888888888888",
+    clientId: "99999999-9999-4999-8999-999999999999",
+    keyId: "legacy/key",
+  },
+  {
+    label: "control character",
+    deploymentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+    clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+    keyId: "legacy\u007fkey",
+  },
+  {
+    label: "Unicode",
+    deploymentId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
+    clientId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2",
+    keyId: "légacy-key",
+  },
+  {
+    label: "overlong value",
+    deploymentId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+    clientId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc2",
+    keyId: "a".repeat(129),
+  },
+] as const
 let legacyValidPrivateKey: CryptoKey
 let legacyPrivatePrivateKey: CryptoKey
 
@@ -237,6 +265,12 @@ beforeAll(async () => {
       deploymentId: legacyMalformedDeploymentId,
       publicJwkJson: '{"kty":"OKP","crv":"Ed25519","x":"not-base64url"}',
     },
+    ...unsafeLegacyKeys.map((row) => ({
+      clientId: row.clientId,
+      deploymentId: row.deploymentId,
+      keyId: row.keyId,
+      publicJwkJson: JSON.stringify(validPublicJwk),
+    })),
   ]
   for (const row of legacyRows) {
     await env.CONTROL_DB.batch([
@@ -248,7 +282,13 @@ beforeAll(async () => {
       ).bind(row.deploymentId, row.clientId, `legacy-${row.deploymentId}`, now, now),
       env.CONTROL_DB.prepare(
         "INSERT INTO deployment_keys (id, deployment_id, key_id, public_jwk_json, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
-      ).bind(crypto.randomUUID(), row.deploymentId, legacySharedKeyId, row.publicJwkJson, now),
+      ).bind(
+        crypto.randomUUID(),
+        row.deploymentId,
+        "keyId" in row ? row.keyId : legacySharedKeyId,
+        row.publicJwkJson,
+        now,
+      ),
     ])
   }
 
@@ -315,6 +355,43 @@ describe("deployment protocol migration upgrade", () => {
       deploymentId: legacyMalformedDeploymentId,
       keyId: legacySharedKeyId,
       privateKey: legacyValidPrivateKey,
+    })).status).toBe(401)
+  })
+
+  it.each(unsafeLegacyKeys)("rejects legacy key ID with $label", async ({ deploymentId, keyId }) => {
+    expect(isSafeOpaqueLegacyKeyId(keyId)).toBe(false)
+    if (keyId === "légacy-key") return
+    expect((await signedHeartbeat({
+      deploymentId,
+      keyId,
+      privateKey: legacyValidPrivateKey,
+    })).status).toBe(401)
+  })
+
+  it("does not broaden safe opaque IDs to newly stored strict keys", async () => {
+    const deploymentId = await createDeployment()
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const exported = await crypto.subtle.exportKey("jwk", pair.publicKey)
+    const publicJwk = { kty: "OKP", crv: "Ed25519", x: exported.x! }
+    const keyId = "n".repeat(36)
+    const now = new Date().toISOString()
+    await env.CONTROL_DB.prepare(
+      "INSERT INTO deployment_keys (id, deployment_id, key_id, algorithm, public_jwk_json, fingerprint, not_before, expires_at, revoked_at, replaced_by_key_id, registration_token_id, created_at) VALUES (?, ?, ?, 'Ed25519', ?, ?, ?, NULL, NULL, NULL, NULL, ?)",
+    ).bind(
+      crypto.randomUUID(),
+      deploymentId,
+      keyId,
+      JSON.stringify(publicJwk),
+      await publicKeyFingerprint(publicJwk.x),
+      now,
+      now,
+    ).run()
+
+    expect(isSafeOpaqueLegacyKeyId(keyId)).toBe(true)
+    expect((await signedHeartbeat({
+      deploymentId,
+      keyId,
+      privateKey: pair.privateKey,
     })).status).toBe(401)
   })
 })

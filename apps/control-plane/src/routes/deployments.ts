@@ -28,8 +28,13 @@ import {
 
 const decoder = new TextDecoder("utf-8", { fatal: true })
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const legacyKeyIdPattern = /^[A-Za-z0-9._-]{1,128}$/
 const LEGACY_PENDING_FINGERPRINT = "legacy:pending"
 const MAX_JSON_DEPTH = 64
+
+export function isSafeOpaqueLegacyKeyId(value: string): boolean {
+  return legacyKeyIdPattern.test(value)
+}
 
 function requestId(headers: Headers): string | null {
   return headers.get("Cf-Ray") ?? headers.get("X-Request-Id")
@@ -241,7 +246,8 @@ export function createDeploymentRoutes() {
     }
     const headers = context.req.raw.headers
     const keyId = exactDeploymentHeader(headers, "X-Deployment-Key-Id")
-    if (!uuidPattern.test(keyId)) throw unauthorized()
+    const serverKeyId = uuidPattern.test(keyId)
+    if (!serverKeyId && !isSafeOpaqueLegacyKeyId(keyId)) throw unauthorized()
     const timestampValue = exactDeploymentHeader(headers, "X-Deployment-Timestamp")
     const nonceValue = exactDeploymentHeader(headers, "X-Deployment-Nonce")
     const signatureValue = exactDeploymentHeader(headers, "X-Deployment-Signature")
@@ -263,6 +269,7 @@ export function createDeploymentRoutes() {
       now.toISOString(),
     )
     if (!key) throw unauthorized()
+    if (!serverKeyId && key.fingerprint !== LEGACY_PENDING_FINGERPRINT) throw unauthorized()
     const bodyDigest = await sha256(bodyBytes)
     let verified = false
     try {

@@ -64,7 +64,10 @@ const config = {
 }
 
 if (controlPlaneRoute !== undefined) {
-  config.routes = [controlPlaneRoute]
+  config.routes = [{
+    pattern: controlPlaneRoute.slice(0, -2),
+    custom_domain: true,
+  }]
 }
 
 writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" })

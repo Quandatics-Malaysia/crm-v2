@@ -52,12 +52,14 @@ forbidden=$(find "$canonical_root" \( \
   -name '*.p12' -o \
   -name '*.pfx' -o \
   -name '*private*.pem' -o \
-  -name test -o \
-  -name tests -o \
-  -name __tests__ -o \
-  -name fixtures -o \
-  -name docs -o \
-  -name docs-site -o \
+  \( -type d \( \
+    -name test -o \
+    -name tests -o \
+    -name __tests__ -o \
+    -name fixtures -o \
+    -name docs -o \
+    -name docs-site \
+  \) \) -o \
   -name OPERATIONS.md \
 \) -print -quit)
 

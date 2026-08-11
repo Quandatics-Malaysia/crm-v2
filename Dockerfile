@@ -40,7 +40,11 @@ CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx -
 # auto-copied into the standalone tree, so copy them into the nested app path.
 FROM base AS runner
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+COPY scripts/strip-runtime-package-managers.sh /tmp/strip-runtime-package-managers.sh
+RUN /tmp/strip-runtime-package-managers.sh / --container-root \
+    && rm /tmp/strip-runtime-package-managers.sh \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nextjs -u 1001
 COPY --from=build /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static

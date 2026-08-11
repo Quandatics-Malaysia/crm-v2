@@ -1,11 +1,9 @@
 "use server"
 
-import { headers } from "next/headers"
-import { and, eq, sql } from "drizzle-orm"
-import { auth } from "@/lib/auth"
+import { randomUUID } from "node:crypto"
+import { eq, sql } from "drizzle-orm"
 import { db, runInTenant } from "@/db"
 import {
-  member,
   organization,
   roles,
   user,
@@ -24,7 +22,8 @@ const ALLOWED_INITIAL_ROLES = new Set([
 /**
  * Create a new entity (tenant/organization): provision the org via Better Auth
  * (the creator becomes Owner), seed its defaults (roles, permissions, funnel +
- * stages, tax, settings, entity code), and switch to it.
+ * stages, tax, settings, entity code). The platform master remains outside
+ * tenant membership; invited customer Owners claim access through the seat seam.
  */
 export async function createEntity(input: {
   name: string
@@ -62,30 +61,18 @@ export async function createEntity(input: {
     .replace(/(^-|-$)/g, "")
     .slice(0, 40)
   const slug = baseSlug || `entity-${ctx.userId.slice(0, 6)}`
-  const hdrs = await headers()
-
-  let org: { id?: string } | null = null
+  const orgId = randomUUID()
   try {
-    org = (await auth.api.createOrganization({
-      body: { name, slug },
-      headers: hdrs,
-    })) as { id?: string } | null
+    await db.insert(organization).values({ id: orgId, name, slug })
   } catch {
-    org = (await auth.api.createOrganization({
-      body: { name, slug: `${slug}-${Date.now().toString(36)}` },
-      headers: hdrs,
-    })) as { id?: string } | null
+    await db.insert(organization).values({
+      id: orgId,
+      name,
+      slug: `${slug}-${Date.now().toString(36)}`,
+    })
   }
-  const orgId = org?.id
-  if (!orgId) throw new Error("Could not create the entity")
 
-  const ownerRoleId = await runInTenant(orgId, (tx) => seedTenant(tx, orgId, { entityCode: input.entityCode }))
-  const [creatorMember] = await db
-    .select()
-    .from(member)
-    .where(and(eq(member.userId, ctx.userId), eq(member.organizationId, orgId)))
-    .limit(1)
-  if (!creatorMember) throw new Error("Could not provision the entity owner")
+  await runInTenant(orgId, (tx) => seedTenant(tx, orgId, { entityCode: input.entityCode }))
 
   const roleRows = await runInTenant(orgId, (tx) => tx
     .select({ id: roles.id, name: roles.name, tier: roles.defaultTierLevel })
@@ -93,10 +80,7 @@ export async function createEntity(input: {
     .where(eq(roles.tenantId, orgId)))
   const roleByName = new Map(roleRows.map((role) => [role.name, role]))
   try {
-    const entries: Parameters<typeof provisionEntitySeats>[0]["entries"] = [{
-      kind: "active", userId: ctx.userId, memberId: creatorMember.id,
-      roleId: ownerRoleId, tierLevel: 100,
-    }]
+    const entries: Parameters<typeof provisionEntitySeats>[0]["entries"] = []
     for (const invite of invites) {
       const role = roleByName.get(invite.roleName)
       if (!role) throw new Error(`Role ${invite.roleName} was not seeded.`)
@@ -110,22 +94,13 @@ export async function createEntity(input: {
     }
     await provisionEntitySeats({
       tenantId: orgId,
-      actor: { userId: ctx.userId, memberId: creatorMember.id },
+      actor: { userId: ctx.userId },
       entries,
       entityAudit: { name, slug, invites: invites.map(({ email, roleName }) => ({ email, roleName })) },
     })
   } catch (error) {
     await db.delete(organization).where(eq(organization.id, orgId)).catch(() => undefined)
     throw error
-  }
-
-  try {
-    await auth.api.setActiveOrganization({
-      body: { organizationId: orgId },
-      headers: hdrs,
-    })
-  } catch {
-    // non-fatal; the switcher can set it later
   }
 
   return { id: orgId }

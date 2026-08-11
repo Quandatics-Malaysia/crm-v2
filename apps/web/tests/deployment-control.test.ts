@@ -324,8 +324,15 @@ describe("applySignedEntitlement", () => {
 })
 
 describe("getDeploymentAccess", () => {
+  const accessService = (store: DeploymentControlPersistence = persistence) =>
+    createDeploymentControlService({
+      persistence: store,
+      trustSet: trustSet(),
+      now: () => new Date(issuedAt),
+    })
+
   it("fails closed without a readable last-known-good bundle", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = accessService()
     await expect(service.getDeploymentAccess(new Date(issuedAt))).resolves.toEqual({
       mode: "read_only",
       reason: "No valid entitlement bundle is available",
@@ -348,7 +355,7 @@ describe("getDeploymentAccess", () => {
     ["2026-08-18T00:00:00.001Z", "read_only", false],
     ["2027-08-10T00:00:00.000Z", "read_only", false],
   ] as const)("evaluates exact lease and contract boundary %s", async (now, mode, writeAllowed) => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = accessService()
     await service.applySignedEntitlement(await signed(), deploymentId)
     await expect(service.getDeploymentAccess(new Date(now))).resolves.toMatchObject({
       mode,
@@ -385,13 +392,13 @@ describe("getDeploymentAccess", () => {
     ["cancelled", "read_only", false],
   ] as const)("evaluates %s status", async (subscriptionStatus, mode, writeAllowed) => {
     const store = new MemoryPersistence()
-    const service = createDeploymentControlService({ persistence: store, trustSet: trustSet() })
+    const service = accessService(store)
     await service.applySignedEntitlement(await signed(lease({ subscriptionStatus })), deploymentId)
     await expect(service.getDeploymentAccess(new Date("2026-08-10T12:00:00.000Z"))).resolves.toMatchObject({ mode, writeAllowed })
   })
 
   it("uses persisted greatest trusted time when wall clock rolls back", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = accessService()
     await service.applySignedEntitlement(await signed(), deploymentId)
     persistence.state!.greatestTrustedAt = new Date("2026-08-18T00:00:00.001Z")
 
@@ -402,7 +409,7 @@ describe("getDeploymentAccess", () => {
   })
 
   it("durably advances trusted time during access before a later wall-clock rollback", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = accessService()
     await service.applySignedEntitlement(await signed(), deploymentId)
 
     await expect(service.getDeploymentAccess(new Date("2026-08-18T00:00:00.001Z"))).resolves.toMatchObject({

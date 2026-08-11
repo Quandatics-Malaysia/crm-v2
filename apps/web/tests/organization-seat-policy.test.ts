@@ -6,8 +6,8 @@ import {
 } from "@/lib/organization-seat-policy"
 
 describe("Better Auth organization seat bypass policy", () => {
-  it("allows organization creation only for the existing platform master", async () => {
-    await expect(allowLicensedOrganizationCreation({ isSuperadmin: true })).resolves.toBe(true)
+  it("blocks the Better Auth organization-creation route for every identity", async () => {
+    await expect(allowLicensedOrganizationCreation({ isSuperadmin: true })).resolves.toBe(false)
     await expect(allowLicensedOrganizationCreation({ isSuperadmin: false })).resolves.toBe(false)
     await expect(allowLicensedOrganizationCreation({})).resolves.toBe(false)
   })
@@ -23,8 +23,8 @@ describe("Better Auth organization seat bypass policy", () => {
     await expect(licensedOrganizationHooks[hook]({} as never)).rejects.toThrow(/licensed|CRM role/)
   })
 
-  it("blocks direct member adds except Better Auth's already-authorized platform-master entity bootstrap", async () => {
+  it("blocks every direct Better Auth member add, including a superadmin target", async () => {
     await expect(licensedOrganizationHooks.beforeAddMember({ user: { isSuperadmin: false } } as never)).rejects.toThrow(/licensed/)
-    await expect(licensedOrganizationHooks.beforeAddMember({ user: { isSuperadmin: true } } as never)).resolves.toBeUndefined()
+    await expect(licensedOrganizationHooks.beforeAddMember({ user: { isSuperadmin: true } } as never)).rejects.toThrow(/licensed/)
   })
 })

@@ -98,6 +98,7 @@ export const deploymentSeatReservations = pgTable(
 /** Stable deployment-wide serialization mutex; contains no identity data. */
 export const deploymentSeatState = pgTable("deployment_seat_state", {
   singleton: smallint("singleton").primaryKey().default(1),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

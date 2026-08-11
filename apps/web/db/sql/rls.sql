@@ -161,12 +161,19 @@ ALTER TABLE deployment_runtime_metadata FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON deployment_seat_state FROM crm_app;
 REVOKE ALL ON deployment_seat_reservations FROM crm_app;
 REVOKE ALL ON deployment_runtime_metadata FROM crm_app;
+-- Seat occupancy rows are mutated only inside the SECURITY DEFINER seams.
+-- Column-level UPDATE keeps non-lifecycle profile administration available
+-- without permitting status/tenant/member identity reassignment.
+REVOKE INSERT, UPDATE, DELETE ON member FROM crm_app;
+REVOKE INSERT, UPDATE, DELETE ON pending_invites FROM crm_app;
+REVOKE INSERT, UPDATE, DELETE ON membership_profiles FROM crm_app;
+GRANT UPDATE (role_id, tier_level, manager_member_id, updated_at) ON membership_profiles TO crm_app;
 GRANT EXECUTE ON FUNCTION read_deployment_status_rollup() TO crm_app;
 GRANT EXECUTE ON FUNCTION read_deployment_seat_usage(timestamp with time zone) TO crm_app;
-GRANT EXECUTE ON FUNCTION reserve_deployment_seat(text, text, timestamp with time zone, timestamp with time zone) TO crm_app;
-GRANT EXECUTE ON FUNCTION activate_deployment_seat(text, text, text, timestamp with time zone) TO crm_app;
-GRANT EXECUTE ON FUNCTION release_deployment_membership_seat(text, timestamp with time zone) TO crm_app;
-GRANT EXECUTE ON FUNCTION release_deployment_invitation_seat(text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION reserve_deployment_invitation(uuid, text, text, uuid, integer, text, text, text, timestamp with time zone, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION activate_deployment_membership(text, text, text, uuid, integer, uuid, text, text, boolean, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION change_deployment_membership(text, text, boolean, text, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION revoke_deployment_invitation(text, uuid, text, text, timestamp with time zone) TO crm_app;
 GRANT EXECUTE ON FUNCTION reconcile_expired_deployment_seat_reservations(timestamp with time zone) TO crm_app;
 
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.

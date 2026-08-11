@@ -151,6 +151,7 @@ integration("deployment control PostgreSQL boundary", () => {
     const database = drizzle(appA) as unknown as typeof db
     const service = createDeploymentControlService({
       persistence: createPostgresDeploymentControlPersistence(database),
+      now: () => new Date(lease.issuedAt),
       trustSet: {
         version: 1,
         keys: [{

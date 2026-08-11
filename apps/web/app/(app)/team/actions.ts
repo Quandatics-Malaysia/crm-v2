@@ -920,9 +920,6 @@ export async function setMemberStatus(
       memberId,
       remove: false,
       actor: { userId: ctx.userId, memberId: ctx.memberId },
-      guard: async (tx) => {
-        if (await isLastOwner(tx, memberId)) throw new Error("You can't disable the last Owner.")
-      },
     })
   }
 
@@ -944,9 +941,6 @@ export async function removeMember(memberId: string): Promise<ActionResult<void>
     memberId,
     remove: true,
     actor: { userId: ctx.userId, memberId: ctx.memberId },
-    guard: async (tx) => {
-      if (await isLastOwner(tx, memberId)) throw new Error("You can't remove the last Owner.")
-    },
   })
 
   revalidatePath("/team")

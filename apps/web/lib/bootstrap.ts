@@ -2,7 +2,6 @@ import "server-only"
 import { and, asc, eq } from "drizzle-orm"
 import { db, runInTenant } from "@/db"
 import {
-  member,
   organization,
   roles,
 } from "@/db/schema"
@@ -20,10 +19,8 @@ import { activateMembership } from "@/lib/deployment-seats"
  */
 export async function ensureBootstrap(
   userId: string,
-  userEmail: string
+  _userEmail: string
 ): Promise<boolean> {
-  const bootstrapEmail = process.env.BOOTSTRAP_OWNER_EMAIL?.toLowerCase()
-
   const [org] = await db
       .select()
       .from(organization)
@@ -39,27 +36,17 @@ export async function ensureBootstrap(
   if (!ownerRole) return false
 
   try {
-    await activateMembership({
+    const activation = await activateMembership({
       tenantId: org.id,
       roleId: ownerRole?.id ?? null,
       tierLevel: 100,
       userId,
       actor: { userId },
-      guard: async (tx) => {
-        const existing = await tx
-          .select({ userId: member.userId })
-          .from(member)
-          .where(eq(member.organizationId, org.id))
-          .for("update")
-        if (existing.some((row) => row.userId === userId)) throw new Error("ALREADY_BOOTSTRAPPED")
-        if (existing.length > 0 && bootstrapEmail !== userEmail.toLowerCase()) {
-          throw new Error("BOOTSTRAP_NOT_ALLOWED")
-        }
-      },
+      bootstrap: true,
     })
-    return true
+    return activation.result.reason !== "idempotent"
   } catch (error) {
-    if (error instanceof Error && ["ALREADY_BOOTSTRAPPED", "BOOTSTRAP_NOT_ALLOWED"].includes(error.message)) {
+    if (error instanceof Error && /already claimed|Already a member/.test(error.message)) {
       return false
     }
     throw error

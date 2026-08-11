@@ -42,6 +42,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Build PR preview stack
         id: preview
         env:
@@ -176,6 +179,9 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Remove PR preview stack and volumes
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}

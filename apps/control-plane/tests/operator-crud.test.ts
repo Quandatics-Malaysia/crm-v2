@@ -159,7 +159,7 @@ describe("operator mutation protection and client administration", () => {
     const denialAudits = await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'denied'",
     ).first<{ count: number }>()
-    expect(denialAudits?.count).toBe(3)
+    expect(denialAudits?.count).toBe(4)
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)

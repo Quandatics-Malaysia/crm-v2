@@ -221,6 +221,35 @@ if scripts/check-runtime-artifacts.sh "$fixture/app"; then
   exit 1
 fi
 
+backup_root="$scratch/backup-runtime"
+mkdir -p "$backup_root/opt/backup" \
+  "$backup_root/usr/bin" \
+  "$backup_root/usr/local/bin" \
+  "$backup_root/var/lib/backup"
+touch "$backup_root/opt/backup/check-tools.sh" \
+  "$backup_root/usr/bin/pg_dump" \
+  "$backup_root/usr/local/bin/age" \
+  "$backup_root/usr/local/bin/rclone"
+chmod 0555 "$backup_root/opt/backup/check-tools.sh" \
+  "$backup_root/usr/bin/pg_dump" \
+  "$backup_root/usr/local/bin/age" \
+  "$backup_root/usr/local/bin/rclone"
+scripts/check-runtime-artifacts.sh "$backup_root"
+
+touch "$backup_root/opt/backup/build-notes.md"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected non-operational backup payload to fail" >&2
+  exit 1
+fi
+rm "$backup_root/opt/backup/build-notes.md"
+
+mkdir -p "$backup_root/sbin"
+touch "$backup_root/sbin/apk"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected backup runtime package manager to fail" >&2
+  exit 1
+fi
+
 unknown_root="$scratch/unknown-runtime"
 mkdir -p "$unknown_root/app"
 touch "$unknown_root/app/payload.bin"

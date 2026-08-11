@@ -162,6 +162,43 @@ elif [ -f "$payload_root/apps/web/server.js" ]; then
     echo "unexpected web runtime artifact: $unexpected" >&2
     exit 1
   fi
+elif [ -f "$canonical_root/opt/backup/check-tools.sh" ]; then
+  for required_tool in \
+    opt/backup/check-tools.sh \
+    usr/bin/pg_dump \
+    usr/local/bin/age \
+    usr/local/bin/rclone
+  do
+    if [ ! -x "$canonical_root/$required_tool" ] \
+      && [ ! -L "$canonical_root/$required_tool" ]; then
+      echo "missing executable backup runtime tool: $canonical_root/$required_tool" >&2
+      exit 1
+    fi
+  done
+
+  for forbidden_manager in \
+    sbin/apk \
+    usr/bin/apt \
+    usr/bin/apt-get \
+    usr/bin/dnf \
+    usr/bin/dpkg \
+    usr/bin/yum
+  do
+    if [ -e "$canonical_root/$forbidden_manager" ] \
+      || [ -L "$canonical_root/$forbidden_manager" ]; then
+      echo "package manager in backup runtime: $canonical_root/$forbidden_manager" >&2
+      exit 1
+    fi
+  done
+
+  unexpected=$(find "$canonical_root/opt/backup" -mindepth 1 \
+    \( ! -type f -o ! -name '*.sh' \) \
+    -print -quit)
+
+  if [ -n "$unexpected" ]; then
+    echo "unexpected backup runtime artifact: $unexpected" >&2
+    exit 1
+  fi
 else
   echo "unrecognized client runtime layout: $payload_root" >&2
   exit 1

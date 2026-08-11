@@ -70,6 +70,9 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
   app.route("/operator", createOperatorRoutes())
   app.route("/v1/deployments", createDeploymentRoutes())
   app.route("/v1/deployments", createEntitlementRoutes())
+  app.get("/", (context) => {
+    return context.redirect("/operator", 302)
+  })
 
   return app
 }

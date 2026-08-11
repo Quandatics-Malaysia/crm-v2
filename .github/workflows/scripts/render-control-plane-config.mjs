@@ -7,6 +7,13 @@ function required(name, pattern, maximum = 256) {
   return value
 }
 
+function optional(name, pattern, maximum = 256) {
+  const value = process.env[name]?.trim()
+  if (!value) return undefined
+  if (value.length > maximum || !pattern.test(value)) throw new Error(`Invalid optional value: ${name}`)
+  return value
+}
+
 const environment = required("CONTROL_PLANE_ENVIRONMENT", /^(staging|production)$/)
 const projectDirectory = required("CONTROL_PLANE_PROJECT_DIR", /^\/.+$/, 1024)
 const outputPath = required("CONTROL_PLANE_CONFIG_PATH", /^\/.+$/, 1024)
@@ -24,6 +31,7 @@ if (privateJwk?.kty !== "OKP" || privateJwk?.crv !== "Ed25519" ||
     !/^[A-Za-z0-9_-]{43}$/.test(privateJwk?.x ?? "") || !/^[A-Za-z0-9_-]{43}$/.test(privateJwk?.d ?? "")) {
   throw new Error("Invalid protected value: ENTITLEMENT_SIGNING_PRIVATE_JWK")
 }
+const controlPlaneRoute = optional("CONTROL_PLANE_ROUTE", /^[a-z0-9.-]+\.[a-z0-9.-]+\/\*$/i)
 
 const config = {
   $schema: join(projectDirectory, "node_modules/wrangler/config-schema.json"),
@@ -53,6 +61,10 @@ const config = {
     logs: { head_sampling_rate: 1 },
     traces: { enabled: true, head_sampling_rate: 0.01 },
   },
+}
+
+if (controlPlaneRoute !== undefined) {
+  config.routes = [controlPlaneRoute]
 }
 
 writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" })

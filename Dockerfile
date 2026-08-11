@@ -15,6 +15,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @crm/control-protocol run build
 
 # ---- build the standalone Next.js server ----
 FROM base AS build

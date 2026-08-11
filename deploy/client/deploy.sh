@@ -64,6 +64,13 @@ validate_port() {
   [ "$variable_value" -le 65535 ] || fail "$variable_name must be between 1 and 65535"
 }
 
+validate_memory_limit() {
+  variable_name=$1
+  variable_value=$2
+  printf '%s\n' "$variable_value" | grep -Eq '^[1-9][0-9]*([.][0-9]+)?([bkmg]i?b?)?$' ||
+    fail "$variable_name must be a valid Compose memory limit"
+}
+
 stat_uid() {
   if stat -f '%u' "$1" >/dev/null 2>&1; then
     stat -f '%u' "$1"
@@ -282,6 +289,17 @@ parse_previous_record() {
       DEMO_TAX_NAME) PREVIOUS_DEMO_TAX_NAME=$value ;;
       DEMO_TAX_RATE) PREVIOUS_DEMO_TAX_RATE=$value ;;
       BACKUP_RSYNC_TARGET) PREVIOUS_BACKUP_RSYNC_TARGET=$value ;;
+      GATEWAY_HOST_PORT) PREVIOUS_GATEWAY_HOST_PORT=$value ;;
+      DB_HOST_PORT) PREVIOUS_DB_HOST_PORT=$value ;;
+      DB_MEMORY_LIMIT) PREVIOUS_DB_MEMORY_LIMIT=$value ;;
+      WEB_MEMORY_LIMIT) PREVIOUS_WEB_MEMORY_LIMIT=$value ;;
+      BACKUP_MEMORY_LIMIT) PREVIOUS_BACKUP_MEMORY_LIMIT=$value ;;
+      GATEWAY_MEMORY_LIMIT) PREVIOUS_GATEWAY_MEMORY_LIMIT=$value ;;
+      HEALTHCHECK_ATTEMPTS) PREVIOUS_HEALTHCHECK_ATTEMPTS=$value ;;
+      HEALTHCHECK_INTERVAL_SECONDS) PREVIOUS_HEALTHCHECK_INTERVAL_SECONDS=$value ;;
+      HEALTHCHECK_TIMEOUT_SECONDS) PREVIOUS_HEALTHCHECK_TIMEOUT_SECONDS=$value ;;
+      DB_HEALTH_ATTEMPTS) PREVIOUS_DB_HEALTH_ATTEMPTS=$value ;;
+      DB_HEALTH_INTERVAL_SECONDS) PREVIOUS_DB_HEALTH_INTERVAL_SECONDS=$value ;;
       BACKUP_ARTIFACT_SHA256) PREVIOUS_BACKUP_ARTIFACT_SHA256=$value ;;
       DEPLOYED_AT_EPOCH) PREVIOUS_DEPLOYED_AT_EPOCH=$value ;;
       *) fail "unsupported previous deployment record key: $key" ;;
@@ -308,6 +326,8 @@ compose() (
   export DEMO_TENANT_ID DEMO_TENANT_NAME DEMO_CURRENCY DEMO_TAX_NAME DEMO_TAX_RATE
   export BACKUP_RSYNC_TARGET GATEWAY_HOST_PORT DB_HOST_PORT
   export DB_MEMORY_LIMIT WEB_MEMORY_LIMIT BACKUP_MEMORY_LIMIT GATEWAY_MEMORY_LIMIT
+  export HEALTHCHECK_ATTEMPTS HEALTHCHECK_INTERVAL_SECONDS HEALTHCHECK_TIMEOUT_SECONDS
+  export DB_HEALTH_ATTEMPTS DB_HEALTH_INTERVAL_SECONDS
   docker compose \
     --project-name "$COMPOSE_PROJECT_NAME" \
     --file "$compose_file" \
@@ -331,6 +351,10 @@ derive_database_urls() {
   DATABASE_ADMIN_URL="postgres://postgres:$encoded_postgres_password@db:5432/$DB_NAME"
   MIGRATOR_DATABASE_URL=$DATABASE_ADMIN_URL
   APP_DATABASE_URL="postgres://crm_app:$encoded_app_password@db:5432/$DB_NAME"
+}
+
+derive_healthcheck_url() {
+  HEALTHCHECK_URL="http://127.0.0.1:$GATEWAY_HOST_PORT/api/health"
 }
 
 restore_target_environment() {
@@ -360,7 +384,19 @@ restore_target_environment() {
   DEMO_TAX_NAME=$TARGET_DEMO_TAX_NAME
   DEMO_TAX_RATE=$TARGET_DEMO_TAX_RATE
   BACKUP_RSYNC_TARGET=$TARGET_BACKUP_RSYNC_TARGET
+  GATEWAY_HOST_PORT=$TARGET_GATEWAY_HOST_PORT
+  DB_HOST_PORT=$TARGET_DB_HOST_PORT
+  DB_MEMORY_LIMIT=$TARGET_DB_MEMORY_LIMIT
+  WEB_MEMORY_LIMIT=$TARGET_WEB_MEMORY_LIMIT
+  BACKUP_MEMORY_LIMIT=$TARGET_BACKUP_MEMORY_LIMIT
+  GATEWAY_MEMORY_LIMIT=$TARGET_GATEWAY_MEMORY_LIMIT
+  HEALTHCHECK_ATTEMPTS=$TARGET_HEALTHCHECK_ATTEMPTS
+  HEALTHCHECK_INTERVAL_SECONDS=$TARGET_HEALTHCHECK_INTERVAL_SECONDS
+  HEALTHCHECK_TIMEOUT_SECONDS=$TARGET_HEALTHCHECK_TIMEOUT_SECONDS
+  DB_HEALTH_ATTEMPTS=$TARGET_DB_HEALTH_ATTEMPTS
+  DB_HEALTH_INTERVAL_SECONDS=$TARGET_DB_HEALTH_INTERVAL_SECONDS
   derive_database_urls
+  derive_healthcheck_url
 }
 
 use_previous_environment() {
@@ -390,7 +426,19 @@ use_previous_environment() {
   DEMO_TAX_NAME=$PREVIOUS_DEMO_TAX_NAME
   DEMO_TAX_RATE=$PREVIOUS_DEMO_TAX_RATE
   BACKUP_RSYNC_TARGET=$PREVIOUS_BACKUP_RSYNC_TARGET
+  GATEWAY_HOST_PORT=$PREVIOUS_GATEWAY_HOST_PORT
+  DB_HOST_PORT=$PREVIOUS_DB_HOST_PORT
+  DB_MEMORY_LIMIT=$PREVIOUS_DB_MEMORY_LIMIT
+  WEB_MEMORY_LIMIT=$PREVIOUS_WEB_MEMORY_LIMIT
+  BACKUP_MEMORY_LIMIT=$PREVIOUS_BACKUP_MEMORY_LIMIT
+  GATEWAY_MEMORY_LIMIT=$PREVIOUS_GATEWAY_MEMORY_LIMIT
+  HEALTHCHECK_ATTEMPTS=$PREVIOUS_HEALTHCHECK_ATTEMPTS
+  HEALTHCHECK_INTERVAL_SECONDS=$PREVIOUS_HEALTHCHECK_INTERVAL_SECONDS
+  HEALTHCHECK_TIMEOUT_SECONDS=$PREVIOUS_HEALTHCHECK_TIMEOUT_SECONDS
+  DB_HEALTH_ATTEMPTS=$PREVIOUS_DB_HEALTH_ATTEMPTS
+  DB_HEALTH_INTERVAL_SECONDS=$PREVIOUS_DB_HEALTH_INTERVAL_SECONDS
   derive_database_urls
+  derive_healthcheck_url
 }
 
 wait_for_database() {
@@ -501,6 +549,17 @@ write_deployment_record() {
     printf 'DEMO_TAX_NAME=%s\n' "$DEMO_TAX_NAME"
     printf 'DEMO_TAX_RATE=%s\n' "$DEMO_TAX_RATE"
     printf 'BACKUP_RSYNC_TARGET=%s\n' "$BACKUP_RSYNC_TARGET"
+    printf 'GATEWAY_HOST_PORT=%s\n' "$GATEWAY_HOST_PORT"
+    printf 'DB_HOST_PORT=%s\n' "$DB_HOST_PORT"
+    printf 'DB_MEMORY_LIMIT=%s\n' "$DB_MEMORY_LIMIT"
+    printf 'WEB_MEMORY_LIMIT=%s\n' "$WEB_MEMORY_LIMIT"
+    printf 'BACKUP_MEMORY_LIMIT=%s\n' "$BACKUP_MEMORY_LIMIT"
+    printf 'GATEWAY_MEMORY_LIMIT=%s\n' "$GATEWAY_MEMORY_LIMIT"
+    printf 'HEALTHCHECK_ATTEMPTS=%s\n' "$HEALTHCHECK_ATTEMPTS"
+    printf 'HEALTHCHECK_INTERVAL_SECONDS=%s\n' "$HEALTHCHECK_INTERVAL_SECONDS"
+    printf 'HEALTHCHECK_TIMEOUT_SECONDS=%s\n' "$HEALTHCHECK_TIMEOUT_SECONDS"
+    printf 'DB_HEALTH_ATTEMPTS=%s\n' "$DB_HEALTH_ATTEMPTS"
+    printf 'DB_HEALTH_INTERVAL_SECONDS=%s\n' "$DB_HEALTH_INTERVAL_SECONDS"
     printf 'BACKUP_ARTIFACT_SHA256=%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256"
     printf 'DEPLOYED_AT_EPOCH=%s\n' "$(date +%s)"
   } >"$record_tmp" || return 1
@@ -636,6 +695,10 @@ validate_positive_integer BACKUP_MAX_AGE_SECONDS "$BACKUP_MAX_AGE_SECONDS"
 [ "${#BACKUP_MAX_AGE_SECONDS}" -le 9 ] || fail "BACKUP_MAX_AGE_SECONDS is too large"
 validate_port GATEWAY_HOST_PORT "$GATEWAY_HOST_PORT"
 validate_port DB_HOST_PORT "$DB_HOST_PORT"
+validate_memory_limit DB_MEMORY_LIMIT "$DB_MEMORY_LIMIT"
+validate_memory_limit WEB_MEMORY_LIMIT "$WEB_MEMORY_LIMIT"
+validate_memory_limit BACKUP_MEMORY_LIMIT "$BACKUP_MEMORY_LIMIT"
+validate_memory_limit GATEWAY_MEMORY_LIMIT "$GATEWAY_MEMORY_LIMIT"
 validate_positive_integer HEALTHCHECK_ATTEMPTS "$HEALTHCHECK_ATTEMPTS"
 validate_non_negative_integer HEALTHCHECK_INTERVAL_SECONDS "$HEALTHCHECK_INTERVAL_SECONDS"
 validate_positive_integer HEALTHCHECK_TIMEOUT_SECONDS "$HEALTHCHECK_TIMEOUT_SECONDS"
@@ -658,7 +721,7 @@ if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1
 fi
 
 derive_database_urls
-HEALTHCHECK_URL="http://127.0.0.1:$GATEWAY_HOST_PORT/api/health"
+derive_healthcheck_url
 
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required"
 compose config --quiet || fail "Compose configuration is invalid"
@@ -719,13 +782,31 @@ backup_age=$((now - EVIDENCE_CREATED_AT_EPOCH))
 [ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence is stale"
 
 reverify_backup_before_migration() {
-  assert_secure_file "$EVIDENCE_BACKUP_ARTIFACT_FILE" "backup artifact file"
-  [ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" = "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ] ||
-    fail "backup artifact checksum changed before migration"
+  final_backup_failure=
+  if [ -L "$EVIDENCE_BACKUP_ARTIFACT_FILE" ] || [ ! -f "$EVIDENCE_BACKUP_ARTIFACT_FILE" ]; then
+    final_backup_failure="backup artifact security changed before migration"
+    return 1
+  fi
+  if [ "$(stat_uid "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$(id -u)" ] ||
+    [ "$(stat_mode "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != 600 ]; then
+    final_backup_failure="backup artifact security changed before migration"
+    return 1
+  fi
+  if [ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ]; then
+    final_backup_failure="backup artifact checksum changed before migration"
+    return 1
+  fi
   recheck_now=$(date +%s)
   recheck_age=$((recheck_now - EVIDENCE_CREATED_AT_EPOCH))
-  [ "$recheck_age" -ge 0 ] || fail "backup evidence timestamp moved into the future before migration"
-  [ "$recheck_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence became stale before migration"
+  if [ "$recheck_age" -lt 0 ]; then
+    final_backup_failure="backup evidence timestamp moved into the future before migration"
+    return 1
+  fi
+  if [ "$recheck_age" -gt "$BACKUP_MAX_AGE_SECONDS" ]; then
+    final_backup_failure="backup evidence became stale before migration"
+    return 1
+  fi
+  return 0
 }
 
 previous_available=0
@@ -744,6 +825,12 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   PREVIOUS_DEMO_MODE= PREVIOUS_DEMO_TENANT_ID= PREVIOUS_DEMO_TENANT_NAME=
   PREVIOUS_DEMO_CURRENCY= PREVIOUS_DEMO_TAX_NAME= PREVIOUS_DEMO_TAX_RATE=
   PREVIOUS_BACKUP_RSYNC_TARGET=
+  PREVIOUS_GATEWAY_HOST_PORT= PREVIOUS_DB_HOST_PORT=
+  PREVIOUS_DB_MEMORY_LIMIT= PREVIOUS_WEB_MEMORY_LIMIT=
+  PREVIOUS_BACKUP_MEMORY_LIMIT= PREVIOUS_GATEWAY_MEMORY_LIMIT=
+  PREVIOUS_HEALTHCHECK_ATTEMPTS= PREVIOUS_HEALTHCHECK_INTERVAL_SECONDS=
+  PREVIOUS_HEALTHCHECK_TIMEOUT_SECONDS= PREVIOUS_DB_HEALTH_ATTEMPTS=
+  PREVIOUS_DB_HEALTH_INTERVAL_SECONDS=
   PREVIOUS_DEPLOYED_AT_EPOCH=
   parse_previous_record "$temp_dir/previous-record.env"
   [ "$PREVIOUS_RECORD_VERSION" = 2 ] || fail "previous deployment record version is invalid; a protected version 2 rollback record is required"
@@ -779,6 +866,17 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   required PREVIOUS_DEMO_CURRENCY "$PREVIOUS_DEMO_CURRENCY"
   required PREVIOUS_DEMO_TAX_NAME "$PREVIOUS_DEMO_TAX_NAME"
   required PREVIOUS_DEMO_TAX_RATE "$PREVIOUS_DEMO_TAX_RATE"
+  validate_port PREVIOUS_GATEWAY_HOST_PORT "$PREVIOUS_GATEWAY_HOST_PORT"
+  validate_port PREVIOUS_DB_HOST_PORT "$PREVIOUS_DB_HOST_PORT"
+  validate_memory_limit PREVIOUS_DB_MEMORY_LIMIT "$PREVIOUS_DB_MEMORY_LIMIT"
+  validate_memory_limit PREVIOUS_WEB_MEMORY_LIMIT "$PREVIOUS_WEB_MEMORY_LIMIT"
+  validate_memory_limit PREVIOUS_BACKUP_MEMORY_LIMIT "$PREVIOUS_BACKUP_MEMORY_LIMIT"
+  validate_memory_limit PREVIOUS_GATEWAY_MEMORY_LIMIT "$PREVIOUS_GATEWAY_MEMORY_LIMIT"
+  validate_positive_integer PREVIOUS_HEALTHCHECK_ATTEMPTS "$PREVIOUS_HEALTHCHECK_ATTEMPTS"
+  validate_non_negative_integer PREVIOUS_HEALTHCHECK_INTERVAL_SECONDS "$PREVIOUS_HEALTHCHECK_INTERVAL_SECONDS"
+  validate_positive_integer PREVIOUS_HEALTHCHECK_TIMEOUT_SECONDS "$PREVIOUS_HEALTHCHECK_TIMEOUT_SECONDS"
+  validate_positive_integer PREVIOUS_DB_HEALTH_ATTEMPTS "$PREVIOUS_DB_HEALTH_ATTEMPTS"
+  validate_non_negative_integer PREVIOUS_DB_HEALTH_INTERVAL_SECONDS "$PREVIOUS_DB_HEALTH_INTERVAL_SECONDS"
   previous_available=1
 fi
 
@@ -808,6 +906,17 @@ TARGET_DEMO_CURRENCY=$DEMO_CURRENCY
 TARGET_DEMO_TAX_NAME=$DEMO_TAX_NAME
 TARGET_DEMO_TAX_RATE=$DEMO_TAX_RATE
 TARGET_BACKUP_RSYNC_TARGET=$BACKUP_RSYNC_TARGET
+TARGET_GATEWAY_HOST_PORT=$GATEWAY_HOST_PORT
+TARGET_DB_HOST_PORT=$DB_HOST_PORT
+TARGET_DB_MEMORY_LIMIT=$DB_MEMORY_LIMIT
+TARGET_WEB_MEMORY_LIMIT=$WEB_MEMORY_LIMIT
+TARGET_BACKUP_MEMORY_LIMIT=$BACKUP_MEMORY_LIMIT
+TARGET_GATEWAY_MEMORY_LIMIT=$GATEWAY_MEMORY_LIMIT
+TARGET_HEALTHCHECK_ATTEMPTS=$HEALTHCHECK_ATTEMPTS
+TARGET_HEALTHCHECK_INTERVAL_SECONDS=$HEALTHCHECK_INTERVAL_SECONDS
+TARGET_HEALTHCHECK_TIMEOUT_SECONDS=$HEALTHCHECK_TIMEOUT_SECONDS
+TARGET_DB_HEALTH_ATTEMPTS=$DB_HEALTH_ATTEMPTS
+TARGET_DB_HEALTH_INTERVAL_SECONDS=$DB_HEALTH_INTERVAL_SECONDS
 lock_dir="$record_dir/.deploy-$COMPOSE_PROJECT_NAME.lock"
 if ! mkdir "$lock_dir" 2>/dev/null; then
   fail "deployment already in progress for project $COMPOSE_PROJECT_NAME"
@@ -828,7 +937,9 @@ if ! wait_for_database; then
   abort_with_database_rollback "target database health check failed"
 fi
 
-reverify_backup_before_migration
+if ! reverify_backup_before_migration; then
+  abort_with_database_rollback "$final_backup_failure"
+fi
 compose run --rm --no-deps migrate || fail "migration failed"
 if ! compose up -d --no-deps --force-recreate web backup gateway; then
   abort_with_rollback "runtime service recreation failed"

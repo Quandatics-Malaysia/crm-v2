@@ -112,7 +112,9 @@ case " $* " in
     [ "${TEST_DOCKER_FAIL_PULL:-0}" = 1 ] && exit 42
     ;;
   *" up -d --no-deps db "*|*" up -d --no-deps db"|*" up -d --no-deps --force-recreate db "*|*" up -d --no-deps --force-recreate db")
-    printf '%s|%s\n' "${POSTGRES_IMAGE:-}" "${APPLICATION_VERSION:-}" >>"$TEST_DATABASE_LOG"
+    printf '%s|%s|%s|%s|%s|%s\n' \
+      "${POSTGRES_IMAGE:-}" "${APPLICATION_VERSION:-}" "${DB_HOST_PORT:-}" \
+      "${DB_MEMORY_LIMIT:-}" "${DB_HEALTH_ATTEMPTS:-}" "${DB_HEALTH_INTERVAL_SECONDS:-}" >>"$TEST_DATABASE_LOG"
     if [ "${TEST_DB_FAIL_TARGET_START:-0}" = 1 ] && [ "${POSTGRES_IMAGE:-}" = "${TEST_TARGET_POSTGRES_IMAGE:-}" ]; then
       exit 54
     fi
@@ -143,10 +145,13 @@ case " $* " in
     [ ! -f "$TEST_DOCKER_COUNTER" ] || count=$(cat "$TEST_DOCKER_COUNTER")
     count=$((count + 1))
     printf '%s\n' "$count" >"$TEST_DOCKER_COUNTER"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
       "$count" "${WEB_IMAGE:-}" "${BACKUP_IMAGE:-}" "${CADDY_IMAGE:-}" \
       "${APPLICATION_VERSION:-}" "${MIGRATION_VERSION:-}" "${VENDOR_ENTITLEMENT_TRUST_SET:-}" \
-      "${BETTER_AUTH_URL:-}" "${APP_URL:-}" "${RELEASE_TAG:-}" >>"$TEST_RUNTIME_LOG"
+      "${BETTER_AUTH_URL:-}" "${APP_URL:-}" "${RELEASE_TAG:-}" \
+      "${GATEWAY_HOST_PORT:-}" "${DB_HOST_PORT:-}" "${DB_MEMORY_LIMIT:-}" "${WEB_MEMORY_LIMIT:-}" \
+      "${BACKUP_MEMORY_LIMIT:-}" "${GATEWAY_MEMORY_LIMIT:-}" "${HEALTHCHECK_ATTEMPTS:-}" \
+      "${HEALTHCHECK_INTERVAL_SECONDS:-}" "${HEALTHCHECK_TIMEOUT_SECONDS:-}" >>"$TEST_RUNTIME_LOG"
     if [ "${TEST_RUNTIME_FAIL_ONCE:-0}" = 1 ] && [ "$count" -eq 1 ]; then
       exit 44
     fi
@@ -269,6 +274,17 @@ old_postgres_password=old-postgres-password
 old_crm_app_password=old-application-password
 old_better_auth_secret=old-better-auth-secret-with-enough-entropy
 old_agent_web_secret=old-agent-web-secret
+old_gateway_host_port=18081
+old_db_host_port=15433
+old_db_memory_limit=1536m
+old_web_memory_limit=768m
+old_backup_memory_limit=192m
+old_gateway_memory_limit=96m
+old_healthcheck_attempts=7
+old_healthcheck_interval=0
+old_healthcheck_timeout=4
+old_db_health_attempts=6
+old_db_health_interval=0
 
 cat >"$valid_env" <<EOF
 COMPOSE_PROJECT_NAME=quandatics-client-test
@@ -307,6 +323,10 @@ HEALTHCHECK_INTERVAL_SECONDS=0
 HEALTHCHECK_TIMEOUT_SECONDS=5
 DB_HEALTH_ATTEMPTS=2
 DB_HEALTH_INTERVAL_SECONDS=0
+DB_MEMORY_LIMIT=2g
+WEB_MEMORY_LIMIT=1g
+BACKUP_MEMORY_LIMIT=256m
+GATEWAY_MEMORY_LIMIT=128m
 DATABASE_ADMIN_URL=DERIVED_BY_DEPLOY
 MIGRATOR_DATABASE_URL=DERIVED_BY_DEPLOY
 APP_DATABASE_URL=DERIVED_BY_DEPLOY
@@ -383,6 +403,17 @@ DEMO_CURRENCY=MYR
 DEMO_TAX_NAME=SST
 DEMO_TAX_RATE=8.000
 BACKUP_RSYNC_TARGET=
+GATEWAY_HOST_PORT=$old_gateway_host_port
+DB_HOST_PORT=$old_db_host_port
+DB_MEMORY_LIMIT=$old_db_memory_limit
+WEB_MEMORY_LIMIT=$old_web_memory_limit
+BACKUP_MEMORY_LIMIT=$old_backup_memory_limit
+GATEWAY_MEMORY_LIMIT=$old_gateway_memory_limit
+HEALTHCHECK_ATTEMPTS=$old_healthcheck_attempts
+HEALTHCHECK_INTERVAL_SECONDS=$old_healthcheck_interval
+HEALTHCHECK_TIMEOUT_SECONDS=$old_healthcheck_timeout
+DB_HEALTH_ATTEMPTS=$old_db_health_attempts
+DB_HEALTH_INTERVAL_SECONDS=$old_db_health_interval
 BACKUP_ARTIFACT_SHA256=9999999999999999999999999999999999999999999999999999999999999999
 DEPLOYED_AT_EPOCH=1700000000
 EOF
@@ -564,6 +595,14 @@ copy_env_with_replacement "$valid_env" POSTGRES_IMAGE "registry.example/postgres
 expect_deploy_failure "wrong upstream repository" "$wrong_upstream_env" "POSTGRES_IMAGE must use exact repository docker.io/library/postgres"
 
 write_evidence
+write_previous_record
+malformed_record="$test_root/malformed-record.env"
+copy_env_with_replacement "$record_file" DB_MEMORY_LIMIT not-a-memory-limit "$malformed_record"
+mv "$malformed_record" "$record_file"
+expect_deploy_failure "malformed prior Compose memory" "$valid_env" "PREVIOUS_DB_MEMORY_LIMIT must be a valid Compose memory limit"
+assert_no_runtime_mutation "malformed prior Compose memory"
+
+write_evidence
 rm -f "$record_file"
 TEST_COSIGN_FAIL_IMAGE=$migrator_image
 export TEST_COSIGN_FAIL_IMAGE
@@ -585,26 +624,36 @@ fi
 [ ! -d "$state_dir/.deploy-quandatics-client-test.lock" ] || record_failure "failed image pull left the project lock behind"
 
 write_evidence
+write_previous_record
 evidence_epoch=$(awk -F= '$1 == "CREATED_AT_EPOCH" { print $2 }' "$evidence_file")
 freshness_env="$test_root/freshness.env"
 copy_env_with_replacement "$valid_env" BACKUP_MAX_AGE_SECONDS 1 "$freshness_env"
 TEST_DATE_BASE=$evidence_epoch
 export TEST_DATE_BASE
-expect_deploy_failure "evidence expires after pull" "$freshness_env" "backup evidence became stale before migration"
+expect_deploy_failure "evidence expires after pull" "$freshness_env" "backup evidence became stale before migration; previous database restored and health verified"
 unset TEST_DATE_BASE
 assert_contains "$docker_log" " pull db migrate web backup gateway" "freshness recheck occurs after pull"
+assert_contains "$database_log" "$postgres_image|1.2.3|5433|2g|2|0" "stale evidence target database swap"
+assert_contains "$database_log" "$old_postgres_image|$old_application_version|$old_db_host_port|$old_db_memory_limit|$old_db_health_attempts|$old_db_health_interval" "stale evidence previous database restore"
 if grep -Eq ' run .* migrate' "$docker_log"; then
   record_failure "stale post-pull evidence reached migrator"
 fi
+[ ! -s "$runtime_log" ] || record_failure "stale post-pull evidence changed runtime services"
+assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "stale evidence preserves old record"
 
 write_evidence
+write_previous_record
 TEST_TAMPER_ARTIFACT_ON_DB_READY=1
 export TEST_TAMPER_ARTIFACT_ON_DB_READY
-expect_deploy_failure "backup artifact changes after pull" "$valid_env" "backup artifact checksum changed before migration"
+expect_deploy_failure "backup artifact changes after pull" "$valid_env" "backup artifact checksum changed before migration; previous database restored and health verified"
 unset TEST_TAMPER_ARTIFACT_ON_DB_READY
+assert_contains "$database_log" "$postgres_image|1.2.3|5433|2g|2|0" "changed artifact target database swap"
+assert_contains "$database_log" "$old_postgres_image|$old_application_version|$old_db_host_port|$old_db_memory_limit|$old_db_health_attempts|$old_db_health_interval" "changed artifact previous database restore"
 if grep -Eq ' run .* migrate' "$docker_log"; then
   record_failure "changed post-pull backup artifact reached migrator"
 fi
+[ ! -s "$runtime_log" ] || record_failure "changed post-pull artifact changed runtime services"
+assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "changed artifact preserves old record"
 
 write_evidence
 write_previous_record
@@ -676,7 +725,9 @@ unset TEST_RUNTIME_FAIL_ONCE
 assert_contains "$runtime_log" "1|$web_image|$backup_image|$caddy_image" "target runtime recreate attempt"
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "partial recreate rollback refs"
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "partial recreate rollback config"
+assert_contains "$runtime_log" "|v1.1.0|$old_gateway_host_port|$old_db_host_port|$old_db_memory_limit|$old_web_memory_limit|$old_backup_memory_limit|$old_gateway_memory_limit|$old_healthcheck_attempts|$old_healthcheck_interval|$old_healthcheck_timeout" "partial recreate rollback host/resource/health config"
 assert_contains "$docker_log" "exec -T web printenv RELEASE_TAG" "restored release identity verification"
+assert_contains "$curl_log" "http://127.0.0.1:$old_gateway_host_port/api/health" "restored Nginx-reachable health port"
 assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "partial recreate preserves old record"
 
 write_evidence
@@ -692,6 +743,8 @@ fi
 unset TEST_CURL_FAIL_COUNT
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "health rollback refs"
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "health rollback config"
+assert_contains "$runtime_log" "|v1.1.0|$old_gateway_host_port|$old_db_host_port|$old_db_memory_limit|$old_web_memory_limit|$old_backup_memory_limit|$old_gateway_memory_limit|$old_healthcheck_attempts|$old_healthcheck_interval|$old_healthcheck_timeout" "health rollback host/resource/health config"
+assert_contains "$curl_log" "http://127.0.0.1:$old_gateway_host_port/api/health" "health rollback uses restored gateway port"
 [ "$(wc -l <"$curl_log" | tr -d ' ')" -eq 3 ] || record_failure "rollback did not exhaust new health and verify restored health"
 assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "health rollback preserves old record"
 

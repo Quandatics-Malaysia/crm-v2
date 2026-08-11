@@ -33,6 +33,8 @@ jobs:
         run: pnpm --filter control-plane exec wrangler types --env-interface CloudflareBindings
       - name: Check fresh migration chain
         run: pnpm --filter control-plane exec wrangler d1 migrations apply CONTROL_DB --local --persist-to=/tmp/control-plane-migration-check
+      - name: Build shared control protocol
+        run: pnpm --filter @crm/control-protocol build
       - name: Typecheck
         run: pnpm --filter control-plane typecheck
       - name: Workers Vitest

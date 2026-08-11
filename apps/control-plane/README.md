@@ -14,6 +14,8 @@ pnpm --filter control-plane exec wrangler deploy --dry-run
 
 Migration `0005_entitlement_issuance.sql` supports both fresh `0001`–`0005` databases and upgrades from Task 5. Entitlement rows and operator audit rows are append-only. Contract and schedule revisions serialize signing against commercial controls, while renewal claims serialize scheduler ownership. Cron runs every 15 minutes and renews missing leases, leases within six hours of expiry, materially changed effective inputs, and envelopes signed by a non-current key.
 
+Production control is expected to be hosted on a **vendor-owned operator domain** (for example `https://control.quandatics.com`) so clients never need Worker endpoint access. Set `CONTROL_PLANE_ROUTE` to expose `/operator` on that host and `OPERATOR_ORIGIN` to the same origin so same-site form posts and CSRF checks work.
+
 ## Signing keys
 
 - Configure non-secret `ENTITLEMENT_SIGNING_KEY_ID` in Wrangler per environment.

@@ -90,15 +90,6 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     ],
   },
   {
-    label: "Platform",
-    items: [
-      {
-        label: "Subscription",
-        href: "/settings/subscription",
-      },
-    ],
-  },
-  {
     label: "Developers",
     items: [
       {

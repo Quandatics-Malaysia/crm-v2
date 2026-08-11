@@ -4,7 +4,7 @@ import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   listProjectNatures,
   listMembers,
@@ -41,6 +41,7 @@ export default async function OpportunityDetailPage({
     entities,
     currencies,
     changes,
+    modules,
   ] = await Promise.all([
     requireContext(),
     getOpportunity(id),
@@ -53,6 +54,7 @@ export default async function OpportunityDetailPage({
     listEntities(),
     listCurrencies(),
     listChanges("opportunity", id),
+    getEntitledModuleMap(),
   ])
   if (!detail) notFound()
   const o = detail.opportunity
@@ -68,7 +70,7 @@ export default async function OpportunityDetailPage({
       pipelines={pipelines}
       customFieldDefs={customFunnelFields}
       entityOptions={entities}
-      financeEnabled={isModuleEnabled("finance")}
+      financeEnabled={modules.finance}
       currencies={currencies}
       defaultOwnerMemberId={ctx.memberId}
     />

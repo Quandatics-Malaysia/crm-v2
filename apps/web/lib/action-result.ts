@@ -2,6 +2,13 @@ import "server-only"
 import { humanizeDenial } from "@/lib/permissions"
 import { resolveDenialContact, type DenialContact } from "@/lib/permission-denial"
 import { requireContext } from "@/lib/server-context"
+import {
+  LICENSE_READ_ONLY,
+  LicenseReadOnlyError,
+  assertWriteAllowed,
+  type BusinessWriteAccessCheck,
+  type BusinessWriteOperation,
+} from "@/lib/write-access"
 
 /**
  * Discriminated result returned by mutating Server Actions.
@@ -13,7 +20,34 @@ import { requireContext } from "@/lib/server-context"
  */
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
-  | { ok: false; error: string; contact?: DenialContact }
+  | {
+      ok: false
+      error: string
+      code?: typeof LICENSE_READ_ONLY
+      contact?: DenialContact
+    }
+
+export type RunActionOptions = {
+  /** New business capabilities use the typed `business:*` default-deny namespace. */
+  operation?: BusinessWriteOperation
+}
+
+export type ActionRunner = <T>(
+  fn: () => Promise<T>,
+  options?: RunActionOptions
+) => Promise<ActionResult<[T] extends [void] ? undefined : T>>
+
+function isBusinessActionOperation(
+  operation: string
+): operation is BusinessWriteOperation {
+  return (
+    operation === "business_mutation" ||
+    operation === "membership_mutation" ||
+    operation === "api_business_mutation" ||
+    operation === "auth_business_mutation" ||
+    operation.startsWith("business:")
+  )
+}
 
 /**
  * Wrap a mutating Server Action body. Runs `fn`, returning its value as
@@ -30,29 +64,42 @@ export type ActionResult<T = undefined> =
  *     })
  *   }
  */
-export async function runAction<T>(
-  fn: () => Promise<T>
-): Promise<ActionResult<[T] extends [void] ? undefined : T>> {
-  try {
-    const data = await fn()
-    // A void-returning body yields `undefined` at runtime; normalize its type
-    // to `undefined` so void actions satisfy the documented `Promise<ActionResult>`
-    // (= ActionResult<undefined>) without each call site re-annotating ActionResult<void>.
-    return { ok: true, data: data as [T] extends [void] ? undefined : T }
-  } catch (e) {
-    console.error("[action]", e)
-    const rawMessage = e instanceof Error ? e.message : "Something went wrong"
-    const isForbidden = rawMessage.startsWith("FORBIDDEN")
-    const error = humanizeDenial(rawMessage)
-    if (!isForbidden) return { ok: false, error }
-    // Best-effort: never let contact resolution itself break the error path.
-    let contact: DenialContact | undefined
-    try {
-      const ctx = await requireContext()
-      contact = (await resolveDenialContact(ctx)) ?? undefined
-    } catch {
-      // no active session/tenant to resolve a contact from — fall back below.
+export function createActionRunner(checkWriteAccess: BusinessWriteAccessCheck): ActionRunner {
+  return async function run<T>(fn: () => Promise<T>, options?: RunActionOptions) {
+    const operation = (options?.operation ?? "business_mutation") as string
+    if (!isBusinessActionOperation(operation)) {
+      return {
+        ok: false,
+        error: "runAction only accepts business write operations",
+      }
     }
-    return { ok: false, error, contact }
+    try {
+      await checkWriteAccess({ operation })
+      const data = await fn()
+      // A void-returning body yields `undefined` at runtime; normalize its type
+      // to `undefined` so void actions satisfy the documented `Promise<ActionResult>`
+      // (= ActionResult<undefined>) without each call site re-annotating ActionResult<void>.
+      return { ok: true, data: data as [T] extends [void] ? undefined : T }
+    } catch (e) {
+      if (e instanceof LicenseReadOnlyError) {
+        return { ok: false, code: e.code, error: e.message }
+      }
+      console.error("[action]", e)
+      const rawMessage = e instanceof Error ? e.message : "Something went wrong"
+      const isForbidden = rawMessage.startsWith("FORBIDDEN")
+      const error = humanizeDenial(rawMessage)
+      if (!isForbidden) return { ok: false, error }
+      // Best-effort: never let contact resolution itself break the error path.
+      let contact: DenialContact | undefined
+      try {
+        const ctx = await requireContext()
+        contact = (await resolveDenialContact(ctx)) ?? undefined
+      } catch {
+        // no active session/tenant to resolve a contact from — fall back below.
+      }
+      return { ok: false, error, contact }
+    }
   }
 }
+
+export const runAction: ActionRunner = createActionRunner(assertWriteAllowed)

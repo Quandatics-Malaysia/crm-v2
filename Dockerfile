@@ -24,15 +24,21 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter web run build
 
-# ---- migrate/seed job image (has tsx + drizzle-kit + source) ----
-# db/ now lives under apps/web, so run tsx from that workspace directory.
-FROM base AS migrator
-ENV NODE_ENV=production
+# ---- compile the privileged migrate/seed job without application source ----
+FROM base AS migrator-build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
-WORKDIR /app/apps/web
-CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx --conditions=react-server db/seed.ts && if [ \"$SEED_SAMPLE_DATA\" = \"true\" ]; then echo '→ SEED_SAMPLE_DATA=true — layering sample demo data'; node_modules/.bin/tsx --conditions=react-server db/seed-sample.ts; fi"]
+RUN pnpm --filter web run build:migrator
+
+# ---- source-free privileged migrate/seed job image ----
+FROM base AS migrator
+ENV NODE_ENV=production
+COPY scripts/strip-runtime-package-managers.sh /tmp/strip-runtime-package-managers.sh
+RUN /tmp/strip-runtime-package-managers.sh / --container-root \
+    && rm /tmp/strip-runtime-package-managers.sh
+COPY --from=migrator-build /app/dist/migrator/ ./
+CMD ["sh", "-c", "node /app/migrate.mjs && node /app/seed.mjs"]
 
 # ---- minimal production runner ----
 # outputFileTracingRoot is the repo root, so the standalone bundle nests the app
@@ -40,7 +46,11 @@ CMD ["sh", "-c", "node_modules/.bin/tsx db/migrate.ts && node_modules/.bin/tsx -
 # auto-copied into the standalone tree, so copy them into the nested app path.
 FROM base AS runner
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+COPY scripts/strip-runtime-package-managers.sh /tmp/strip-runtime-package-managers.sh
+RUN /tmp/strip-runtime-package-managers.sh / --container-root \
+    && rm /tmp/strip-runtime-package-managers.sh \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nextjs -u 1001
 COPY --from=build /app/apps/web/public ./apps/web/public
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static

@@ -2,7 +2,7 @@ import "server-only"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { type Tx } from "@/db"
 import { paymentMilestones, projects, tenantSettings } from "@/db/schema"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { logActivity } from "@/server/services/activity"
 import type { ServerContext } from "@/lib/server-context"
 
@@ -19,7 +19,7 @@ export async function maybeCompleteProject(
   ctx: ServerContext,
   projectId: string
 ): Promise<void> {
-  if (!isModuleEnabled("finance")) return
+  if (!(await getEntitledModuleMap()).finance) return
   const [s] = await tx
     .select({
       auto: tenantSettings.autoCompleteProjectOnPaid,

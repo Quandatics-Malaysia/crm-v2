@@ -81,7 +81,8 @@ flowchart LR
         <Li>
           <B>Capability + record scoping.</B> Actions check a permission key
           (e.g. <Code>quotation.update</Code>) and, for owned records, the
-          owner/managed-subtree scope. See{" "}
+          owner/managed-subtree scope. Optional modules also require a signed
+          deployment entitlement. See{" "}
           <Link className="link" href="/documentation/access-control">
             Access control
           </Link>
@@ -89,18 +90,17 @@ flowchart LR
         </Li>
         <Li>
           <B>Settings-driven behavior.</B> Automation, picklists, numbering and
-          module flags live in <Code>tenant_settings</Code> — one row per
-          entity, editable in Settings. See{" "}
+          entity behavior settings live in <Code>tenant_settings</Code> — one
+          row per entity, editable in Settings. See{" "}
           <Link className="link" href="/documentation/settings-reference">
             Settings reference
           </Link>
           .
         </Li>
         <Li>
-          <B>Add-on modules ship off (or gated).</B> The Finance module is
-          gated by a code master switch AND a per-tenant flag; this
-          documentation is gated by a tenant switch + the{" "}
-          <Code>docs.view</Code> permission.
+          <B>Add-on access is signed at runtime.</B> Every optional route and
+          action rechecks deployment entitlement; this documentation also
+          requires the <Code>docs.view</Code> permission.
         </Li>
         <Li>
           <B>Every mutation leaves a trail.</B> Server actions write an audit

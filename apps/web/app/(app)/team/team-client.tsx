@@ -70,12 +70,6 @@ import {
   type TeamRoleView,
   type PendingInviteView,
 } from "./actions"
-import { isModuleEnabled } from "@/lib/modules"
-
-// When the Advanced-roles module is off, the customization surface (custom
-// roles, the permission matrix editor, seniority-tier editing) is hidden —
-// leaving fixed preset roles, basic role assignment, and the reporting line.
-const ADVANCED_ROLES = isModuleEnabled("advancedRoles")
 
 // ─── Members: Add dialog ─────────────────────────────────────────────────────
 
@@ -445,11 +439,11 @@ function MemberRowActions({
 function MembersTab({
   members,
   roles,
-  isSuperadmin,
+  canManageUsers,
 }: {
   members: TeamMemberView[]
   roles: TeamRoleView[]
-  isSuperadmin: boolean
+  canManageUsers: boolean
 }) {
   const columns = React.useMemo<ColumnDef<TeamMemberView>[]>(
     () => [
@@ -546,7 +540,7 @@ function MembersTab({
         { columnId: "roles", title: "Role" },
         { columnId: "manager", title: "Manager" },
       ]}
-      toolbar={isSuperadmin ? <AddMemberDialog roles={roles} /> : undefined}
+      toolbar={canManageUsers ? <AddMemberDialog roles={roles} /> : undefined}
     />
   )
 }
@@ -637,7 +631,13 @@ function RoleFormDialog({
 
 // ─── Roles: Card ─────────────────────────────────────────────────────────────
 
-function RoleCard({ role }: { role: TeamRoleView }) {
+function RoleCard({
+  role,
+  advancedRoles,
+}: {
+  role: TeamRoleView
+  advancedRoles: boolean
+}) {
   const router = useRouter()
   const [editOpen, setEditOpen] = React.useState(false)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -685,16 +685,16 @@ function RoleCard({ role }: { role: TeamRoleView }) {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            render={<Link href={`/team/roles?role=${role.id}`} />}
-          >
-            <ShieldCheck className="size-3.5" />
-            Permissions
-          </Button>
-          {ADVANCED_ROLES ? (
+          {advancedRoles ? (
             <>
+              <Button
+                size="sm"
+                variant="outline"
+                render={<Link href={`/team/roles?role=${role.id}`} />}
+              >
+                <ShieldCheck className="size-3.5" />
+                Permissions
+              </Button>
               <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
                 Edit
               </Button>
@@ -739,7 +739,13 @@ function RoleCard({ role }: { role: TeamRoleView }) {
   )
 }
 
-function RolesTab({ roles }: { roles: TeamRoleView[] }) {
+function RolesTab({
+  roles,
+  advancedRoles,
+}: {
+  roles: TeamRoleView[]
+  advancedRoles: boolean
+}) {
   const [createOpen, setCreateOpen] = React.useState(false)
 
   return (
@@ -748,10 +754,12 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
         <p className="text-sm text-muted-foreground">
           {roles.length} role{roles.length === 1 ? "" : "s"}
         </p>
-        <Button size="sm" render={<Link href="/team/roles" />}>
-          <ShieldCheck className="size-4" />
-          Roles &amp; permissions
-        </Button>
+        {advancedRoles ? (
+          <Button size="sm" render={<Link href="/team/roles" />}>
+            <ShieldCheck className="size-4" />
+            Roles &amp; permissions
+          </Button>
+        ) : null}
       </div>
 
       {roles.length === 0 ? (
@@ -763,7 +771,7 @@ function RolesTab({ roles }: { roles: TeamRoleView[] }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {roles.map((role) => (
-            <RoleCard key={role.id} role={role} />
+            <RoleCard key={role.id} role={role} advancedRoles={advancedRoles} />
           ))}
         </div>
       )}
@@ -825,12 +833,14 @@ export function TeamClient({
   members,
   roles,
   invites = [],
-  isSuperadmin,
+  canManageUsers,
+  advancedRoles,
 }: {
   members: TeamMemberView[]
   roles: TeamRoleView[]
   invites?: PendingInviteView[]
-  isSuperadmin: boolean
+  canManageUsers: boolean
+  advancedRoles: boolean
 }) {
   return (
     <Tabs defaultValue="members" className="w-full">
@@ -841,11 +851,11 @@ export function TeamClient({
 
       <TabsContent value="members" className="mt-4 grid gap-4">
         <PendingInvitesCard invites={invites} />
-        <MembersTab members={members} roles={roles} isSuperadmin={isSuperadmin} />
+        <MembersTab members={members} roles={roles} canManageUsers={canManageUsers} />
       </TabsContent>
 
       <TabsContent value="roles" className="mt-4">
-        <RolesTab roles={roles} />
+        <RolesTab roles={roles} advancedRoles={advancedRoles} />
       </TabsContent>
     </Tabs>
   )

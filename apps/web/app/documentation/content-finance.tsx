@@ -10,7 +10,6 @@ import {
   Lead,
   Li,
   P,
-  Pre,
   Ul,
 } from "./doc-kit"
 import type { DocPage } from "./registry"
@@ -19,7 +18,7 @@ export const financePage: DocPage = {
   slug: "finance",
   title: "Finance add-on — Billing & Purchasing",
   description:
-    "The O2C and P2P document chains: kinds, status machine, milestone tie, proof gate, reminders, and how to toggle the module safely in production.",
+    "The O2C and P2P document chains: kinds, status machine, milestone tie, proof gate, reminders, and signed runtime entitlement.",
   body: (
     <>
       <Lead>
@@ -145,24 +144,16 @@ stateDiagram-v2
         Numbering.
       </P>
 
-      <H2>Toggling the module</H2>
+      <H2>Module entitlement</H2>
       <P>
-        One switch, deployment-wide: set <Code>finance</Code> in{" "}
-        <Code>modules.config.ts</Code> at the repo root, then rebuild + redeploy.
-        Finance depends on <Code>projects</Code> and <Code>salesOrders</Code>, so
-        enable those too (the app validates this at boot).
+        Finance access comes from the deployment&apos;s signed runtime entitlement.
+        Finance depends on <Code>projects</Code> and <Code>salesOrders</Code>;
+        incomplete signed bundles are rejected before activation.
       </P>
-      <Pre>{`// modules.config.ts
-export const MODULE_CONFIG = {
-  projects: true,
-  salesOrders: true,
-  finance: true,   // billing + purchasing + intercompany
-  // …
-} as const`}</Pre>
 
-      <H3>Is toggling safe in production?</H3>
+      <H3>Is entitlement removal safe in production?</H3>
       <P>
-        <B>Yes — the flag only gates access, never data.</B> What OFF does,
+        <B>Yes — entitlement only gates access, never data.</B> What removal does,
         concretely:
       </P>
       <Ul>

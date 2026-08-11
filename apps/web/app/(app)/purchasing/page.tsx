@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
@@ -12,7 +12,7 @@ import {
 import { FinanceDocsTable } from "@/app/(app)/billing/finance-docs-table"
 
 export default async function PurchasingPage() {
-  requireModule("finance")
+  await requireEntitledRoute("finance")
   const ctx = await requireContext()
   if (!ctx.can(PERMISSIONS.FINANCE_VIEW)) redirect("/dashboard")
   // Sources feed the create dialog only — a manager-level payload.

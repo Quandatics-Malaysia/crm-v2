@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "crm-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
+    "ACCESS_AUD": "replace-with-access-application-audience",
+    "BOOTSTRAP_OWNER_EMAIL": "owner@example.com",
+    "OPERATOR_ORIGIN": "https://control.example.com",
+    "ENTITLEMENT_SIGNING_KEY_ID": "vendor-development-1"
+  },
+  "secrets": {
+    "required": [
+      "ENTITLEMENT_SIGNING_PRIVATE_JWK",
+      "INSTALL_TOKEN_PEPPER"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "crm-control-plane",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_VAULT",
+      "bucket_name": "crm-backup-vault"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

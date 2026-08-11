@@ -12,6 +12,7 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import { cascadeAccountOwner } from "@/server/services/owner-cascade"
@@ -170,6 +171,7 @@ export async function listAccountOpportunities(
 export async function listAccountProjects(
   accountId: string
 ): Promise<AccountProjectItem[]> {
+  if (!(await getEntitledModuleMap()).projects) return []
   return withTenant(PERMISSIONS.PROJECT_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx

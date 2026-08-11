@@ -11,8 +11,12 @@
     "lint": "pnpm --filter web run lint",
     "typecheck": "pnpm --filter web run typecheck",
     "test": "pnpm --filter web run test",
+    "test:workflows": "node --test .github/workflows/tests/*.test.mjs",
     "db:migrate": "pnpm --filter web run db:migrate",
     "db:setup": "pnpm --filter web run db:setup",
     "db:setup-seeded": "pnpm --filter web run db:setup-seeded"
+  },
+  "devDependencies": {
+    "yaml": "2.8.1"
   }
 }

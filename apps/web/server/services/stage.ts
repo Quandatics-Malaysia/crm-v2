@@ -36,7 +36,7 @@ import {
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import type { ServerContext } from "@/lib/server-context"
 // Shared LOCAL YYYY-MM-DD formatter. Deriving `actualCloseDate` from this (a
 // local-calendar slice) instead of a raw UTC `toISOString().slice(0,10)` keeps
@@ -357,7 +357,7 @@ async function applyStageMove(
   // Stage + status feed the partner-facing intercompany mirror (no-op unless
   // this deal is intercompany). Loaded lazily so this next-free service carries
   // no static dependency on the finance plugin.
-  if (isModuleEnabled("finance")) {
+  if ((await getEntitledModuleMap()).finance) {
     const { syncIntercompanyMirror } = await import("@/server/services/intercompany")
     await syncIntercompanyMirror(tx, opp.id)
   }

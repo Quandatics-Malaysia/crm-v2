@@ -31,19 +31,21 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm test
+      - run: pnpm run test:workflows
       - run: pnpm run build
 
   deploy-staging:
     needs: quality
     runs-on: self-hosted
+    environment: staging
     steps:
-      # Self-bootstrapping: creates the staging checkout + .env.staging on first
-      # run (fresh generated secrets), so no manual server/Cloudflare/domain work
-      # is needed. Staging is reachable on the box at 127.0.0.1:8091 (SSH tunnel);
-      # there is no public domain.
-      - name: Bootstrap staging checkout + env (first run only)
+      # Self-bootstrapping: creates the staging checkout + base env on first run,
+      # then upgrades retained deployment-control values on every release.
+      # Staging is reachable at 127.0.0.1:8091 through its quick tunnel.
+      - name: Bootstrap or upgrade staging checkout + env
         env:
           GH_TOKEN: ${{ github.token }}
+          VENDOR_ENTITLEMENT_TRUST_SET: ${{ secrets.STAGING_VENDOR_ENTITLEMENT_TRUST_SET }}
         run: |
           set -euo pipefail
           DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
@@ -65,12 +67,13 @@ jobs:
             sed -i "s|change_me_run_openssl_rand_base64_32|$(openssl rand -base64 32)|" .env.staging
             ADMIN_PW="$(openssl rand -hex 16)"
             SAMPLE_PW="$(openssl rand -hex 16)"
-            sed -i "s|change_me_strong_staging_admin|${ADMIN_PW}|" .env.staging
+            sed -i "s|change_me_strong_staging_master|${ADMIN_PW}|" .env.staging
             sed -i "s|change_me_strong_staging_sample|${SAMPLE_PW}|" .env.staging
             # No public domain: reach staging via SSH tunnel to 127.0.0.1:8091.
             sed -i "s|staging.quandatics.com|localhost:8091|g" .env.staging
             sed -i "s|https://localhost:8091|http://localhost:8091|g" .env.staging
           fi
+          node "$DIR/.github/workflows/scripts/provision-deployment-runtime.mjs" --mode staging --env-file "$DIR/.env.staging" --repo-root "$DIR"
       # Phase 1: bring the whole stack + tunnel up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
       # URL so Better Auth trusts the public origin (else login -> INVALID_ORIGIN).

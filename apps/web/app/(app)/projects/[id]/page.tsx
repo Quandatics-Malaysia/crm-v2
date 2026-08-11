@@ -6,8 +6,8 @@ import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
-import { isModuleEnabled } from "@/lib/modules"
+import { requireEntitledRoute } from "@/lib/module-guard"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listEntityTimeline } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
@@ -23,10 +23,11 @@ export default async function ProjectDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  requireModule("projects")
+  await requireEntitledRoute("projects")
   const { id } = await params
   const detail = await getProject(id)
   if (!detail) notFound()
+  const modules = await getEntitledModuleMap()
 
   const { project, accountName, opportunityName, quotationNumber, ownerName } =
     detail
@@ -36,13 +37,14 @@ export default async function ProjectDetailPage({
       listEntityTimeline("project", id),
       listEntityDocuments("project", id),
       listMilestones(id),
-      // Empty when the sales-orders plugin is off (the action would throw).
-      isModuleEnabled("salesOrders")
+      // Empty when sales-orders entitlement is absent.
+      modules.salesOrders
         ? listProjectSalesOrders(id)
         : Promise.resolve([]),
       requireContext(),
-      // Null when the finance module is off (or user lacks finance.view).
-      getProjectBillingSummary(id).catch(() => null),
+      modules.finance
+        ? getProjectBillingSummary(id).catch(() => null)
+        : Promise.resolve(null),
     ])
 
   const canUpdate = detail.canEdit && ctx.can(PERMISSIONS.PROJECT_UPDATE)
@@ -155,7 +157,7 @@ export default async function ProjectDetailPage({
           currency={project.currency}
           canManage={canUpdate}
           salesOrders={salesOrders}
-          salesOrdersEnabled={isModuleEnabled("salesOrders")}
+          salesOrdersEnabled={modules.salesOrders}
           canSubmit={canSubmitSO}
           canApprove={canApproveSO}
           activity={activity}

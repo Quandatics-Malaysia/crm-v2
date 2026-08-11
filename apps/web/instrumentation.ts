@@ -12,6 +12,8 @@
  *   3. If Microsoft Entra is configured, MICROSOFT_TENANT_ID must be a real
  *      directory GUID (not unset and not "common"), so we don't accept any
  *      Azure AD / personal account.
+ *   4. Machine-only deployment identity, secret, and release versions must be
+ *      canonical before any internal control endpoint can be served.
  */
 export async function register() {
   // Only the Node.js runtime can open a TCP Postgres connection (skip Edge).
@@ -19,11 +21,14 @@ export async function register() {
 
   // Module registry invariants — cheap, pure, and a bug in ANY environment, so
   // this runs before the production-only early return below.
-  const { validateModuleConfig } = await import("@/lib/modules")
+  const {
+    validateModuleConfig,
+    validateStandardProductionImage,
+  } = await import("@/lib/modules")
   const moduleErrors = validateModuleConfig()
   if (moduleErrors.length) {
     throw new Error(
-      "Invalid module configuration (modules.config.ts):\n" +
+      "Invalid compiled module composition (modules.config.ts):\n" +
         moduleErrors.map((e) => `  - ${e}`).join("\n")
     )
   }
@@ -31,7 +36,24 @@ export async function register() {
   // Production-only: never throw in development.
   if (process.env.NODE_ENV !== "production") return
 
+  const imageErrors = validateStandardProductionImage()
+  if (imageErrors.length) {
+    throw new Error(
+      "Invalid standard production module image (modules.config.ts):\n" +
+        imageErrors.map((e) => `  - ${e}`).join("\n")
+    )
+  }
+
   const errors: string[] = []
+
+  try {
+    const { loadInternalDeploymentEnv } = await import("@/lib/internal-agent-auth")
+    loadInternalDeploymentEnv(process.env)
+  } catch {
+    errors.push(
+      "DEPLOYMENT_ID, AGENT_WEB_SECRET, APPLICATION_VERSION, or MIGRATION_VERSION is missing or malformed."
+    )
+  }
 
   // 1. signing secret must not be the public dev default
   if ((process.env.BETTER_AUTH_SECRET ?? "") === "dev-secret-change-me-please") {

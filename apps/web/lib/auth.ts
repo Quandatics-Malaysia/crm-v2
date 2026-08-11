@@ -11,7 +11,15 @@ import * as schema from "@/db/schema"
 import { writeAuthAudit } from "@/server/audit"
 import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
-import { canActivateAdditionalMembers, getLicenseStateForTenant } from "@/lib/subscription-licensing"
+import {
+  autoJoinMembership,
+  consumeInvitation,
+  normalizeSeatEmail,
+} from "@/lib/deployment-seats"
+import {
+  allowLicensedOrganizationCreation,
+  licensedOrganizationHooks,
+} from "@/lib/organization-seat-policy"
 
 /**
  * Consume pending invites for a user. An admin invites by exact email
@@ -25,75 +33,32 @@ async function consumePendingInvites(user: {
   id: string
   email?: string | null
 }): Promise<string | null> {
-  const email = (user.email ?? "").trim()
-  if (!email) return null
-  // Cross-tenant by design (same class of read as autoJoinByDomain's
-  // tenant_settings scan): sign-in has no tenant context yet.
-  const invites = await db
-    .select({
-      id: schema.pendingInvites.id,
-      tenantId: schema.pendingInvites.tenantId,
-      roleId: schema.pendingInvites.roleId,
-      tierLevel: schema.pendingInvites.tierLevel,
-    })
-    .from(schema.pendingInvites)
-    .where(sql`lower(${schema.pendingInvites.email}) = lower(${email})`)
+  const rawEmail = user.email ?? ""
+  if (!rawEmail.trim()) return null
+  const email = normalizeSeatEmail(rawEmail)
+  const now = new Date()
+  const organizations = await db.select({ id: schema.organization.id }).from(schema.organization)
+  const invites: Array<{ id: string; tenantId: string }> = []
+  for (const organization of organizations) {
+    const rows = await runInTenant(organization.id, (tx) => tx
+      .select({ id: schema.pendingInvites.id, tenantId: schema.pendingInvites.tenantId })
+      .from(schema.pendingInvites)
+      .where(and(
+        eq(schema.pendingInvites.normalizedEmail, email),
+        sql`${schema.pendingInvites.expiresAt} > ${now}`,
+      )))
+    invites.push(...rows)
+  }
   if (invites.length === 0) return null
 
   let firstOrgId: string | null = null
   for (const invite of invites) {
     try {
-      const [existing] = await db
-        .select({ id: schema.member.id })
-        .from(schema.member)
-        .where(
-          and(
-            eq(schema.member.userId, user.id),
-            eq(schema.member.organizationId, invite.tenantId)
-          )
-        )
-        .limit(1)
-      const memberId = randomUUID()
-      if (!existing) {
-        await db.insert(schema.member).values({
-          id: memberId,
-          organizationId: invite.tenantId,
-          userId: user.id,
-          role: "member",
-          createdAt: new Date(),
-        })
-      }
-      await runInTenant(invite.tenantId, async (tx) => {
-        const license = await getLicenseStateForTenant(tx, invite.tenantId)
-        const status = canActivateAdditionalMembers(license, 1, new Date())
-          ? "active"
-          : "invited"
-        if (!existing) {
-          await tx
-            .insert(schema.membershipProfiles)
-            .values({
-              memberId,
-              tenantId: invite.tenantId,
-              roleId: invite.roleId,
-              tierLevel: invite.tierLevel,
-              status,
-            })
-            .onConflictDoNothing()
-          // member_roles is the effective-permission source (union of roles).
-          if (invite.roleId) {
-            await tx
-              .insert(schema.memberRoles)
-              .values({
-                tenantId: invite.tenantId,
-                memberId,
-                roleId: invite.roleId,
-              })
-              .onConflictDoNothing()
-          }
-        }
-        await tx
-          .delete(schema.pendingInvites)
-          .where(eq(schema.pendingInvites.id, invite.id))
+      await consumeInvitation({
+        tenantId: invite.tenantId,
+        invitationId: invite.id,
+        userId: user.id,
+        memberId: randomUUID(),
       })
       firstOrgId ??= invite.tenantId
     } catch (e) {
@@ -115,38 +80,30 @@ async function autoJoinByDomain(user: {
 }): Promise<string | null> {
   const domain = (user.email ?? "").split("@")[1]?.toLowerCase() ?? ""
   if (!domain) return null
-  const [org] = await db
-    .select({
-      orgId: schema.tenantSettings.organizationId,
-      roleName: schema.tenantSettings.autoJoinRole,
+  const organizations = await db.select({ id: schema.organization.id }).from(schema.organization)
+  let org: { orgId: string; roleName: string | null } | undefined
+  for (const organization of organizations) {
+    const match = await runInTenant(organization.id, async (tx) => {
+      const [settings] = await tx.select({
+        orgId: schema.tenantSettings.organizationId,
+        roleName: schema.tenantSettings.autoJoinRole,
+      }).from(schema.tenantSettings).where(and(
+        eq(schema.tenantSettings.organizationId, organization.id),
+        sql`${schema.tenantSettings.autoJoinDomains} @> ${JSON.stringify([domain])}::jsonb`,
+      )).limit(1)
+      return settings
     })
-    .from(schema.tenantSettings)
-    .where(
-      sql`${schema.tenantSettings.autoJoinDomains} @> ${JSON.stringify([domain])}::jsonb`
-    )
-    .limit(1)
+    if (match) { org = match; break }
+  }
   if (!org) return null
   const roleName = org.roleName ?? "Rep"
   const tier = ROLE_TEMPLATES.find((r) => r.name === roleName)?.tier ?? 0
-  const memberId = randomUUID()
-  await runInTenant(org.orgId, async (tx) => {
-    const existing = await tx
-      .select({ id: schema.member.id })
-      .from(schema.member)
-      .where(
-        and(
-          eq(schema.member.userId, user.id),
-          eq(schema.member.organizationId, org.orgId)
-        )
-      )
-      .limit(1)
-    if (existing.length > 0) return
-
-    const license = await getLicenseStateForTenant(tx, org.orgId)
-    const status = canActivateAdditionalMembers(license, 1, new Date())
-      ? "active"
-      : "invited"
-    const [roleRow] = await tx
+  const [existing] = await db.select({ id: schema.member.id }).from(schema.member).where(and(
+    eq(schema.member.userId, user.id), eq(schema.member.organizationId, org.orgId),
+  )).limit(1)
+  if (existing) return org.orgId
+  const roleRow = await runInTenant(org.orgId, async (tx) => {
+    const [row] = await tx
       .select({ id: schema.roles.id })
       .from(schema.roles)
       .where(
@@ -156,27 +113,15 @@ async function autoJoinByDomain(user: {
         )
       )
       .limit(1)
-    await tx.insert(schema.member).values({
-      id: memberId,
-      organizationId: org.orgId,
-      userId: user.id,
-      role: "member",
-      createdAt: new Date(),
-    })
-    await tx.insert(schema.membershipProfiles).values({
-      memberId,
-      tenantId: org.orgId,
-      roleId: roleRow?.id ?? null,
-      tierLevel: tier,
-      status,
-    })
-    if (roleRow?.id) {
-      await tx.insert(schema.memberRoles).values({
-        tenantId: org.orgId,
-        memberId,
-        roleId: roleRow.id,
-      })
-    }
+    return row
+  })
+  if (!roleRow) throw new Error("Auto-join role is not configured.")
+  await autoJoinMembership({
+    tenantId: org.orgId,
+    userId: user.id,
+    memberId: randomUUID(),
+    roleId: roleRow.id,
+    tierLevel: tier,
   })
   return org.orgId
 }
@@ -254,6 +199,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       isSuperadmin: { type: "boolean", required: false, input: false },
+      isVendorSupport: { type: "boolean", required: false, input: false },
     },
   },
   // Email/password is enabled at the framework level (so the seed can hash via
@@ -384,7 +330,11 @@ export const auth = betterAuth({
   // organization() = tenancy backbone. Microsoft Entra ID is wired via the
   // generic-oauth plugin (provider id "microsoft-entra-id"). nextCookies() MUST be last.
   plugins: [
-    organization(),
+    organization({
+      allowUserToCreateOrganization: allowLicensedOrganizationCreation,
+      disableOrganizationDeletion: true,
+      organizationHooks: licensedOrganizationHooks,
+    }),
     ...(entraEnabled
       ? [
           genericOAuth({

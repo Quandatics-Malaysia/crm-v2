@@ -3,7 +3,7 @@ import { and, eq, isNull, notInArray } from "drizzle-orm"
 import type { Tx } from "@/db"
 import { quotations, funnels } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 
 /**
  * Quote statuses that must never drive an opportunity's value/forecast: a
@@ -69,7 +69,7 @@ export async function syncOpportunityAmount(
   // choke point that keeps the partner-facing intercompany mirror's quoted
   // amount aligned. No-op for non-intercompany deals. Loaded lazily so this
   // next-free service carries no static dependency on the finance plugin.
-  if (isModuleEnabled("finance")) {
+  if ((await getEntitledModuleMap()).finance) {
     const { syncIntercompanyMirror } = await import("./intercompany")
     await syncIntercompanyMirror(tx, funnelId)
   }

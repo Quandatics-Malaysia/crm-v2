@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { requireEntitledRoute } from "@/lib/module-guard"
 
 // Project creation now happens in a dialog on /projects. Deep links
 // (?funnelId=…&accountId=…&quotationId=…) keep working: the params carry over
@@ -12,6 +13,7 @@ export default async function NewProjectPage({
     quotationId?: string
   }>
 }) {
+  await requireEntitledRoute("projects")
   const sp = await searchParams
   const qs = new URLSearchParams({ new: "1" })
   if (sp.accountId) qs.set("accountId", sp.accountId)

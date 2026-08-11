@@ -20,7 +20,10 @@ import {
 } from "@/lib/subscription-licensing"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
-import { isModuleEnabled } from "@/lib/modules"
+import {
+  getEntitledModuleMap,
+  requireEntitledModule,
+} from "@/lib/modules.server"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -79,7 +82,7 @@ export type TenantSettingsView = {
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
   leadFollowUpDays: number | null
-  /** Finance add-on live for this tenant (module flag AND master switch). */
+  /** Finance is present in the signed deployment entitlement. */
   financeEnabled: boolean
   /** In-app documentation switch (/documentation). */
   documentationModule: boolean
@@ -222,6 +225,7 @@ function parseDateInput(
 
 /** Tenant settings for the active org. Creates a default row if missing. */
 export async function getSettings(): Promise<TenantSettingsView> {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -245,9 +249,9 @@ export async function getSettings(): Promise<TenantSettingsView> {
         .insert(tenantSettings)
         .values({ organizationId: ctx.tenantId, ...DEFAULTS })
         .returning()
-      return toView(created, entityName, license, ctx.isSuperadmin)
+      return toView(created, entityName, license, ctx.isSuperadmin, financeEnabled)
     }
-    return toView(row, entityName, license, ctx.isSuperadmin)
+    return toView(row, entityName, license, ctx.isSuperadmin, financeEnabled)
   })
 }
 
@@ -258,7 +262,8 @@ function toView(
     activeMemberCount: 0,
     isSubscriptionActive: true,
   },
-  isPlatformMaster = false
+  isPlatformMaster = false,
+  financeEnabled = false
 ): TenantSettingsView {
   return {
     organizationId: row.organizationId,
@@ -292,7 +297,7 @@ function toView(
     autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
-    financeEnabled: isModuleEnabled("finance"),
+    financeEnabled,
     documentationModule: row.documentationModule,
     invoiceReminderDays: row.invoiceReminderDays ?? [],
     invoiceDueDays: row.invoiceDueDays ?? null,
@@ -341,7 +346,8 @@ async function toViewWithLicense(
   tenantId = row.organizationId
 ): Promise<TenantSettingsView> {
   const license = await getLicenseStateForTenant(tx, tenantId)
-  return toView(row, entityName, license)
+  const financeEnabled = (await getEntitledModuleMap()).finance
+  return toView(row, entityName, license, false, financeEnabled)
 }
 
 /** Shared helper: replace one jsonb picklist column with an audited upsert. */
@@ -559,6 +565,7 @@ export async function updateInvoiceReminderDays(
   days: string[]
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+    await requireEntitledModule("finance")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
     const parsed = [...new Set(days.map((d) => Number(d.trim())))]
@@ -693,6 +700,7 @@ export async function updateIntercompanyPartners(
   ids: string[]
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+    await requireEntitledModule("finance")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -744,6 +752,7 @@ export async function updateSettings(
   input: UpdateSettingsInput
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
   const subscriptionMutationRequested =
@@ -752,8 +761,8 @@ export async function updateSettings(
     input.subscriptionSeatLimit !== undefined ||
     input.subscriptionStartsAt !== undefined ||
     input.subscriptionEndsAt !== undefined
-  if (subscriptionMutationRequested && !ctx.isSuperadmin) {
-    throw new Error("Only the platform master can change subscription licensing.")
+  if (subscriptionMutationRequested) {
+    throw new Error("Subscription licensing is controlled by the signed deployment entitlement.")
   }
 
   const currency = (input.defaultCurrency ?? "").trim().toUpperCase()
@@ -802,8 +811,12 @@ export async function updateSettings(
     autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
-    autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
-    intercoAutoMirror: input.intercoAutoMirror,
+    ...(financeEnabled
+      ? {
+          autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
+          intercoAutoMirror: input.intercoAutoMirror,
+        }
+      : {}),
     documentationModule: input.documentationModule,
     allowPasswordLogin: input.allowPasswordLogin,
     entityCode: entityCode.length > 0 ? entityCode : null,
@@ -908,6 +921,7 @@ export async function updateNumbering(
   input: UpdateNumberingInput
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -935,6 +949,7 @@ export async function updateNumbering(
     throw new Error("Default validity must be between 1 and 365 days.")
   }
   if (
+    financeEnabled &&
     input.invoiceDueDays !== null &&
     (!Number.isInteger(input.invoiceDueDays) ||
       input.invoiceDueDays < 1 ||
@@ -952,7 +967,7 @@ export async function updateNumbering(
     // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
     quoteValidDays: input.quoteValidDays,
-    invoiceDueDays: input.invoiceDueDays,
+    ...(financeEnabled ? { invoiceDueDays: input.invoiceDueDays } : {}),
     updatedAt: new Date(),
   }
 

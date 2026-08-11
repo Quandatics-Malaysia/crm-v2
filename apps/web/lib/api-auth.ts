@@ -12,7 +12,11 @@ import {
   permissions as permissionsTable,
   tenantSettings,
 } from "@/db/schema"
-import { assertCan, type ServerContext } from "@/lib/server-context"
+import {
+  assertCan,
+  hasStandingTenantAccess,
+  type ServerContext,
+} from "@/lib/server-context"
 import type { PermissionKey } from "@/lib/permissions"
 import { isSubscriptionEntitlementActive, type SubscriptionStatus } from "@/lib/subscription-licensing"
 
@@ -154,10 +158,7 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
   // A disabled/invited member — or anyone in a suspended tenant — keeps no
   // effective permissions: every assertCan fails, locking the key out without
   // a hard delete. Identical to getServerContext.
-  const isActive =
-    resolved.status === "active" &&
-    !resolved.tenantSuspended &&
-    !resolved.subscriptionInactive
+  const isActive = hasStandingTenantAccess(resolved)
   const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {

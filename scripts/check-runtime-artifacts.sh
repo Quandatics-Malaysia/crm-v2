@@ -1,0 +1,267 @@
+#!/bin/sh
+
+set -eu
+
+root=${1:-}
+
+if [ "$#" -ne 1 ] || [ -z "$root" ] || [ ! -d "$root" ]; then
+  echo "usage: $0 <exported-runtime-root>" >&2
+  exit 1
+fi
+
+canonical_root=$(
+  CDPATH=
+  export CDPATH
+  cd -P "$root" 2>/dev/null
+  pwd -P
+)
+
+case "$canonical_root" in
+  /|//)
+    echo "refusing filesystem root: $root" >&2
+    exit 1
+    ;;
+esac
+
+payload_root=$canonical_root
+if [ -d "$canonical_root/app" ]; then
+  payload_root="$canonical_root/app"
+fi
+
+forbidden=$(find "$canonical_root" \( \
+  -name .git -o \
+  -name .github -o \
+  -name .superpowers -o \
+  -name '*.ts' -o \
+  -name '*.tsx' -o \
+  -name '*.jsx' -o \
+  -name '*.py' -o \
+  -name '*.map' -o \
+  -name Dockerfile -o \
+  -name Containerfile -o \
+  -name '*.test.*' -o \
+  -name '*.spec.*' -o \
+  -name .env -o \
+  -name '.env.*' -o \
+  -name .npmrc -o \
+  -name .yarnrc -o \
+  -name .pnpmrc -o \
+  -name credentials -o \
+  -name credentials.json -o \
+  -path '*/.docker/config.json' -o \
+  -name id_rsa -o \
+  -name id_ed25519 -o \
+  -name '*.key' -o \
+  -name '*.p12' -o \
+  -name '*.pfx' -o \
+  -name '*private*.pem' -o \
+  -path '*/root/*identity*' -o \
+  -name 'age-identity*' -o \
+  \( -type d \( \
+    -name test -o \
+    -name tests -o \
+    -name __tests__ -o \
+    -name fixtures -o \
+    -name docs -o \
+    -name docs-site \
+  \) \) -o \
+  -name OPERATIONS.md \
+\) -print -quit)
+
+if [ -n "$forbidden" ]; then
+  echo "forbidden runtime artifact: $forbidden" >&2
+  exit 1
+fi
+
+private_key=$(find "$canonical_root" -type f -size -1048576c \
+  -exec grep -l -- '-----BEGIN .*PRIVATE KEY-----' {} + 2>/dev/null \
+  | sed -n '1p')
+
+if [ -n "$private_key" ]; then
+  echo "private key material in runtime artifact: $private_key" >&2
+  exit 1
+fi
+
+age_identity=$(find "$canonical_root" -type f -size -1048576c \
+  -exec grep -l \
+    -e 'AGE-SECRET-KEY-1' \
+    -e 'AGE-SECRET-KEY-PQ-1' \
+    {} + 2>/dev/null \
+  | sed -n '1p')
+
+if [ -n "$age_identity" ]; then
+  echo "age identity material in runtime artifact: $age_identity" >&2
+  exit 1
+fi
+
+if [ -f "$payload_root/migrate.mjs" ]; then
+  unexpected=$(find "$payload_root" -mindepth 1 -maxdepth 1 \
+    ! -name migrate.mjs \
+    ! -name seed.mjs \
+    ! -name db \
+    ! -name node_modules \
+    ! -name package.json \
+    -print -quit)
+
+  if [ -z "$unexpected" ] && [ -d "$payload_root/db" ]; then
+    unexpected=$(find "$payload_root/db" -mindepth 1 -maxdepth 1 \
+      ! -name migrations \
+      ! -name sql \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$payload_root/db/migrations" ]; then
+    unexpected=$(find "$payload_root/db/migrations" -type f \
+      ! -name '*.sql' \
+      ! -path '*/meta/*.json' \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$payload_root/db/sql" ]; then
+    unexpected=$(find "$payload_root/db/sql" -type f ! -name '*.sql' -print -quit)
+  fi
+
+  if [ -n "$unexpected" ]; then
+    echo "unexpected migrator artifact: $unexpected" >&2
+    exit 1
+  fi
+elif [ -f "$payload_root/apps/web/server.js" ]; then
+  unexpected=$(find "$payload_root" -mindepth 1 -maxdepth 1 \
+    ! -name apps \
+    ! -name node_modules \
+    ! -name packages \
+    ! -name package.json \
+    -print -quit)
+
+  if [ -z "$unexpected" ]; then
+    unexpected=$(find "$payload_root/apps" -mindepth 1 -maxdepth 1 \
+      ! -name web \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ]; then
+    unexpected=$(find "$payload_root/apps/web" -mindepth 1 -maxdepth 1 \
+      ! -name server.js \
+      ! -name package.json \
+      ! -name .next \
+      ! -name public \
+      ! -name node_modules \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$payload_root/packages" ]; then
+    unexpected=$(find "$payload_root/packages" -mindepth 1 -maxdepth 1 \
+      \( ! -name control-protocol -o ! -type d \) \
+      -print -quit)
+  fi
+
+  package_root="$payload_root/packages/control-protocol"
+  if [ -z "$unexpected" ] && [ -d "$package_root" ]; then
+    unexpected=$(find "$package_root" -mindepth 1 -maxdepth 1 \
+      ! -name package.json \
+      ! -name dist \
+      ! -name node_modules \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$package_root/dist" ]; then
+    unexpected=$(find "$package_root/dist" -type f \
+      ! -name '*.js' \
+      ! -name '*.mjs' \
+      ! -name '*.cjs' \
+      ! -name '*.json' \
+      ! -name '*.node' \
+      ! -name '*.wasm' \
+      -print -quit)
+  fi
+
+  if [ -n "$unexpected" ]; then
+    echo "unexpected web runtime artifact: $unexpected" >&2
+    exit 1
+  fi
+elif [ -f "$canonical_root/opt/backup/check-tools.sh" ]; then
+  unexpected_top=$(find "$canonical_root" -mindepth 1 -maxdepth 1 \
+    ! -name .dockerenv \
+    ! -name bin \
+    ! -name dev \
+    ! -name etc \
+    ! -name home \
+    ! -name lib \
+    ! -name media \
+    ! -name mnt \
+    ! -name opt \
+    ! -name proc \
+    ! -name root \
+    ! -name run \
+    ! -name sbin \
+    ! -name srv \
+    ! -name sys \
+    ! -name tmp \
+    ! -name usr \
+    ! -name var \
+    -print -quit)
+
+  if [ -n "$unexpected_top" ]; then
+    echo "unexpected backup runtime top-level artifact: $unexpected_top" >&2
+    exit 1
+  fi
+
+  unexpected_opt=$(find "$canonical_root/opt" -mindepth 1 -maxdepth 1 \
+    ! -name backup \
+    -print -quit)
+
+  if [ -n "$unexpected_opt" ]; then
+    echo "unexpected backup runtime /opt artifact: $unexpected_opt" >&2
+    exit 1
+  fi
+
+  for required_tool in \
+    opt/backup/check-tools.sh \
+    usr/bin/pg_dump \
+    usr/local/bin/age \
+    usr/local/bin/rclone
+  do
+    if [ ! -x "$canonical_root/$required_tool" ] \
+      && [ ! -L "$canonical_root/$required_tool" ]; then
+      echo "missing executable backup runtime tool: $canonical_root/$required_tool" >&2
+      exit 1
+    fi
+  done
+
+  for forbidden_manager in \
+    sbin/apk \
+    usr/bin/apt \
+    usr/bin/apt-get \
+    usr/bin/dnf \
+    usr/bin/dpkg \
+    usr/bin/yum
+  do
+    if [ -e "$canonical_root/$forbidden_manager" ] \
+      || [ -L "$canonical_root/$forbidden_manager" ]; then
+      echo "package manager in backup runtime: $canonical_root/$forbidden_manager" >&2
+      exit 1
+    fi
+  done
+
+  unexpected=$(find "$canonical_root/opt/backup" -mindepth 1 \
+    \( ! -type f -o ! -name '*.sh' \) \
+    -print -quit)
+
+  if [ -n "$unexpected" ]; then
+    echo "unexpected backup runtime artifact: $unexpected" >&2
+    exit 1
+  fi
+elif [ -f "$payload_root/index.js" ] && [ -x "$canonical_root/usr/local/bin/agent-health" ]; then
+  unexpected=$(find "$payload_root" -mindepth 1 -maxdepth 1 ! -name index.js -print -quit)
+  if [ -n "$unexpected" ]; then
+    echo "unexpected deployment agent artifact: $unexpected" >&2
+    exit 1
+  fi
+  if grep -Eq 'DATABASE(_ADMIN)?_URL|POSTGRES_(PASSWORD|USER|DB)|docker[.]sock|drizzle-orm' "$payload_root/index.js"; then
+    echo "deployment agent runtime contains a forbidden privileged dependency or credential" >&2
+    exit 1
+  fi
+else
+  echo "unrecognized client runtime layout: $payload_root" >&2
+  exit 1
+fi

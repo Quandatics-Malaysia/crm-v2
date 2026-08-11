@@ -5,8 +5,8 @@ import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
-import { isModuleEnabled } from "@/lib/modules"
+import { requireEntitledRoute } from "@/lib/module-guard"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listMilestones } from "@/app/(app)/projects/actions"
 import { getProjectBillingSummary } from "@/app/(app)/billing/actions"
@@ -18,18 +18,20 @@ export default async function SalesOrderDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  requireModule("salesOrders")
+  await requireEntitledRoute("salesOrders")
   const { id } = await params
   const [order, ctx] = await Promise.all([getSalesOrder(id), requireContext()])
   if (!order) notFound()
+  const modules = await getEntitledModuleMap()
 
   const [milestones, billing] = await Promise.all([
     // Empty when the projects module is off or the parent project isn't visible.
-    isModuleEnabled("projects")
+    modules.projects
       ? listMilestones(order.projectId).catch(() => [])
       : Promise.resolve([]),
-    // Null when the finance module is off (or user lacks finance.view).
-    getProjectBillingSummary(order.projectId).catch(() => null),
+    modules.finance
+      ? getProjectBillingSummary(order.projectId).catch(() => null)
+      : Promise.resolve(null),
   ])
 
   const canApprove = ctx.can(PERMISSIONS.SALES_ORDER_APPROVE)

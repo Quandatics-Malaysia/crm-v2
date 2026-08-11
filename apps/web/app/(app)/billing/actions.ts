@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, inArray, isNull, ne, notExists, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
-import { withTenant, requireContext, type Tx } from "@/lib/actions"
+import { withModule, requireContext, type Tx } from "@/lib/actions"
 import { db, runInTenant } from "@/db"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
@@ -35,7 +35,7 @@ import {
   type FinanceDocKind,
 } from "@/lib/finance-kinds"
 import { partyShare } from "@/lib/interco-share"
-import { isModuleEnabled, assertModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   DEFAULT_INVOICE_DUE_DAYS,
   DEFAULT_REMINDER_DAYS,
@@ -71,23 +71,16 @@ export type FinanceDocRow = {
   createdAt: Date
 }
 
-/** The module is an add-on gated globally by the plugin registry
- *  (lib/modules.ts). */
-async function assertFinanceEnabled(_tx: Tx, _tenantId: string): Promise<void> {
-  assertModuleEnabled("finance")
-}
-
-/** Whether the finance module is enabled (for nav/pages). */
+/** Whether signed runtime entitlement includes finance. */
 export async function isFinanceEnabled(): Promise<boolean> {
-  return isModuleEnabled("finance")
+  return (await getEntitledModuleMap()).finance
 }
 
 /** All documents in one direction (sale = O2C, purchase = P2P), newest first. */
 export async function listFinanceDocs(
   direction: "sale" | "purchase"
 ): Promise<FinanceDocRow[]> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    await assertFinanceEnabled(tx, ctx.tenantId)
+  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx, _ctx) => {
     const parent = alias(financeDocs, "parent_doc")
     const rows = await tx
       .select({
@@ -148,8 +141,7 @@ async function financeSettings(tx: Tx, tenantId: string) {
 
 /** Reminder schedule for the docs pages (client computes which stage is due). */
 export async function getReminderSchedule(): Promise<number[]> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    await assertFinanceEnabled(tx, ctx.tenantId)
+  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
     return (await financeSettings(tx, ctx.tenantId)).reminderDays
   })
 }
@@ -180,8 +172,7 @@ export type FinanceSources = {
 /** Everything the create dialog needs, in one round trip. Managers only —
  *  it enumerates tenant-wide SOs, project values and milestone amounts. */
 export async function listFinanceSources(): Promise<FinanceSources> {
-  return withTenant(PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
-    await assertFinanceEnabled(tx, ctx.tenantId)
+  return withModule("finance", PERMISSIONS.FINANCE_MANAGE, async (tx, _ctx) => {
     const sos = await tx
       .select({
         id: salesOrders.id,
@@ -337,10 +328,10 @@ export async function createFinanceDoc(
   input: CreateFinanceDocInput
 ): Promise<ActionResult<{ id: string; number: string }>> {
   return runAction(async () => {
-    const created = await withTenant(
+    const created = await withModule(
+      "finance",
       PERMISSIONS.FINANCE_MANAGE,
       async (tx, ctx) => {
-        await assertFinanceEnabled(tx, ctx.tenantId)
         const kind = input.kind
         if (!financeDocKind.enumValues.includes(kind)) {
           throw new Error("Unknown document kind")
@@ -502,8 +493,7 @@ export async function setFinanceDocStatus(
     // Info collected inside the transaction for post-commit automation.
     let mirrors: IntercoMirror[] = []
 
-    await withTenant(PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
-      await assertFinanceEnabled(tx, ctx.tenantId)
+    await withModule("finance", PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
       const [doc] = await tx
         .select()
         .from(financeDocs)
@@ -859,7 +849,7 @@ async function executeIntercoMirror(m: IntercoMirror): Promise<void> {
   // The partner must have the finance module ON — otherwise the mirrored
   // documents would be invisible and unmanageable on their side. Finance is
   // now a global (deployment-wide) plugin, so the partner's state matches ours.
-  const partnerOn = isModuleEnabled("finance")
+  const partnerOn = (await getEntitledModuleMap()).finance
   if (!partnerOn) {
     await runInTenant(m.originTenantId, (tx) =>
       logActivity(tx, ctx, {
@@ -969,8 +959,7 @@ export type FinanceDocDetail = {
 
 /** Everything the /billing/[id] detail page renders. */
 export async function getFinanceDoc(id: string): Promise<FinanceDocDetail | null> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
-    await assertFinanceEnabled(tx, ctx.tenantId)
+  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx, ctx) => {
     const parent = alias(financeDocs, "parent_doc")
     const [row] = await tx
       .select({
@@ -1055,8 +1044,7 @@ export async function getFinanceDoc(id: string): Promise<FinanceDocDetail | null
 /** One click: log the next payment reminder on an issued document. */
 export async function logReminder(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
-    await withTenant(PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
-      await assertFinanceEnabled(tx, ctx.tenantId)
+    await withModule("finance", PERMISSIONS.FINANCE_MANAGE, async (tx, ctx) => {
       const [doc] = await tx
         .update(financeDocs)
         .set({
@@ -1094,10 +1082,10 @@ export async function createInvoiceFromMilestone(
   milestoneId: string
 ): Promise<ActionResult<{ id: string; number: string }>> {
   return runAction(async () => {
-    const created = await withTenant(
+    const created = await withModule(
+      "finance",
       PERMISSIONS.FINANCE_MANAGE,
       async (tx, ctx) => {
-        await assertFinanceEnabled(tx, ctx.tenantId)
         const [m] = await tx
           .select({
             id: paymentMilestones.id,
@@ -1210,8 +1198,7 @@ export type ProjectBillingSummary = {
 export async function getProjectBillingSummary(
   projectId: string
 ): Promise<ProjectBillingSummary | null> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx) => {
-    if (!isModuleEnabled("finance")) return null
+  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx) => {
 
     const [proj] = await tx
       .select({ value: projects.value, currency: projects.currency })
@@ -1280,8 +1267,7 @@ export async function getProjectBillingSummary(
 export async function listMilestoneFinanceDocs(
   milestoneId: string
 ): Promise<FinanceDocRow[]> {
-  return withTenant(PERMISSIONS.FINANCE_VIEW, async (tx) => {
-    if (!isModuleEnabled("finance")) return []
+  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx) => {
     const parent = alias(financeDocs, "parent_doc")
     return (await tx
       .select({
@@ -1330,7 +1316,7 @@ export type BilledMarginRow = {
  *  invoices, issued+settled) for the forecast page. */
 export async function getBilledMargin(): Promise<BilledMarginRow[]> {
   const ctx = await requireContext()
-  if (!isModuleEnabled("finance") || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
+  if (!(await getEntitledModuleMap()).finance || !ctx.can(PERMISSIONS.FINANCE_VIEW)) return []
   return runInTenant(ctx.tenantId, async (tx) => {
     const rows = await tx
       .select({

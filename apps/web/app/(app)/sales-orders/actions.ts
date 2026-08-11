@@ -29,6 +29,7 @@ import {
 import { storage } from "@/lib/storage"
 import { nextSoNumber, isDuplicateNumberError } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
+import { requireEntitledModule } from "@/lib/modules.server"
 import {
   visibleMemberIds,
   ownerScope,
@@ -253,6 +254,7 @@ export async function submitSalesOrderWithDocument(
   formData: FormData
 ): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
+  await requireEntitledModule("salesOrders")
   const file = formData.get("file")
   const projectId = formData.get("projectId")
   const notesRaw = formData.get("notes")

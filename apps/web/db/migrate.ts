@@ -5,6 +5,11 @@ import postgres from "postgres"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { migrate } from "drizzle-orm/postgres-js/migrator"
 import { ALL_PERMISSION_KEYS } from "@/lib/permissions"
+import {
+  publishAfterSuccessfulMigration,
+  publishAppliedMigrationVersion,
+  readActualAppliedMigrationVersion,
+} from "@/db/migration-version"
 
 /**
  * Runs as the privileged (superuser) role. Applies Drizzle migrations, then the
@@ -18,9 +23,16 @@ async function main() {
 
   const sql = postgres(url, { max: 1 })
   const db = drizzle(sql)
-
+  const migrationsFolder = path.join(process.cwd(), "db/migrations")
+  const journal = JSON.parse(
+    readFileSync(path.join(migrationsFolder, "meta/_journal.json"), "utf8")
+  ) as unknown
   console.log("→ applying drizzle migrations…")
-  await migrate(db, { migrationsFolder: path.join(process.cwd(), "db/migrations") })
+  await publishAfterSuccessfulMigration(
+    () => migrate(db, { migrationsFolder }),
+    () => readActualAppliedMigrationVersion(sql, journal),
+    (version) => publishAppliedMigrationVersion(sql, version),
+  )
 
   // pg_trgm powers the fuzzy duplicate-account warnings (similarity()).
   // Requires superuser, which this job runs as; idempotent.
@@ -29,6 +41,19 @@ async function main() {
 
   console.log("→ applying RLS policies…")
   await sql.unsafe(readFileSync(path.join(process.cwd(), "db/sql/rls.sql"), "utf8"))
+
+  const configuredBootstrapOwner = process.env.BOOTSTRAP_OWNER_EMAIL?.trim().toLowerCase() || null
+  if (configuredBootstrapOwner && (
+    /[\s\x00-\x1f\x7f]/.test(configuredBootstrapOwner)
+    || configuredBootstrapOwner.length < 3
+    || configuredBootstrapOwner.length > 320
+  )) {
+    throw new Error("BOOTSTRAP_OWNER_EMAIL must be one canonical email address")
+  }
+  console.log("→ syncing configured bootstrap owner…")
+  await sql`UPDATE deployment_bootstrap_state SET
+    configured_owner_email = ${configuredBootstrapOwner}, updated_at = now()
+    WHERE singleton = 1`
 
   console.log("→ applying report views…")
   await sql.unsafe(readFileSync(path.join(process.cwd(), "db/sql/views.sql"), "utf8"))

@@ -4,7 +4,7 @@ import { FolderPlusIcon, ClockIcon, FileTextIcon } from "lucide-react"
 
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   listAccountOptions,
   listMembers,
@@ -64,6 +64,7 @@ export default async function OpportunityDetailPage({
     currencies,
     milestones,
     approvalHistory,
+    modules,
   ] = await Promise.all([
     requireContext(),
     listAccountOptions(),
@@ -82,6 +83,7 @@ export default async function OpportunityDetailPage({
     listCurrencies(),
     listFunnelMilestones(id),
     listFunnelApprovalHistory(id),
+    getEntitledModuleMap(),
   ])
 
   // Resolve the project-nature display name for the overview (falls back to the
@@ -151,7 +153,7 @@ export default async function OpportunityDetailPage({
   const canCreateQuote = ctx.can(PERMISSIONS.QUOTATION_CREATE)
   const canManageMilestones = ctx.can(PERMISSIONS.PAYMENT_MILESTONE_MANAGE)
   const canCreateProject =
-    isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE)
+    modules.projects && ctx.can(PERMISSIONS.PROJECT_CREATE)
 
   return (
     <>
@@ -300,8 +302,8 @@ export default async function OpportunityDetailPage({
           canCreateQuote={canCreateQuote}
           canCreateProject={canCreateProject}
           canEdit={canUpdate}
-          financeEnabled={isModuleEnabled("finance")}
-          projectsEnabled={isModuleEnabled("projects")}
+          financeEnabled={modules.finance}
+          projectsEnabled={modules.projects}
           contractYears={contractYears}
           projectNatureNames={projectNatureNames}
           gate={gate}

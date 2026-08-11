@@ -14,7 +14,8 @@ import {
   stageApprovalRequests,
 } from "@/db/schema"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { requireEntitledModule } from "@/lib/modules.server"
+import type { ModuleId } from "@/lib/module-registry"
 import { type ServerContext } from "@/lib/server-context"
 
 /**
@@ -104,6 +105,20 @@ export function ownsOrManages(
   if (visible === null) return true
   if (!ownerMemberId) return false
   return visible.includes(ownerMemberId)
+}
+
+const ATTACHABLE_MODULE: Partial<Record<string, ModuleId>> = {
+  project: "projects",
+  sales_order: "salesOrders",
+  finance_doc: "finance",
+}
+
+export async function requireAttachableEntitlement(
+  type: string,
+  requireModule: (id: ModuleId) => Promise<void> = requireEntitledModule
+): Promise<void> {
+  const moduleId = ATTACHABLE_MODULE[type]
+  if (moduleId) await requireModule(moduleId)
 }
 
 /**
@@ -216,12 +231,17 @@ export async function canAccessAttachable(
   id: string,
   mode: "view" | "manage"
 ): Promise<boolean> {
+  try {
+    await requireAttachableEntitlement(type)
+  } catch {
+    return false
+  }
   // Finance documents carry no owner — access is purely capability-based
   // (finance.view / finance.manage, already asserted by the caller via
-  // ATTACH_PERMS) within the RLS-scoped tenant. The module flag still
-  // applies: with the add-on off, its attachments/activity are off too.
+  // ATTACH_PERMS) within the RLS-scoped tenant. Signed module entitlement
+  // still applies: without finance, its attachments/activity are unavailable.
   if (type === "finance_doc") {
-    return isModuleEnabled("finance")
+    return true
   }
   if (mode === "view" && canViewAllRecords(ctx)) return true
   if (mode === "manage" && canManageAllRecords(ctx)) return true

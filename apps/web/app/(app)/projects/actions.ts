@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withModule, type Tx } from "@/lib/actions"
-import { isModuleEnabled } from "@/lib/modules"
+import { requireEntitledModule } from "@/lib/modules.server"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   projects,
@@ -183,6 +183,7 @@ export async function createProject(
   input: ProjectCreateInput
 ): Promise<ActionResult<{ id: string; projectCode: string }>> {
   return runAction(async () => {
+  if (input.intercompanyDealId) await requireEntitledModule("finance")
   const created = await withModule(
     "projects",
     PERMISSIONS.PROJECT_CREATE,
@@ -456,20 +457,18 @@ export async function deleteProject(id: string): Promise<ActionResult<void>> {
     // milestones, so an approved (number-minted) SO would keep showing in the
     // global list pointing at a hidden project, and milestones would orphan.
     // Refuse while live dependents exist, mirroring deleteAccount's guard.
-    if (isModuleEnabled("salesOrders")) {
-      const [{ soCount }] = await tx
-        .select({
-          soCount: sql<number>`count(*)`,
-        })
-        .from(salesOrders)
-        .where(
-          and(eq(salesOrders.projectId, id), ne(salesOrders.status, "rejected"))
-        )
-      if (Number(soCount) > 0) {
-        throw new Error(
-          "This project has active sales orders. Reject them before deleting the project."
-        )
-      }
+    const [{ soCount }] = await tx
+      .select({
+        soCount: sql<number>`count(*)`,
+      })
+      .from(salesOrders)
+      .where(
+        and(eq(salesOrders.projectId, id), ne(salesOrders.status, "rejected"))
+      )
+    if (Number(soCount) > 0) {
+      throw new Error(
+        "This project has active sales orders. Reject them before deleting the project."
+      )
     }
 
     const [{ milestoneCount }] = await tx

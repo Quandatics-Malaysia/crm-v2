@@ -89,6 +89,7 @@ export type AccountDetailData = {
   opportunities: AccountOpportunityItem[]
   pipelines: AccountFunnelItem[]
   projects: AccountProjectItem[]
+  projectsEnabled: boolean
   quotations: AccountQuotationItem[]
   childAccounts: AccountChild[]
   activity: React.ComponentProps<typeof ActivityTimeline>["items"]
@@ -116,6 +117,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     opportunities,
     pipelines,
     projects,
+    projectsEnabled,
     quotations,
     childAccounts,
     activity,
@@ -393,7 +395,9 @@ export function AccountDetailBody(props: AccountDetailData) {
             { kind: "contact", label: "Contacts", count: contacts.length, onSelect: () => setTab("contacts") },
             { kind: "opportunity", label: "Opportunities", count: opportunities.length, onSelect: () => setTab("opportunities") },
             { kind: "funnel", label: "Funnels", count: pipelines.length, onSelect: () => setTab("pipelines") },
-            { kind: "project", label: "Projects", count: projects.length, onSelect: () => setTab("projects") },
+            ...(projectsEnabled
+              ? [{ kind: "project" as const, label: "Projects", count: projects.length, onSelect: () => setTab("projects") }]
+              : []),
             { kind: "quotation", label: "Quotations", count: quotations.length, onSelect: () => setTab("quotations") },
             { kind: "account", label: "Child accounts", count: childAccounts.length, onSelect: () => setTab("children") },
           ]}
@@ -412,9 +416,11 @@ export function AccountDetailBody(props: AccountDetailData) {
           <CountTab value="pipelines" count={pipelines.length}>
             Funnels
           </CountTab>
-          <CountTab value="projects" count={projects.length}>
-            Projects
-          </CountTab>
+          {projectsEnabled ? (
+            <CountTab value="projects" count={projects.length}>
+              Projects
+            </CountTab>
+          ) : null}
           <CountTab value="quotations" count={quotations.length}>
             Quotations
           </CountTab>
@@ -460,7 +466,7 @@ export function AccountDetailBody(props: AccountDetailData) {
           />
         </TabsContent>
 
-        <TabsContent value="projects" className="mt-4">
+        {projectsEnabled ? <TabsContent value="projects" className="mt-4">
           <DataTable
             columns={projectColumns}
             data={projects}
@@ -491,7 +497,7 @@ export function AccountDetailBody(props: AccountDetailData) {
             }
             pageSize={5}
           />
-        </TabsContent>
+        </TabsContent> : null}
 
         <TabsContent value="quotations" className="mt-4">
           <DataTable

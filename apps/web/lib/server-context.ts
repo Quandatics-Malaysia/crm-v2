@@ -30,10 +30,22 @@ export type ServerContext = {
   status: "active" | "invited" | "disabled"
   /** Tenant lifecycle — a suspended tenant is locked for everyone in it. */
   tenantSuspended: boolean
-  /** The issued licence is not currently within its active validity window. */
+  /** Legacy tenant billing state, retained for migration/display only. */
   subscriptionInactive: boolean
   permissions: Set<string>
   can: (key: PermissionKey | string) => boolean
+}
+
+/**
+ * Membership and tenant lifecycle decide whether reads/permissions remain
+ * available. Commercial write access is evaluated separately from signed
+ * deployment state at mutation boundaries.
+ */
+export function hasStandingTenantAccess(input: Pick<
+  ServerContext,
+  "status" | "tenantSuspended" | "subscriptionInactive"
+>): boolean {
+  return input.status === "active" && !input.tenantSuspended
 }
 
 /**
@@ -71,11 +83,34 @@ export async function getServerContext(): Promise<ServerContext | null> {
 
   // is_superadmin lives on our user table extension.
   const [u] = await db
-    .select({ isSuperadmin: userTable.isSuperadmin })
+    .select({
+      isSuperadmin: userTable.isSuperadmin,
+      isVendorSupport: userTable.isVendorSupport,
+    })
     .from(userTable)
     .where(eq(userTable.id, sessionUser.id))
     .limit(1)
   const isSuperadmin = u?.isSuperadmin ?? false
+
+  // Support identities are operational principals, never tenant principals.
+  // Even a stale legacy member row must not grant standing CRM access.
+  if (u?.isVendorSupport) {
+    return {
+      userId: sessionUser.id,
+      userName: sessionUser.name,
+      userEmail: sessionUser.email,
+      isSuperadmin: false,
+      tenantId: "",
+      memberId: null,
+      tierLevel: 0,
+      roleName: null,
+      status: "disabled",
+      tenantSuspended: false,
+      subscriptionInactive: false,
+      permissions: new Set(),
+      can: () => false,
+    }
+  }
 
   if (!memberRow) {
     return {
@@ -186,10 +221,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
   // A disabled (or not-yet-active/invited) member — or anyone in a suspended
   // tenant — keeps no effective permissions: every assertCan fails, locking
   // them out without a hard delete.
-  const isActive =
-    resolved.status === "active" &&
-    !resolved.tenantSuspended &&
-    (isSuperadmin || !resolved.subscriptionInactive)
+  const isActive = hasStandingTenantAccess(resolved)
   const perms = new Set(isActive ? resolved.permKeys : [])
 
   return {
@@ -223,9 +255,6 @@ export async function requireContext(): Promise<ServerContext> {
   }
   if (ctx.status !== "active") {
     throw new Error("Your membership in this organization is not active.")
-  }
-  if (ctx.subscriptionInactive && !ctx.isSuperadmin) {
-    throw new Error("This organization's seat licence is not currently active.")
   }
   return ctx
 }

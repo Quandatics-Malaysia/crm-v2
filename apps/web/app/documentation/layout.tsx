@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { DOC_GROUPS } from "./registry"
 import { extractText } from "./extract-text"
@@ -13,14 +13,14 @@ import { DocsHeader, type DocsSearchEntry } from "./docs-header"
  * Access gate, both required:
  *   1. the member's `docs.view` permission (Owner/Admin by default —
  *      grant per role in Team & roles when someone else needs it)
- *   2. the tenant switch (Settings → General → Behavior → Documentation)
+ *   2. the signed deployment entitlement for `documentation`
  */
 export default async function DocumentationLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  requireModule("documentation")
+  await requireEntitledRoute("documentation")
   const ctx = await requireContext()
   if (!ctx.can(PERMISSIONS.DOCS_VIEW)) redirect("/dashboard")
 

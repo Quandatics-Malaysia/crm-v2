@@ -3,7 +3,10 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { requireContext, assertCan } from "@/lib/server-context"
-import { canAccessAttachable } from "@/lib/access-scope"
+import {
+  canAccessAttachable,
+  requireAttachableEntitlement,
+} from "@/lib/access-scope"
 import { attachViewPerm, attachWritePerm } from "./attachment-perms"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { runInTenant, type Tx } from "@/db"
@@ -17,6 +20,7 @@ import {
 } from "@/db/schema"
 import { logActivity, type ActivityEntity, type ActivityKind } from "@/server/services/activity"
 import type { ChangeEntry } from "@/server/services/changes/types"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 
 export type ActivityRow = {
   id: string
@@ -37,6 +41,7 @@ export async function listActivities(
   entityType: ActivityEntity,
   entityId: string
 ): Promise<ActivityRow[]> {
+  await requireAttachableEntitlement(entityType)
   const ctx = await requireContext()
   assertCan(ctx, attachViewPerm(entityType))
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -87,7 +92,8 @@ export type TimelineRow = ActivityRow & { sourceType: ActivityEntity }
 async function rollupPairs(
   tx: Tx,
   rootType: ActivityEntity,
-  rootId: string
+  rootId: string,
+  projectsEnabled: boolean
 ): Promise<{ type: ActivityEntity; ids: string[] }[]> {
   if (rootType === "account") {
     const personIds = (
@@ -99,9 +105,11 @@ async function rollupPairs(
         .from(funnels)
         .where(eq(funnels.accountId, rootId))
     ).map((r) => r.id)
-    const projIds = (
-      await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
-    ).map((r) => r.id)
+    const projIds = projectsEnabled
+      ? (
+          await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
+        ).map((r) => r.id)
+      : []
     return [
       { type: "account", ids: [rootId] },
       { type: "person", ids: personIds },
@@ -141,12 +149,14 @@ export async function listEntityTimeline(
   rootType: ActivityEntity,
   rootId: string
 ): Promise<TimelineRow[]> {
+  await requireAttachableEntitlement(rootType)
+  const modules = await getEntitledModuleMap()
   const ctx = await requireContext()
   assertCan(ctx, attachViewPerm(rootType))
   return runInTenant(ctx.tenantId, async (tx) => {
     if (!(await canAccessAttachable(tx, ctx, rootType, rootId, "view")))
       return []
-    const pairs = (await rollupPairs(tx, rootType, rootId)).filter(
+    const pairs = (await rollupPairs(tx, rootType, rootId, modules.projects)).filter(
       (p) => p.ids.length > 0
     )
     const conds = pairs.map((p) =>
@@ -203,6 +213,7 @@ export async function addActivity(input: {
   revalidate?: string
 }): Promise<ActionResult<void>> {
   return runAction(async () => {
+    await requireAttachableEntitlement(input.entityType)
     const ctx = await requireContext()
     assertCan(ctx, attachWritePerm(input.entityType))
     await runInTenant(ctx.tenantId, async (tx) => {

@@ -1,0 +1,199 @@
+name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be set}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE must be set to an immutable digest reference}
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME must be set}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${DB_NAME:?DB_NAME must be set}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: ${DB_MEMORY_LIMIT:-2g}
+    logging: *default-logging
+    restart: unless-stopped
+
+  migrate:
+    image: ${MIGRATOR_IMAGE:?MIGRATOR_IMAGE must be set to an immutable digest reference}
+    profiles: ["deploy"]
+    environment:
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
+      DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is derived by deploy.sh}
+      CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
+      PLATFORM_MASTER_EMAIL: ${PLATFORM_MASTER_EMAIL:?PLATFORM_MASTER_EMAIL must be set}
+      PLATFORM_MASTER_PASSWORD: ${PLATFORM_MASTER_PASSWORD:?PLATFORM_MASTER_PASSWORD must be set}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      DEMO_ADMIN_EMAIL: ${PLATFORM_MASTER_EMAIL:?PLATFORM_MASTER_EMAIL must be set}
+      DEMO_ADMIN_PASSWORD: ${PLATFORM_MASTER_PASSWORD:?PLATFORM_MASTER_PASSWORD must be set}
+      DEMO_TENANT_ID: ${DEMO_TENANT_ID:-demo-entity}
+      DEMO_TENANT_NAME: ${DEMO_TENANT_NAME:-Demo Workspace}
+      DEMO_CURRENCY: ${DEMO_CURRENCY:-USD}
+      DEMO_TAX_NAME: ${DEMO_TAX_NAME:-VAT 5%}
+      DEMO_TAX_RATE: ${DEMO_TAX_RATE:-5.000}
+      SEED_SAMPLE_DATA: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    logging: *default-logging
+    restart: "no"
+
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE must be set to an immutable digest reference}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is derived by deploy.sh}
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
+      APP_URL: ${APP_URL:-http://localhost}
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
+      AGENT_WEB_SECRET: ${AGENT_WEB_SECRET:?AGENT_WEB_SECRET must be set}
+      APPLICATION_VERSION: ${APPLICATION_VERSION:?APPLICATION_VERSION must be set}
+      MIGRATION_VERSION: ${MIGRATION_VERSION:?MIGRATION_VERSION must be set}
+      RELEASE_TAG: ${RELEASE_TAG:?RELEASE_TAG must be set}
+      SOURCE_COMMIT_SHA: ${SOURCE_COMMIT_SHA:?SOURCE_COMMIT_SHA must be set}
+      VENDOR_ENTITLEMENT_TRUST_SET: ${VENDOR_ENTITLEMENT_TRUST_SET:?VENDOR_ENTITLEMENT_TRUST_SET must be set}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /data/uploads
+    volumes:
+      - appfiles:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+      - agent-web
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    mem_limit: ${WEB_MEMORY_LIMIT:-1g}
+    logging: *default-logging
+    restart: unless-stopped
+
+  agent:
+    image: ${AGENT_IMAGE:?AGENT_IMAGE must be set to an immutable digest reference}
+    environment:
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:?CONTROL_PLANE_URL must be set}
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?DEPLOYMENT_ENV must be set}
+      INSTALLATION_TOKEN: ${INSTALLATION_TOKEN:-}
+      WEB_INTERNAL_URL: http://web:3000
+      AGENT_WEB_SECRET: ${AGENT_WEB_SECRET:?AGENT_WEB_SECRET must be set}
+      APPLICATION_VERSION: ${APPLICATION_VERSION:?APPLICATION_VERSION must be set}
+      AGENT_VERSION: ${AGENT_VERSION:?AGENT_VERSION must be set}
+      IMAGE_DIGEST: ${IMAGE_DIGEST:?IMAGE_DIGEST is derived by deploy.sh}
+      MIGRATION_VERSION: ${MIGRATION_VERSION:?MIGRATION_VERSION must be set}
+    volumes:
+      - agent-state:/var/lib/crm-agent
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - agent-web
+      - agent-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/agent-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: ${AGENT_MEMORY_LIMIT:-128m}
+    logging: *default-logging
+    restart: unless-stopped
+
+  backup:
+    image: ${BACKUP_IMAGE:?BACKUP_IMAGE must be set to an immutable digest reference}
+    environment:
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
+      BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
+    volumes:
+      - appfiles:/data/uploads:ro
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+      - egress
+    mem_limit: ${BACKUP_MEMORY_LIMIT:-256m}
+    logging: *default-logging
+    restart: unless-stopped
+
+  gateway:
+    image: ${CADDY_IMAGE:?CADDY_IMAGE must be set to an immutable digest reference}
+    ports:
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8081}:8081"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - web
+    networks:
+      - frontend
+    mem_limit: ${GATEWAY_MEMORY_LIMIT:-128m}
+    logging: *default-logging
+    restart: unless-stopped
+
+networks:
+  frontend:
+  backend:
+    internal: true
+  agent-web:
+    internal: true
+  agent-egress:
+  egress:
+
+volumes:
+  pgdata:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
+  appfiles:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
+  backups:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
+  caddydata:
+  caddyconfig:
+  agent-state:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}

@@ -463,6 +463,34 @@
 			"when": 1785920000000,
 			"tag": "0065_subscription_collection_milestones",
 			"breakpoints": true
+		},
+		{
+			"idx": 66,
+			"version": "7",
+			"when": 1786368000000,
+			"tag": "0066_deployment_control",
+			"breakpoints": true
+		},
+		{
+			"idx": 67,
+			"version": "7",
+			"when": 1786381200000,
+			"tag": "0067_deployment_status",
+			"breakpoints": true
+		},
+		{
+			"idx": 68,
+			"version": "7",
+			"when": 1786467600000,
+			"tag": "0068_deployment_seats",
+			"breakpoints": true
+		},
+		{
+			"idx": 69,
+			"version": "7",
+			"when": 1786554000000,
+			"tag": "0069_deployment_seat_authority",
+			"breakpoints": true
 		}
 	]
 }

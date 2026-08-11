@@ -323,9 +323,8 @@ function GeneralForm({
               </div>
               <p className="text-xs text-muted-foreground">
                 Read-only — identifies this entity in backend operations.
-                Optional modules are enabled deployment-wide in{" "}
-                <code className="font-mono">modules.config.ts</code> (then rebuild
-                / redeploy), not per entity.
+                Optional module ownership is applied deployment-wide through a
+                vendor-signed runtime entitlement, not per entity.
               </p>
             </div>
             <FormField

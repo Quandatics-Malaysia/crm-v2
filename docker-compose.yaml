@@ -49,6 +49,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       PLATFORM_MASTER_EMAIL: ${PLATFORM_MASTER_EMAIL:?PLATFORM_MASTER_EMAIL must be set}
       PLATFORM_MASTER_PASSWORD: ${PLATFORM_MASTER_PASSWORD:?PLATFORM_MASTER_PASSWORD must be set to a strong value}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
       # Temporary compatibility aliases for older seed code. New deployments
       # configure PLATFORM_MASTER_* only.
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-${PLATFORM_MASTER_EMAIL}}
@@ -85,6 +86,13 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       APP_URL: ${APP_URL:-${BETTER_AUTH_URL:-http://localhost}}
+      # Machine-only deployment control. Identity and shared secret have no
+      # defaults; release metadata is pinned by the deployed image/release.
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
+      AGENT_WEB_SECRET: ${AGENT_WEB_SECRET:?AGENT_WEB_SECRET must be set}
+      APPLICATION_VERSION: ${APPLICATION_VERSION:?APPLICATION_VERSION must be set}
+      MIGRATION_VERSION: ${MIGRATION_VERSION:?MIGRATION_VERSION must be set}
+      VENDOR_ENTITLEMENT_TRUST_SET: ${VENDOR_ENTITLEMENT_TRUST_SET:?VENDOR_ENTITLEMENT_TRUST_SET must be set}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}

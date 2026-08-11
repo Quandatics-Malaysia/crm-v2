@@ -1,0 +1,157 @@
+name: deploy-control-plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Control-plane target
+        required: true
+        type: choice
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: control-plane-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Workers binding types
+        run: pnpm --filter control-plane exec wrangler types --env-interface CloudflareBindings
+      - name: Check fresh migration chain
+        run: pnpm --filter control-plane exec wrangler d1 migrations apply CONTROL_DB --local --persist-to=/tmp/control-plane-migration-check
+      - name: Typecheck
+        run: pnpm --filter control-plane typecheck
+      - name: Workers Vitest
+        run: pnpm --filter control-plane exec vitest run
+      - name: Workflow contract test
+        run: node --test .github/workflows/tests/deploy-control-plane.test.mjs
+      - name: Bundle dry run
+        run: pnpm --filter control-plane exec wrangler deploy --dry-run --env=""
+
+  deploy-staging:
+    if: inputs.environment == 'staging'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate protected values and render deploy config
+        env:
+          CONTROL_PLANE_ENVIRONMENT: staging
+          CONTROL_PLANE_PROJECT_DIR: ${{ github.workspace }}/apps/control-plane
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-staging.json
+          CONTROL_DB_ID: ${{ secrets.CONTROL_DB_ID }}
+          CONTROL_DB_NAME: ${{ vars.CONTROL_DB_NAME }}
+          BACKUP_BUCKET_NAME: ${{ vars.BACKUP_BUCKET_NAME }}
+          ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+          BOOTSTRAP_OWNER_EMAIL: ${{ vars.BOOTSTRAP_OWNER_EMAIL }}
+          OPERATOR_ORIGIN: ${{ vars.OPERATOR_ORIGIN }}
+          CONTROL_PLANE_ROUTE: ${{ vars.CONTROL_PLANE_ROUTE }}
+          ENTITLEMENT_SIGNING_KEY_ID: ${{ vars.ENTITLEMENT_SIGNING_KEY_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENTITLEMENT_SIGNING_PRIVATE_JWK: ${{ secrets.ENTITLEMENT_SIGNING_PRIVATE_JWK }}
+          INSTALL_TOKEN_PEPPER: ${{ secrets.INSTALL_TOKEN_PEPPER }}
+        run: node .github/workflows/scripts/render-control-plane-config.mjs
+      - name: Install scoped Worker secrets
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-staging.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENTITLEMENT_SIGNING_PRIVATE_JWK: ${{ secrets.ENTITLEMENT_SIGNING_PRIVATE_JWK }}
+          INSTALL_TOKEN_PEPPER: ${{ secrets.INSTALL_TOKEN_PEPPER }}
+        run: |
+          printf '%s' "$ENTITLEMENT_SIGNING_PRIVATE_JWK" | pnpm --filter control-plane exec wrangler secret put ENTITLEMENT_SIGNING_PRIVATE_JWK --config "$CONTROL_PLANE_CONFIG_PATH"
+          printf '%s' "$INSTALL_TOKEN_PEPPER" | pnpm --filter control-plane exec wrangler secret put INSTALL_TOKEN_PEPPER --config "$CONTROL_PLANE_CONFIG_PATH"
+      - name: Apply remote migrations before code
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-staging.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter control-plane exec wrangler d1 migrations apply CONTROL_DB --remote --config "$CONTROL_PLANE_CONFIG_PATH"
+      - name: Deploy staging Worker and cron
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-staging.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter control-plane exec wrangler deploy --config "$CONTROL_PLANE_CONFIG_PATH"
+
+  deploy-production:
+    if: inputs.environment == 'production'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate protected values and render deploy config
+        env:
+          CONTROL_PLANE_ENVIRONMENT: production
+          CONTROL_PLANE_PROJECT_DIR: ${{ github.workspace }}/apps/control-plane
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-production.json
+          CONTROL_DB_ID: ${{ secrets.CONTROL_DB_ID }}
+          CONTROL_DB_NAME: ${{ vars.CONTROL_DB_NAME }}
+          BACKUP_BUCKET_NAME: ${{ vars.BACKUP_BUCKET_NAME }}
+          ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+          BOOTSTRAP_OWNER_EMAIL: ${{ vars.BOOTSTRAP_OWNER_EMAIL }}
+          OPERATOR_ORIGIN: ${{ vars.OPERATOR_ORIGIN }}
+          CONTROL_PLANE_ROUTE: ${{ vars.CONTROL_PLANE_ROUTE }}
+          ENTITLEMENT_SIGNING_KEY_ID: ${{ vars.ENTITLEMENT_SIGNING_KEY_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENTITLEMENT_SIGNING_PRIVATE_JWK: ${{ secrets.ENTITLEMENT_SIGNING_PRIVATE_JWK }}
+          INSTALL_TOKEN_PEPPER: ${{ secrets.INSTALL_TOKEN_PEPPER }}
+        run: node .github/workflows/scripts/render-control-plane-config.mjs
+      - name: Install scoped Worker secrets
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-production.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENTITLEMENT_SIGNING_PRIVATE_JWK: ${{ secrets.ENTITLEMENT_SIGNING_PRIVATE_JWK }}
+          INSTALL_TOKEN_PEPPER: ${{ secrets.INSTALL_TOKEN_PEPPER }}
+        run: |
+          printf '%s' "$ENTITLEMENT_SIGNING_PRIVATE_JWK" | pnpm --filter control-plane exec wrangler secret put ENTITLEMENT_SIGNING_PRIVATE_JWK --config "$CONTROL_PLANE_CONFIG_PATH"
+          printf '%s' "$INSTALL_TOKEN_PEPPER" | pnpm --filter control-plane exec wrangler secret put INSTALL_TOKEN_PEPPER --config "$CONTROL_PLANE_CONFIG_PATH"
+      - name: Apply remote migrations before code
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-production.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter control-plane exec wrangler d1 migrations apply CONTROL_DB --remote --config "$CONTROL_PLANE_CONFIG_PATH"
+      - name: Deploy production Worker and cron
+        env:
+          CONTROL_PLANE_CONFIG_PATH: ${{ runner.temp }}/wrangler-control-plane-production.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter control-plane exec wrangler deploy --config "$CONTROL_PLANE_CONFIG_PATH"

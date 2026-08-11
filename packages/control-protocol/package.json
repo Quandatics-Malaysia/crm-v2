@@ -1,0 +1,49 @@
+{
+  "name": "@crm/control-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./billing": {
+      "types": "./src/billing.ts",
+      "development": "./src/billing.ts",
+      "browser": "./src/billing.ts",
+      "worker": "./src/billing.ts",
+      "node": "./dist/billing.js",
+      "default": "./src/billing.ts"
+    },
+    "./heartbeat": {
+      "types": "./src/heartbeat.ts",
+      "development": "./src/heartbeat.ts",
+      "browser": "./src/heartbeat.ts",
+      "worker": "./src/heartbeat.ts",
+      "node": "./dist/heartbeat.js",
+      "default": "./src/heartbeat.ts"
+    },
+    "./deployment-auth": {
+      "types": "./src/deployment-auth.ts",
+      "development": "./src/deployment-auth.ts",
+      "browser": "./src/deployment-auth.ts",
+      "worker": "./src/deployment-auth.ts",
+      "node": "./dist/deployment-auth.js",
+      "default": "./src/deployment-auth.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:runtime": "pnpm run build && node --test tests/runtime-import.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^4.1.9"
+  }
+}

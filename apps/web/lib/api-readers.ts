@@ -2,6 +2,7 @@ import "server-only"
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { type Tx, type ServerContext } from "@/lib/actions"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { PERMISSIONS, type PermissionKey } from "@/lib/permissions"
 import {
   visibleMemberIds,
@@ -376,6 +377,7 @@ export async function personsGet(
   ctx: ServerContext,
   id: string
 ): Promise<PersonDetail | null> {
+  const projectsEnabled = (await getEntitledModuleMap()).projects
   const visible = await visibleMemberIds(tx, ctx)
   const [row] = await tx
     .select({
@@ -410,7 +412,7 @@ export async function personsGet(
 
   // Projects that belong to this contact's pipelines (the deals they're on).
   const oppIds = opps.map((o) => o.id)
-  const projs = oppIds.length
+  const projs = projectsEnabled && oppIds.length
     ? await tx
         .select({
           id: projects.id,
@@ -752,6 +754,7 @@ export async function funnelsList(
   ctx: ServerContext,
   { limit, offset }: PagingOpts
 ): Promise<ReadResult<OpportunityListRow>> {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const visible = await visibleMemberIds(tx, ctx)
   const where = and(isNull(funnels.deletedAt), ownerScope(funnels.ownerMemberId, visible))
   const [rows, totalRows] = await Promise.all([
@@ -803,10 +806,12 @@ export async function funnelsList(
       .where(where),
   ])
 
-  const partiesByOpp = await loadPartiesByOpportunity(
-    tx,
-    rows.map((r) => r.id)
-  )
+  const partiesByOpp = financeEnabled
+    ? await loadPartiesByOpportunity(
+        tx,
+        rows.map((r) => r.id)
+      )
+    : new Map<string, PartyRow[]>()
   return {
     rows: rows.map((r) => ({ ...r, parties: partiesByOpp.get(r.id) ?? [] })),
     total: countOf(totalRows),
@@ -856,6 +861,7 @@ export async function funnelsGet(
   ctx: ServerContext,
   id: string
 ): Promise<OpportunityDetail | null> {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const visible = await visibleMemberIds(tx, ctx)
   const [opp] = await tx
     .select()
@@ -879,13 +885,15 @@ export async function funnelsGet(
     .limit(1)
 
   // The handling partners, live-resolved (see loadPartiesByOpportunity).
-  const parties = (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
+  const parties = financeEnabled
+    ? (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
+    : []
 
   // Each party's accept/decline on their slice of the assignment (written by
   // the partner tenant; readable here via the origin-side RLS policy on
   // responses). One intercompanyDeals mirror row per party.
   let partnerResponses: OpportunityDetail["partnerResponses"] = []
-  if (opp.isIntercompany) {
+  if (financeEnabled && opp.isIntercompany) {
     const rows = await tx
       .select({
         partnerEntityId: intercompanyDeals.partnerTenantId,
@@ -1142,6 +1150,8 @@ export async function quotationsGet(
 
 export type ApiResource = {
   permission: PermissionKey
+  /** Signed runtime entitlement owner. Omit for core resources. */
+  module?: import("@/lib/module-registry").ModuleId
   list(tx: Tx, ctx: ServerContext, opts: PagingOpts): Promise<{ rows: unknown[]; total: number }>
   get(tx: Tx, ctx: ServerContext, id: string): Promise<unknown | null>
 }

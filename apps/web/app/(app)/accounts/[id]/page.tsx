@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { formatDate } from "@/lib/format"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   listIndustries,
   listCountries,
@@ -43,7 +43,7 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, parentOptions, industries, countries, members, ctx] =
+  const [data, parentOptions, industries, countries, members, ctx, modules] =
     await Promise.all([
       getAccount(id),
       listParentOptions(id),
@@ -51,6 +51,7 @@ export default async function AccountDetailPage({
       listCountries(),
       listMembers(),
       requireContext(),
+      getEntitledModuleMap(),
     ])
 
   if (!data) notFound()
@@ -104,7 +105,7 @@ export default async function AccountDetailPage({
         pipelines={funnelDefs}
         customFieldDefs={customFunnelFields}
         entityOptions={entities}
-        financeEnabled={isModuleEnabled("finance")}
+        financeEnabled={modules.finance}
         currencies={currencies}
         defaultOwnerMemberId={ctx.memberId}
         trigger={
@@ -276,6 +277,7 @@ export default async function AccountDetailPage({
           opportunities={accountOpportunities}
           pipelines={pipelines}
           projects={accountProjects}
+          projectsEnabled={modules.projects}
           quotations={accountQuotations}
           childAccounts={children}
           activity={activity}
@@ -283,7 +285,7 @@ export default async function AccountDetailPage({
           newFunnelButton={newFunnelButton}
           canCreateQuotation={ctx.can(PERMISSIONS.QUOTATION_CREATE)}
           canCreateProject={
-            isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE)
+            modules.projects && ctx.can(PERMISSIONS.PROJECT_CREATE)
           }
         />
       </PageBody>

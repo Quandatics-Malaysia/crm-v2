@@ -136,6 +136,60 @@ CREATE POLICY tenant_isolation ON api_keys
   WITH CHECK (organization_id = current_setting('app.current_tenant', true));
 GRANT SELECT, INSERT, UPDATE ON api_keys TO crm_app;
 
+-- Deployment entitlement state is global, not tenant-owned. The app role has
+-- no direct table access: narrowly-scoped SECURITY DEFINER functions serialize
+-- verified applies, record bounded rejection metadata, and expose one safe row.
+ALTER TABLE deployment_control_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_control_state FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_entitlement_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_entitlement_history FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON deployment_control_state FROM crm_app;
+REVOKE ALL ON deployment_entitlement_history FROM crm_app;
+REVOKE ALL ON SEQUENCE deployment_entitlement_history_id_seq FROM crm_app;
+GRANT EXECUTE ON FUNCTION record_deployment_entitlement_rejection(text, text, bigint, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION apply_verified_deployment_entitlement(text, text, bigint, text, text, text, text, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone, public.deployment_subscription_status, integer, text[], timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_entitlement_state(timestamp with time zone) TO crm_app;
+
+-- Deployment seat reservations are global and contain normalized identities.
+-- Only the fixed-shape aggregate may cross the application-role boundary.
+ALTER TABLE deployment_seat_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_seat_state FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_seat_reservations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_seat_reservations FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_bootstrap_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_bootstrap_state FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_runtime_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deployment_runtime_metadata FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON deployment_seat_state FROM crm_app;
+REVOKE ALL ON deployment_seat_reservations FROM crm_app;
+REVOKE ALL ON deployment_bootstrap_state FROM crm_app;
+REVOKE ALL ON deployment_runtime_metadata FROM crm_app;
+-- Seat occupancy rows are mutated only inside the SECURITY DEFINER seams.
+-- Column-level UPDATE keeps non-lifecycle profile administration available
+-- without permitting status/tenant/member identity reassignment.
+REVOKE INSERT, UPDATE, DELETE ON member FROM crm_app;
+REVOKE INSERT, UPDATE, DELETE ON pending_invites FROM crm_app;
+REVOKE INSERT, UPDATE, DELETE ON membership_profiles FROM crm_app;
+GRANT UPDATE (role_id, tier_level, manager_member_id, updated_at) ON membership_profiles TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_status_rollup() TO crm_app;
+GRANT EXECUTE ON FUNCTION read_deployment_seat_usage(timestamp with time zone) TO crm_app;
+REVOKE EXECUTE ON FUNCTION require_deployment_seat_actor(text, text, text) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION perform_deployment_invitation_reservation(uuid, text, text, uuid, integer, text, text, text, timestamp with time zone, timestamp with time zone) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION perform_deployment_membership_activation(text, text, text, uuid, integer, uuid, text, text, timestamp with time zone) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION reserve_deployment_seat(text, text, timestamp with time zone, timestamp with time zone) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION activate_deployment_seat(text, text, text, timestamp with time zone) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION release_deployment_membership_seat(text, timestamp with time zone) FROM crm_app;
+REVOKE EXECUTE ON FUNCTION release_deployment_invitation_seat(text, timestamp with time zone) FROM crm_app;
+GRANT EXECUTE ON FUNCTION reserve_deployment_invitation(uuid, text, text, uuid, integer, text, text, text, timestamp with time zone, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION bootstrap_deployment_invitation(uuid, text, text, uuid, integer, text, timestamp with time zone, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION activate_deployment_membership(text, text, text, uuid, integer, uuid, text, text, boolean, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION consume_deployment_invitation(text, uuid, text, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION auto_join_deployment_membership(text, text, text, uuid, integer, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION bootstrap_deployment_owner(text, text, text, uuid, integer, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION change_deployment_membership(text, text, boolean, text, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION revoke_deployment_invitation(text, uuid, text, text, timestamp with time zone) TO crm_app;
+GRANT EXECUTE ON FUNCTION reconcile_expired_deployment_seat_reservations(timestamp with time zone) TO crm_app;
+
 -- verify_api_key: safe pre-tenant key lookup for the REST API v1 auth layer.
 -- Runs BEFORE app.current_tenant is known, so it is SECURITY DEFINER (owned by
 -- the migrating superuser => bypasses api_keys RLS for THIS query only). It

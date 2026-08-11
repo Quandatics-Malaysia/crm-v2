@@ -55,7 +55,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { CreateEntityDialog } from "@/components/create-entity-dialog"
 import { authClient } from "@/lib/auth-client"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { ModuleId } from "@/lib/modules"
+import type { ModuleId } from "@/lib/module-registry"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -65,7 +65,7 @@ type NavItem = {
   /** Salesforce-style object tile colour (Tailwind bg-* class). */
   tile: string
   permission?: string
-  /** Optional plugin gate (modules.config.ts), on top of permission. */
+  /** Optional signed runtime entitlement gate, on top of permission. */
   module?: ModuleId
 }
 
@@ -142,7 +142,7 @@ export function AppSidebar({
   tenants: SidebarTenant[]
   permissions: string[]
   isSuperadmin: boolean
-  /** Enabled plugins (from modules.config.ts, computed in the layout). */
+  /** Signed runtime entitlements computed by the server layout. */
   modules?: Partial<Record<ModuleId, boolean>>
 } & React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()

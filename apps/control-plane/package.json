@@ -1,0 +1,29 @@
+{
+  "name": "control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:migrate:local": "wrangler d1 migrations apply CONTROL_DB --local",
+    "test": "node --test tests-node/*.test.mjs && vitest run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "@crm/control-protocol": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "hono": "^4.12.27",
+    "jose": "6.2.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
+    "@types/node": "^20.19.43",
+    "typescript": "^5",
+    "vitest": "^4.1.9",
+    "wrangler": "^4"
+  }
+}

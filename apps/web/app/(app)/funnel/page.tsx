@@ -1,6 +1,6 @@
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   listAccountOptions,
   listMembers,
@@ -28,6 +28,7 @@ export default async function OpportunitiesPage() {
     customFunnelFields,
     entities,
     currencies,
+    modules,
   ] = await Promise.all([
     listOpportunities(),
     listAccountOptions(),
@@ -37,6 +38,7 @@ export default async function OpportunitiesPage() {
     listCustomFunnelFields(),
     listEntities(),
     listCurrencies(),
+    getEntitledModuleMap(),
   ])
 
   const canCreate = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
@@ -51,7 +53,7 @@ export default async function OpportunitiesPage() {
       pipelines={pipelines}
       customFieldDefs={customFunnelFields}
       entityOptions={entities}
-      financeEnabled={isModuleEnabled("finance")}
+      financeEnabled={modules.finance}
       currencies={currencies}
       defaultOwnerMemberId={ctx.memberId}
     />

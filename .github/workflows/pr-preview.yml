@@ -31,6 +31,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm test
+      - run: pnpm run test:workflows
       - run: pnpm run build
 
   deploy-preview:
@@ -50,29 +51,13 @@ jobs:
           set -euo pipefail
 
           PROJECT="crm-pr-${PR_NUMBER}"
-          PREVIEW_ENV="${{ github.workspace }}/.env.pr-preview"
+          PREVIEW_STATE_ROOT="${CRM_PREVIEW_STATE_ROOT:-$HOME/.local/state/crm-pr-previews}"
+          PREVIEW_ENV="$(node .github/workflows/scripts/manage-preview-deployment.mjs prepare \
+            --state-root "$PREVIEW_STATE_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --repo-root "${{ github.workspace }}")"
           ADMIN_EMAIL="owner-pr-${PR_NUMBER}@quandatics-preview.local"
-
-          mkdir -p "$(dirname "$PREVIEW_ENV")"
-          {
-            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
-            echo "CRM_APP_PASSWORD=$(openssl rand -hex 24)"
-            echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
-            echo "PLATFORM_MASTER_EMAIL=${ADMIN_EMAIL}"
-            echo "PLATFORM_MASTER_PASSWORD=$(openssl rand -hex 16)"
-            echo "DEMO_ADMIN_EMAIL=${ADMIN_EMAIL}"
-            echo "DEMO_ADMIN_PASSWORD=$(openssl rand -hex 16)"
-            echo "DEMO_TENANT_ID=demo-pr-${PR_NUMBER}"
-            echo "DEMO_TENANT_NAME=PR-${PR_NUMBER} Demo Workspace"
-            echo "SEED_SAMPLE_DATA=true"
-            echo "SEED_SAMPLE_PASSWORD=$(openssl rand -hex 12)"
-            echo "CADDY_BIND_HOST=127.0.0.1"
-            echo "DB_HOST_PORT=0"
-            echo "CADDY_HOST_PORT=0"
-            echo "BETTER_AUTH_URL=http://127.0.0.1"
-            echo "APP_URL=http://127.0.0.1"
-            echo "DOMAIN=preview.quandatics.local"
-          } > "$PREVIEW_ENV"
 
           docker compose \
             -p "$PROJECT" \
@@ -145,7 +130,12 @@ jobs:
             exit 0
           fi
 
-          PREVIEW_ENV="${{ github.workspace }}/.env.pr-preview"
+          PREVIEW_STATE_ROOT="${CRM_PREVIEW_STATE_ROOT:-$HOME/.local/state/crm-pr-previews}"
+          PREVIEW_ENV="$(node .github/workflows/scripts/manage-preview-deployment.mjs path \
+            --state-root "$PREVIEW_STATE_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --repo-root "${{ github.workspace }}")"
           ADMIN_EMAIL="$(sed -n 's/^PLATFORM_MASTER_EMAIL=//p' "$PREVIEW_ENV" | tail -1)"
           ADMIN_PW="$(sed -n 's/^PLATFORM_MASTER_PASSWORD=//p' "$PREVIEW_ENV" | tail -1)"
           SAMPLE_PW="$(sed -n 's/^SEED_SAMPLE_PASSWORD=//p' "$PREVIEW_ENV" | tail -1)"
@@ -172,23 +162,14 @@ jobs:
         if: failure()
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PREVIEW_ENV: ${{ github.workspace }}/.env.pr-preview
         run: |
-          PROJECT="crm-pr-${PR_NUMBER}"
           set -euo pipefail
-          if [ -f "$PREVIEW_ENV" ]; then
-            ENV_OPTS=(--env-file "$PREVIEW_ENV")
-          else
-            ENV_OPTS=()
-          fi
-          docker compose \
-            -p "$PROJECT" \
-            -f docker-compose.yaml \
-            -f docker-compose.pr-preview.yaml \
-            -f docker-compose.staging-tunnel.yaml \
-            "${ENV_OPTS[@]}" \
-            down -v --remove-orphans || true
-          rm -f "${{ github.workspace }}/.env.pr-preview"
+          PREVIEW_STATE_ROOT="${CRM_PREVIEW_STATE_ROOT:-$HOME/.local/state/crm-pr-previews}"
+          node .github/workflows/scripts/manage-preview-deployment.mjs cleanup \
+            --state-root "$PREVIEW_STATE_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --repo-root "${{ github.workspace }}"
 
   cleanup-preview:
     if: github.event.action == 'closed'
@@ -198,20 +179,11 @@ jobs:
       - name: Remove PR preview stack and volumes
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PREVIEW_ENV: ${{ github.workspace }}/.env.pr-preview
         run: |
           set -euo pipefail
-          PROJECT="crm-pr-${PR_NUMBER}"
-          if [ -f "$PREVIEW_ENV" ]; then
-            ENV_OPTS=(--env-file "$PREVIEW_ENV")
-          else
-            ENV_OPTS=()
-          fi
-          docker compose \
-            -p "$PROJECT" \
-            -f docker-compose.yaml \
-            -f docker-compose.pr-preview.yaml \
-            -f docker-compose.staging-tunnel.yaml \
-            "${ENV_OPTS[@]}" \
-            down -v --remove-orphans || true
-          rm -f "${{ github.workspace }}/.env.pr-preview"
+          PREVIEW_STATE_ROOT="${CRM_PREVIEW_STATE_ROOT:-$HOME/.local/state/crm-pr-previews}"
+          node .github/workflows/scripts/manage-preview-deployment.mjs cleanup \
+            --state-root "$PREVIEW_STATE_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --repo-root "${{ github.workspace }}"

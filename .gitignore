@@ -42,11 +42,15 @@ var/
 # vercel
 .vercel
 
+# Cloudflare Workers local state
+.wrangler/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
 .superpowers/
+.worktrees/
 
 # scratch / throwaway DB + debug scripts
 _*.cjs

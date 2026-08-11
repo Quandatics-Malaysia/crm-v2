@@ -9,30 +9,59 @@ export const LICENSE_READ_ONLY = "LICENSE_READ_ONLY" as const
 export const LICENSE_READ_ONLY_MESSAGE =
   "This deployment is read-only. Renew or repair its signed entitlement before making business changes."
 
-const OPERATIONAL_OPERATIONS = new Set([
+export type OperationalWriteOperation =
+  | "export"
+  | "encrypted_backup"
+  | "license_apply"
+  | "license_status"
+  | "license_repair"
+  | "support_diagnostics"
+  | "auth_sign_in"
+  | "auth_sign_out"
+  | "auth_account_recovery"
+  | "auth_account_security"
+  | "auth_session_security"
+  | "auth_session_context"
+
+export type BusinessWriteOperation =
+  | "business_mutation"
+  | "membership_mutation"
+  | "api_business_mutation"
+  | "auth_business_mutation"
+  | `business:${string}`
+
+export type WriteOperation = OperationalWriteOperation | BusinessWriteOperation
+
+const OPERATIONAL_OPERATIONS: ReadonlySet<WriteOperation> = new Set([
   "export",
   "encrypted_backup",
   "license_apply",
   "license_status",
   "license_repair",
   "support_diagnostics",
+  "auth_sign_in",
+  "auth_sign_out",
+  "auth_account_recovery",
+  "auth_account_security",
+  "auth_session_security",
+  "auth_session_context",
 ])
 
 export type WriteAccessInput = {
   /** Named boundary operation. Unknown names are business writes by default. */
-  operation: string
+  operation: WriteOperation
 }
 
 export type WriteAccessCheck = (input: WriteAccessInput) => Promise<void>
 
 export class LicenseReadOnlyError extends Error {
   readonly code = LICENSE_READ_ONLY
-  readonly operation: string
+  readonly operation: WriteOperation
   readonly reason: string
   readonly recoveryDeadline: string | null
 
   constructor(input: {
-    operation: string
+    operation: WriteOperation
     reason: string
     recoveryDeadline: string | null
   }) {
@@ -74,7 +103,7 @@ export function createWriteAccessGuard(
       throw new LicenseReadOnlyError({
         operation,
         reason: access.reason,
-        recoveryDeadline: access.graceUntil,
+        recoveryDeadline: access.recoveryDeadline,
       })
     },
   }

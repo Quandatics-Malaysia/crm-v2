@@ -7,6 +7,7 @@ import {
   LicenseReadOnlyError,
   assertWriteAllowed,
   type WriteAccessCheck,
+  type WriteOperation,
 } from "@/lib/write-access"
 
 /**
@@ -27,8 +28,8 @@ export type ActionResult<T = undefined> =
     }
 
 export type RunActionOptions = {
-  /** Unknown operation names remain commercial business mutations by default. */
-  operation?: string
+  /** New business capabilities use the typed `business:*` default-deny namespace. */
+  operation?: WriteOperation
 }
 
 export type ActionRunner = <T>(

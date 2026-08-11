@@ -11,6 +11,7 @@ import { db } from "@/db"
 import { member, organization } from "@/db/schema"
 import { getEntitledModuleMap } from "@/lib/modules.server"
 import { getDeploymentAccess } from "@/lib/deployment-control"
+import { LicenseReadOnlyError } from "@/lib/write-access"
 
 export default async function AppLayout({
   children,
@@ -30,8 +31,12 @@ export default async function AppLayout({
 
   let tenants = await loadTenants(ctx.userId)
   if (tenants.length === 0) {
-    const provisioned = await ensureBootstrap(ctx.userId, ctx.userEmail)
-    if (provisioned) tenants = await loadTenants(ctx.userId)
+    try {
+      const provisioned = await ensureBootstrap(ctx.userId, ctx.userEmail)
+      if (provisioned) tenants = await loadTenants(ctx.userId)
+    } catch (error) {
+      if (!(error instanceof LicenseReadOnlyError)) throw error
+    }
   }
 
   if (tenants.length === 0) {
@@ -116,8 +121,8 @@ export default async function AppLayout({
                   : "Subscription payment overdue"}
             </span>
             {` · ${deploymentAccess.reason}`}
-            {deploymentAccess.graceUntil
-              ? ` · Recovery deadline ${deploymentAccess.graceUntil}`
+            {deploymentAccess.recoveryDeadline
+              ? ` · Recovery deadline ${deploymentAccess.recoveryDeadline}`
               : null}
           </div>
         ) : null}

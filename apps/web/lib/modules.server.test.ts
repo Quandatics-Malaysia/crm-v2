@@ -35,6 +35,7 @@ function access(
     moduleIds,
     leaseExpiresAt: null,
     graceUntil: null,
+    recoveryDeadline: null,
     contractStartsAt: null,
     contractEndsAt: null,
     revision: 1,

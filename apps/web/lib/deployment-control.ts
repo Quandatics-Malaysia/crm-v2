@@ -119,6 +119,7 @@ export type DeploymentAccess = {
   moduleIds: EntitlementLease["moduleIds"]
   leaseExpiresAt: string | null
   graceUntil: string | null
+  recoveryDeadline: string | null
   contractStartsAt: string | null
   contractEndsAt: string | null
   revision: number | null
@@ -256,6 +257,7 @@ function unavailable(reason: string): DeploymentAccess {
     moduleIds: [],
     leaseExpiresAt: null,
     graceUntil: null,
+    recoveryDeadline: null,
     contractStartsAt: null,
     contractEndsAt: null,
     revision: null,
@@ -279,6 +281,8 @@ async function readAccess(persistence: DeploymentControlPersistence, now: Date):
     moduleIds: [...state.moduleIds],
     leaseExpiresAt: state.leaseExpiresAt.toISOString(),
     graceUntil: state.graceUntil.toISOString(),
+    recoveryDeadline:
+      access.mode === "grace" ? state.graceUntil.toISOString() : null,
     contractStartsAt: state.contractStartsAt.toISOString(),
     contractEndsAt: state.contractEndsAt.toISOString(),
     revision: state.revision,

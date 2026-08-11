@@ -66,9 +66,11 @@ export function SubscriptionClient({ data }: { data: SubscriptionEntitlementView
             <Detail label="Lease refresh due">
               {exactInstant(data.leaseExpiresAt)}
             </Detail>
-            <Detail label="Recovery deadline">
-              {exactInstant(data.graceUntil)}
-            </Detail>
+            {data.recoveryDeadline ? (
+              <Detail label="Recovery deadline">
+                {exactInstant(data.recoveryDeadline)}
+              </Detail>
+            ) : null}
             <Detail label="Entitlement revision">
               {data.revision ?? "Unavailable"}
             </Detail>

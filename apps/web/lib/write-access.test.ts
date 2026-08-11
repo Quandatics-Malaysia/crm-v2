@@ -23,6 +23,8 @@ function access(
     moduleIds: ["projects"],
     leaseExpiresAt: "2026-08-11T00:00:00.000Z",
     graceUntil: "2026-08-18T00:00:00.000Z",
+    recoveryDeadline:
+      mode === "grace" ? "2026-08-18T00:00:00.000Z" : null,
     contractStartsAt: "2026-08-01T00:00:00.000Z",
     contractEndsAt: "2027-08-01T00:00:00.000Z",
     revision: 7,
@@ -64,7 +66,7 @@ describe("commercial write-access boundary", () => {
       code: "LICENSE_READ_ONLY",
       operation: "business_mutation",
       reason,
-      recoveryDeadline: "2026-08-18T00:00:00.000Z",
+      recoveryDeadline: null,
     })
   })
 
@@ -75,7 +77,7 @@ describe("commercial write-access boundary", () => {
     "license_status",
     "license_repair",
     "support_diagnostics",
-  ])("allows explicit operational operation %s without entitlement lookup", async (operation) => {
+  ] as const)("allows explicit operational operation %s without entitlement lookup", async (operation) => {
     const readAccess = vi.fn(async () => {
       throw new Error("unavailable")
     })
@@ -89,7 +91,7 @@ describe("commercial write-access boundary", () => {
     const guard = createWriteAccessGuard(async () => access("read_only", false))
 
     await expect(
-      guard.assertWriteAllowed({ operation: "future_bulk_mutation" })
+      guard.assertWriteAllowed({ operation: "business:future_bulk_mutation" })
     ).rejects.toBeInstanceOf(LicenseReadOnlyError)
   })
 
@@ -213,7 +215,7 @@ describe("client entitlement details", () => {
       seatLimit: 25,
       moduleIds: ["projects"],
       leaseExpiresAt: "2026-08-11T00:00:00.000Z",
-      graceUntil: "2026-08-18T00:00:00.000Z",
+      recoveryDeadline: "2026-08-18T00:00:00.000Z",
       contractStartsAt: "2026-08-01T00:00:00.000Z",
       contractEndsAt: "2027-08-01T00:00:00.000Z",
       revision: 7,

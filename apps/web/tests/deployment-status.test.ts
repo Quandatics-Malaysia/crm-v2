@@ -10,6 +10,7 @@ const baseAccess = {
   moduleIds: ["projects" as const],
   leaseExpiresAt: "2026-08-11T00:00:00.000Z",
   graceUntil: "2026-08-18T00:00:00.000Z",
+  recoveryDeadline: null,
   contractStartsAt: "2026-08-01T00:00:00.000Z",
   contractEndsAt: "2027-08-01T00:00:00.000Z",
   revision: 7,

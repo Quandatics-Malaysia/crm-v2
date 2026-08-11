@@ -15,7 +15,7 @@ export type SubscriptionEntitlementView = {
   seatLimit: number
   moduleIds: DeploymentAccess["moduleIds"]
   leaseExpiresAt: string | null
-  graceUntil: string | null
+  recoveryDeadline: string | null
   contractStartsAt: string | null
   contractEndsAt: string | null
   revision: number | null
@@ -46,7 +46,7 @@ export function createSubscriptionEntitlementReader(
       seatLimit: access.seatLimit,
       moduleIds: [...access.moduleIds],
       leaseExpiresAt: access.leaseExpiresAt,
-      graceUntil: access.graceUntil,
+      recoveryDeadline: access.recoveryDeadline,
       contractStartsAt: access.contractStartsAt,
       contractEndsAt: access.contractEndsAt,
       revision: access.revision,

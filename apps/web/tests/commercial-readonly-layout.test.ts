@@ -1,9 +1,11 @@
 import { createElement } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   getServerContext: vi.fn(),
   getDeploymentAccess: vi.fn(),
+  ensureBootstrap: vi.fn(),
+  tenantRows: [{ id: "tenant-1", name: "Tenant" }],
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -17,7 +19,7 @@ vi.mock("@/db", () => ({
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         innerJoin: vi.fn(() => ({
-          where: vi.fn(async () => [{ id: "tenant-1", name: "Tenant" }]),
+          where: vi.fn(async () => mocks.tenantRows),
         })),
       })),
     })),
@@ -29,7 +31,7 @@ vi.mock("@/lib/server-context", () => ({
 vi.mock("@/lib/deployment-control", () => ({
   getDeploymentAccess: mocks.getDeploymentAccess,
 }))
-vi.mock("@/lib/bootstrap", () => ({ ensureBootstrap: vi.fn() }))
+vi.mock("@/lib/bootstrap", () => ({ ensureBootstrap: mocks.ensureBootstrap }))
 vi.mock("@/lib/modules.server", () => ({
   getEntitledModuleMap: vi.fn(async () => ({
     projects: true,
@@ -50,8 +52,14 @@ vi.mock("@/components/create-entity-dialog", () => ({ CreateFirstEntity: vi.fn()
 vi.mock("@/components/command-palette", () => ({ HeaderActionsProvider: vi.fn() }))
 
 import AppLayout from "@/app/(app)/layout"
+import { LicenseReadOnlyError } from "@/lib/write-access"
 
 describe("commercial read-only app shell", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.tenantRows = [{ id: "tenant-1", name: "Tenant" }]
+  })
+
   it("keeps records visible and shows signed recovery details", async () => {
     mocks.getServerContext.mockResolvedValue({
       userId: "user-1",
@@ -67,6 +75,7 @@ describe("commercial read-only app shell", () => {
       reason: "Lease grace period has ended",
       writeAllowed: false,
       graceUntil: "2026-08-18T00:00:00.000Z",
+      recoveryDeadline: null,
     })
 
     const tree = await AppLayout({
@@ -77,6 +86,31 @@ describe("commercial read-only app shell", () => {
     expect(serialized).toContain("CRM records remain visible")
     expect(serialized).toContain("Commercial read-only mode")
     expect(serialized).toContain("Lease grace period has ended")
-    expect(serialized).toContain("2026-08-18T00:00:00.000Z")
+    expect(serialized).not.toContain("Recovery deadline")
+  })
+
+  it("shows no-organization access when read-only blocks bootstrap", async () => {
+    mocks.tenantRows = []
+    mocks.getServerContext.mockResolvedValue({
+      userId: "new-user",
+      userName: "Invited User",
+      userEmail: "invited@example.com",
+      tenantId: "",
+      isSuperadmin: false,
+      subscriptionInactive: false,
+      permissions: new Set(),
+    })
+    mocks.ensureBootstrap.mockRejectedValue(new LicenseReadOnlyError({
+      operation: "membership_mutation",
+      reason: "Subscription is suspended",
+      recoveryDeadline: null,
+    }))
+
+    const tree = await AppLayout({ children: "must not render" })
+    const serialized = JSON.stringify(tree)
+
+    expect(serialized).toContain("No organization access yet")
+    expect(serialized).not.toContain("must not render")
+    expect(mocks.ensureBootstrap).toHaveBeenCalledOnce()
   })
 })

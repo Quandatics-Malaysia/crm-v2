@@ -341,6 +341,7 @@ describe("getDeploymentAccess", () => {
       moduleIds: [],
       leaseExpiresAt: null,
       graceUntil: null,
+      recoveryDeadline: null,
       contractStartsAt: null,
       contractEndsAt: null,
       revision: null,
@@ -398,6 +399,29 @@ describe("getDeploymentAccess", () => {
     await service.applySignedEntitlement(await signed(lease({ subscriptionStatus })), deploymentId)
     await expect(service.getDeploymentAccess(new Date("2026-08-10T12:00:00.000Z"))).resolves.toMatchObject({ mode, writeAllowed })
   })
+
+  it.each([
+    ["past_due", "2026-08-10T12:00:00.000Z", "active", null],
+    ["active", "2026-08-11T00:00:00.001Z", "grace", graceUntil],
+    ["active", "2026-08-18T00:00:00.001Z", "read_only", null],
+    ["suspended", "2026-08-10T12:00:00.000Z", "read_only", null],
+    ["cancelled", "2026-08-10T12:00:00.000Z", "read_only", null],
+  ] as const)(
+    "exposes semantic recovery deadline for %s at %s",
+    async (subscriptionStatus, now, mode, recoveryDeadline) => {
+      const store = new MemoryPersistence()
+      const service = accessService(store)
+      await service.applySignedEntitlement(
+        await signed(lease({ subscriptionStatus })),
+        deploymentId
+      )
+
+      await expect(service.getDeploymentAccess(new Date(now))).resolves.toMatchObject({
+        mode,
+        recoveryDeadline,
+      })
+    }
+  )
 
   it("uses persisted greatest trusted time when wall clock rolls back", async () => {
     const service = accessService()

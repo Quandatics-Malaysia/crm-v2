@@ -1,0 +1,16 @@
+:8081 {
+	encode gzip zstd
+
+	@internal_deployment path /api/internal/deployment/*
+	route {
+		respond @internal_deployment 404
+		reverse_proxy web:3000
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

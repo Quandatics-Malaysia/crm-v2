@@ -11,6 +11,7 @@ const postgresMock = vi.hoisted(() => {
 vi.mock("postgres", () => ({ default: postgresMock.connect }))
 
 import { register } from "@/instrumentation"
+import { COMPILED_MODULE_MAP } from "@/lib/module-registry"
 
 const keys = [
   "NEXT_RUNTIME",
@@ -69,6 +70,45 @@ describe("production startup deployment configuration", () => {
       await register()
     } catch (error) {
       expect(String(error)).not.toContain(malformed)
+    }
+  })
+})
+
+describe("module image startup invariants", () => {
+  it("allows a dependency-closed reduced image in development", async () => {
+    Object.assign(process.env, { NODE_ENV: "development" })
+    const original = COMPILED_MODULE_MAP.documentation
+    COMPILED_MODULE_MAP.documentation = false
+    try {
+      await expect(register()).resolves.toBeUndefined()
+      expect(postgresMock.connect).not.toHaveBeenCalled()
+    } finally {
+      COMPILED_MODULE_MAP.documentation = original
+    }
+  })
+
+  it("still rejects dependency-breaking compositions in development", async () => {
+    Object.assign(process.env, { NODE_ENV: "development" })
+    const original = COMPILED_MODULE_MAP.projects
+    COMPILED_MODULE_MAP.projects = false
+    try {
+      await expect(register()).rejects.toThrow(
+        'Module "salesOrders" is compiled but its dependency "projects" is omitted.'
+      )
+    } finally {
+      COMPILED_MODULE_MAP.projects = original
+    }
+  })
+
+  it("rejects a standard production image that omits any module", async () => {
+    const original = COMPILED_MODULE_MAP.documentation
+    COMPILED_MODULE_MAP.documentation = false
+    try {
+      await expect(register()).rejects.toThrow(
+        'Standard production image omits module "documentation".'
+      )
+    } finally {
+      COMPILED_MODULE_MAP.documentation = original
     }
   })
 })

@@ -71,9 +71,7 @@ export function filterPermissionGroups<T extends { module?: ModuleId }>(
 export function validateModuleComposition(): string[] {
   const compiled = MODULE_IDS.filter((id) => COMPILED_MODULE_MAP[id])
   const enabled = new Set(compiled)
-  const errors = MODULE_IDS.filter((id) => !enabled.has(id)).map(
-    (id) => `Standard production image omits module "${id}".`
-  )
+  const errors: string[] = []
   for (const id of compiled) {
     for (const dependency of MODULES[id].dependsOn) {
       if (!enabled.has(dependency)) {
@@ -84,4 +82,11 @@ export function validateModuleComposition(): string[] {
     }
   }
   return errors
+}
+
+/** Standard vendor production image invariant; reduced dev images stay valid. */
+export function validateStandardProductionImage(): string[] {
+  return MODULE_IDS.filter((id) => !COMPILED_MODULE_MAP[id]).map(
+    (id) => `Standard production image omits module "${id}".`
+  )
 }

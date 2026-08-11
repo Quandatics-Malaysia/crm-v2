@@ -806,13 +806,13 @@ export async function updateSettings(
     fiscalYearStartMonth: input.fiscalYearStartMonth,
     approvalBypassTier: input.approvalBypassTier,
     followUpDueDays: input.followUpDueDays,
+    taxInclusive: input.taxInclusive,
     autoWinOnQuoteAccept: input.autoWinOnQuoteAccept,
     autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
     ...(financeEnabled
       ? {
-          taxInclusive: input.taxInclusive,
           autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
           intercoAutoMirror: input.intercoAutoMirror,
         }

@@ -96,7 +96,10 @@ import {
   updateSettings,
   updateInvoiceReminderDays,
 } from "@/app/(app)/settings/actions"
-import { listTaxSettings } from "@/app/(app)/settings/billing/tax/actions"
+import {
+  createTax,
+  listTaxSettings,
+} from "@/app/(app)/settings/billing/tax/actions"
 
 const ctx = {
   tenantId: "tenant-1",
@@ -278,7 +281,7 @@ describe("direct module-owned action entrypoints", () => {
     expect(mocks.runInTenant).not.toHaveBeenCalled()
   })
 
-  it("preserves finance-owned general settings when finance is unavailable", async () => {
+  it("keeps core tax-inclusive quotation settings writable without finance", async () => {
     const { tx, mutations } = txWithSelects([[
       {
         subscriptionPlan: "Starter",
@@ -311,8 +314,8 @@ describe("direct module-owned action entrypoints", () => {
     })
 
     expect(result.ok).toBe(true)
+    expect(mutations.conflictSets[0]).toMatchObject({ taxInclusive: true })
     expect(mutations.conflictSets[0]).not.toMatchObject({
-      taxInclusive: expect.anything(),
       autoCompleteProjectOnPaid: expect.anything(),
       intercoAutoMirror: expect.anything(),
     })
@@ -340,10 +343,33 @@ describe("direct module-owned action entrypoints", () => {
     })
   })
 
-  it("denies direct tax settings reads before tenant work", async () => {
-    await expect(listTaxSettings()).rejects.toThrow(
-      "The finance module is not licensed."
-    )
-    expect(mocks.withTenant).not.toHaveBeenCalled()
+  it("keeps core quotation tax settings readable without finance", async () => {
+    mocks.withTenant.mockResolvedValue([])
+
+    await expect(listTaxSettings()).resolves.toEqual([])
+
+    expect(mocks.withTenant).toHaveBeenCalledOnce()
+    expect(mocks.requireModule).not.toHaveBeenCalledWith("finance")
+  })
+
+  it("keeps core quotation tax mutation available without finance", async () => {
+    const tax = {
+      id: "tax-1",
+      name: "SST",
+      ratePercent: "8",
+      isDefault: true,
+      isActive: true,
+    }
+    mocks.withTenant.mockResolvedValue(tax)
+
+    await expect(createTax({
+      name: "SST",
+      ratePercent: "8",
+      isDefault: true,
+      isActive: true,
+    })).resolves.toEqual({ ok: true, data: tax })
+
+    expect(mocks.withTenant).toHaveBeenCalledOnce()
+    expect(mocks.requireModule).not.toHaveBeenCalledWith("finance")
   })
 })

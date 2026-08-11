@@ -127,12 +127,12 @@ describe("direct route, file, API, and service entrypoints", () => {
     })
   })
 
-  it("guards the nested billing settings index before redirecting", async () => {
-    await expect(BillingSettingsIndex()).rejects.toThrow(
-      "The finance module is not licensed."
+  it("keeps the core quotation-numbering settings redirect reachable", () => {
+    expect(() => BillingSettingsIndex()).toThrow(
+      "redirect:/settings/billing/numbering"
     )
-    expect(mocks.requireRoute).toHaveBeenCalledWith("finance")
-    expect(mocks.redirect).not.toHaveBeenCalled()
+    expect(mocks.requireRoute).not.toHaveBeenCalled()
+    expect(mocks.redirect).toHaveBeenCalledWith("/settings/billing/numbering")
   })
 
   it("denies a finance attachment before storage download", async () => {

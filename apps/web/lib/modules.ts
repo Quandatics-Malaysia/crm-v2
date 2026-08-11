@@ -9,6 +9,7 @@ export {
   isDependencyClosed,
   validateModuleComposition,
   validateModuleComposition as validateModuleConfig,
+  validateStandardProductionImage,
   type ModuleId,
   type ModuleMap,
   type ModuleMeta,

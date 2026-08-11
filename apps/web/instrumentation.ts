@@ -21,7 +21,10 @@ export async function register() {
 
   // Module registry invariants — cheap, pure, and a bug in ANY environment, so
   // this runs before the production-only early return below.
-  const { validateModuleConfig } = await import("@/lib/modules")
+  const {
+    validateModuleConfig,
+    validateStandardProductionImage,
+  } = await import("@/lib/modules")
   const moduleErrors = validateModuleConfig()
   if (moduleErrors.length) {
     throw new Error(
@@ -32,6 +35,14 @@ export async function register() {
 
   // Production-only: never throw in development.
   if (process.env.NODE_ENV !== "production") return
+
+  const imageErrors = validateStandardProductionImage()
+  if (imageErrors.length) {
+    throw new Error(
+      "Invalid standard production module image (modules.config.ts):\n" +
+        imageErrors.map((e) => `  - ${e}`).join("\n")
+    )
+  }
 
   const errors: string[] = []
 

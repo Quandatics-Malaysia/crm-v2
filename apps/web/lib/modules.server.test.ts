@@ -81,13 +81,11 @@ describe("module registry", () => {
     ])
   })
 
-  it("rejects a standard production image that omits any optional module", () => {
+  it("allows a dependency-closed reduced development image", () => {
     const original = COMPILED_MODULE_MAP.documentation
     COMPILED_MODULE_MAP.documentation = false
     try {
-      expect(validateModuleComposition()).toContain(
-        'Standard production image omits module "documentation".'
-      )
+      expect(validateModuleComposition()).toEqual([])
     } finally {
       COMPILED_MODULE_MAP.documentation = original
     }

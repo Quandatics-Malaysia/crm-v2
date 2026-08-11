@@ -14,11 +14,13 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      POSTGRES_DB: crm
+      POSTGRES_DB: ${DB_NAME:?DB_NAME must be set}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d crm"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${DB_NAME:?DB_NAME must be set}"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -30,8 +32,8 @@ services:
     image: ${MIGRATOR_IMAGE:?MIGRATOR_IMAGE must be set to an immutable digest reference}
     profiles: ["deploy"]
     environment:
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
+      DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is derived by deploy.sh}
       CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
@@ -49,6 +51,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - backend
     logging: *default-logging
     restart: "no"
 
@@ -56,8 +60,8 @@ services:
     image: ${WEB_IMAGE:?WEB_IMAGE must be set to an immutable digest reference}
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://crm_app:${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}@db:5432/crm
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is derived by deploy.sh}
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       APP_URL: ${APP_URL:-http://localhost}
@@ -78,6 +82,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - frontend
+      - backend
     expose:
       - "3000"
     healthcheck:
@@ -93,7 +100,7 @@ services:
   backup:
     image: ${BACKUP_IMAGE:?BACKUP_IMAGE must be set to an immutable digest reference}
     environment:
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL is derived by deploy.sh}
       BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
     volumes:
       - appfiles:/data/uploads:ro
@@ -101,30 +108,44 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - backend
+      - egress
     mem_limit: ${BACKUP_MEMORY_LIMIT:-256m}
     logging: *default-logging
     restart: unless-stopped
 
   gateway:
     image: ${CADDY_IMAGE:?CADDY_IMAGE must be set to an immutable digest reference}
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
-      - "${GATEWAY_BIND_HOST:-0.0.0.0}:${GATEWAY_HOST_PORT:-8081}:8081"
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8081}:8081"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
       - caddyconfig:/config
     depends_on:
       - web
+    networks:
+      - frontend
     mem_limit: ${GATEWAY_MEMORY_LIMIT:-128m}
     logging: *default-logging
     restart: unless-stopped
 
+networks:
+  frontend:
+  backend:
+    internal: true
+  egress:
+
 volumes:
   pgdata:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
   appfiles:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
   backups:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
   caddydata:
   caddyconfig:

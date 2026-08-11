@@ -6,7 +6,9 @@ set -eu
 SIGNING_REPOSITORY=Quandatics-Malaysia/crm-v2
 SIGNING_WORKFLOW=release-images.yml
 OIDC_ISSUER=https://token.actions.githubusercontent.com
-VENDOR_IMAGE_PREFIX=ghcr.io/quandatics-malaysia/
+WEB_REPOSITORY=ghcr.io/quandatics-malaysia/crm-web
+MIGRATOR_REPOSITORY=ghcr.io/quandatics-malaysia/crm-migrator
+BACKUP_REPOSITORY=ghcr.io/quandatics-malaysia/crm-backup
 
 fail() {
   echo "verify-images: $*" >&2
@@ -21,13 +23,15 @@ validate_release_tag() {
 validate_vendor_image() {
   variable_name=$1
   image_reference=$2
+  exact_repository=$3
 
-  printf '%s\n' "$image_reference" | grep -Eq '^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$' ||
-    fail "$variable_name must be an immutable sha256 digest reference"
   case "$image_reference" in
-    "$VENDOR_IMAGE_PREFIX"*) ;;
-    *) fail "$variable_name must use vendor registry namespace $VENDOR_IMAGE_PREFIX" ;;
+    "$exact_repository"@sha256:*) ;;
+    *) fail "$variable_name must use exact repository $exact_repository" ;;
   esac
+  digest=${image_reference#*@sha256:}
+  printf '%s\n' "$digest" | grep -Eq '^[0-9a-f]{64}$' ||
+    fail "$variable_name must be an immutable sha256 digest reference"
 }
 
 [ -n "${RELEASE_TAG:-}" ] || fail "RELEASE_TAG is required"
@@ -36,9 +40,9 @@ validate_vendor_image() {
 [ -n "${BACKUP_IMAGE:-}" ] || fail "BACKUP_IMAGE is required"
 
 validate_release_tag "$RELEASE_TAG"
-validate_vendor_image WEB_IMAGE "$WEB_IMAGE"
-validate_vendor_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE"
-validate_vendor_image BACKUP_IMAGE "$BACKUP_IMAGE"
+validate_vendor_image WEB_IMAGE "$WEB_IMAGE" "$WEB_REPOSITORY"
+validate_vendor_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE" "$MIGRATOR_REPOSITORY"
+validate_vendor_image BACKUP_IMAGE "$BACKUP_IMAGE" "$BACKUP_REPOSITORY"
 
 if ! command -v cosign >/dev/null 2>&1; then
   fail "cosign is required but not installed; use the pinned, checksum-verified installation in README.md"

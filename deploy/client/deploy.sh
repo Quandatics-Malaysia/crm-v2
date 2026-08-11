@@ -4,10 +4,18 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 compose_file="$script_dir/compose.yaml"
 env_file=${1:-$script_dir/.env}
+temp_dir=
 record_tmp=
+lock_dir=
+lock_held=0
 
 cleanup() {
   [ -z "$record_tmp" ] || rm -f "$record_tmp"
+  if [ "$lock_held" -eq 1 ]; then
+    rm -f "$lock_dir/pid"
+    rmdir "$lock_dir" 2>/dev/null || true
+  fi
+  [ -z "$temp_dir" ] || rm -rf "$temp_dir"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -26,7 +34,7 @@ reject_placeholder() {
   variable_name=$1
   variable_value=$2
   case "$variable_value" in
-    *CHANGE_ME*|*change-me*|*changeme*|*REPLACE_ME*|*replace-me*)
+    *CHANGE_ME*|*change-me*|*changeme*|*REPLACE_ME*|*replace-me*|DERIVED_BY_DEPLOY)
       fail "$variable_name still contains a placeholder"
       ;;
   esac
@@ -48,32 +56,326 @@ validate_non_negative_integer() {
   esac
 }
 
-validate_digest_image() {
+validate_port() {
+  variable_name=$1
+  variable_value=$2
+  validate_positive_integer "$variable_name" "$variable_value"
+  [ "${#variable_value}" -le 5 ] || fail "$variable_name must be between 1 and 65535"
+  [ "$variable_value" -le 65535 ] || fail "$variable_name must be between 1 and 65535"
+}
+
+stat_uid() {
+  if stat -f '%u' "$1" >/dev/null 2>&1; then
+    stat -f '%u' "$1"
+  else
+    stat -c '%u' "$1"
+  fi
+}
+
+stat_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
+assert_secure_file() {
+  secure_path=$1
+  secure_label=$2
+  [ ! -L "$secure_path" ] || fail "$secure_label must not be a symlink"
+  [ -f "$secure_path" ] || fail "$secure_label not found: $secure_path"
+  [ -r "$secure_path" ] || fail "$secure_label is not readable: $secure_path"
+  [ "$(stat_uid "$secure_path")" = "$(id -u)" ] || fail "$secure_label must be owned by the deployment user"
+  [ "$(stat_mode "$secure_path")" = 600 ] || fail "$secure_label must have mode 0600"
+}
+
+assert_secure_directory() {
+  secure_path=$1
+  secure_label=$2
+  [ ! -L "$secure_path" ] || fail "$secure_label must not be a symlink"
+  [ -d "$secure_path" ] || fail "$secure_label must already exist"
+  [ "$(stat_uid "$secure_path")" = "$(id -u)" ] || fail "$secure_label must be owned by the deployment user"
+  [ "$(stat_mode "$secure_path")" = 700 ] || fail "$secure_label must have mode 0700"
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+urlencode() {
+  printf '%s' "$1" | jq -sRr '@uri'
+}
+
+validate_exact_image() {
   variable_name=$1
   image_reference=$2
-  printf '%s\n' "$image_reference" | grep -Eq '^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$' ||
+  exact_repository=$3
+  case "$image_reference" in
+    "$exact_repository"@sha256:*) ;;
+    *) fail "$variable_name must use exact repository $exact_repository" ;;
+  esac
+  digest=${image_reference#*@sha256:}
+  printf '%s\n' "$digest" | grep -Eq '^[0-9a-f]{64}$' ||
     fail "$variable_name must be an immutable sha256 digest reference"
 }
 
-marker_value() {
-  marker_key=$1
-  awk -F= -v marker_key="$marker_key" '$1 == marker_key { sub(/^[^=]*=/, ""); print }' "$BACKUP_MARKER_FILE"
+parse_environment() {
+  parsed_file=$1
+  seen_keys='|'
+  line_number=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_number=$((line_number + 1))
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*) ;;
+      *) fail "invalid environment data on line $line_number" ;;
+    esac
+    key=${line%%=*}
+    value=${line#*=}
+    case "$seen_keys" in
+      *"|$key|"*) fail "duplicate environment key: $key" ;;
+    esac
+    seen_keys="$seen_keys$key|"
+    case "$key" in
+      COMPOSE_PROJECT_NAME) COMPOSE_PROJECT_NAME=$value ;;
+      RELEASE_TAG) RELEASE_TAG=$value ;;
+      SOURCE_COMMIT_SHA) SOURCE_COMMIT_SHA=$value ;;
+      WEB_IMAGE) WEB_IMAGE=$value ;;
+      MIGRATOR_IMAGE) MIGRATOR_IMAGE=$value ;;
+      BACKUP_IMAGE) BACKUP_IMAGE=$value ;;
+      POSTGRES_IMAGE) POSTGRES_IMAGE=$value ;;
+      CADDY_IMAGE) CADDY_IMAGE=$value ;;
+      POSTGRES_PASSWORD) POSTGRES_PASSWORD=$value ;;
+      CRM_APP_PASSWORD) CRM_APP_PASSWORD=$value ;;
+      BETTER_AUTH_SECRET) BETTER_AUTH_SECRET=$value ;;
+      BETTER_AUTH_URL) BETTER_AUTH_URL=$value ;;
+      APP_URL) APP_URL=$value ;;
+      PLATFORM_MASTER_EMAIL) PLATFORM_MASTER_EMAIL=$value ;;
+      PLATFORM_MASTER_PASSWORD) PLATFORM_MASTER_PASSWORD=$value ;;
+      BOOTSTRAP_OWNER_EMAIL) BOOTSTRAP_OWNER_EMAIL=$value ;;
+      DEPLOYMENT_ID) DEPLOYMENT_ID=$value ;;
+      STORAGE_ID) STORAGE_ID=$value ;;
+      DB_NAME) DB_NAME=$value ;;
+      AGENT_WEB_SECRET) AGENT_WEB_SECRET=$value ;;
+      APPLICATION_VERSION) APPLICATION_VERSION=$value ;;
+      MIGRATION_VERSION) MIGRATION_VERSION=$value ;;
+      VENDOR_ENTITLEMENT_TRUST_SET) VENDOR_ENTITLEMENT_TRUST_SET=$value ;;
+      MICROSOFT_CLIENT_ID) MICROSOFT_CLIENT_ID=$value ;;
+      MICROSOFT_CLIENT_SECRET) MICROSOFT_CLIENT_SECRET=$value ;;
+      MICROSOFT_TENANT_ID) MICROSOFT_TENANT_ID=$value ;;
+      DEMO_MODE) DEMO_MODE=$value ;;
+      DEMO_TENANT_ID) DEMO_TENANT_ID=$value ;;
+      DEMO_TENANT_NAME) DEMO_TENANT_NAME=$value ;;
+      DEMO_CURRENCY) DEMO_CURRENCY=$value ;;
+      DEMO_TAX_NAME) DEMO_TAX_NAME=$value ;;
+      DEMO_TAX_RATE) DEMO_TAX_RATE=$value ;;
+      BACKUP_RSYNC_TARGET) BACKUP_RSYNC_TARGET=$value ;;
+      BACKUP_EVIDENCE_FILE) BACKUP_EVIDENCE_FILE=$value ;;
+      BACKUP_EVIDENCE_SIGNATURE_FILE) BACKUP_EVIDENCE_SIGNATURE_FILE=$value ;;
+      BACKUP_EVIDENCE_PUBLIC_KEY_FILE) BACKUP_EVIDENCE_PUBLIC_KEY_FILE=$value ;;
+      BACKUP_EVIDENCE_PUBLIC_KEY_SHA256) BACKUP_EVIDENCE_PUBLIC_KEY_SHA256=$value ;;
+      BACKUP_MAX_AGE_SECONDS) BACKUP_MAX_AGE_SECONDS=$value ;;
+      DEPLOYMENT_RECORD_FILE) DEPLOYMENT_RECORD_FILE=$value ;;
+      GATEWAY_HOST_PORT) GATEWAY_HOST_PORT=$value ;;
+      DB_HOST_PORT) DB_HOST_PORT=$value ;;
+      HEALTHCHECK_ATTEMPTS) HEALTHCHECK_ATTEMPTS=$value ;;
+      HEALTHCHECK_INTERVAL_SECONDS) HEALTHCHECK_INTERVAL_SECONDS=$value ;;
+      HEALTHCHECK_TIMEOUT_SECONDS) HEALTHCHECK_TIMEOUT_SECONDS=$value ;;
+      DB_HEALTH_ATTEMPTS) DB_HEALTH_ATTEMPTS=$value ;;
+      DB_HEALTH_INTERVAL_SECONDS) DB_HEALTH_INTERVAL_SECONDS=$value ;;
+      DB_MEMORY_LIMIT) DB_MEMORY_LIMIT=$value ;;
+      WEB_MEMORY_LIMIT) WEB_MEMORY_LIMIT=$value ;;
+      BACKUP_MEMORY_LIMIT) BACKUP_MEMORY_LIMIT=$value ;;
+      GATEWAY_MEMORY_LIMIT) GATEWAY_MEMORY_LIMIT=$value ;;
+      DATABASE_ADMIN_URL|MIGRATOR_DATABASE_URL|APP_DATABASE_URL) : ;;
+      *) fail "unsupported environment key: $key" ;;
+    esac
+  done <"$parsed_file"
 }
 
-assert_marker_equal() {
-  marker_key=$1
-  expected_value=$2
-  actual_value=$(marker_value "$marker_key")
-  [ "$actual_value" = "$expected_value" ] || fail "backup marker $marker_key does not match intended release"
+parse_evidence() {
+  parsed_file=$1
+  seen_keys='|'
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *=*) ;;
+      *) fail "invalid backup evidence data" ;;
+    esac
+    key=${line%%=*}
+    value=${line#*=}
+    case "$seen_keys" in
+      *"|$key|"*) fail "duplicate backup evidence key: $key" ;;
+    esac
+    seen_keys="$seen_keys$key|"
+    case "$key" in
+      EVIDENCE_VERSION) EVIDENCE_VERSION=$value ;;
+      DEPLOYMENT_ID) EVIDENCE_DEPLOYMENT_ID=$value ;;
+      COMPOSE_PROJECT_NAME) EVIDENCE_COMPOSE_PROJECT_NAME=$value ;;
+      DB_NAME) EVIDENCE_DB_NAME=$value ;;
+      STORAGE_ID) EVIDENCE_STORAGE_ID=$value ;;
+      POSTGRES_IMAGE) EVIDENCE_POSTGRES_IMAGE=$value ;;
+      RELEASE_TAG) EVIDENCE_RELEASE_TAG=$value ;;
+      WEB_IMAGE) EVIDENCE_WEB_IMAGE=$value ;;
+      MIGRATOR_IMAGE) EVIDENCE_MIGRATOR_IMAGE=$value ;;
+      BACKUP_IMAGE) EVIDENCE_BACKUP_IMAGE=$value ;;
+      SOURCE_COMMIT_SHA) EVIDENCE_SOURCE_COMMIT_SHA=$value ;;
+      CREATED_AT_EPOCH) EVIDENCE_CREATED_AT_EPOCH=$value ;;
+      BACKUP_ARTIFACT_FILE) EVIDENCE_BACKUP_ARTIFACT_FILE=$value ;;
+      BACKUP_ARTIFACT_SHA256) EVIDENCE_BACKUP_ARTIFACT_SHA256=$value ;;
+      CHECKSUM_VERIFIED) EVIDENCE_CHECKSUM_VERIFIED=$value ;;
+      RESTORE_VERIFIED) EVIDENCE_RESTORE_VERIFIED=$value ;;
+      UPLOAD_VERIFIED) EVIDENCE_UPLOAD_VERIFIED=$value ;;
+      *) fail "unsupported backup evidence key: $key" ;;
+    esac
+  done <"$parsed_file"
+}
+
+parse_previous_record() {
+  parsed_file=$1
+  seen_keys='|'
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *=*) ;;
+      *) fail "invalid previous deployment record data" ;;
+    esac
+    key=${line%%=*}
+    value=${line#*=}
+    case "$seen_keys" in
+      *"|$key|"*) fail "duplicate previous deployment record key: $key" ;;
+    esac
+    seen_keys="$seen_keys$key|"
+    case "$key" in
+      RECORD_VERSION) PREVIOUS_RECORD_VERSION=$value ;;
+      RELEASE_TAG) PREVIOUS_RELEASE_TAG=$value ;;
+      SOURCE_COMMIT_SHA) PREVIOUS_SOURCE_COMMIT_SHA=$value ;;
+      DEPLOYMENT_ID) PREVIOUS_DEPLOYMENT_ID=$value ;;
+      COMPOSE_PROJECT_NAME) PREVIOUS_COMPOSE_PROJECT_NAME=$value ;;
+      DB_NAME) PREVIOUS_DB_NAME=$value ;;
+      STORAGE_ID) PREVIOUS_STORAGE_ID=$value ;;
+      WEB_IMAGE) PREVIOUS_WEB_IMAGE=$value ;;
+      MIGRATOR_IMAGE) PREVIOUS_MIGRATOR_IMAGE=$value ;;
+      BACKUP_IMAGE) PREVIOUS_BACKUP_IMAGE=$value ;;
+      POSTGRES_IMAGE) PREVIOUS_POSTGRES_IMAGE=$value ;;
+      CADDY_IMAGE) PREVIOUS_CADDY_IMAGE=$value ;;
+      BACKUP_ARTIFACT_SHA256) PREVIOUS_BACKUP_ARTIFACT_SHA256=$value ;;
+      DEPLOYED_AT_EPOCH) PREVIOUS_DEPLOYED_AT_EPOCH=$value ;;
+      *) fail "unsupported previous deployment record key: $key" ;;
+    esac
+  done <"$parsed_file"
+}
+
+assert_evidence_equal() {
+  evidence_key=$1
+  actual_value=$2
+  expected_value=$3
+  [ "$actual_value" = "$expected_value" ] || fail "backup evidence $evidence_key does not match intended deployment"
 }
 
 compose() {
-  docker compose \
+  env \
+    COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
+    WEB_IMAGE="$WEB_IMAGE" MIGRATOR_IMAGE="$MIGRATOR_IMAGE" BACKUP_IMAGE="$BACKUP_IMAGE" \
+    POSTGRES_IMAGE="$POSTGRES_IMAGE" CADDY_IMAGE="$CADDY_IMAGE" \
+    POSTGRES_PASSWORD="$POSTGRES_PASSWORD" CRM_APP_PASSWORD="$CRM_APP_PASSWORD" \
+    DB_NAME="$DB_NAME" STORAGE_ID="$STORAGE_ID" \
+    DATABASE_ADMIN_URL="$DATABASE_ADMIN_URL" MIGRATOR_DATABASE_URL="$MIGRATOR_DATABASE_URL" \
+    APP_DATABASE_URL="$APP_DATABASE_URL" \
+    BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" BETTER_AUTH_URL="$BETTER_AUTH_URL" APP_URL="$APP_URL" \
+    PLATFORM_MASTER_EMAIL="$PLATFORM_MASTER_EMAIL" PLATFORM_MASTER_PASSWORD="$PLATFORM_MASTER_PASSWORD" \
+    BOOTSTRAP_OWNER_EMAIL="$BOOTSTRAP_OWNER_EMAIL" DEPLOYMENT_ID="$DEPLOYMENT_ID" \
+    AGENT_WEB_SECRET="$AGENT_WEB_SECRET" APPLICATION_VERSION="$APPLICATION_VERSION" \
+    MIGRATION_VERSION="$MIGRATION_VERSION" VENDOR_ENTITLEMENT_TRUST_SET="$VENDOR_ENTITLEMENT_TRUST_SET" \
+    MICROSOFT_CLIENT_ID="$MICROSOFT_CLIENT_ID" MICROSOFT_CLIENT_SECRET="$MICROSOFT_CLIENT_SECRET" \
+    MICROSOFT_TENANT_ID="$MICROSOFT_TENANT_ID" DEMO_MODE="$DEMO_MODE" \
+    DEMO_TENANT_ID="$DEMO_TENANT_ID" DEMO_TENANT_NAME="$DEMO_TENANT_NAME" \
+    DEMO_CURRENCY="$DEMO_CURRENCY" DEMO_TAX_NAME="$DEMO_TAX_NAME" DEMO_TAX_RATE="$DEMO_TAX_RATE" \
+    BACKUP_RSYNC_TARGET="$BACKUP_RSYNC_TARGET" GATEWAY_HOST_PORT="$GATEWAY_HOST_PORT" \
+    DB_HOST_PORT="$DB_HOST_PORT" DB_MEMORY_LIMIT="$DB_MEMORY_LIMIT" WEB_MEMORY_LIMIT="$WEB_MEMORY_LIMIT" \
+    BACKUP_MEMORY_LIMIT="$BACKUP_MEMORY_LIMIT" GATEWAY_MEMORY_LIMIT="$GATEWAY_MEMORY_LIMIT" \
+    docker compose \
     --project-name "$COMPOSE_PROJECT_NAME" \
-    --env-file "$env_file" \
     --file "$compose_file" \
     --profile deploy \
     "$@"
+}
+
+verify_images() {
+  env \
+    RELEASE_TAG="$RELEASE_TAG" \
+    WEB_IMAGE="$WEB_IMAGE" \
+    MIGRATOR_IMAGE="$MIGRATOR_IMAGE" \
+    BACKUP_IMAGE="$BACKUP_IMAGE" \
+    "$script_dir/verify-images.sh"
+}
+
+run_healthcheck() {
+  env \
+    HEALTHCHECK_URL="$HEALTHCHECK_URL" \
+    HEALTHCHECK_ATTEMPTS="$HEALTHCHECK_ATTEMPTS" \
+    HEALTHCHECK_INTERVAL_SECONDS="$HEALTHCHECK_INTERVAL_SECONDS" \
+    HEALTHCHECK_TIMEOUT_SECONDS="$HEALTHCHECK_TIMEOUT_SECONDS" \
+    "$script_dir/healthcheck.sh"
+}
+
+restore_target_environment() {
+  WEB_IMAGE=$TARGET_WEB_IMAGE
+  BACKUP_IMAGE=$TARGET_BACKUP_IMAGE
+  CADDY_IMAGE=$TARGET_CADDY_IMAGE
+}
+
+rollback_runtime() {
+  [ "$previous_available" -eq 1 ] || return 1
+  WEB_IMAGE=$PREVIOUS_WEB_IMAGE
+  BACKUP_IMAGE=$PREVIOUS_BACKUP_IMAGE
+  CADDY_IMAGE=$PREVIOUS_CADDY_IMAGE
+  if ! compose up -d --no-deps --force-recreate web backup gateway; then
+    restore_target_environment
+    return 1
+  fi
+  if ! run_healthcheck; then
+    restore_target_environment
+    return 1
+  fi
+  restore_target_environment
+  echo "deploy: previous runtime restored and health verified" >&2
+  return 0
+}
+
+abort_with_rollback() {
+  failure_reason=$1
+  if rollback_runtime; then
+    fail "$failure_reason; previous runtime restored"
+  fi
+  fail "$failure_reason; rollback failed or no previous deployment record is available"
+}
+
+write_deployment_record() {
+  umask 077
+  record_tmp=$(mktemp "$DEPLOYMENT_RECORD_FILE.XXXXXX") || return 1
+  {
+    printf 'RECORD_VERSION=1\n'
+    printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
+    printf 'SOURCE_COMMIT_SHA=%s\n' "$SOURCE_COMMIT_SHA"
+    printf 'DEPLOYMENT_ID=%s\n' "$DEPLOYMENT_ID"
+    printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
+    printf 'DB_NAME=%s\n' "$DB_NAME"
+    printf 'STORAGE_ID=%s\n' "$STORAGE_ID"
+    printf 'WEB_IMAGE=%s\n' "$WEB_IMAGE"
+    printf 'MIGRATOR_IMAGE=%s\n' "$MIGRATOR_IMAGE"
+    printf 'BACKUP_IMAGE=%s\n' "$BACKUP_IMAGE"
+    printf 'POSTGRES_IMAGE=%s\n' "$POSTGRES_IMAGE"
+    printf 'CADDY_IMAGE=%s\n' "$CADDY_IMAGE"
+    printf 'BACKUP_ARTIFACT_SHA256=%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256"
+    printf 'DEPLOYED_AT_EPOCH=%s\n' "$(date +%s)"
+  } >"$record_tmp" || return 1
+  chmod 0600 "$record_tmp" || return 1
+  mv -f "$record_tmp" "$DEPLOYMENT_RECORD_FILE" || return 1
+  record_tmp=
 }
 
 case $# in
@@ -81,34 +383,67 @@ case $# in
   *) fail "usage: deploy.sh [env-file]" ;;
 esac
 
-[ -f "$env_file" ] || fail "environment file not found: $env_file"
-[ -r "$env_file" ] || fail "environment file is not readable: $env_file"
+umask 077
+temp_dir=$(mktemp -d) || fail "could not create secure temporary directory"
+assert_secure_file "$env_file" "environment file"
+cp "$env_file" "$temp_dir/environment.env" || fail "could not read environment file"
 
-set -a
-# The deployment environment is a root-owned shell-compatible file (mode 0600).
-# shellcheck disable=SC1090
-. "$env_file"
-set +a
+# Clear every accepted key so ambient variables cannot bypass the data file.
+unset COMPOSE_PROJECT_NAME RELEASE_TAG SOURCE_COMMIT_SHA
+unset WEB_IMAGE MIGRATOR_IMAGE BACKUP_IMAGE POSTGRES_IMAGE CADDY_IMAGE
+unset POSTGRES_PASSWORD CRM_APP_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL APP_URL
+unset PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD BOOTSTRAP_OWNER_EMAIL
+unset DEPLOYMENT_ID STORAGE_ID DB_NAME AGENT_WEB_SECRET APPLICATION_VERSION MIGRATION_VERSION
+unset VENDOR_ENTITLEMENT_TRUST_SET MICROSOFT_CLIENT_ID MICROSOFT_CLIENT_SECRET MICROSOFT_TENANT_ID
+unset DEMO_MODE DEMO_TENANT_ID DEMO_TENANT_NAME DEMO_CURRENCY DEMO_TAX_NAME DEMO_TAX_RATE
+unset BACKUP_RSYNC_TARGET BACKUP_EVIDENCE_FILE BACKUP_EVIDENCE_SIGNATURE_FILE
+unset BACKUP_EVIDENCE_PUBLIC_KEY_FILE BACKUP_EVIDENCE_PUBLIC_KEY_SHA256
+unset BACKUP_MAX_AGE_SECONDS DEPLOYMENT_RECORD_FILE GATEWAY_HOST_PORT DB_HOST_PORT
+unset HEALTHCHECK_ATTEMPTS HEALTHCHECK_INTERVAL_SECONDS HEALTHCHECK_TIMEOUT_SECONDS
+unset DB_HEALTH_ATTEMPTS DB_HEALTH_INTERVAL_SECONDS
+unset DB_MEMORY_LIMIT WEB_MEMORY_LIMIT BACKUP_MEMORY_LIMIT GATEWAY_MEMORY_LIMIT
+COMPOSE_PROJECT_NAME= RELEASE_TAG= SOURCE_COMMIT_SHA=
+WEB_IMAGE= MIGRATOR_IMAGE= BACKUP_IMAGE= POSTGRES_IMAGE= CADDY_IMAGE=
+POSTGRES_PASSWORD= CRM_APP_PASSWORD= BETTER_AUTH_SECRET= BETTER_AUTH_URL= APP_URL=
+PLATFORM_MASTER_EMAIL= PLATFORM_MASTER_PASSWORD= BOOTSTRAP_OWNER_EMAIL=
+DEPLOYMENT_ID= STORAGE_ID= DB_NAME= AGENT_WEB_SECRET=
+APPLICATION_VERSION= MIGRATION_VERSION= VENDOR_ENTITLEMENT_TRUST_SET=
+MICROSOFT_CLIENT_ID= MICROSOFT_CLIENT_SECRET= MICROSOFT_TENANT_ID=
+DEMO_MODE= DEMO_TENANT_ID= DEMO_TENANT_NAME= DEMO_CURRENCY= DEMO_TAX_NAME= DEMO_TAX_RATE=
+BACKUP_RSYNC_TARGET= BACKUP_EVIDENCE_FILE= BACKUP_EVIDENCE_SIGNATURE_FILE=
+BACKUP_EVIDENCE_PUBLIC_KEY_FILE= BACKUP_EVIDENCE_PUBLIC_KEY_SHA256=
+BACKUP_MAX_AGE_SECONDS= DEPLOYMENT_RECORD_FILE= GATEWAY_HOST_PORT= DB_HOST_PORT=
+HEALTHCHECK_ATTEMPTS= HEALTHCHECK_INTERVAL_SECONDS= HEALTHCHECK_TIMEOUT_SECONDS=
+DB_HEALTH_ATTEMPTS= DB_HEALTH_INTERVAL_SECONDS=
+DB_MEMORY_LIMIT= WEB_MEMORY_LIMIT= BACKUP_MEMORY_LIMIT= GATEWAY_MEMORY_LIMIT=
 
-required COMPOSE_PROJECT_NAME "${COMPOSE_PROJECT_NAME:-}"
-required RELEASE_TAG "${RELEASE_TAG:-}"
-required WEB_IMAGE "${WEB_IMAGE:-}"
-required MIGRATOR_IMAGE "${MIGRATOR_IMAGE:-}"
-required BACKUP_IMAGE "${BACKUP_IMAGE:-}"
-required POSTGRES_IMAGE "${POSTGRES_IMAGE:-}"
-required CADDY_IMAGE "${CADDY_IMAGE:-}"
-required POSTGRES_PASSWORD "${POSTGRES_PASSWORD:-}"
-required CRM_APP_PASSWORD "${CRM_APP_PASSWORD:-}"
-required BETTER_AUTH_SECRET "${BETTER_AUTH_SECRET:-}"
-required PLATFORM_MASTER_EMAIL "${PLATFORM_MASTER_EMAIL:-}"
-required PLATFORM_MASTER_PASSWORD "${PLATFORM_MASTER_PASSWORD:-}"
-required DEPLOYMENT_ID "${DEPLOYMENT_ID:-}"
-required AGENT_WEB_SECRET "${AGENT_WEB_SECRET:-}"
-required APPLICATION_VERSION "${APPLICATION_VERSION:-}"
-required MIGRATION_VERSION "${MIGRATION_VERSION:-}"
-required VENDOR_ENTITLEMENT_TRUST_SET "${VENDOR_ENTITLEMENT_TRUST_SET:-}"
-required BACKUP_MARKER_FILE "${BACKUP_MARKER_FILE:-}"
-required DEPLOYMENT_RECORD_FILE "${DEPLOYMENT_RECORD_FILE:-}"
+parse_environment "$temp_dir/environment.env"
+
+required COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
+required RELEASE_TAG "$RELEASE_TAG"
+required SOURCE_COMMIT_SHA "$SOURCE_COMMIT_SHA"
+required WEB_IMAGE "$WEB_IMAGE"
+required MIGRATOR_IMAGE "$MIGRATOR_IMAGE"
+required BACKUP_IMAGE "$BACKUP_IMAGE"
+required POSTGRES_IMAGE "$POSTGRES_IMAGE"
+required CADDY_IMAGE "$CADDY_IMAGE"
+required POSTGRES_PASSWORD "$POSTGRES_PASSWORD"
+required CRM_APP_PASSWORD "$CRM_APP_PASSWORD"
+required BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+required PLATFORM_MASTER_EMAIL "$PLATFORM_MASTER_EMAIL"
+required PLATFORM_MASTER_PASSWORD "$PLATFORM_MASTER_PASSWORD"
+required DEPLOYMENT_ID "$DEPLOYMENT_ID"
+required STORAGE_ID "$STORAGE_ID"
+required DB_NAME "$DB_NAME"
+required AGENT_WEB_SECRET "$AGENT_WEB_SECRET"
+required APPLICATION_VERSION "$APPLICATION_VERSION"
+required MIGRATION_VERSION "$MIGRATION_VERSION"
+required VENDOR_ENTITLEMENT_TRUST_SET "$VENDOR_ENTITLEMENT_TRUST_SET"
+required BACKUP_EVIDENCE_FILE "$BACKUP_EVIDENCE_FILE"
+required BACKUP_EVIDENCE_SIGNATURE_FILE "$BACKUP_EVIDENCE_SIGNATURE_FILE"
+required BACKUP_EVIDENCE_PUBLIC_KEY_FILE "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE"
+required BACKUP_EVIDENCE_PUBLIC_KEY_SHA256 "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256"
+required DEPLOYMENT_RECORD_FILE "$DEPLOYMENT_RECORD_FILE"
 
 for secret_pair in \
   "POSTGRES_PASSWORD:$POSTGRES_PASSWORD" \
@@ -127,76 +462,177 @@ printf '%s\n' "$COMPOSE_PROJECT_NAME" | grep -Eq '^[a-z0-9][a-z0-9_-]*$' ||
   fail "COMPOSE_PROJECT_NAME contains unsupported characters"
 printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
   fail "RELEASE_TAG must be an immutable release tag such as v1.2.3"
+printf '%s\n' "$SOURCE_COMMIT_SHA" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' ||
+  fail "SOURCE_COMMIT_SHA must be a full lowercase Git object ID"
+printf '%s\n' "$DB_NAME" | grep -Eq '^[a-z_][a-z0-9_]*$' || fail "DB_NAME is invalid"
+printf '%s\n' "$STORAGE_ID" | grep -Eq '^[A-Za-z0-9._-]+$' || fail "STORAGE_ID is invalid"
+printf '%s\n' "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
+  fail "BACKUP_EVIDENCE_PUBLIC_KEY_SHA256 must be a lowercase sha256 digest"
 
-validate_digest_image WEB_IMAGE "$WEB_IMAGE"
-validate_digest_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE"
-validate_digest_image BACKUP_IMAGE "$BACKUP_IMAGE"
-validate_digest_image POSTGRES_IMAGE "$POSTGRES_IMAGE"
-validate_digest_image CADDY_IMAGE "$CADDY_IMAGE"
-
-case "$WEB_IMAGE" in ghcr.io/quandatics-malaysia/*) ;; *) fail "WEB_IMAGE must use vendor registry namespace" ;; esac
-case "$MIGRATOR_IMAGE" in ghcr.io/quandatics-malaysia/*) ;; *) fail "MIGRATOR_IMAGE must use vendor registry namespace" ;; esac
-case "$BACKUP_IMAGE" in ghcr.io/quandatics-malaysia/*) ;; *) fail "BACKUP_IMAGE must use vendor registry namespace" ;; esac
+validate_exact_image WEB_IMAGE "$WEB_IMAGE" ghcr.io/quandatics-malaysia/crm-web
+validate_exact_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE" ghcr.io/quandatics-malaysia/crm-migrator
+validate_exact_image BACKUP_IMAGE "$BACKUP_IMAGE" ghcr.io/quandatics-malaysia/crm-backup
+validate_exact_image POSTGRES_IMAGE "$POSTGRES_IMAGE" docker.io/library/postgres
+validate_exact_image CADDY_IMAGE "$CADDY_IMAGE" docker.io/library/caddy
 
 BACKUP_MAX_AGE_SECONDS=${BACKUP_MAX_AGE_SECONDS:-86400}
+GATEWAY_HOST_PORT=${GATEWAY_HOST_PORT:-8081}
+DB_HOST_PORT=${DB_HOST_PORT:-5433}
 HEALTHCHECK_ATTEMPTS=${HEALTHCHECK_ATTEMPTS:-30}
 HEALTHCHECK_INTERVAL_SECONDS=${HEALTHCHECK_INTERVAL_SECONDS:-2}
 HEALTHCHECK_TIMEOUT_SECONDS=${HEALTHCHECK_TIMEOUT_SECONDS:-5}
 DB_HEALTH_ATTEMPTS=${DB_HEALTH_ATTEMPTS:-30}
 DB_HEALTH_INTERVAL_SECONDS=${DB_HEALTH_INTERVAL_SECONDS:-2}
-export BACKUP_MAX_AGE_SECONDS HEALTHCHECK_ATTEMPTS HEALTHCHECK_INTERVAL_SECONDS
-export HEALTHCHECK_TIMEOUT_SECONDS DB_HEALTH_ATTEMPTS DB_HEALTH_INTERVAL_SECONDS
+BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost}
+APP_URL=${APP_URL:-$BETTER_AUTH_URL}
+BOOTSTRAP_OWNER_EMAIL=${BOOTSTRAP_OWNER_EMAIL:-}
+MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-}
+DEMO_MODE=${DEMO_MODE:-false}
+DEMO_TENANT_ID=${DEMO_TENANT_ID:-demo-entity}
+DEMO_TENANT_NAME=${DEMO_TENANT_NAME:-Demo Workspace}
+DEMO_CURRENCY=${DEMO_CURRENCY:-USD}
+DEMO_TAX_NAME=${DEMO_TAX_NAME:-VAT 5%}
+DEMO_TAX_RATE=${DEMO_TAX_RATE:-5.000}
+BACKUP_RSYNC_TARGET=${BACKUP_RSYNC_TARGET:-}
+DB_MEMORY_LIMIT=${DB_MEMORY_LIMIT:-2g}
+WEB_MEMORY_LIMIT=${WEB_MEMORY_LIMIT:-1g}
+BACKUP_MEMORY_LIMIT=${BACKUP_MEMORY_LIMIT:-256m}
+GATEWAY_MEMORY_LIMIT=${GATEWAY_MEMORY_LIMIT:-128m}
 
 validate_positive_integer BACKUP_MAX_AGE_SECONDS "$BACKUP_MAX_AGE_SECONDS"
+[ "${#BACKUP_MAX_AGE_SECONDS}" -le 9 ] || fail "BACKUP_MAX_AGE_SECONDS is too large"
+validate_port GATEWAY_HOST_PORT "$GATEWAY_HOST_PORT"
+validate_port DB_HOST_PORT "$DB_HOST_PORT"
 validate_positive_integer HEALTHCHECK_ATTEMPTS "$HEALTHCHECK_ATTEMPTS"
 validate_non_negative_integer HEALTHCHECK_INTERVAL_SECONDS "$HEALTHCHECK_INTERVAL_SECONDS"
 validate_positive_integer HEALTHCHECK_TIMEOUT_SECONDS "$HEALTHCHECK_TIMEOUT_SECONDS"
 validate_positive_integer DB_HEALTH_ATTEMPTS "$DB_HEALTH_ATTEMPTS"
 validate_non_negative_integer DB_HEALTH_INTERVAL_SECONDS "$DB_HEALTH_INTERVAL_SECONDS"
 
-case "$BACKUP_MARKER_FILE" in /*) ;; *) fail "BACKUP_MARKER_FILE must be an absolute path" ;; esac
+case "$BACKUP_EVIDENCE_FILE" in /*) ;; *) fail "BACKUP_EVIDENCE_FILE must be an absolute path" ;; esac
+case "$BACKUP_EVIDENCE_SIGNATURE_FILE" in /*) ;; *) fail "BACKUP_EVIDENCE_SIGNATURE_FILE must be an absolute path" ;; esac
+case "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" in /*) ;; *) fail "BACKUP_EVIDENCE_PUBLIC_KEY_FILE must be an absolute path" ;; esac
 case "$DEPLOYMENT_RECORD_FILE" in /*) ;; *) fail "DEPLOYMENT_RECORD_FILE must be an absolute path" ;; esac
-record_dir=$(dirname "$DEPLOYMENT_RECORD_FILE")
-[ -d "$record_dir" ] && [ -w "$record_dir" ] ||
-  fail "DEPLOYMENT_RECORD_FILE parent directory must already exist and be writable"
-case "${HEALTHCHECK_URL:-http://127.0.0.1:8081/api/health}" in
-  http://127.0.0.1:*|http://localhost:*) ;;
-  *) fail "HEALTHCHECK_URL must target the local client gateway" ;;
-esac
 
-command -v docker >/dev/null 2>&1 || fail "docker is required"
-command -v curl >/dev/null 2>&1 || fail "curl is required"
-command -v awk >/dev/null 2>&1 || fail "awk is required"
+record_dir=$(dirname "$DEPLOYMENT_RECORD_FILE")
+assert_secure_directory "$record_dir" "deployment record directory"
+
+for required_command in docker curl awk jq openssl stat id cp mktemp env; do
+  command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is required"
+done
+if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+  fail "sha256sum or shasum is required"
+fi
+
+encoded_postgres_password=$(urlencode "$POSTGRES_PASSWORD")
+encoded_app_password=$(urlencode "$CRM_APP_PASSWORD")
+DATABASE_ADMIN_URL="postgres://postgres:$encoded_postgres_password@db:5432/$DB_NAME"
+MIGRATOR_DATABASE_URL=$DATABASE_ADMIN_URL
+APP_DATABASE_URL="postgres://crm_app:$encoded_app_password@db:5432/$DB_NAME"
+HEALTHCHECK_URL="http://127.0.0.1:$GATEWAY_HOST_PORT/api/health"
 
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required"
 compose config --quiet || fail "Compose configuration is invalid"
+verify_images || fail "image signature verification failed; running containers were not changed"
 
-if ! "$script_dir/verify-images.sh"; then
-  fail "image signature verification failed; running containers were not changed"
+assert_secure_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" "backup evidence public key file"
+[ "$(sha256_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE")" = "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256" ] ||
+  fail "backup evidence public key does not match pinned sha256"
+openssl pkey -pubin -in "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" -noout >/dev/null 2>&1 ||
+  fail "backup evidence public key is invalid"
+
+assert_secure_file "$BACKUP_EVIDENCE_FILE" "backup evidence file"
+assert_secure_file "$BACKUP_EVIDENCE_SIGNATURE_FILE" "backup evidence signature file"
+cp "$BACKUP_EVIDENCE_FILE" "$temp_dir/backup-evidence.env" || fail "could not read backup evidence"
+if ! openssl dgst -sha256 \
+  -verify "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" \
+  -signature "$BACKUP_EVIDENCE_SIGNATURE_FILE" \
+  "$temp_dir/backup-evidence.env" >/dev/null 2>&1; then
+  fail "backup evidence detached signature verification failed"
 fi
 
-[ -f "$BACKUP_MARKER_FILE" ] || fail "verified backup marker not found: $BACKUP_MARKER_FILE"
-[ -r "$BACKUP_MARKER_FILE" ] || fail "verified backup marker is not readable: $BACKUP_MARKER_FILE"
+EVIDENCE_VERSION= EVIDENCE_DEPLOYMENT_ID= EVIDENCE_COMPOSE_PROJECT_NAME=
+EVIDENCE_DB_NAME= EVIDENCE_STORAGE_ID= EVIDENCE_POSTGRES_IMAGE=
+EVIDENCE_RELEASE_TAG= EVIDENCE_WEB_IMAGE= EVIDENCE_MIGRATOR_IMAGE= EVIDENCE_BACKUP_IMAGE=
+EVIDENCE_SOURCE_COMMIT_SHA= EVIDENCE_CREATED_AT_EPOCH=
+EVIDENCE_BACKUP_ARTIFACT_FILE= EVIDENCE_BACKUP_ARTIFACT_SHA256=
+EVIDENCE_CHECKSUM_VERIFIED= EVIDENCE_RESTORE_VERIFIED= EVIDENCE_UPLOAD_VERIFIED=
+parse_evidence "$temp_dir/backup-evidence.env"
 
-assert_marker_equal RELEASE_TAG "$RELEASE_TAG"
-assert_marker_equal WEB_IMAGE "$WEB_IMAGE"
-assert_marker_equal MIGRATOR_IMAGE "$MIGRATOR_IMAGE"
-assert_marker_equal BACKUP_IMAGE "$BACKUP_IMAGE"
-assert_marker_equal CHECKSUM_VERIFIED true
-assert_marker_equal RESTORE_VERIFIED true
-assert_marker_equal UPLOAD_VERIFIED true
+assert_evidence_equal EVIDENCE_VERSION "$EVIDENCE_VERSION" 1
+assert_evidence_equal DEPLOYMENT_ID "$EVIDENCE_DEPLOYMENT_ID" "$DEPLOYMENT_ID"
+assert_evidence_equal COMPOSE_PROJECT_NAME "$EVIDENCE_COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME"
+assert_evidence_equal DB_NAME "$EVIDENCE_DB_NAME" "$DB_NAME"
+assert_evidence_equal STORAGE_ID "$EVIDENCE_STORAGE_ID" "$STORAGE_ID"
+assert_evidence_equal POSTGRES_IMAGE "$EVIDENCE_POSTGRES_IMAGE" "$POSTGRES_IMAGE"
+assert_evidence_equal RELEASE_TAG "$EVIDENCE_RELEASE_TAG" "$RELEASE_TAG"
+assert_evidence_equal WEB_IMAGE "$EVIDENCE_WEB_IMAGE" "$WEB_IMAGE"
+assert_evidence_equal MIGRATOR_IMAGE "$EVIDENCE_MIGRATOR_IMAGE" "$MIGRATOR_IMAGE"
+assert_evidence_equal BACKUP_IMAGE "$EVIDENCE_BACKUP_IMAGE" "$BACKUP_IMAGE"
+[ "$EVIDENCE_SOURCE_COMMIT_SHA" = "$SOURCE_COMMIT_SHA" ] ||
+  fail "backup evidence SOURCE_COMMIT_SHA does not match intended release"
+assert_evidence_equal CHECKSUM_VERIFIED "$EVIDENCE_CHECKSUM_VERIFIED" true
+assert_evidence_equal RESTORE_VERIFIED "$EVIDENCE_RESTORE_VERIFIED" true
+assert_evidence_equal UPLOAD_VERIFIED "$EVIDENCE_UPLOAD_VERIFIED" true
 
-dump_sha256=$(marker_value DUMP_SHA256)
-printf '%s\n' "$dump_sha256" | grep -Eq '^[0-9a-f]{64}$' ||
-  fail "backup marker DUMP_SHA256 is missing or invalid"
+printf '%s\n' "$EVIDENCE_CREATED_AT_EPOCH" | grep -Eq '^[0-9]{10}$' ||
+  fail "backup evidence CREATED_AT_EPOCH is missing or invalid"
+printf '%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
+  fail "backup evidence BACKUP_ARTIFACT_SHA256 is missing or invalid"
+case "$EVIDENCE_BACKUP_ARTIFACT_FILE" in /*) ;; *) fail "backup evidence artifact path must be absolute" ;; esac
+assert_secure_file "$EVIDENCE_BACKUP_ARTIFACT_FILE" "backup artifact file"
+[ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" = "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ] ||
+  fail "backup artifact checksum does not match signed evidence"
 
-created_at=$(marker_value CREATED_AT_EPOCH)
-printf '%s\n' "$created_at" | grep -Eq '^[0-9]{10}$' ||
-  fail "backup marker CREATED_AT_EPOCH is missing or invalid"
 now=$(date +%s)
-backup_age=$((now - created_at))
-[ "$backup_age" -ge 0 ] || fail "verified backup marker timestamp is in the future"
-[ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "verified backup marker is stale"
+backup_age=$((now - EVIDENCE_CREATED_AT_EPOCH))
+[ "$backup_age" -ge 0 ] || fail "backup evidence timestamp is in the future"
+[ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence is stale"
+
+previous_available=0
+if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
+  assert_secure_file "$DEPLOYMENT_RECORD_FILE" "previous deployment record"
+  cp "$DEPLOYMENT_RECORD_FILE" "$temp_dir/previous-record.env" || fail "could not read previous deployment record"
+  PREVIOUS_RECORD_VERSION= PREVIOUS_RELEASE_TAG= PREVIOUS_SOURCE_COMMIT_SHA=
+  PREVIOUS_DEPLOYMENT_ID= PREVIOUS_COMPOSE_PROJECT_NAME= PREVIOUS_DB_NAME= PREVIOUS_STORAGE_ID=
+  PREVIOUS_WEB_IMAGE= PREVIOUS_MIGRATOR_IMAGE= PREVIOUS_BACKUP_IMAGE=
+  PREVIOUS_POSTGRES_IMAGE= PREVIOUS_CADDY_IMAGE= PREVIOUS_BACKUP_ARTIFACT_SHA256=
+  PREVIOUS_DEPLOYED_AT_EPOCH=
+  parse_previous_record "$temp_dir/previous-record.env"
+  [ "$PREVIOUS_RECORD_VERSION" = 1 ] || fail "previous deployment record version is invalid"
+  printf '%s\n' "$PREVIOUS_RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
+    fail "previous deployment record release tag is invalid"
+  printf '%s\n' "$PREVIOUS_SOURCE_COMMIT_SHA" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' ||
+    fail "previous deployment record source object ID is invalid"
+  printf '%s\n' "$PREVIOUS_BACKUP_ARTIFACT_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
+    fail "previous deployment record backup checksum is invalid"
+  printf '%s\n' "$PREVIOUS_DEPLOYED_AT_EPOCH" | grep -Eq '^[0-9]{10}$' ||
+    fail "previous deployment record timestamp is invalid"
+  [ "$PREVIOUS_DEPLOYMENT_ID" = "$DEPLOYMENT_ID" ] || fail "previous deployment record belongs to another deployment"
+  [ "$PREVIOUS_COMPOSE_PROJECT_NAME" = "$COMPOSE_PROJECT_NAME" ] || fail "previous deployment record belongs to another project"
+  [ "$PREVIOUS_DB_NAME" = "$DB_NAME" ] || fail "previous deployment record belongs to another database"
+  [ "$PREVIOUS_STORAGE_ID" = "$STORAGE_ID" ] || fail "previous deployment record belongs to another storage identity"
+  validate_exact_image PREVIOUS_WEB_IMAGE "$PREVIOUS_WEB_IMAGE" ghcr.io/quandatics-malaysia/crm-web
+  validate_exact_image PREVIOUS_MIGRATOR_IMAGE "$PREVIOUS_MIGRATOR_IMAGE" ghcr.io/quandatics-malaysia/crm-migrator
+  validate_exact_image PREVIOUS_BACKUP_IMAGE "$PREVIOUS_BACKUP_IMAGE" ghcr.io/quandatics-malaysia/crm-backup
+  validate_exact_image PREVIOUS_POSTGRES_IMAGE "$PREVIOUS_POSTGRES_IMAGE" docker.io/library/postgres
+  validate_exact_image PREVIOUS_CADDY_IMAGE "$PREVIOUS_CADDY_IMAGE" docker.io/library/caddy
+  previous_available=1
+fi
+
+TARGET_WEB_IMAGE=$WEB_IMAGE
+TARGET_BACKUP_IMAGE=$BACKUP_IMAGE
+TARGET_CADDY_IMAGE=$CADDY_IMAGE
+lock_dir="$record_dir/.deploy-$COMPOSE_PROJECT_NAME.lock"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  fail "deployment already in progress for project $COMPOSE_PROJECT_NAME"
+fi
+lock_held=1
+chmod 0700 "$lock_dir"
+printf '%s\n' "$$" >"$lock_dir/pid"
+chmod 0600 "$lock_dir/pid"
 
 if ! compose pull db migrate web backup gateway; then
   fail "image pull failed; running containers were not changed"
@@ -206,35 +642,24 @@ compose up -d --no-deps db || fail "database start failed"
 
 db_attempt=1
 while [ "$db_attempt" -le "$DB_HEALTH_ATTEMPTS" ]; do
-  if compose exec -T db pg_isready -U postgres -d crm >/dev/null 2>&1; then
+  if compose exec -T db pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
     break
   fi
-  if [ "$db_attempt" -eq "$DB_HEALTH_ATTEMPTS" ]; then
-    fail "database health check failed"
-  fi
+  [ "$db_attempt" -lt "$DB_HEALTH_ATTEMPTS" ] || fail "database health check failed"
   sleep "$DB_HEALTH_INTERVAL_SECONDS"
   db_attempt=$((db_attempt + 1))
 done
 
 compose run --rm --no-deps migrate || fail "migration failed"
-compose up -d --no-deps --force-recreate web backup gateway || fail "runtime service recreation failed"
+if ! compose up -d --no-deps --force-recreate web backup gateway; then
+  abort_with_rollback "runtime service recreation failed"
+fi
+if ! run_healthcheck; then
+  abort_with_rollback "health check failed"
+fi
 
-"$script_dir/healthcheck.sh" || fail "health check failed; release was not recorded"
-
-umask 077
-record_tmp=$(mktemp "$DEPLOYMENT_RECORD_FILE.XXXXXX")
-{
-  printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
-  printf 'WEB_IMAGE=%s\n' "$WEB_IMAGE"
-  printf 'MIGRATOR_IMAGE=%s\n' "$MIGRATOR_IMAGE"
-  printf 'BACKUP_IMAGE=%s\n' "$BACKUP_IMAGE"
-  printf 'POSTGRES_IMAGE=%s\n' "$POSTGRES_IMAGE"
-  printf 'CADDY_IMAGE=%s\n' "$CADDY_IMAGE"
-  printf 'BACKUP_DUMP_SHA256=%s\n' "$dump_sha256"
-  printf 'DEPLOYED_AT_EPOCH=%s\n' "$(date +%s)"
-} >"$record_tmp"
-chmod 0600 "$record_tmp"
-mv -f "$record_tmp" "$DEPLOYMENT_RECORD_FILE"
-record_tmp=
+if ! write_deployment_record; then
+  abort_with_rollback "deployment record update failed"
+fi
 
 echo "deployed and recorded $RELEASE_TAG"

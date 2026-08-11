@@ -34,6 +34,38 @@ Quick reference first; details below.
 `pnpm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
+## Publish and verify a signed client release
+
+1. Confirm the release commit is reviewed and create an annotated strict
+   SemVer tag. Lightweight tags are rejected:
+
+   ```bash
+   git tag -a v1.2.3 -m "CRM v1.2.3"
+   git push origin v1.2.3
+   ```
+
+2. Watch the `release-images` workflow. It runs only on GitHub-hosted runners
+   and uses only the workflow-scoped `GITHUB_TOKEN` plus GitHub OIDC. No
+   Cloudflare, registry PAT, or signing private key is accepted by the job.
+
+3. Require all three matrix builds (`web`, `migrator`, `backup`) to pass image
+   build, Trivy, SPDX SBOM, Cosign signing, and immediate signature
+   verification. A failed gate leaves version and commit tags unpublished.
+
+4. Download `release-manifest-v1.2.3`. Confirm its `source_commit` is the tagged
+   commit, its `workflow_identity` is exactly
+   `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
+   and it lists exactly three `sha256:` digests.
+
+5. Copy only those digest references into the client release environment.
+   Run `deploy/client/verify-images.sh` before pull or migration. Never replace
+   a digest with a version tag, commit tag, or `latest`.
+
+Keep the release manifest, per-image SPDX JSON SBOMs, and Cosign verification
+records with release evidence. BuildKit provenance and keyless signatures stay
+attached to the immutable GHCR digest. If any image must be rebuilt, issue a
+new release tag; do not move or reuse an existing release tag.
+
 ## Resume the paused Internal-Ops deployment
 
 The `crm-v2` and `crm-staging` Compose projects were deliberately stopped on

@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context, type MiddlewareHandler } from "hono"
+import { getCookie, setCookie } from "hono/cookie"
 import { HTTPException } from "hono/http-exception"
 
 import { prepareOperatorAuditStatement } from "../audit"
@@ -27,6 +28,8 @@ import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
+const CSRF_COOKIE = "operator_csrf"
+const csrfTokenPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function requestId(context: OperatorContext): string {
   return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
@@ -36,39 +39,35 @@ function isJson(context: OperatorContext): boolean {
   return context.req.header("Content-Type")?.split(";", 1)[0].trim().toLowerCase() === "application/json"
 }
 
-const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
-  const origin = context.req.header("Origin")
-  const fetchSite = context.req.header("Sec-Fetch-Site")
-  const referer = context.req.header("Referer")
-  let allowedOrigin: string
-  try {
-    allowedOrigin = new URL(context.env.OPERATOR_ORIGIN).origin
-  } catch {
-    throw forbidden()
+function csrfToken(context: OperatorContext): string {
+  const current = getCookie(context, CSRF_COOKIE)
+  if (current && csrfTokenPattern.test(current)) return current
+  const token = crypto.randomUUID()
+  setCookie(context, CSRF_COOKIE, token, {
+    httpOnly: true,
+    path: "/operator",
+    sameSite: "Strict",
+    secure: true,
+  })
+  return token
+}
+
+const requireCsrfToken: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
+  const cookieToken = getCookie(context, CSRF_COOKIE)
+  if (!cookieToken || !csrfTokenPattern.test(cookieToken)) throw forbidden()
+
+  let requestToken: string | undefined
+  if (isJson(context)) {
+    if (context.req.header("X-Control-Request") !== "same-origin") throw forbidden()
+    requestToken = context.req.header("X-CSRF-Token")
+  } else {
+    const contentType = context.req.header("Content-Type")?.toLowerCase() ?? ""
+    if (!contentType.startsWith("application/x-www-form-urlencoded")) throw forbidden()
+    const form = await context.req.raw.clone().formData().catch(() => null)
+    const value = form?.get("_csrf")
+    requestToken = typeof value === "string" ? value : undefined
   }
-  const requestOrigin = new URL(context.req.url).origin
-  const hasOrigin = typeof origin === "string" && origin.length > 0
-  const hasFetchSite = typeof fetchSite === "string" && fetchSite.length > 0
-  const hasValidOrigin = origin === allowedOrigin
-  const hasValidFetchMetadata = !hasOrigin && fetchSite === "same-origin"
-  let hasValidReferer = false
-  if (!hasOrigin && typeof referer === "string" && referer.length > 0) {
-    try {
-      hasValidReferer = new URL(referer).origin === allowedOrigin
-    } catch {
-      hasValidReferer = false
-    }
-  }
-  if (
-    requestOrigin !== allowedOrigin ||
-    (!hasValidOrigin && !hasValidFetchMetadata && !hasValidReferer) ||
-    (hasFetchSite && fetchSite !== "same-origin" && !hasValidReferer)
-  ) {
-    throw forbidden()
-  }
-  if (isJson(context) && context.req.header("X-Control-Request") !== "same-origin") {
-    throw forbidden()
-  }
+  if (requestToken !== cookieToken) throw forbidden()
   await next()
 }
 
@@ -232,7 +231,7 @@ export function createOperatorRoutes() {
       pagination.offset,
     )
     return context.html(
-      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} />,
+      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} csrfToken={csrfToken(context)} />,
     )
   })
   routes.get("/clients/:clientId", async (context) => {
@@ -241,7 +240,7 @@ export function createOperatorRoutes() {
       context.req.param("clientId"),
       parseClientChildPagination(context.req.url),
     )
-    return context.html(<ClientPage client={client} />)
+    return context.html(<ClientPage client={client} csrfToken={csrfToken(context)} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
@@ -249,12 +248,12 @@ export function createOperatorRoutes() {
       context.req.param("contractId"),
       parseNamedPagination(context.req.url, "invoices"),
     )
-    return context.html(<ContractPage contract={contract} />)
+    return context.html(<ContractPage contract={contract} csrfToken={csrfToken(context)} />)
   })
 
   routes.post(
     "/clients",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner"),
     (context) => runMutation(
       context,
@@ -263,7 +262,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/clients/:clientId/organisations",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -275,7 +274,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/clients/:clientId/deployments",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -287,7 +286,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/clients/:clientId/contracts",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -299,7 +298,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/contracts/:contractId/invoices",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const contractId = context.req.param("contractId")
@@ -311,7 +310,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/deployments/:deploymentId/entitlements/schedule",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
@@ -331,7 +330,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/deployments/:deploymentId/entitlements/issue",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
@@ -347,7 +346,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/contracts/:contractId/entitlement-controls",
-    sameOriginMutation,
+    requireCsrfToken,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const contractId = context.req.param("contractId")

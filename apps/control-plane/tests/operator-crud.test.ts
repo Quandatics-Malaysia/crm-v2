@@ -50,6 +50,7 @@ function operatorRequest(
     json?: Record<string, unknown>
     origin?: string | null
     fetchSite?: string
+    referer?: string
     jsonGuard?: boolean
     host?: string
     database?: D1Database
@@ -81,6 +82,9 @@ function operatorRequest(
   }
   if (options.fetchSite) {
     headers.set("Sec-Fetch-Site", options.fetchSite)
+  }
+  if (options.referer) {
+    headers.set("Referer", options.referer)
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
@@ -150,6 +154,18 @@ describe("operator mutation protection and client administration", () => {
     })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", {
       method: "POST",
+      form: { clientKey: `safari-${crypto.randomUUID()}`, displayName: "Safari same origin" },
+      origin: null,
+      referer: "https://control.invalid/operator/clients",
+    })).status).toBe(303)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey: `referer-${crypto.randomUUID()}`, displayName: "Cross-origin referer" },
+      origin: null,
+      referer: "https://attacker.invalid/operator/clients",
+    })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
       form: { clientKey: `host-${crypto.randomUUID()}`, displayName: "Host injection" },
       host: "https://attacker.invalid",
       origin: "https://attacker.invalid",
@@ -159,7 +175,7 @@ describe("operator mutation protection and client administration", () => {
     const denialAudits = await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'denied'",
     ).first<{ count: number }>()
-    expect(denialAudits?.count).toBe(4)
+    expect(denialAudits?.count).toBe(5)
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)

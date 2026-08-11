@@ -1,6 +1,5 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context, type MiddlewareHandler } from "hono"
-import { csrf } from "hono/csrf"
 import { HTTPException } from "hono/http-exception"
 
 import { prepareOperatorAuditStatement } from "../audit"
@@ -40,6 +39,7 @@ function isJson(context: OperatorContext): boolean {
 const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
   const origin = context.req.header("Origin")
   const fetchSite = context.req.header("Sec-Fetch-Site")
+  const referer = context.req.header("Referer")
   let allowedOrigin: string
   try {
     allowedOrigin = new URL(context.env.OPERATOR_ORIGIN).origin
@@ -47,12 +47,22 @@ const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (co
     throw forbidden()
   }
   const requestOrigin = new URL(context.req.url).origin
+  const hasOrigin = typeof origin === "string" && origin.length > 0
+  const hasFetchSite = typeof fetchSite === "string" && fetchSite.length > 0
   const hasValidOrigin = origin === allowedOrigin
-  const hasValidFetchMetadata = origin === undefined && fetchSite === "same-origin"
+  const hasValidFetchMetadata = !hasOrigin && fetchSite === "same-origin"
+  let hasValidReferer = false
+  if (!hasOrigin && typeof referer === "string" && referer.length > 0) {
+    try {
+      hasValidReferer = new URL(referer).origin === allowedOrigin
+    } catch {
+      hasValidReferer = false
+    }
+  }
   if (
     requestOrigin !== allowedOrigin ||
-    (!hasValidOrigin && !hasValidFetchMetadata) ||
-    (fetchSite !== undefined && fetchSite !== "same-origin")
+    (!hasValidOrigin && !hasValidFetchMetadata && !hasValidReferer) ||
+    (hasFetchSite && fetchSite !== "same-origin" && !hasValidReferer)
   ) {
     throw forbidden()
   }
@@ -211,8 +221,6 @@ export function createOperatorRoutes() {
     await next()
   })
   routes.use("*", auditMutationFailures)
-  routes.use("*", csrf())
-
   routes.get("/", (context) =>
     context.html(<Dashboard operatorEmail={context.get("operator").email} />),
   )

@@ -18,7 +18,6 @@ const validEnvironment = {
   CONTROL_DB_ID: "7d9f3781-8cd9-43f5-9725-25c238d05e61",
   CONTROL_DB_NAME: "crm-control-plane-staging",
   BACKUP_BUCKET_NAME: "crm-backup-staging",
-  ASSETS_SERVICE_NAME: "crm-control-plane-assets-staging",
   ACCESS_TEAM_DOMAIN: "company.cloudflareaccess.com",
   ACCESS_AUD: "staging-access-audience",
   BOOTSTRAP_OWNER_EMAIL: "owner@example.com",
@@ -51,6 +50,7 @@ test("workflow retains all gates and renders protected environment config", () =
   assert.match(workflow, /secrets\.CLOUDFLARE_ACCOUNT_ID/)
   assert.match(workflow, /--config "\$CONTROL_PLANE_CONFIG_PATH"/)
   assert.doesNotMatch(workflow, /00000000-0000-0000-0000-00000000000[0-9]/)
+  assert.doesNotMatch(workflow, /ASSETS_SERVICE_NAME/)
 })
 
 test("committed config stays local-only without deployable resource identifiers", () => {
@@ -58,6 +58,7 @@ test("committed config stays local-only without deployable resource identifiers"
   assert.match(wrangler, /ENTITLEMENT_SIGNING_KEY_ID/)
   assert.doesNotMatch(wrangler, /"database_id"/)
   assert.doesNotMatch(wrangler, /"env"\s*:/)
+  assert.doesNotMatch(wrangler, /"services"\s*:/)
   assert.doesNotMatch(wrangler, new RegExp(nilUuid))
 })
 
@@ -68,6 +69,7 @@ test("renderer emits a non-secret deploy config only after validating protected 
   assert.equal(config.d1_databases[0].database_id, validEnvironment.CONTROL_DB_ID)
   assert.equal(config.vars.ENVIRONMENT, "staging")
   assert.equal(config.triggers.crons[0], "*/15 * * * *")
+  assert.equal(config.services, undefined)
   assert.equal(statSync(output).mode & 0o777, 0o600)
   const serialized = JSON.stringify(config)
   for (const secret of [validEnvironment.CLOUDFLARE_ACCOUNT_ID, validEnvironment.CLOUDFLARE_API_TOKEN, validEnvironment.ENTITLEMENT_SIGNING_PRIVATE_JWK, validEnvironment.INSTALL_TOKEN_PEPPER]) {

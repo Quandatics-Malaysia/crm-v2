@@ -65,7 +65,6 @@ jobs:
           CONTROL_DB_ID: ${{ secrets.CONTROL_DB_ID }}
           CONTROL_DB_NAME: ${{ vars.CONTROL_DB_NAME }}
           BACKUP_BUCKET_NAME: ${{ vars.BACKUP_BUCKET_NAME }}
-          ASSETS_SERVICE_NAME: ${{ vars.ASSETS_SERVICE_NAME }}
           ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
           ACCESS_AUD: ${{ vars.ACCESS_AUD }}
           BOOTSTRAP_OWNER_EMAIL: ${{ vars.BOOTSTRAP_OWNER_EMAIL }}
@@ -122,7 +121,6 @@ jobs:
           CONTROL_DB_ID: ${{ secrets.CONTROL_DB_ID }}
           CONTROL_DB_NAME: ${{ vars.CONTROL_DB_NAME }}
           BACKUP_BUCKET_NAME: ${{ vars.BACKUP_BUCKET_NAME }}
-          ASSETS_SERVICE_NAME: ${{ vars.ASSETS_SERVICE_NAME }}
           ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
           ACCESS_AUD: ${{ vars.ACCESS_AUD }}
           BOOTSTRAP_OWNER_EMAIL: ${{ vars.BOOTSTRAP_OWNER_EMAIL }}

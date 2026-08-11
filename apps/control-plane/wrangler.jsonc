@@ -31,12 +31,6 @@
       "bucket_name": "crm-backup-vault"
     }
   ],
-  "services": [
-    {
-      "binding": "ASSETS",
-      "service": "crm-control-plane-assets"
-    }
-  ],
   "triggers": {
     "crons": ["*/15 * * * *"]
   },

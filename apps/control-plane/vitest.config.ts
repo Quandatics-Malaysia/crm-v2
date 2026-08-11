@@ -17,13 +17,6 @@ export default defineConfig(async () => {
           // Pool 0.20.3 injects nodejs_compat_v2 into its test-runner Worker;
           // workerd rejects that now-default flag from 2026-08-04 onward.
           compatibilityDate: "2026-08-03",
-          serviceBindings: {
-            ASSETS: {
-              network: {
-                allow: [],
-              },
-            },
-          },
         },
       }),
     ],

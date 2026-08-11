@@ -23,7 +23,7 @@ Migration `0005_entitlement_issuance.sql` supports both fresh `0001`–`0005` da
 
 ## Deployment
 
-The committed Wrangler file is local/test-only and intentionally contains no deployable D1 ID or staging/production blocks. Configure protected GitHub environments named `staging` and `production`. Each requires `CONTROL_DB_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ENTITLEMENT_SIGNING_PRIVATE_JWK`, and `INSTALL_TOKEN_PEPPER` secrets, plus `CONTROL_DB_NAME`, `BACKUP_BUCKET_NAME`, `ASSETS_SERVICE_NAME`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `BOOTSTRAP_OWNER_EMAIL`, `OPERATOR_ORIGIN`, and `ENTITLEMENT_SIGNING_KEY_ID` variables.
+The committed Wrangler file is local/test-only and intentionally contains no deployable D1 ID or staging/production blocks. Configure protected GitHub environments named `staging` and `production`. Each requires `CONTROL_DB_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ENTITLEMENT_SIGNING_PRIVATE_JWK`, and `INSTALL_TOKEN_PEPPER` secrets, plus `CONTROL_DB_NAME`, `BACKUP_BUCKET_NAME`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `BOOTSTRAP_OWNER_EMAIL`, `OPERATOR_ORIGIN`, and `ENTITLEMENT_SIGNING_KEY_ID` variables.
 
 The workflow validates every protected value, rejects missing, malformed, nil, or placeholder identifiers, and writes a temporary mode-0600 Wrangler config that contains no secret material. Only that config is used for remote secret installation, migrations, and deployment; it is never committed. Remote migrations run before code and cron deployment.
 

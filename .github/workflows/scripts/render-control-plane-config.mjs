@@ -47,7 +47,6 @@ const config = {
     migrations_dir: join(projectDirectory, "migrations"),
   }],
   r2_buckets: [{ binding: "BACKUP_VAULT", bucket_name: required("BACKUP_BUCKET_NAME", /^[A-Za-z0-9._-]+$/) }],
-  services: [{ binding: "ASSETS", service: required("ASSETS_SERVICE_NAME", /^[A-Za-z0-9_-]+$/) }],
   triggers: { crons: ["*/15 * * * *"] },
   observability: {
     enabled: true,

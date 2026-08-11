@@ -29,6 +29,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build shared protocol package
+        run: pnpm --filter @crm/control-protocol build
       - name: Generate Workers binding types
         run: pnpm --filter control-plane exec wrangler types --env-interface CloudflareBindings
       - name: Check fresh migration chain
@@ -57,6 +59,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build shared protocol package
+        run: pnpm --filter @crm/control-protocol build
       - name: Validate protected values and render deploy config
         env:
           CONTROL_PLANE_ENVIRONMENT: staging
@@ -114,6 +118,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build shared protocol package
+        run: pnpm --filter @crm/control-protocol build
       - name: Validate protected values and render deploy config
         env:
           CONTROL_PLANE_ENVIRONMENT: production

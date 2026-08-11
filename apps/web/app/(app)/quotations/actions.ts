@@ -1160,19 +1160,16 @@ export async function deleteQuotation(id: string): Promise<ActionResult<void>> {
       throw new Error(
         "An accepted quotation can't be deleted. Create a revision instead."
       )
-    // Refuse if a live project was built from this quotation. Only relevant
-    // when the projects plugin is on (no project rows can exist otherwise).
-    if ((await getEntitledModuleMap()).projects) {
-      const [linkedProject] = await tx
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
-        .limit(1)
-      if (linkedProject)
-        throw new Error(
-          "This quotation can't be deleted because a project references it."
-        )
-    }
+    // Retained rows outlive module ownership. Always protect their references.
+    const [linkedProject] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.quotationId, id), isNull(projects.deletedAt)))
+      .limit(1)
+    if (linkedProject)
+      throw new Error(
+        "This quotation can't be deleted because a project references it."
+      )
     const [updated] = await tx
       .update(quotations)
       .set({ deletedAt: new Date(), isPrimary: false, updatedAt: new Date() })

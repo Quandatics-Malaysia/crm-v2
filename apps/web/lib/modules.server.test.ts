@@ -2,10 +2,12 @@ import { ModuleIdSchema } from "@crm/control-protocol"
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  COMPILED_MODULE_MAP,
   MODULE_IDS,
   createDisabledModuleMap,
   filterPermissionGroups,
   isDependencyClosed,
+  validateModuleComposition,
   type ModuleMap,
 } from "@/lib/module-registry"
 import {
@@ -78,6 +80,18 @@ describe("module registry", () => {
       { group: "Projects", module: "projects" },
     ])
   })
+
+  it("rejects a standard production image that omits any optional module", () => {
+    const original = COMPILED_MODULE_MAP.documentation
+    COMPILED_MODULE_MAP.documentation = false
+    try {
+      expect(validateModuleComposition()).toContain(
+        'Standard production image omits module "documentation".'
+      )
+    } finally {
+      COMPILED_MODULE_MAP.documentation = original
+    }
+  })
 })
 
 describe("signed runtime module gate", () => {
@@ -124,24 +138,28 @@ describe("signed runtime module gate", () => {
     )
   })
 
-  it("uses build capability only as a ceiling", async () => {
+  it("rejects a paid lease whose module is missing from the image", async () => {
     const compiled = { ...allCompiled, projects: false }
     const gate = createEntitledModuleGate(
       async () => access(["projects"]),
       compiled
     )
 
-    expect((await gate.getEntitledModuleMap()).projects).toBe(false)
+    await expect(gate.getEntitledModuleMap()).rejects.toThrow(
+      'Signed entitlement owns module "projects", but the image omits it.'
+    )
   })
 
-  it("fails closed when the compiled ceiling breaks an entitled dependency", async () => {
+  it("rejects a dependency-breaking paid lease/image mismatch", async () => {
     const compiled = { ...allCompiled, projects: false }
     const gate = createEntitledModuleGate(
       async () => access(["projects", "salesOrders", "finance"]),
       compiled
     )
 
-    expect(await gate.getEntitledModuleMap()).toEqual(createDisabledModuleMap())
+    await expect(gate.getEntitledModuleMap()).rejects.toThrow(
+      'Signed entitlement owns module "projects", but the image omits it.'
+    )
   })
 
   it("reads revised ownership again for a fresh entrypoint", async () => {

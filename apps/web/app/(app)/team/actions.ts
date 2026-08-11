@@ -7,7 +7,10 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS, permLabel } from "@/lib/permissions"
-import { requireEntitledModule } from "@/lib/modules.server"
+import {
+  getEntitledModuleMap,
+  requireEntitledModule,
+} from "@/lib/modules.server"
 import {
   activateMembership,
   disableOrRemoveMembership,
@@ -210,6 +213,7 @@ export async function listTeamMembers(): Promise<TeamMemberView[]> {
 
 /** Roles for the tenant, with member + permission counts. */
 export async function listTeamRoles(): Promise<TeamRoleView[]> {
+  const advancedRoles = (await getEntitledModuleMap()).advancedRoles
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -243,7 +247,7 @@ export async function listTeamRoles(): Promise<TeamRoleView[]> {
       permCounts.map((r) => [r.roleId, Number(r.count)])
     )
 
-    return roleRows.map((r) => ({
+    return roleRows.filter((r) => advancedRoles || r.isSystem).map((r) => ({
       id: r.id,
       name: r.name,
       description: r.description,
@@ -624,6 +628,7 @@ export async function addMember(input: {
   roleId: string
 }): Promise<ActionResult<{ invited: boolean }>> {
   return runAction(async () => {
+  const advancedRoles = (await getEntitledModuleMap()).advancedRoles
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -635,7 +640,30 @@ export async function addMember(input: {
   }
   if (!input.roleId) throw new Error("Pick a role.")
 
-  // Find a user by email (case-insensitive). user is not RLS.
+  // Validate the role (tenant ownership, tier ceiling, permission subset)
+  // BEFORE creating the member row — a failed insert below would otherwise
+  // leave a profile-less but `active`-resolving member (an unintended foothold).
+  const roleTier = await runInTenant(ctx.tenantId, async (tx) => {
+    const [role] = await tx
+      .select({
+        id: roles.id,
+        tier: roles.defaultTierLevel,
+        isSystem: roles.isSystem,
+      })
+      .from(roles)
+      .where(and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId)))
+      .limit(1)
+    if (!role) throw new Error("Role not found.")
+    if (!advancedRoles && !role.isSystem) {
+      await requireEntitledModule("advancedRoles")
+    }
+    // Can't confer (via a role) a permission the actor doesn't hold.
+    await assertCanAssignRole(tx, ctx, input.roleId)
+    return role.tier
+  })
+
+  // Find a user by email (case-insensitive). user is not RLS. This runs only
+  // after a custom role has passed the signed Advanced Roles gate.
   const [u] = await db
     .select({ id: user.id })
     .from(user)
@@ -653,21 +681,6 @@ export async function addMember(input: {
       .limit(1)
     if (existingMember) throw new Error("Already a member.")
   }
-
-  // Validate the role (tenant ownership, tier ceiling, permission subset)
-  // BEFORE creating the member row — a failed insert below would otherwise
-  // leave a profile-less but `active`-resolving member (an unintended foothold).
-  const roleTier = await runInTenant(ctx.tenantId, async (tx) => {
-    const [role] = await tx
-      .select({ id: roles.id, tier: roles.defaultTierLevel })
-      .from(roles)
-      .where(and(eq(roles.id, input.roleId), eq(roles.tenantId, ctx.tenantId)))
-      .limit(1)
-    if (!role) throw new Error("Role not found.")
-    // Can't confer (via a role) a permission the actor doesn't hold.
-    await assertCanAssignRole(tx, ctx, input.roleId)
-    return role.tier
-  })
 
   // No user with that email yet: record a PENDING INVITE that the auth hooks
   // consume on their first sign-in (creating the member + profile with this
@@ -754,6 +767,7 @@ export async function updateMember(
   }
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
+  const advancedRoles = (await getEntitledModuleMap()).advancedRoles
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -780,7 +794,7 @@ export async function updateMember(
       // role) a permission you don't hold yourself.
       const found = input.roleIds.length
         ? await tx
-            .select({ id: roles.id })
+            .select({ id: roles.id, isSystem: roles.isSystem })
             .from(roles)
             .where(
               and(inArray(roles.id, input.roleIds), eq(roles.tenantId, ctx.tenantId))
@@ -789,6 +803,9 @@ export async function updateMember(
       const valid = new Set(found.map((r) => r.id))
       for (const rid of input.roleIds) {
         if (!valid.has(rid)) throw new Error("Role not found.")
+        if (!advancedRoles && !found.find((role) => role.id === rid)?.isSystem) {
+          await requireEntitledModule("advancedRoles")
+        }
         await assertCanAssignRole(tx, ctx, rid)
       }
       // Protect the last Owner: can't strip the Owner role off the last owner.

@@ -30,12 +30,20 @@ export function createEntitledModuleGate(
   compiled: ModuleMap = COMPILED_MODULE_MAP
 ) {
   async function getEntitledModuleMap(): Promise<ModuleMap> {
+    let access: Pick<DeploymentAccess, "moduleIds">
     try {
-      const access = await readAccess()
-      return createModuleMap(access.moduleIds, compiled)
+      access = await readAccess()
     } catch {
       return createDisabledModuleMap()
     }
+
+    const missing = access.moduleIds.find((id) => !compiled[id])
+    if (missing) {
+      throw new Error(
+        `Signed entitlement owns module "${missing}", but the image omits it.`
+      )
+    }
+    return createModuleMap(access.moduleIds, compiled)
   }
 
   async function requireEntitledModule(id: ModuleId): Promise<void> {

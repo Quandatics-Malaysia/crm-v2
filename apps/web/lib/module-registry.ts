@@ -70,10 +70,10 @@ export function filterPermissionGroups<T extends { module?: ModuleId }>(
 /** Validates build composition only. It never grants runtime access. */
 export function validateModuleComposition(): string[] {
   const compiled = MODULE_IDS.filter((id) => COMPILED_MODULE_MAP[id])
-  if (isDependencyClosed(compiled)) return []
-
   const enabled = new Set(compiled)
-  const errors: string[] = []
+  const errors = MODULE_IDS.filter((id) => !enabled.has(id)).map(
+    (id) => `Standard production image omits module "${id}".`
+  )
   for (const id of compiled) {
     for (const dependency of MODULES[id].dependsOn) {
       if (!enabled.has(dependency)) {

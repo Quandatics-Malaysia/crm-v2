@@ -20,7 +20,10 @@ import {
 } from "@/lib/subscription-licensing"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
-import { getEntitledModuleMap } from "@/lib/modules.server"
+import {
+  getEntitledModuleMap,
+  requireEntitledModule,
+} from "@/lib/modules.server"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -562,6 +565,7 @@ export async function updateInvoiceReminderDays(
   days: string[]
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+    await requireEntitledModule("finance")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
     const parsed = [...new Set(days.map((d) => Number(d.trim())))]
@@ -696,6 +700,7 @@ export async function updateIntercompanyPartners(
   ids: string[]
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+    await requireEntitledModule("finance")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -747,6 +752,7 @@ export async function updateSettings(
   input: UpdateSettingsInput
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
   const subscriptionMutationRequested =
@@ -800,13 +806,17 @@ export async function updateSettings(
     fiscalYearStartMonth: input.fiscalYearStartMonth,
     approvalBypassTier: input.approvalBypassTier,
     followUpDueDays: input.followUpDueDays,
-    taxInclusive: input.taxInclusive,
     autoWinOnQuoteAccept: input.autoWinOnQuoteAccept,
     autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
-    autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
-    intercoAutoMirror: input.intercoAutoMirror,
+    ...(financeEnabled
+      ? {
+          taxInclusive: input.taxInclusive,
+          autoCompleteProjectOnPaid: input.autoCompleteProjectOnPaid,
+          intercoAutoMirror: input.intercoAutoMirror,
+        }
+      : {}),
     documentationModule: input.documentationModule,
     allowPasswordLogin: input.allowPasswordLogin,
     entityCode: entityCode.length > 0 ? entityCode : null,
@@ -911,6 +921,7 @@ export async function updateNumbering(
   input: UpdateNumberingInput
 ): Promise<ActionResult<TenantSettingsView>> {
   return runAction(async () => {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
 
@@ -938,6 +949,7 @@ export async function updateNumbering(
     throw new Error("Default validity must be between 1 and 365 days.")
   }
   if (
+    financeEnabled &&
     input.invoiceDueDays !== null &&
     (!Number.isInteger(input.invoiceDueDays) ||
       input.invoiceDueDays < 1 ||
@@ -955,7 +967,7 @@ export async function updateNumbering(
     // number resets per year and is minted from `project_counters`.
     projectPadWidth: input.projectPadWidth,
     quoteValidDays: input.quoteValidDays,
-    invoiceDueDays: input.invoiceDueDays,
+    ...(financeEnabled ? { invoiceDueDays: input.invoiceDueDays } : {}),
     updatedAt: new Date(),
   }
 

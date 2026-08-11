@@ -7,6 +7,7 @@ import { type ActionResult, runAction } from "@/lib/action-result"
 import { PERMISSIONS } from "@/lib/permissions"
 import { taxSettings } from "@/db/schema"
 import { writeAudit } from "@/server/audit"
+import { requireEntitledModule } from "@/lib/modules.server"
 import type { Tx } from "@/db"
 
 export type TaxSettingRow = typeof taxSettings.$inferSelect
@@ -41,6 +42,7 @@ export type TaxInput = {
 
 /** All tax settings for the tenant, default first then by name. */
 export async function listTaxSettings(): Promise<TaxSettingRow[]> {
+  await requireEntitledModule("finance")
   return withTenant(PERMISSIONS.TAX_VIEW, (tx) =>
     tx
       .select()
@@ -53,6 +55,7 @@ export async function createTax(
   input: TaxInput
 ): Promise<ActionResult<TaxSettingRow>> {
   return runAction(async () => {
+  await requireEntitledModule("finance")
   const row = await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     if (input.isDefault) {
       await tx
@@ -88,6 +91,7 @@ export async function updateTax(
   input: TaxInput
 ): Promise<ActionResult<TaxSettingRow>> {
   return runAction(async () => {
+  await requireEntitledModule("finance")
   const row = await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     const [existing] = await tx
       .select()
@@ -138,6 +142,7 @@ export async function updateTax(
 /** Hard delete — tax settings are configuration, not soft-deleted business rows. */
 export async function deleteTax(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
+  await requireEntitledModule("finance")
   await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     await tx.delete(taxSettings).where(eq(taxSettings.id, id))
     // If we just removed the default, promote another active tax so new
@@ -155,6 +160,7 @@ export async function deleteTax(id: string): Promise<ActionResult<void>> {
 
 export async function setDefaultTax(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
+  await requireEntitledModule("finance")
   await withTenant(PERMISSIONS.TAX_CONFIGURE, async (tx, ctx) => {
     await tx
       .update(taxSettings)

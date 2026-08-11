@@ -72,9 +72,13 @@ cosign_log="$test_root/cosign.log"
 curl_log="$test_root/curl.log"
 url_log="$test_root/url.log"
 runtime_log="$test_root/runtime.log"
+database_log="$test_root/database.log"
+env_argv_log="$test_root/env-argv.log"
 output_log="$test_root/output.log"
 docker_counter="$test_root/docker-counter"
 curl_counter="$test_root/curl-counter"
+date_counter="$test_root/date-counter"
+proxy_touched="$test_root/proxy-touched"
 
 cat >"$fake_bin/docker" <<'EOF'
 #!/bin/sh
@@ -107,18 +111,73 @@ case " $* " in
     fi
     [ "${TEST_DOCKER_FAIL_PULL:-0}" = 1 ] && exit 42
     ;;
+  *" up -d --no-deps db "*|*" up -d --no-deps db"|*" up -d --no-deps --force-recreate db "*|*" up -d --no-deps --force-recreate db")
+    printf '%s|%s\n' "${POSTGRES_IMAGE:-}" "${APPLICATION_VERSION:-}" >>"$TEST_DATABASE_LOG"
+    if [ "${TEST_DB_FAIL_TARGET_START:-0}" = 1 ] && [ "${POSTGRES_IMAGE:-}" = "${TEST_TARGET_POSTGRES_IMAGE:-}" ]; then
+      exit 54
+    fi
+    ;;
+  *" exec -T db pg_isready "*)
+    if [ "${TEST_TAMPER_ARTIFACT_ON_DB_READY:-0}" = 1 ] && [ ! -f "$TEST_TAMPER_ONCE_FILE" ]; then
+      printf 'tampered after initial verification\n' >>"$TEST_BACKUP_ARTIFACT"
+      : >"$TEST_TAMPER_ONCE_FILE"
+    fi
+    if [ "${TEST_DB_FAIL_TARGET_HEALTH:-0}" = 1 ] && [ "${POSTGRES_IMAGE:-}" = "${TEST_TARGET_POSTGRES_IMAGE:-}" ]; then
+      exit 55
+    fi
+    ;;
+  *" exec -T web printenv APPLICATION_VERSION "*|*" exec -T web printenv APPLICATION_VERSION")
+    printf '%s\n' "${APPLICATION_VERSION:-}"
+    ;;
+  *" exec -T web printenv MIGRATION_VERSION "*|*" exec -T web printenv MIGRATION_VERSION")
+    printf '%s\n' "${MIGRATION_VERSION:-}"
+    ;;
+  *" exec -T web printenv RELEASE_TAG "*|*" exec -T web printenv RELEASE_TAG")
+    printf '%s\n' "${RELEASE_TAG:-}"
+    ;;
+  *" exec -T web printenv SOURCE_COMMIT_SHA "*|*" exec -T web printenv SOURCE_COMMIT_SHA")
+    printf '%s\n' "${SOURCE_COMMIT_SHA:-}"
+    ;;
   *" up -d --no-deps --force-recreate web backup gateway "*|*" up -d --no-deps --force-recreate web backup gateway")
     count=0
     [ ! -f "$TEST_DOCKER_COUNTER" ] || count=$(cat "$TEST_DOCKER_COUNTER")
     count=$((count + 1))
     printf '%s\n' "$count" >"$TEST_DOCKER_COUNTER"
-    printf '%s|%s|%s|%s\n' "$count" "${WEB_IMAGE:-}" "${BACKUP_IMAGE:-}" "${CADDY_IMAGE:-}" >>"$TEST_RUNTIME_LOG"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+      "$count" "${WEB_IMAGE:-}" "${BACKUP_IMAGE:-}" "${CADDY_IMAGE:-}" \
+      "${APPLICATION_VERSION:-}" "${MIGRATION_VERSION:-}" "${VENDOR_ENTITLEMENT_TRUST_SET:-}" \
+      "${BETTER_AUTH_URL:-}" "${APP_URL:-}" "${RELEASE_TAG:-}" >>"$TEST_RUNTIME_LOG"
     if [ "${TEST_RUNTIME_FAIL_ONCE:-0}" = 1 ] && [ "$count" -eq 1 ]; then
       exit 44
     fi
     ;;
 esac
 exit 0
+EOF
+
+cat >"$fake_bin/env" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >>"$TEST_ENV_ARGV_LOG"
+exec /usr/bin/env "$@"
+EOF
+
+cat >"$fake_bin/date" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "$*" = '+%s' ] && [ -n "${TEST_DATE_BASE:-}" ]; then
+  count=0
+  [ ! -f "$TEST_DATE_COUNTER" ] || count=$(cat "$TEST_DATE_COUNTER")
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$TEST_DATE_COUNTER"
+  if [ "$count" -eq 1 ]; then
+    printf '%s\n' "$TEST_DATE_BASE"
+  else
+    printf '%s\n' "$((TEST_DATE_BASE + 2))"
+  fi
+  exit 0
+fi
+exec /bin/date "$@"
 EOF
 
 cat >"$fake_bin/cosign" <<'EOF'
@@ -137,6 +196,15 @@ cat >"$fake_bin/curl" <<'EOF'
 #!/bin/sh
 set -eu
 printf '%s\n' "$*" >>"$TEST_CURL_LOG"
+case "${http_proxy:-}${https_proxy:-}${all_proxy:-}${HTTP_PROXY:-}${HTTPS_PROXY:-}${ALL_PROXY:-}" in
+  '') ;;
+  *) : >"$TEST_PROXY_TOUCHED" ;;
+esac
+[ "${1:-}" = "--disable" ] || : >"$TEST_PROXY_TOUCHED"
+case " $* " in
+  *" --noproxy * "*) ;;
+  *) : >"$TEST_PROXY_TOUCHED" ;;
+esac
 count=0
 [ ! -f "$TEST_CURL_COUNTER" ] || count=$(cat "$TEST_CURL_COUNTER")
 count=$((count + 1))
@@ -160,7 +228,7 @@ fi
 exec /usr/bin/stat "$@"
 EOF
 
-chmod 0755 "$fake_bin/docker" "$fake_bin/cosign" "$fake_bin/curl" "$fake_bin/stat"
+chmod 0755 "$fake_bin/docker" "$fake_bin/env" "$fake_bin/date" "$fake_bin/cosign" "$fake_bin/curl" "$fake_bin/stat"
 
 private_key="$test_root/backup-evidence-private.pem"
 public_key="$test_root/backup-evidence-public.pem"
@@ -192,6 +260,15 @@ old_migrator_image="ghcr.io/quandatics-malaysia/crm-migrator@sha256:222222222222
 old_backup_image="ghcr.io/quandatics-malaysia/crm-backup@sha256:3333333333333333333333333333333333333333333333333333333333333333"
 old_postgres_image="docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444"
 old_caddy_image="docker.io/library/caddy@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+old_application_version=1.1.0
+old_migration_version=1.1.0
+old_trust_set=old-trust-set
+old_better_auth_url=https://old.crm.example.test
+old_app_url=https://old.crm.example.test
+old_postgres_password=old-postgres-password
+old_crm_app_password=old-application-password
+old_better_auth_secret=old-better-auth-secret-with-enough-entropy
+old_agent_web_secret=old-agent-web-secret
 
 cat >"$valid_env" <<EOF
 COMPOSE_PROJECT_NAME=quandatics-client-test
@@ -274,7 +351,7 @@ EOF
 
 write_previous_record() {
   cat >"$record_file" <<EOF
-RECORD_VERSION=1
+RECORD_VERSION=2
 RELEASE_TAG=v1.1.0
 SOURCE_COMMIT_SHA=0000000000000000000000000000000000000000
 DEPLOYMENT_ID=deployment-test
@@ -286,6 +363,26 @@ MIGRATOR_IMAGE=$old_migrator_image
 BACKUP_IMAGE=$old_backup_image
 POSTGRES_IMAGE=$old_postgres_image
 CADDY_IMAGE=$old_caddy_image
+POSTGRES_PASSWORD=$old_postgres_password
+CRM_APP_PASSWORD=$old_crm_app_password
+BETTER_AUTH_SECRET=$old_better_auth_secret
+BETTER_AUTH_URL=$old_better_auth_url
+APP_URL=$old_app_url
+BOOTSTRAP_OWNER_EMAIL=old-owner@example.test
+AGENT_WEB_SECRET=$old_agent_web_secret
+APPLICATION_VERSION=$old_application_version
+MIGRATION_VERSION=$old_migration_version
+VENDOR_ENTITLEMENT_TRUST_SET=$old_trust_set
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+MICROSOFT_TENANT_ID=
+DEMO_MODE=false
+DEMO_TENANT_ID=old-demo-entity
+DEMO_TENANT_NAME=Old Demo Workspace
+DEMO_CURRENCY=MYR
+DEMO_TAX_NAME=SST
+DEMO_TAX_RATE=8.000
+BACKUP_RSYNC_TARGET=
 BACKUP_ARTIFACT_SHA256=9999999999999999999999999999999999999999999999999999999999999999
 DEPLOYED_AT_EPOCH=1700000000
 EOF
@@ -298,7 +395,9 @@ reset_logs() {
   : >"$curl_log"
   : >"$url_log"
   : >"$runtime_log"
-  rm -f "$docker_counter" "$curl_counter"
+  : >"$database_log"
+  : >"$env_argv_log"
+  rm -f "$docker_counter" "$curl_counter" "$date_counter" "$proxy_touched" "$test_root/tamper-once"
 }
 
 run_deploy() {
@@ -310,8 +409,19 @@ run_deploy() {
     TEST_CURL_LOG="$curl_log" \
     TEST_URL_LOG="$url_log" \
     TEST_RUNTIME_LOG="$runtime_log" \
+    TEST_DATABASE_LOG="$database_log" \
+    TEST_ENV_ARGV_LOG="$env_argv_log" \
     TEST_DOCKER_COUNTER="$docker_counter" \
     TEST_CURL_COUNTER="$curl_counter" \
+    TEST_DATE_COUNTER="$date_counter" \
+    TEST_DATE_BASE="${TEST_DATE_BASE:-}" \
+    TEST_PROXY_TOUCHED="$proxy_touched" \
+    TEST_TAMPER_ARTIFACT_ON_DB_READY="${TEST_TAMPER_ARTIFACT_ON_DB_READY:-0}" \
+    TEST_TAMPER_ONCE_FILE="$test_root/tamper-once" \
+    TEST_BACKUP_ARTIFACT="$artifact_file" \
+    TEST_DB_FAIL_TARGET_HEALTH="${TEST_DB_FAIL_TARGET_HEALTH:-0}" \
+    TEST_DB_FAIL_TARGET_START="${TEST_DB_FAIL_TARGET_START:-0}" \
+    TEST_TARGET_POSTGRES_IMAGE="$postgres_image" \
     TEST_DOCKER_FAIL_PULL="${TEST_DOCKER_FAIL_PULL:-0}" \
     TEST_COSIGN_FAIL_IMAGE="${TEST_COSIGN_FAIL_IMAGE:-}" \
     TEST_RUNTIME_FAIL_ONCE="${TEST_RUNTIME_FAIL_ONCE:-0}" \
@@ -474,6 +584,54 @@ fi
 [ ! -e "$record_file" ] || record_failure "failed image pull changed the deployment record"
 [ ! -d "$state_dir/.deploy-quandatics-client-test.lock" ] || record_failure "failed image pull left the project lock behind"
 
+write_evidence
+evidence_epoch=$(awk -F= '$1 == "CREATED_AT_EPOCH" { print $2 }' "$evidence_file")
+freshness_env="$test_root/freshness.env"
+copy_env_with_replacement "$valid_env" BACKUP_MAX_AGE_SECONDS 1 "$freshness_env"
+TEST_DATE_BASE=$evidence_epoch
+export TEST_DATE_BASE
+expect_deploy_failure "evidence expires after pull" "$freshness_env" "backup evidence became stale before migration"
+unset TEST_DATE_BASE
+assert_contains "$docker_log" " pull db migrate web backup gateway" "freshness recheck occurs after pull"
+if grep -Eq ' run .* migrate' "$docker_log"; then
+  record_failure "stale post-pull evidence reached migrator"
+fi
+
+write_evidence
+TEST_TAMPER_ARTIFACT_ON_DB_READY=1
+export TEST_TAMPER_ARTIFACT_ON_DB_READY
+expect_deploy_failure "backup artifact changes after pull" "$valid_env" "backup artifact checksum changed before migration"
+unset TEST_TAMPER_ARTIFACT_ON_DB_READY
+if grep -Eq ' run .* migrate' "$docker_log"; then
+  record_failure "changed post-pull backup artifact reached migrator"
+fi
+
+write_evidence
+write_previous_record
+TEST_DB_FAIL_TARGET_START=1
+export TEST_DB_FAIL_TARGET_START
+expect_deploy_failure "target PostgreSQL start failure" "$valid_env" "target database start failed; previous database restored and health verified"
+unset TEST_DB_FAIL_TARGET_START
+assert_contains "$database_log" "$postgres_image|1.2.3" "failed target PostgreSQL start"
+assert_contains "$database_log" "$old_postgres_image|$old_application_version" "previous PostgreSQL restore after start failure"
+if grep -Eq ' run .* migrate' "$docker_log"; then
+  record_failure "failed target PostgreSQL start reached migrator"
+fi
+assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "database start rollback preserves old record"
+
+write_evidence
+write_previous_record
+TEST_DB_FAIL_TARGET_HEALTH=1
+export TEST_DB_FAIL_TARGET_HEALTH
+expect_deploy_failure "target PostgreSQL health failure" "$valid_env" "target database health check failed; previous database restored and health verified"
+unset TEST_DB_FAIL_TARGET_HEALTH
+assert_contains "$database_log" "$postgres_image|1.2.3" "target PostgreSQL start"
+assert_contains "$database_log" "$old_postgres_image|$old_application_version" "previous PostgreSQL restore"
+if grep -Eq ' run .* migrate' "$docker_log"; then
+  record_failure "failed target PostgreSQL health reached migrator"
+fi
+assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "database rollback preserves old record"
+
 for invalid_health_url in \
   'http://user@127.0.0.1:8081/api/health' \
   'http://127.0.0.1:abc/api/health' \
@@ -490,6 +648,20 @@ for invalid_health_url in \
   [ ! -s "$curl_log" ] || record_failure "invalid health URL reached curl: $invalid_health_url"
 done
 
+rm -f "$proxy_touched" "$curl_counter"
+if ! PATH="$fake_bin:/usr/bin:/bin" \
+  TEST_CURL_LOG="$curl_log" TEST_CURL_COUNTER="$curl_counter" TEST_PROXY_TOUCHED="$proxy_touched" \
+  HTTP_PROXY=http://external-proxy.invalid:3128 HTTPS_PROXY=http://external-proxy.invalid:3128 \
+  ALL_PROXY=http://external-proxy.invalid:3128 http_proxy=http://external-proxy.invalid:3128 \
+  https_proxy=http://external-proxy.invalid:3128 all_proxy=http://external-proxy.invalid:3128 \
+  CURL_HOME="$test_root/curl-home" \
+  HEALTHCHECK_URL=http://127.0.0.1:8081/api/health \
+  HEALTHCHECK_ATTEMPTS=1 HEALTHCHECK_INTERVAL_SECONDS=0 HEALTHCHECK_TIMEOUT_SECONDS=1 \
+  "$bundle_dir/healthcheck.sh" >"$output_log" 2>&1; then
+  record_failure "proxy-isolated loopback health check failed"
+fi
+[ ! -e "$proxy_touched" ] || record_failure "health check exposed loopback request to proxy/config handling"
+
 write_evidence
 write_previous_record
 reset_logs
@@ -503,6 +675,8 @@ fi
 unset TEST_RUNTIME_FAIL_ONCE
 assert_contains "$runtime_log" "1|$web_image|$backup_image|$caddy_image" "target runtime recreate attempt"
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "partial recreate rollback refs"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "partial recreate rollback config"
+assert_contains "$docker_log" "exec -T web printenv RELEASE_TAG" "restored release identity verification"
 assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "partial recreate preserves old record"
 
 write_evidence
@@ -517,6 +691,7 @@ else
 fi
 unset TEST_CURL_FAIL_COUNT
 assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "health rollback refs"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "health rollback config"
 [ "$(wc -l <"$curl_log" | tr -d ' ')" -eq 3 ] || record_failure "rollback did not exhaust new health and verify restored health"
 assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "health rollback preserves old record"
 
@@ -567,11 +742,21 @@ issuer="https://token.actions.githubusercontent.com"
 for image in "$web_image" "$migrator_image" "$backup_image"; do
   assert_contains "$cosign_log" "verify --certificate-identity $identity --certificate-oidc-issuer $issuer $image" "exact Cosign identity"
 done
-assert_contains "$record_file" 'RECORD_VERSION=1' "atomic record schema"
+assert_contains "$record_file" 'RECORD_VERSION=2' "atomic record schema"
 assert_contains "$record_file" 'RELEASE_TAG=v1.2.3' "atomic record release"
 assert_contains "$record_file" "SOURCE_COMMIT_SHA=$source_sha" "atomic record provenance"
 assert_contains "$record_file" "WEB_IMAGE=$web_image" "atomic record web digest"
 assert_not_contains "$record_file" 'RELEASE_TAG=v1.1.0' "atomic record replaced old state"
+for leaked_secret in \
+  test-postgres-password \
+  test-application-password \
+  test-better-auth-secret-with-enough-entropy \
+  test-platform-master-password \
+  test-agent-web-secret; do
+  for process_argv_log in "$env_argv_log" "$docker_log" "$cosign_log" "$curl_log"; do
+    assert_not_contains "$process_argv_log" "$leaked_secret" "secret absent from process argv"
+  done
+done
 
 compose_json="$test_root/compose.json"
 if ! docker compose --file "$compose_file" --env-file "$bundle_dir/.env.example" --profile deploy config --format json >"$compose_json"; then

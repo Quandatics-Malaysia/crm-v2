@@ -262,6 +262,26 @@ parse_previous_record() {
       BACKUP_IMAGE) PREVIOUS_BACKUP_IMAGE=$value ;;
       POSTGRES_IMAGE) PREVIOUS_POSTGRES_IMAGE=$value ;;
       CADDY_IMAGE) PREVIOUS_CADDY_IMAGE=$value ;;
+      POSTGRES_PASSWORD) PREVIOUS_POSTGRES_PASSWORD=$value ;;
+      CRM_APP_PASSWORD) PREVIOUS_CRM_APP_PASSWORD=$value ;;
+      BETTER_AUTH_SECRET) PREVIOUS_BETTER_AUTH_SECRET=$value ;;
+      BETTER_AUTH_URL) PREVIOUS_BETTER_AUTH_URL=$value ;;
+      APP_URL) PREVIOUS_APP_URL=$value ;;
+      BOOTSTRAP_OWNER_EMAIL) PREVIOUS_BOOTSTRAP_OWNER_EMAIL=$value ;;
+      AGENT_WEB_SECRET) PREVIOUS_AGENT_WEB_SECRET=$value ;;
+      APPLICATION_VERSION) PREVIOUS_APPLICATION_VERSION=$value ;;
+      MIGRATION_VERSION) PREVIOUS_MIGRATION_VERSION=$value ;;
+      VENDOR_ENTITLEMENT_TRUST_SET) PREVIOUS_VENDOR_ENTITLEMENT_TRUST_SET=$value ;;
+      MICROSOFT_CLIENT_ID) PREVIOUS_MICROSOFT_CLIENT_ID=$value ;;
+      MICROSOFT_CLIENT_SECRET) PREVIOUS_MICROSOFT_CLIENT_SECRET=$value ;;
+      MICROSOFT_TENANT_ID) PREVIOUS_MICROSOFT_TENANT_ID=$value ;;
+      DEMO_MODE) PREVIOUS_DEMO_MODE=$value ;;
+      DEMO_TENANT_ID) PREVIOUS_DEMO_TENANT_ID=$value ;;
+      DEMO_TENANT_NAME) PREVIOUS_DEMO_TENANT_NAME=$value ;;
+      DEMO_CURRENCY) PREVIOUS_DEMO_CURRENCY=$value ;;
+      DEMO_TAX_NAME) PREVIOUS_DEMO_TAX_NAME=$value ;;
+      DEMO_TAX_RATE) PREVIOUS_DEMO_TAX_RATE=$value ;;
+      BACKUP_RSYNC_TARGET) PREVIOUS_BACKUP_RSYNC_TARGET=$value ;;
       BACKUP_ARTIFACT_SHA256) PREVIOUS_BACKUP_ARTIFACT_SHA256=$value ;;
       DEPLOYED_AT_EPOCH) PREVIOUS_DEPLOYED_AT_EPOCH=$value ;;
       *) fail "unsupported previous deployment record key: $key" ;;
@@ -276,63 +296,126 @@ assert_evidence_equal() {
   [ "$actual_value" = "$expected_value" ] || fail "backup evidence $evidence_key does not match intended deployment"
 }
 
-compose() {
-  env \
-    COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
-    WEB_IMAGE="$WEB_IMAGE" MIGRATOR_IMAGE="$MIGRATOR_IMAGE" BACKUP_IMAGE="$BACKUP_IMAGE" \
-    POSTGRES_IMAGE="$POSTGRES_IMAGE" CADDY_IMAGE="$CADDY_IMAGE" \
-    POSTGRES_PASSWORD="$POSTGRES_PASSWORD" CRM_APP_PASSWORD="$CRM_APP_PASSWORD" \
-    DB_NAME="$DB_NAME" STORAGE_ID="$STORAGE_ID" \
-    DATABASE_ADMIN_URL="$DATABASE_ADMIN_URL" MIGRATOR_DATABASE_URL="$MIGRATOR_DATABASE_URL" \
-    APP_DATABASE_URL="$APP_DATABASE_URL" \
-    BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" BETTER_AUTH_URL="$BETTER_AUTH_URL" APP_URL="$APP_URL" \
-    PLATFORM_MASTER_EMAIL="$PLATFORM_MASTER_EMAIL" PLATFORM_MASTER_PASSWORD="$PLATFORM_MASTER_PASSWORD" \
-    BOOTSTRAP_OWNER_EMAIL="$BOOTSTRAP_OWNER_EMAIL" DEPLOYMENT_ID="$DEPLOYMENT_ID" \
-    AGENT_WEB_SECRET="$AGENT_WEB_SECRET" APPLICATION_VERSION="$APPLICATION_VERSION" \
-    MIGRATION_VERSION="$MIGRATION_VERSION" VENDOR_ENTITLEMENT_TRUST_SET="$VENDOR_ENTITLEMENT_TRUST_SET" \
-    MICROSOFT_CLIENT_ID="$MICROSOFT_CLIENT_ID" MICROSOFT_CLIENT_SECRET="$MICROSOFT_CLIENT_SECRET" \
-    MICROSOFT_TENANT_ID="$MICROSOFT_TENANT_ID" DEMO_MODE="$DEMO_MODE" \
-    DEMO_TENANT_ID="$DEMO_TENANT_ID" DEMO_TENANT_NAME="$DEMO_TENANT_NAME" \
-    DEMO_CURRENCY="$DEMO_CURRENCY" DEMO_TAX_NAME="$DEMO_TAX_NAME" DEMO_TAX_RATE="$DEMO_TAX_RATE" \
-    BACKUP_RSYNC_TARGET="$BACKUP_RSYNC_TARGET" GATEWAY_HOST_PORT="$GATEWAY_HOST_PORT" \
-    DB_HOST_PORT="$DB_HOST_PORT" DB_MEMORY_LIMIT="$DB_MEMORY_LIMIT" WEB_MEMORY_LIMIT="$WEB_MEMORY_LIMIT" \
-    BACKUP_MEMORY_LIMIT="$BACKUP_MEMORY_LIMIT" GATEWAY_MEMORY_LIMIT="$GATEWAY_MEMORY_LIMIT" \
-    docker compose \
+compose() (
+  export COMPOSE_PROJECT_NAME RELEASE_TAG SOURCE_COMMIT_SHA
+  export WEB_IMAGE MIGRATOR_IMAGE BACKUP_IMAGE POSTGRES_IMAGE CADDY_IMAGE
+  export POSTGRES_PASSWORD CRM_APP_PASSWORD DB_NAME STORAGE_ID
+  export DATABASE_ADMIN_URL MIGRATOR_DATABASE_URL APP_DATABASE_URL
+  export BETTER_AUTH_SECRET BETTER_AUTH_URL APP_URL
+  export PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD BOOTSTRAP_OWNER_EMAIL DEPLOYMENT_ID
+  export AGENT_WEB_SECRET APPLICATION_VERSION MIGRATION_VERSION VENDOR_ENTITLEMENT_TRUST_SET
+  export MICROSOFT_CLIENT_ID MICROSOFT_CLIENT_SECRET MICROSOFT_TENANT_ID DEMO_MODE
+  export DEMO_TENANT_ID DEMO_TENANT_NAME DEMO_CURRENCY DEMO_TAX_NAME DEMO_TAX_RATE
+  export BACKUP_RSYNC_TARGET GATEWAY_HOST_PORT DB_HOST_PORT
+  export DB_MEMORY_LIMIT WEB_MEMORY_LIMIT BACKUP_MEMORY_LIMIT GATEWAY_MEMORY_LIMIT
+  docker compose \
     --project-name "$COMPOSE_PROJECT_NAME" \
     --file "$compose_file" \
     --profile deploy \
     "$@"
-}
+)
 
-verify_images() {
-  env \
-    RELEASE_TAG="$RELEASE_TAG" \
-    WEB_IMAGE="$WEB_IMAGE" \
-    MIGRATOR_IMAGE="$MIGRATOR_IMAGE" \
-    BACKUP_IMAGE="$BACKUP_IMAGE" \
-    "$script_dir/verify-images.sh"
-}
+verify_images() (
+  export RELEASE_TAG WEB_IMAGE MIGRATOR_IMAGE BACKUP_IMAGE
+  "$script_dir/verify-images.sh"
+)
 
-run_healthcheck() {
-  env \
-    HEALTHCHECK_URL="$HEALTHCHECK_URL" \
-    HEALTHCHECK_ATTEMPTS="$HEALTHCHECK_ATTEMPTS" \
-    HEALTHCHECK_INTERVAL_SECONDS="$HEALTHCHECK_INTERVAL_SECONDS" \
-    HEALTHCHECK_TIMEOUT_SECONDS="$HEALTHCHECK_TIMEOUT_SECONDS" \
-    "$script_dir/healthcheck.sh"
+run_healthcheck() (
+  export HEALTHCHECK_URL HEALTHCHECK_ATTEMPTS HEALTHCHECK_INTERVAL_SECONDS HEALTHCHECK_TIMEOUT_SECONDS
+  "$script_dir/healthcheck.sh"
+)
+
+derive_database_urls() {
+  encoded_postgres_password=$(urlencode "$POSTGRES_PASSWORD")
+  encoded_app_password=$(urlencode "$CRM_APP_PASSWORD")
+  DATABASE_ADMIN_URL="postgres://postgres:$encoded_postgres_password@db:5432/$DB_NAME"
+  MIGRATOR_DATABASE_URL=$DATABASE_ADMIN_URL
+  APP_DATABASE_URL="postgres://crm_app:$encoded_app_password@db:5432/$DB_NAME"
 }
 
 restore_target_environment() {
   WEB_IMAGE=$TARGET_WEB_IMAGE
   BACKUP_IMAGE=$TARGET_BACKUP_IMAGE
+  POSTGRES_IMAGE=$TARGET_POSTGRES_IMAGE
   CADDY_IMAGE=$TARGET_CADDY_IMAGE
+  RELEASE_TAG=$TARGET_RELEASE_TAG
+  SOURCE_COMMIT_SHA=$TARGET_SOURCE_COMMIT_SHA
+  POSTGRES_PASSWORD=$TARGET_POSTGRES_PASSWORD
+  CRM_APP_PASSWORD=$TARGET_CRM_APP_PASSWORD
+  BETTER_AUTH_SECRET=$TARGET_BETTER_AUTH_SECRET
+  BETTER_AUTH_URL=$TARGET_BETTER_AUTH_URL
+  APP_URL=$TARGET_APP_URL
+  BOOTSTRAP_OWNER_EMAIL=$TARGET_BOOTSTRAP_OWNER_EMAIL
+  AGENT_WEB_SECRET=$TARGET_AGENT_WEB_SECRET
+  APPLICATION_VERSION=$TARGET_APPLICATION_VERSION
+  MIGRATION_VERSION=$TARGET_MIGRATION_VERSION
+  VENDOR_ENTITLEMENT_TRUST_SET=$TARGET_VENDOR_ENTITLEMENT_TRUST_SET
+  MICROSOFT_CLIENT_ID=$TARGET_MICROSOFT_CLIENT_ID
+  MICROSOFT_CLIENT_SECRET=$TARGET_MICROSOFT_CLIENT_SECRET
+  MICROSOFT_TENANT_ID=$TARGET_MICROSOFT_TENANT_ID
+  DEMO_MODE=$TARGET_DEMO_MODE
+  DEMO_TENANT_ID=$TARGET_DEMO_TENANT_ID
+  DEMO_TENANT_NAME=$TARGET_DEMO_TENANT_NAME
+  DEMO_CURRENCY=$TARGET_DEMO_CURRENCY
+  DEMO_TAX_NAME=$TARGET_DEMO_TAX_NAME
+  DEMO_TAX_RATE=$TARGET_DEMO_TAX_RATE
+  BACKUP_RSYNC_TARGET=$TARGET_BACKUP_RSYNC_TARGET
+  derive_database_urls
+}
+
+use_previous_environment() {
+  WEB_IMAGE=$PREVIOUS_WEB_IMAGE
+  BACKUP_IMAGE=$PREVIOUS_BACKUP_IMAGE
+  POSTGRES_IMAGE=$PREVIOUS_POSTGRES_IMAGE
+  CADDY_IMAGE=$PREVIOUS_CADDY_IMAGE
+  RELEASE_TAG=$PREVIOUS_RELEASE_TAG
+  SOURCE_COMMIT_SHA=$PREVIOUS_SOURCE_COMMIT_SHA
+  POSTGRES_PASSWORD=$PREVIOUS_POSTGRES_PASSWORD
+  CRM_APP_PASSWORD=$PREVIOUS_CRM_APP_PASSWORD
+  BETTER_AUTH_SECRET=$PREVIOUS_BETTER_AUTH_SECRET
+  BETTER_AUTH_URL=$PREVIOUS_BETTER_AUTH_URL
+  APP_URL=$PREVIOUS_APP_URL
+  BOOTSTRAP_OWNER_EMAIL=$PREVIOUS_BOOTSTRAP_OWNER_EMAIL
+  AGENT_WEB_SECRET=$PREVIOUS_AGENT_WEB_SECRET
+  APPLICATION_VERSION=$PREVIOUS_APPLICATION_VERSION
+  MIGRATION_VERSION=$PREVIOUS_MIGRATION_VERSION
+  VENDOR_ENTITLEMENT_TRUST_SET=$PREVIOUS_VENDOR_ENTITLEMENT_TRUST_SET
+  MICROSOFT_CLIENT_ID=$PREVIOUS_MICROSOFT_CLIENT_ID
+  MICROSOFT_CLIENT_SECRET=$PREVIOUS_MICROSOFT_CLIENT_SECRET
+  MICROSOFT_TENANT_ID=$PREVIOUS_MICROSOFT_TENANT_ID
+  DEMO_MODE=$PREVIOUS_DEMO_MODE
+  DEMO_TENANT_ID=$PREVIOUS_DEMO_TENANT_ID
+  DEMO_TENANT_NAME=$PREVIOUS_DEMO_TENANT_NAME
+  DEMO_CURRENCY=$PREVIOUS_DEMO_CURRENCY
+  DEMO_TAX_NAME=$PREVIOUS_DEMO_TAX_NAME
+  DEMO_TAX_RATE=$PREVIOUS_DEMO_TAX_RATE
+  BACKUP_RSYNC_TARGET=$PREVIOUS_BACKUP_RSYNC_TARGET
+  derive_database_urls
+}
+
+wait_for_database() {
+  db_attempt=1
+  while [ "$db_attempt" -le "$DB_HEALTH_ATTEMPTS" ]; do
+    if compose exec -T db pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
+      return 0
+    fi
+    [ "$db_attempt" -lt "$DB_HEALTH_ATTEMPTS" ] || return 1
+    sleep "$DB_HEALTH_INTERVAL_SECONDS"
+    db_attempt=$((db_attempt + 1))
+  done
+  return 1
+}
+
+verify_runtime_identity() {
+  [ "$(compose exec -T web printenv RELEASE_TAG)" = "$RELEASE_TAG" ] || return 1
+  [ "$(compose exec -T web printenv SOURCE_COMMIT_SHA)" = "$SOURCE_COMMIT_SHA" ] || return 1
+  [ "$(compose exec -T web printenv APPLICATION_VERSION)" = "$APPLICATION_VERSION" ] || return 1
+  [ "$(compose exec -T web printenv MIGRATION_VERSION)" = "$MIGRATION_VERSION" ] || return 1
 }
 
 rollback_runtime() {
   [ "$previous_available" -eq 1 ] || return 1
-  WEB_IMAGE=$PREVIOUS_WEB_IMAGE
-  BACKUP_IMAGE=$PREVIOUS_BACKUP_IMAGE
-  CADDY_IMAGE=$PREVIOUS_CADDY_IMAGE
+  use_previous_environment
   if ! compose up -d --no-deps --force-recreate web backup gateway; then
     restore_target_environment
     return 1
@@ -341,9 +424,37 @@ rollback_runtime() {
     restore_target_environment
     return 1
   fi
+  if ! verify_runtime_identity; then
+    restore_target_environment
+    return 1
+  fi
   restore_target_environment
-  echo "deploy: previous runtime restored and health verified" >&2
+  echo "deploy: previous runtime configuration restored and release identity verified" >&2
   return 0
+}
+
+rollback_database() {
+  [ "$previous_available" -eq 1 ] || return 1
+  use_previous_environment
+  if ! compose up -d --no-deps --force-recreate db; then
+    restore_target_environment
+    return 1
+  fi
+  if ! wait_for_database; then
+    restore_target_environment
+    return 1
+  fi
+  restore_target_environment
+  echo "deploy: previous database restored and health verified" >&2
+  return 0
+}
+
+abort_with_database_rollback() {
+  failure_reason=$1
+  if rollback_database; then
+    fail "$failure_reason; previous database restored and health verified"
+  fi
+  fail "$failure_reason; database rollback failed or no previous deployment record is available"
 }
 
 abort_with_rollback() {
@@ -358,7 +469,7 @@ write_deployment_record() {
   umask 077
   record_tmp=$(mktemp "$DEPLOYMENT_RECORD_FILE.XXXXXX") || return 1
   {
-    printf 'RECORD_VERSION=1\n'
+    printf 'RECORD_VERSION=2\n'
     printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
     printf 'SOURCE_COMMIT_SHA=%s\n' "$SOURCE_COMMIT_SHA"
     printf 'DEPLOYMENT_ID=%s\n' "$DEPLOYMENT_ID"
@@ -370,6 +481,26 @@ write_deployment_record() {
     printf 'BACKUP_IMAGE=%s\n' "$BACKUP_IMAGE"
     printf 'POSTGRES_IMAGE=%s\n' "$POSTGRES_IMAGE"
     printf 'CADDY_IMAGE=%s\n' "$CADDY_IMAGE"
+    printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+    printf 'CRM_APP_PASSWORD=%s\n' "$CRM_APP_PASSWORD"
+    printf 'BETTER_AUTH_SECRET=%s\n' "$BETTER_AUTH_SECRET"
+    printf 'BETTER_AUTH_URL=%s\n' "$BETTER_AUTH_URL"
+    printf 'APP_URL=%s\n' "$APP_URL"
+    printf 'BOOTSTRAP_OWNER_EMAIL=%s\n' "$BOOTSTRAP_OWNER_EMAIL"
+    printf 'AGENT_WEB_SECRET=%s\n' "$AGENT_WEB_SECRET"
+    printf 'APPLICATION_VERSION=%s\n' "$APPLICATION_VERSION"
+    printf 'MIGRATION_VERSION=%s\n' "$MIGRATION_VERSION"
+    printf 'VENDOR_ENTITLEMENT_TRUST_SET=%s\n' "$VENDOR_ENTITLEMENT_TRUST_SET"
+    printf 'MICROSOFT_CLIENT_ID=%s\n' "$MICROSOFT_CLIENT_ID"
+    printf 'MICROSOFT_CLIENT_SECRET=%s\n' "$MICROSOFT_CLIENT_SECRET"
+    printf 'MICROSOFT_TENANT_ID=%s\n' "$MICROSOFT_TENANT_ID"
+    printf 'DEMO_MODE=%s\n' "$DEMO_MODE"
+    printf 'DEMO_TENANT_ID=%s\n' "$DEMO_TENANT_ID"
+    printf 'DEMO_TENANT_NAME=%s\n' "$DEMO_TENANT_NAME"
+    printf 'DEMO_CURRENCY=%s\n' "$DEMO_CURRENCY"
+    printf 'DEMO_TAX_NAME=%s\n' "$DEMO_TAX_NAME"
+    printf 'DEMO_TAX_RATE=%s\n' "$DEMO_TAX_RATE"
+    printf 'BACKUP_RSYNC_TARGET=%s\n' "$BACKUP_RSYNC_TARGET"
     printf 'BACKUP_ARTIFACT_SHA256=%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256"
     printf 'DEPLOYED_AT_EPOCH=%s\n' "$(date +%s)"
   } >"$record_tmp" || return 1
@@ -519,18 +650,14 @@ case "$DEPLOYMENT_RECORD_FILE" in /*) ;; *) fail "DEPLOYMENT_RECORD_FILE must be
 record_dir=$(dirname "$DEPLOYMENT_RECORD_FILE")
 assert_secure_directory "$record_dir" "deployment record directory"
 
-for required_command in docker curl awk jq openssl stat id cp mktemp env; do
+for required_command in docker curl awk jq openssl stat id cp mktemp; do
   command -v "$required_command" >/dev/null 2>&1 || fail "$required_command is required"
 done
 if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
   fail "sha256sum or shasum is required"
 fi
 
-encoded_postgres_password=$(urlencode "$POSTGRES_PASSWORD")
-encoded_app_password=$(urlencode "$CRM_APP_PASSWORD")
-DATABASE_ADMIN_URL="postgres://postgres:$encoded_postgres_password@db:5432/$DB_NAME"
-MIGRATOR_DATABASE_URL=$DATABASE_ADMIN_URL
-APP_DATABASE_URL="postgres://crm_app:$encoded_app_password@db:5432/$DB_NAME"
+derive_database_urls
 HEALTHCHECK_URL="http://127.0.0.1:$GATEWAY_HOST_PORT/api/health"
 
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required"
@@ -591,6 +718,16 @@ backup_age=$((now - EVIDENCE_CREATED_AT_EPOCH))
 [ "$backup_age" -ge 0 ] || fail "backup evidence timestamp is in the future"
 [ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence is stale"
 
+reverify_backup_before_migration() {
+  assert_secure_file "$EVIDENCE_BACKUP_ARTIFACT_FILE" "backup artifact file"
+  [ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" = "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ] ||
+    fail "backup artifact checksum changed before migration"
+  recheck_now=$(date +%s)
+  recheck_age=$((recheck_now - EVIDENCE_CREATED_AT_EPOCH))
+  [ "$recheck_age" -ge 0 ] || fail "backup evidence timestamp moved into the future before migration"
+  [ "$recheck_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence became stale before migration"
+}
+
 previous_available=0
 if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   assert_secure_file "$DEPLOYMENT_RECORD_FILE" "previous deployment record"
@@ -599,9 +736,17 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   PREVIOUS_DEPLOYMENT_ID= PREVIOUS_COMPOSE_PROJECT_NAME= PREVIOUS_DB_NAME= PREVIOUS_STORAGE_ID=
   PREVIOUS_WEB_IMAGE= PREVIOUS_MIGRATOR_IMAGE= PREVIOUS_BACKUP_IMAGE=
   PREVIOUS_POSTGRES_IMAGE= PREVIOUS_CADDY_IMAGE= PREVIOUS_BACKUP_ARTIFACT_SHA256=
+  PREVIOUS_POSTGRES_PASSWORD= PREVIOUS_CRM_APP_PASSWORD= PREVIOUS_BETTER_AUTH_SECRET=
+  PREVIOUS_BETTER_AUTH_URL= PREVIOUS_APP_URL= PREVIOUS_BOOTSTRAP_OWNER_EMAIL=
+  PREVIOUS_AGENT_WEB_SECRET= PREVIOUS_APPLICATION_VERSION= PREVIOUS_MIGRATION_VERSION=
+  PREVIOUS_VENDOR_ENTITLEMENT_TRUST_SET=
+  PREVIOUS_MICROSOFT_CLIENT_ID= PREVIOUS_MICROSOFT_CLIENT_SECRET= PREVIOUS_MICROSOFT_TENANT_ID=
+  PREVIOUS_DEMO_MODE= PREVIOUS_DEMO_TENANT_ID= PREVIOUS_DEMO_TENANT_NAME=
+  PREVIOUS_DEMO_CURRENCY= PREVIOUS_DEMO_TAX_NAME= PREVIOUS_DEMO_TAX_RATE=
+  PREVIOUS_BACKUP_RSYNC_TARGET=
   PREVIOUS_DEPLOYED_AT_EPOCH=
   parse_previous_record "$temp_dir/previous-record.env"
-  [ "$PREVIOUS_RECORD_VERSION" = 1 ] || fail "previous deployment record version is invalid"
+  [ "$PREVIOUS_RECORD_VERSION" = 2 ] || fail "previous deployment record version is invalid; a protected version 2 rollback record is required"
   printf '%s\n' "$PREVIOUS_RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
     fail "previous deployment record release tag is invalid"
   printf '%s\n' "$PREVIOUS_SOURCE_COMMIT_SHA" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' ||
@@ -619,12 +764,50 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   validate_exact_image PREVIOUS_BACKUP_IMAGE "$PREVIOUS_BACKUP_IMAGE" ghcr.io/quandatics-malaysia/crm-backup
   validate_exact_image PREVIOUS_POSTGRES_IMAGE "$PREVIOUS_POSTGRES_IMAGE" docker.io/library/postgres
   validate_exact_image PREVIOUS_CADDY_IMAGE "$PREVIOUS_CADDY_IMAGE" docker.io/library/caddy
+  required PREVIOUS_POSTGRES_PASSWORD "$PREVIOUS_POSTGRES_PASSWORD"
+  required PREVIOUS_CRM_APP_PASSWORD "$PREVIOUS_CRM_APP_PASSWORD"
+  required PREVIOUS_BETTER_AUTH_SECRET "$PREVIOUS_BETTER_AUTH_SECRET"
+  required PREVIOUS_BETTER_AUTH_URL "$PREVIOUS_BETTER_AUTH_URL"
+  required PREVIOUS_APP_URL "$PREVIOUS_APP_URL"
+  required PREVIOUS_AGENT_WEB_SECRET "$PREVIOUS_AGENT_WEB_SECRET"
+  required PREVIOUS_APPLICATION_VERSION "$PREVIOUS_APPLICATION_VERSION"
+  required PREVIOUS_MIGRATION_VERSION "$PREVIOUS_MIGRATION_VERSION"
+  required PREVIOUS_VENDOR_ENTITLEMENT_TRUST_SET "$PREVIOUS_VENDOR_ENTITLEMENT_TRUST_SET"
+  required PREVIOUS_DEMO_MODE "$PREVIOUS_DEMO_MODE"
+  required PREVIOUS_DEMO_TENANT_ID "$PREVIOUS_DEMO_TENANT_ID"
+  required PREVIOUS_DEMO_TENANT_NAME "$PREVIOUS_DEMO_TENANT_NAME"
+  required PREVIOUS_DEMO_CURRENCY "$PREVIOUS_DEMO_CURRENCY"
+  required PREVIOUS_DEMO_TAX_NAME "$PREVIOUS_DEMO_TAX_NAME"
+  required PREVIOUS_DEMO_TAX_RATE "$PREVIOUS_DEMO_TAX_RATE"
   previous_available=1
 fi
 
 TARGET_WEB_IMAGE=$WEB_IMAGE
 TARGET_BACKUP_IMAGE=$BACKUP_IMAGE
+TARGET_POSTGRES_IMAGE=$POSTGRES_IMAGE
 TARGET_CADDY_IMAGE=$CADDY_IMAGE
+TARGET_RELEASE_TAG=$RELEASE_TAG
+TARGET_SOURCE_COMMIT_SHA=$SOURCE_COMMIT_SHA
+TARGET_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+TARGET_CRM_APP_PASSWORD=$CRM_APP_PASSWORD
+TARGET_BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
+TARGET_BETTER_AUTH_URL=$BETTER_AUTH_URL
+TARGET_APP_URL=$APP_URL
+TARGET_BOOTSTRAP_OWNER_EMAIL=$BOOTSTRAP_OWNER_EMAIL
+TARGET_AGENT_WEB_SECRET=$AGENT_WEB_SECRET
+TARGET_APPLICATION_VERSION=$APPLICATION_VERSION
+TARGET_MIGRATION_VERSION=$MIGRATION_VERSION
+TARGET_VENDOR_ENTITLEMENT_TRUST_SET=$VENDOR_ENTITLEMENT_TRUST_SET
+TARGET_MICROSOFT_CLIENT_ID=$MICROSOFT_CLIENT_ID
+TARGET_MICROSOFT_CLIENT_SECRET=$MICROSOFT_CLIENT_SECRET
+TARGET_MICROSOFT_TENANT_ID=$MICROSOFT_TENANT_ID
+TARGET_DEMO_MODE=$DEMO_MODE
+TARGET_DEMO_TENANT_ID=$DEMO_TENANT_ID
+TARGET_DEMO_TENANT_NAME=$DEMO_TENANT_NAME
+TARGET_DEMO_CURRENCY=$DEMO_CURRENCY
+TARGET_DEMO_TAX_NAME=$DEMO_TAX_NAME
+TARGET_DEMO_TAX_RATE=$DEMO_TAX_RATE
+TARGET_BACKUP_RSYNC_TARGET=$BACKUP_RSYNC_TARGET
 lock_dir="$record_dir/.deploy-$COMPOSE_PROJECT_NAME.lock"
 if ! mkdir "$lock_dir" 2>/dev/null; then
   fail "deployment already in progress for project $COMPOSE_PROJECT_NAME"
@@ -638,24 +821,23 @@ if ! compose pull db migrate web backup gateway; then
   fail "image pull failed; running containers were not changed"
 fi
 
-compose up -d --no-deps db || fail "database start failed"
+if ! compose up -d --no-deps db; then
+  abort_with_database_rollback "target database start failed"
+fi
+if ! wait_for_database; then
+  abort_with_database_rollback "target database health check failed"
+fi
 
-db_attempt=1
-while [ "$db_attempt" -le "$DB_HEALTH_ATTEMPTS" ]; do
-  if compose exec -T db pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
-    break
-  fi
-  [ "$db_attempt" -lt "$DB_HEALTH_ATTEMPTS" ] || fail "database health check failed"
-  sleep "$DB_HEALTH_INTERVAL_SECONDS"
-  db_attempt=$((db_attempt + 1))
-done
-
+reverify_backup_before_migration
 compose run --rm --no-deps migrate || fail "migration failed"
 if ! compose up -d --no-deps --force-recreate web backup gateway; then
   abort_with_rollback "runtime service recreation failed"
 fi
 if ! run_healthcheck; then
   abort_with_rollback "health check failed"
+fi
+if ! verify_runtime_identity; then
+  abort_with_rollback "runtime release identity check failed"
 fi
 
 if ! write_deployment_record; then

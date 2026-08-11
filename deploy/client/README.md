@@ -79,6 +79,7 @@ server {
 ```
 
 The deployment health URL is derived internally and must be exactly `http://127.0.0.1:<numeric-port>/api/health`; user info, queries, fragments, alternate hosts, and alternate paths are rejected.
+Health probes clear all common upper/lower-case proxy variables, pass `curl --disable` to ignore user configuration, and force `--noproxy '*'`, so the loopback request cannot be redirected through a configured proxy.
 
 ## Authenticated backup evidence
 
@@ -117,8 +118,10 @@ cd /opt/quandatics-client
 ./deploy.sh ./.env
 ```
 
-Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; verify all vendor image signatures; authenticate and bind backup evidence; load the protected previous record; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; run the migrator once; recreate web/backup/gateway; verify exact `/api/health`; atomically replace the deployment record; release the lock.
+Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; verify all vendor image signatures; authenticate and bind backup evidence; load the protected previous record; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; immediately recheck the signed evidence timestamp and referenced artifact checksum; run the migrator once; recreate web/backup/gateway; verify exact `/api/health` plus release identity; atomically replace the deployment record; release the lock.
 
-The lock remains held from before the first pull through record replacement, so concurrent releases cannot migrate or overwrite each other's record. A failed signature, evidence check, or pull leaves running containers unchanged. On partial recreation, new health failure, or record-write failure, the script recreates web/backup/gateway from the previous protected digest record and requires old health to pass. Migrations are expand-only; the database and volumes are never deleted or rolled back.
+The lock remains held from before the first pull through record replacement, so concurrent releases cannot migrate or overwrite each other's record. A failed signature, evidence check, or pull leaves running containers unchanged. If the target PostgreSQL image cannot start or pass readiness before migration, the script recreates the previous PostgreSQL digest and verifies database health. On partial recreation, new health/identity failure, or record-write failure, it recreates web/backup/gateway with the complete previous release configuration and then requires old health and exact release identity to pass. Migrations are expand-only; schema/data and volumes are never deleted or rolled back.
+
+Deployment records use schema version 2. Besides prior digests and release identity, the protected record contains the prior runtime URLs, versions, trust set, database/application/auth credentials, Microsoft integration values, demo settings, and backup transport target needed for an exact rollback. It therefore has the same secret sensitivity as `.env`: retain owner-only `0600` permissions, include it in protected backup handling, and never copy it into tickets or logs. Version 1 records are rejected because they cannot reconstruct prior runtime configuration; migrate any pre-release test installation to a protected version 2 record before relying on rollback.
 
 Retain the signed release manifest, signed backup evidence, backup artifact, and `DEPLOYMENT_RECORD_FILE` together for audit and recovery. Keep prior runtime digests available locally through the rollback window.

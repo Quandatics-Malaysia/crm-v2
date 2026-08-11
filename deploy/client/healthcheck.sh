@@ -35,7 +35,11 @@ command -v curl >/dev/null 2>&1 || fail "curl is required"
 
 attempt=1
 while [ "$attempt" -le "$attempts" ]; do
-  if curl --fail --silent --show-error --max-time "$timeout_seconds" "$healthcheck_url" >/dev/null 2>&1; then
+  if (
+    unset http_proxy https_proxy all_proxy no_proxy
+    unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time "$timeout_seconds" "$healthcheck_url" >/dev/null 2>&1
+  ); then
     echo "health check passed: $healthcheck_url"
     exit 0
   fi

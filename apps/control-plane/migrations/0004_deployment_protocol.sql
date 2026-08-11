@@ -99,7 +99,8 @@ CREATE TRIGGER deployment_registration_key_gate
 BEFORE INSERT ON deployment_keys
 WHEN NEW.registration_token_id IS NOT NULL
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'registration key claim rejected')
+  WHERE NOT EXISTS (
     SELECT 1
     FROM install_tokens AS token
     JOIN deployments AS deployment ON deployment.id = token.deployment_id
@@ -110,7 +111,7 @@ BEGIN
       AND deployment.registered_at IS NULL
       AND deployment.registration_key_fingerprint IS NULL
       AND deployment.status = 'active'
-  ) THEN RAISE(ABORT, 'registration key claim rejected') END;
+  );
 END;
 
 CREATE TRIGGER deployment_registration_key_apply
@@ -125,8 +126,8 @@ BEGIN
     AND registered_at IS NULL
     AND registration_key_fingerprint IS NULL;
 
-  SELECT CASE WHEN changes() != 1
-    THEN RAISE(ABORT, 'deployment registration rejected') END;
+  SELECT RAISE(ABORT, 'deployment registration rejected')
+  WHERE changes() != 1;
 END;
 
 CREATE TRIGGER deployments_registration_pair_insert

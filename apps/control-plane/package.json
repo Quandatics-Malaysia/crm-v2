@@ -9,7 +9,7 @@
   },
   "scripts": {
     "db:migrate:local": "wrangler d1 migrations apply CONTROL_DB --local",
-    "test": "vitest run",
+    "test": "node --test tests-node/*.test.mjs && vitest run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types --env-interface CloudflareBindings"
   },

@@ -290,6 +290,18 @@ if scripts/check-runtime-artifacts.sh "$unknown_root"; then
   exit 1
 fi
 
+agent_root="$scratch/agent-runtime"
+mkdir -p "$agent_root/app" "$agent_root/usr/local/bin" "$agent_root/var/lib/crm-agent"
+touch "$agent_root/app/index.js" "$agent_root/usr/local/bin/agent-health"
+chmod 0555 "$agent_root/usr/local/bin/agent-health"
+scripts/check-runtime-artifacts.sh "$agent_root"
+
+printf '%s\n' 'const leaked = "DATABASE_ADMIN_URL"' >>"$agent_root/app/index.js"
+if scripts/check-runtime-artifacts.sh "$agent_root"; then
+  echo "expected deployment agent database credential reference to fail" >&2
+  exit 1
+fi
+
 if scripts/check-runtime-artifacts.sh; then
   echo "expected missing root to fail" >&2
   exit 1

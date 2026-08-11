@@ -9,6 +9,7 @@ Install Docker Engine with Compose v2, `curl`, `jq`, OpenSSL, and Cosign. Deploy
 ```sh
 install -d -m 0700 /opt/quandatics-client /var/lib/quandatics-client /var/lib/quandatics-client/backup /etc/quandatics-client
 cp compose.yaml Caddyfile deploy.sh verify-images.sh healthcheck.sh /opt/quandatics-client/
+cp -R ops /opt/quandatics-client/
 cp .env.example /opt/quandatics-client/.env
 chmod 0700 /opt/quandatics-client/*.sh
 chmod 0600 /opt/quandatics-client/.env
@@ -41,11 +42,12 @@ unset GHCR_PULL_TOKEN
 
 Keep the token in the host secret manager, not `.env`, this bundle, shell history, or an image. Client pull identities do not receive source access to private `Quandatics-Malaysia/crm-v2`.
 
-The three vendor references must use exactly these repositories:
+The four vendor references must use exactly these repositories:
 
 - `ghcr.io/quandatics-malaysia/crm-web@sha256:...`
 - `ghcr.io/quandatics-malaysia/crm-migrator@sha256:...`
 - `ghcr.io/quandatics-malaysia/crm-backup@sha256:...`
+- `ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:...`
 
 Each signature must resolve to exact workflow identity `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/<RELEASE_TAG>` and issuer `https://token.actions.githubusercontent.com`. Repository/workflow constants are grouped at the top of `verify-images.sh` for an explicit ownership migration.
 
@@ -60,7 +62,8 @@ Compose separates networks:
 - `gateway` joins frontend only.
 - `db` and `migrate` join internal backend only.
 - `backup` joins backend plus its isolated outbound transport network for verified off-host copies.
-- `web` is the only bridge between frontend and backend.
+- `web` bridges frontend/backend and a separate internal `agent-web` network.
+- `agent` joins only `agent-web` and its outbound control-plane network. It has no published port, database network, database credential, Docker socket, or application-source mount. Its only volume is private agent state.
 
 Both PostgreSQL administration and Caddy bind to host loopback. Host Nginx must terminate public TLS on TCP `:443`, apply the public security/firewall policy, and proxy only to `http://127.0.0.1:${GATEWAY_HOST_PORT}`. Do not expose port 8081 through a host firewall or load balancer. Minimal Nginx location:
 
@@ -118,10 +121,12 @@ cd /opt/quandatics-client
 ./deploy.sh ./.env
 ```
 
-Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; verify all vendor image signatures; authenticate and bind backup evidence; load the protected previous record; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; immediately recheck the signed evidence timestamp and referenced artifact checksum; run the migrator once; recreate web/backup/gateway; verify exact `/api/health` plus release identity; atomically replace the deployment record; release the lock. If that final evidence check fails after the target database swap, deployment first recreates the previous PostgreSQL configuration and verifies old readiness, while the old web/backup/gateway services remain unchanged.
+Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; verify all vendor image signatures; authenticate and bind backup evidence; load the protected previous record; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; immediately recheck the signed evidence timestamp and referenced artifact checksum; run the migrator once; recreate web/backup/gateway/agent; verify exact `/api/health`, wait for the agent to apply a valid entitlement, and verify release/agent identity; atomically replace the deployment record; release the lock. If that final evidence check fails after the target database swap, deployment first recreates the previous PostgreSQL configuration and verifies old readiness, while the old web/backup/gateway/agent services remain unchanged.
 
-The lock remains held from before the first pull through record replacement, so concurrent releases cannot migrate or overwrite each other's record. A failed signature, evidence check, or pull leaves running containers unchanged. If the target PostgreSQL image cannot start or pass readiness before migration, the script recreates the previous PostgreSQL digest and verifies database health. On partial recreation, new health/identity failure, or record-write failure, it recreates web/backup/gateway with the complete previous release configuration and then requires old health and exact release identity to pass. Migrations are expand-only; schema/data and volumes are never deleted or rolled back.
+The lock remains held from before the first pull through record replacement, so concurrent releases cannot migrate or overwrite each other's record. A failed signature, evidence check, or pull leaves running containers unchanged. If the target PostgreSQL image cannot start or pass readiness before migration, the script recreates the previous PostgreSQL digest and verifies database health. On partial recreation, web or agent health/identity failure, or record-write failure, it recreates web/backup/gateway/agent with the complete previous release configuration and then requires old health and exact release/agent identity to pass. Migrations are expand-only; schema/data and volumes are never deleted or rolled back.
 
-Deployment records use schema version 2. Besides prior digests and release identity, the protected record contains the prior runtime URLs, versions, trust set, database/application/auth credentials, Microsoft integration values, demo settings, backup transport target, loopback gateway/database ports, all service memory limits, and application/database health retry timing needed for an exact rollback. These settings are validated before pull, restored before any rollback recreation, and used to derive the old loopback health URL so host Nginx continues to reach the restored gateway. The record therefore has the same secret sensitivity as `.env`: retain owner-only `0600` permissions, include it in protected backup handling, and never copy it into tickets or logs. Incomplete version 2 and all version 1 records are rejected because they cannot reconstruct prior runtime configuration; migrate any pre-release test installation to a complete protected version 2 record before relying on rollback.
+Deployment records use schema version 3. Besides prior digests and release identity, the protected record contains the prior runtime URLs, application/agent/migration versions, trust set, database/application/auth credentials, Microsoft integration values, demo settings, backup transport target, loopback gateway/database ports, all service memory limits, and application/database health retry timing needed for an exact rollback. These settings are validated before pull, restored before any rollback recreation, and used to derive the old loopback health URL so host Nginx continues to reach the restored gateway. The one-time installation token is intentionally never recorded; registered agent identity lives in the private `agent-state` volume. The record therefore has the same secret sensitivity as `.env`: retain owner-only `0600` permissions, include it in protected backup handling, and never copy it into tickets or logs. Earlier record schemas are rejected because they cannot reconstruct the agent-aware runtime; migrate any pre-release test installation to a complete protected version 3 record before relying on rollback.
+
+The agent health command fails until a valid signed entitlement has been applied at least once. After that, a control-plane outage does not by itself fail health while the cached entitlement remains in its offline grace window. Inspect health with `docker compose --profile deploy exec -T agent /usr/local/bin/agent-health`; do not replace it with a process-only probe.
 
 Retain the signed release manifest, signed backup evidence, backup artifact, and `DEPLOYMENT_RECORD_FILE` together for audit and recovery. Keep prior runtime digests available locally through the rollback window.

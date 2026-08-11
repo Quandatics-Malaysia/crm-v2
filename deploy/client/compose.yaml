@@ -87,6 +87,7 @@ services:
     networks:
       - frontend
       - backend
+      - agent-web
     expose:
       - "3000"
     healthcheck:
@@ -96,6 +97,45 @@ services:
       retries: 5
       start_period: 40s
     mem_limit: ${WEB_MEMORY_LIMIT:-1g}
+    logging: *default-logging
+    restart: unless-stopped
+
+  agent:
+    image: ${AGENT_IMAGE:?AGENT_IMAGE must be set to an immutable digest reference}
+    environment:
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:?CONTROL_PLANE_URL must be set}
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
+      DEPLOYMENT_ENV: ${DEPLOYMENT_ENV:?DEPLOYMENT_ENV must be set}
+      INSTALLATION_TOKEN: ${INSTALLATION_TOKEN:-}
+      WEB_INTERNAL_URL: http://web:3000
+      AGENT_WEB_SECRET: ${AGENT_WEB_SECRET:?AGENT_WEB_SECRET must be set}
+      APPLICATION_VERSION: ${APPLICATION_VERSION:?APPLICATION_VERSION must be set}
+      AGENT_VERSION: ${AGENT_VERSION:?AGENT_VERSION must be set}
+      IMAGE_DIGEST: ${IMAGE_DIGEST:?IMAGE_DIGEST is derived by deploy.sh}
+      MIGRATION_VERSION: ${MIGRATION_VERSION:?MIGRATION_VERSION must be set}
+    volumes:
+      - agent-state:/var/lib/crm-agent
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - agent-web
+      - agent-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/agent-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: ${AGENT_MEMORY_LIMIT:-128m}
     logging: *default-logging
     restart: unless-stopped
 
@@ -137,6 +177,9 @@ networks:
   frontend:
   backend:
     internal: true
+  agent-web:
+    internal: true
+  agent-egress:
   egress:
 
 volumes:
@@ -151,3 +194,6 @@ volumes:
       com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}
   caddydata:
   caddyconfig:
+  agent-state:
+    labels:
+      com.quandatics.storage-id: ${STORAGE_ID:?STORAGE_ID must be set}

@@ -251,6 +251,16 @@ elif [ -f "$canonical_root/opt/backup/check-tools.sh" ]; then
     echo "unexpected backup runtime artifact: $unexpected" >&2
     exit 1
   fi
+elif [ -f "$payload_root/index.js" ] && [ -x "$canonical_root/usr/local/bin/agent-health" ]; then
+  unexpected=$(find "$payload_root" -mindepth 1 -maxdepth 1 ! -name index.js -print -quit)
+  if [ -n "$unexpected" ]; then
+    echo "unexpected deployment agent artifact: $unexpected" >&2
+    exit 1
+  fi
+  if grep -Eq 'DATABASE(_ADMIN)?_URL|POSTGRES_(PASSWORD|USER|DB)|docker[.]sock|drizzle-orm' "$payload_root/index.js"; then
+    echo "deployment agent runtime contains a forbidden privileged dependency or credential" >&2
+    exit 1
+  fi
 else
   echo "unrecognized client runtime layout: $payload_root" >&2
   exit 1

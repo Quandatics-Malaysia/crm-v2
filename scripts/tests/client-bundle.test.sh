@@ -43,9 +43,11 @@ sha256_file() {
   fi
 }
 
-for required_file in compose.yaml Caddyfile .env.example deploy.sh verify-images.sh healthcheck.sh README.md; do
+for required_file in compose.yaml Caddyfile .env.example deploy.sh verify-images.sh healthcheck.sh ops/agent-health.sh README.md; do
   [ -f "$bundle_dir/$required_file" ] || record_failure "missing deploy/client/$required_file"
 done
+[ -f "$repo_root/apps/deployment-agent/Dockerfile" ] || record_failure "missing apps/deployment-agent/Dockerfile"
+[ -f "$repo_root/tests/e2e/licensing.spec.ts" ] || record_failure "missing tests/e2e/licensing.spec.ts"
 
 if grep -Eq '^[[:space:]]*build:' "$compose_file"; then
   record_failure "client compose contains build key"
@@ -140,18 +142,31 @@ case " $* " in
   *" exec -T web printenv SOURCE_COMMIT_SHA "*|*" exec -T web printenv SOURCE_COMMIT_SHA")
     printf '%s\n' "${SOURCE_COMMIT_SHA:-}"
     ;;
-  *" up -d --no-deps --force-recreate web backup gateway "*|*" up -d --no-deps --force-recreate web backup gateway")
+  *" exec -T agent printenv AGENT_VERSION "*|*" exec -T agent printenv AGENT_VERSION")
+    printf '%s\n' "${AGENT_VERSION:-}"
+    ;;
+  *" exec -T agent printenv IMAGE_DIGEST "*|*" exec -T agent printenv IMAGE_DIGEST")
+    printf '%s\n' "${IMAGE_DIGEST:-}"
+    ;;
+  *" exec -T agent /usr/local/bin/agent-health "*|*" exec -T agent /usr/local/bin/agent-health")
+    if [ "${TEST_AGENT_FAIL_TARGET_HEALTH:-0}" = 1 ] && [ "${AGENT_IMAGE:-}" = "${TEST_TARGET_AGENT_IMAGE:-}" ]; then
+      exit 56
+    fi
+    ;;
+  *" up -d --no-deps --force-recreate web backup gateway agent "*|*" up -d --no-deps --force-recreate web backup gateway agent")
     count=0
     [ ! -f "$TEST_DOCKER_COUNTER" ] || count=$(cat "$TEST_DOCKER_COUNTER")
     count=$((count + 1))
     printf '%s\n' "$count" >"$TEST_DOCKER_COUNTER"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-      "$count" "${WEB_IMAGE:-}" "${BACKUP_IMAGE:-}" "${CADDY_IMAGE:-}" \
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+      "$count" "${WEB_IMAGE:-}" "${BACKUP_IMAGE:-}" "${CADDY_IMAGE:-}" "${AGENT_IMAGE:-}" \
       "${APPLICATION_VERSION:-}" "${MIGRATION_VERSION:-}" "${VENDOR_ENTITLEMENT_TRUST_SET:-}" \
       "${BETTER_AUTH_URL:-}" "${APP_URL:-}" "${RELEASE_TAG:-}" \
       "${GATEWAY_HOST_PORT:-}" "${DB_HOST_PORT:-}" "${DB_MEMORY_LIMIT:-}" "${WEB_MEMORY_LIMIT:-}" \
       "${BACKUP_MEMORY_LIMIT:-}" "${GATEWAY_MEMORY_LIMIT:-}" "${HEALTHCHECK_ATTEMPTS:-}" \
-      "${HEALTHCHECK_INTERVAL_SECONDS:-}" "${HEALTHCHECK_TIMEOUT_SECONDS:-}" >>"$TEST_RUNTIME_LOG"
+      "${HEALTHCHECK_INTERVAL_SECONDS:-}" "${HEALTHCHECK_TIMEOUT_SECONDS:-}" \
+      "${CONTROL_PLANE_URL:-}" "${DEPLOYMENT_ENV:-}" "${AGENT_VERSION:-}" \
+      "${AGENT_MEMORY_LIMIT:-}" >>"$TEST_RUNTIME_LOG"
     if [ "${TEST_RUNTIME_FAIL_ONCE:-0}" = 1 ] && [ "$count" -eq 1 ]; then
       exit 44
     fi
@@ -251,29 +266,37 @@ valid_env="$test_root/valid.env"
 web_digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 migrator_digest=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 backup_digest=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+agent_digest=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 postgres_digest=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 caddy_digest=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 source_sha=1111111111111111111111111111111111111111
 web_image="ghcr.io/quandatics-malaysia/crm-web@sha256:$web_digest"
 migrator_image="ghcr.io/quandatics-malaysia/crm-migrator@sha256:$migrator_digest"
 backup_image="ghcr.io/quandatics-malaysia/crm-backup@sha256:$backup_digest"
+agent_image="ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:$agent_digest"
 postgres_image="docker.io/library/postgres@sha256:$postgres_digest"
 caddy_image="docker.io/library/caddy@sha256:$caddy_digest"
 
 old_web_image="ghcr.io/quandatics-malaysia/crm-web@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 old_migrator_image="ghcr.io/quandatics-malaysia/crm-migrator@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 old_backup_image="ghcr.io/quandatics-malaysia/crm-backup@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+old_agent_image="ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:6666666666666666666666666666666666666666666666666666666666666666"
 old_postgres_image="docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444"
 old_caddy_image="docker.io/library/caddy@sha256:5555555555555555555555555555555555555555555555555555555555555555"
 old_application_version=1.1.0
-old_migration_version=1.1.0
+old_migration_version=0068
 old_trust_set=old-trust-set
 old_better_auth_url=https://old.crm.example.test
 old_app_url=https://old.crm.example.test
 old_postgres_password=old-postgres-password
 old_crm_app_password=old-application-password
 old_better_auth_secret=old-better-auth-secret-with-enough-entropy
-old_agent_web_secret=old-agent-web-secret
+old_agent_web_secret=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+old_control_plane_url=https://old-control.example.test
+old_agent_version=0.1.0
+old_agent_memory_limit=96m
+deployment_id=11111111-1111-4111-8111-111111111111
+agent_web_secret=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 old_gateway_host_port=18081
 old_db_host_port=15433
 old_db_memory_limit=1536m
@@ -293,6 +316,7 @@ SOURCE_COMMIT_SHA=$source_sha
 WEB_IMAGE=$web_image
 MIGRATOR_IMAGE=$migrator_image
 BACKUP_IMAGE=$backup_image
+AGENT_IMAGE=$agent_image
 POSTGRES_IMAGE=$postgres_image
 CADDY_IMAGE=$caddy_image
 POSTGRES_PASSWORD=test-postgres-password
@@ -303,13 +327,18 @@ APP_URL=https://crm.example.test
 PLATFORM_MASTER_EMAIL=owner@example.test
 PLATFORM_MASTER_PASSWORD=test-platform-master-password
 BOOTSTRAP_OWNER_EMAIL=owner@example.test
-DEPLOYMENT_ID=deployment-test
+DEPLOYMENT_ID=$deployment_id
 STORAGE_ID=storage-test
 DB_NAME=crm
-AGENT_WEB_SECRET=test-agent-web-secret
+AGENT_WEB_SECRET=$agent_web_secret
 APPLICATION_VERSION=1.2.3
-MIGRATION_VERSION=1.2.3
+MIGRATION_VERSION=0069
 VENDOR_ENTITLEMENT_TRUST_SET=test-trust-set
+CONTROL_PLANE_URL=https://control.example.test
+DEPLOYMENT_ENV=production
+INSTALLATION_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AGENT_VERSION=0.1.0
+AGENT_MEMORY_LIMIT=128m
 BACKUP_EVIDENCE_FILE=$evidence_file
 BACKUP_EVIDENCE_SIGNATURE_FILE=$signature_file
 BACKUP_EVIDENCE_PUBLIC_KEY_FILE=$public_key
@@ -348,7 +377,7 @@ write_evidence() {
   now=$(date +%s)
   cat >"$evidence_file" <<EOF
 EVIDENCE_VERSION=1
-DEPLOYMENT_ID=deployment-test
+DEPLOYMENT_ID=$deployment_id
 COMPOSE_PROJECT_NAME=$evidence_project
 DB_NAME=crm
 STORAGE_ID=storage-test
@@ -371,16 +400,17 @@ EOF
 
 write_previous_record() {
   cat >"$record_file" <<EOF
-RECORD_VERSION=2
+RECORD_VERSION=3
 RELEASE_TAG=v1.1.0
 SOURCE_COMMIT_SHA=0000000000000000000000000000000000000000
-DEPLOYMENT_ID=deployment-test
+DEPLOYMENT_ID=$deployment_id
 COMPOSE_PROJECT_NAME=quandatics-client-test
 DB_NAME=crm
 STORAGE_ID=storage-test
 WEB_IMAGE=$old_web_image
 MIGRATOR_IMAGE=$old_migrator_image
 BACKUP_IMAGE=$old_backup_image
+AGENT_IMAGE=$old_agent_image
 POSTGRES_IMAGE=$old_postgres_image
 CADDY_IMAGE=$old_caddy_image
 POSTGRES_PASSWORD=$old_postgres_password
@@ -393,6 +423,10 @@ AGENT_WEB_SECRET=$old_agent_web_secret
 APPLICATION_VERSION=$old_application_version
 MIGRATION_VERSION=$old_migration_version
 VENDOR_ENTITLEMENT_TRUST_SET=$old_trust_set
+CONTROL_PLANE_URL=$old_control_plane_url
+DEPLOYMENT_ENV=production
+AGENT_VERSION=$old_agent_version
+AGENT_MEMORY_LIMIT=$old_agent_memory_limit
 MICROSOFT_CLIENT_ID=
 MICROSOFT_CLIENT_SECRET=
 MICROSOFT_TENANT_ID=
@@ -453,6 +487,8 @@ run_deploy() {
     TEST_DB_FAIL_TARGET_HEALTH="${TEST_DB_FAIL_TARGET_HEALTH:-0}" \
     TEST_DB_FAIL_TARGET_START="${TEST_DB_FAIL_TARGET_START:-0}" \
     TEST_TARGET_POSTGRES_IMAGE="$postgres_image" \
+    TEST_AGENT_FAIL_TARGET_HEALTH="${TEST_AGENT_FAIL_TARGET_HEALTH:-0}" \
+    TEST_TARGET_AGENT_IMAGE="$agent_image" \
     TEST_DOCKER_FAIL_PULL="${TEST_DOCKER_FAIL_PULL:-0}" \
     TEST_COSIGN_FAIL_IMAGE="${TEST_COSIGN_FAIL_IMAGE:-}" \
     TEST_RUNTIME_FAIL_ONCE="${TEST_RUNTIME_FAIL_ONCE:-0}" \
@@ -632,7 +668,7 @@ TEST_DATE_BASE=$evidence_epoch
 export TEST_DATE_BASE
 expect_deploy_failure "evidence expires after pull" "$freshness_env" "backup evidence became stale before migration; previous database restored and health verified"
 unset TEST_DATE_BASE
-assert_contains "$docker_log" " pull db migrate web backup gateway" "freshness recheck occurs after pull"
+assert_contains "$docker_log" " pull db migrate web backup gateway agent" "freshness recheck occurs after pull"
 assert_contains "$database_log" "$postgres_image|1.2.3|5433|2g|2|0" "stale evidence target database swap"
 assert_contains "$database_log" "$old_postgres_image|$old_application_version|$old_db_host_port|$old_db_memory_limit|$old_db_health_attempts|$old_db_health_interval" "stale evidence previous database restore"
 if grep -Eq ' run .* migrate' "$docker_log"; then
@@ -722,9 +758,9 @@ else
   assert_contains "$output_log" "previous runtime restored" "partial recreate rollback"
 fi
 unset TEST_RUNTIME_FAIL_ONCE
-assert_contains "$runtime_log" "1|$web_image|$backup_image|$caddy_image" "target runtime recreate attempt"
-assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "partial recreate rollback refs"
-assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "partial recreate rollback config"
+assert_contains "$runtime_log" "1|$web_image|$backup_image|$caddy_image|$agent_image" "target runtime recreate attempt"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_agent_image" "partial recreate rollback refs"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_agent_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "partial recreate rollback config"
 assert_contains "$runtime_log" "|v1.1.0|$old_gateway_host_port|$old_db_host_port|$old_db_memory_limit|$old_web_memory_limit|$old_backup_memory_limit|$old_gateway_memory_limit|$old_healthcheck_attempts|$old_healthcheck_interval|$old_healthcheck_timeout" "partial recreate rollback host/resource/health config"
 assert_contains "$docker_log" "exec -T web printenv RELEASE_TAG" "restored release identity verification"
 assert_contains "$curl_log" "http://127.0.0.1:$old_gateway_host_port/api/health" "restored Nginx-reachable health port"
@@ -741,12 +777,26 @@ else
   assert_contains "$output_log" "previous runtime restored" "health rollback"
 fi
 unset TEST_CURL_FAIL_COUNT
-assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image" "health rollback refs"
-assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "health rollback config"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_agent_image" "health rollback refs"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_agent_image|$old_application_version|$old_migration_version|$old_trust_set|$old_better_auth_url|$old_app_url|v1.1.0" "health rollback config"
 assert_contains "$runtime_log" "|v1.1.0|$old_gateway_host_port|$old_db_host_port|$old_db_memory_limit|$old_web_memory_limit|$old_backup_memory_limit|$old_gateway_memory_limit|$old_healthcheck_attempts|$old_healthcheck_interval|$old_healthcheck_timeout" "health rollback host/resource/health config"
 assert_contains "$curl_log" "http://127.0.0.1:$old_gateway_host_port/api/health" "health rollback uses restored gateway port"
 [ "$(wc -l <"$curl_log" | tr -d ' ')" -eq 3 ] || record_failure "rollback did not exhaust new health and verify restored health"
 assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "health rollback preserves old record"
+
+write_evidence
+write_previous_record
+reset_logs
+TEST_AGENT_FAIL_TARGET_HEALTH=1
+export TEST_AGENT_FAIL_TARGET_HEALTH
+expect_deploy_failure "agent entitlement health failure" "$valid_env" "deployment agent did not apply a valid entitlement; previous runtime restored"
+unset TEST_AGENT_FAIL_TARGET_HEALTH
+assert_contains "$runtime_log" "1|$web_image|$backup_image|$caddy_image|$agent_image" "unentitled target runtime recreate"
+assert_contains "$runtime_log" "2|$old_web_image|$old_backup_image|$old_caddy_image|$old_agent_image" "unentitled agent rollback refs"
+assert_contains "$runtime_log" "|$old_control_plane_url|production|$old_agent_version|$old_agent_memory_limit" "unentitled agent exact rollback config"
+assert_contains "$docker_log" "exec -T agent printenv AGENT_VERSION" "restored agent identity verification"
+assert_contains "$docker_log" "exec -T agent printenv IMAGE_DIGEST" "restored agent digest verification"
+assert_contains "$record_file" 'RELEASE_TAG=v1.1.0' "unentitled agent rollback preserves old record"
 
 write_evidence
 rm -f "$record_file"
@@ -791,21 +841,22 @@ fi
 
 identity="https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3"
 issuer="https://token.actions.githubusercontent.com"
-[ "$(wc -l <"$cosign_log" | tr -d ' ')" -eq 3 ] || record_failure "all three vendor images were not verified exactly once"
-for image in "$web_image" "$migrator_image" "$backup_image"; do
+[ "$(wc -l <"$cosign_log" | tr -d ' ')" -eq 4 ] || record_failure "all four vendor images were not verified exactly once"
+for image in "$web_image" "$migrator_image" "$backup_image" "$agent_image"; do
   assert_contains "$cosign_log" "verify --certificate-identity $identity --certificate-oidc-issuer $issuer $image" "exact Cosign identity"
 done
-assert_contains "$record_file" 'RECORD_VERSION=2' "atomic record schema"
+assert_contains "$record_file" 'RECORD_VERSION=3' "atomic record schema"
 assert_contains "$record_file" 'RELEASE_TAG=v1.2.3' "atomic record release"
 assert_contains "$record_file" "SOURCE_COMMIT_SHA=$source_sha" "atomic record provenance"
 assert_contains "$record_file" "WEB_IMAGE=$web_image" "atomic record web digest"
+assert_contains "$record_file" "AGENT_IMAGE=$agent_image" "atomic record agent digest"
 assert_not_contains "$record_file" 'RELEASE_TAG=v1.1.0' "atomic record replaced old state"
 for leaked_secret in \
   test-postgres-password \
   test-application-password \
   test-better-auth-secret-with-enough-entropy \
   test-platform-master-password \
-  test-agent-web-secret; do
+  "$agent_web_secret"; do
   for process_argv_log in "$env_argv_log" "$docker_log" "$cosign_log" "$curl_log"; do
     assert_not_contains "$process_argv_log" "$leaked_secret" "secret absent from process argv"
   done
@@ -816,10 +867,17 @@ if ! docker compose --file "$compose_file" --env-file "$bundle_dir/.env.example"
   record_failure "Compose config with example environment failed"
 else
   jq -e '.services.gateway.networks | keys == ["frontend"]' "$compose_json" >/dev/null || record_failure "gateway is not frontend-only"
-  jq -e '.services.web.networks | keys | sort == ["backend", "frontend"]' "$compose_json" >/dev/null || record_failure "web does not bridge frontend/backend"
+  jq -e '.services.web.networks | keys | sort == ["agent-web", "backend", "frontend"]' "$compose_json" >/dev/null || record_failure "web does not bridge frontend/backend/agent-web"
   jq -e '.services.db.networks | keys == ["backend"]' "$compose_json" >/dev/null || record_failure "database is reachable outside backend"
   jq -e '.services.backup.networks | keys | sort == ["backend", "egress"]' "$compose_json" >/dev/null || record_failure "backup lacks isolated backend plus outbound transport"
   jq -e '.services.migrate.networks | keys == ["backend"]' "$compose_json" >/dev/null || record_failure "migrator is reachable outside backend"
+  jq -e '.services.agent.image | startswith("ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:")' "$compose_json" >/dev/null || record_failure "agent image is not digest-only"
+  jq -e '.services.agent.networks | keys | sort == ["agent-egress", "agent-web"]' "$compose_json" >/dev/null || record_failure "agent network boundary is not isolated"
+  jq -e '.networks["agent-web"].internal == true' "$compose_json" >/dev/null || record_failure "agent-web network is not internal"
+  jq -e '(.services.agent.environment | keys | sort) == ["AGENT_VERSION", "AGENT_WEB_SECRET", "APPLICATION_VERSION", "CONTROL_PLANE_URL", "DEPLOYMENT_ENV", "DEPLOYMENT_ID", "IMAGE_DIGEST", "INSTALLATION_TOKEN", "MIGRATION_VERSION", "WEB_INTERNAL_URL"]' "$compose_json" >/dev/null || record_failure "agent environment exceeds allowlist"
+  jq -e '[.services.agent.volumes[].target] == ["/var/lib/crm-agent"]' "$compose_json" >/dev/null || record_failure "agent mount boundary is not private state only"
+  jq -e '.services.agent.read_only == true and .services.agent.cap_drop == ["ALL"] and .services.agent.pids_limit > 0 and (.services.agent.security_opt | index("no-new-privileges:true")) != null' "$compose_json" >/dev/null || record_failure "agent container hardening is incomplete"
+  jq -e '(.services.agent.ports // []) == [] and (.services.agent.volumes | map(.source) | index("/var/run/docker.sock")) == null' "$compose_json" >/dev/null || record_failure "agent exposes a port or Docker socket"
   jq -e '.networks.backend.internal == true' "$compose_json" >/dev/null || record_failure "backend network is not internal"
   jq -e '.services.gateway.ports[0].host_ip == "127.0.0.1"' "$compose_json" >/dev/null || record_failure "gateway does not default to loopback"
   jq -e '.services.db.ports[0].host_ip == "127.0.0.1"' "$compose_json" >/dev/null || record_failure "database administration does not bind loopback"

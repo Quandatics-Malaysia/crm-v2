@@ -9,6 +9,7 @@ OIDC_ISSUER=https://token.actions.githubusercontent.com
 WEB_REPOSITORY=ghcr.io/quandatics-malaysia/crm-web
 MIGRATOR_REPOSITORY=ghcr.io/quandatics-malaysia/crm-migrator
 BACKUP_REPOSITORY=ghcr.io/quandatics-malaysia/crm-backup
+AGENT_REPOSITORY=ghcr.io/quandatics-malaysia/crm-deployment-agent
 
 fail() {
   echo "verify-images: $*" >&2
@@ -38,11 +39,13 @@ validate_vendor_image() {
 [ -n "${WEB_IMAGE:-}" ] || fail "WEB_IMAGE is required"
 [ -n "${MIGRATOR_IMAGE:-}" ] || fail "MIGRATOR_IMAGE is required"
 [ -n "${BACKUP_IMAGE:-}" ] || fail "BACKUP_IMAGE is required"
+[ -n "${AGENT_IMAGE:-}" ] || fail "AGENT_IMAGE is required"
 
 validate_release_tag "$RELEASE_TAG"
 validate_vendor_image WEB_IMAGE "$WEB_IMAGE" "$WEB_REPOSITORY"
 validate_vendor_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE" "$MIGRATOR_REPOSITORY"
 validate_vendor_image BACKUP_IMAGE "$BACKUP_IMAGE" "$BACKUP_REPOSITORY"
+validate_vendor_image AGENT_IMAGE "$AGENT_IMAGE" "$AGENT_REPOSITORY"
 
 if ! command -v cosign >/dev/null 2>&1; then
   fail "cosign is required but not installed; use the pinned, checksum-verified installation in README.md"
@@ -50,7 +53,7 @@ fi
 
 certificate_identity="https://github.com/$SIGNING_REPOSITORY/.github/workflows/$SIGNING_WORKFLOW@refs/tags/$RELEASE_TAG"
 
-for image_reference in "$WEB_IMAGE" "$MIGRATOR_IMAGE" "$BACKUP_IMAGE"; do
+for image_reference in "$WEB_IMAGE" "$MIGRATOR_IMAGE" "$BACKUP_IMAGE" "$AGENT_IMAGE"; do
   if ! cosign verify \
     --certificate-identity "$certificate_identity" \
     --certificate-oidc-issuer "$OIDC_ISSUER" \

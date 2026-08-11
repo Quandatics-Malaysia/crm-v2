@@ -46,7 +46,14 @@ const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (co
   } catch {
     throw forbidden()
   }
-  if (origin !== allowedOrigin || fetchSite && fetchSite !== "same-origin") {
+  const requestOrigin = new URL(context.req.url).origin
+  const hasValidOrigin = origin === allowedOrigin
+  const hasValidFetchMetadata = origin === undefined && fetchSite === "same-origin"
+  if (
+    requestOrigin !== allowedOrigin ||
+    (!hasValidOrigin && !hasValidFetchMetadata) ||
+    (fetchSite !== undefined && fetchSite !== "same-origin")
+  ) {
     throw forbidden()
   }
   if (isJson(context) && context.req.header("X-Control-Request") !== "same-origin") {

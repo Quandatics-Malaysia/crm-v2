@@ -49,6 +49,7 @@ function operatorRequest(
     form?: Record<string, string | readonly string[]>
     json?: Record<string, unknown>
     origin?: string | null
+    fetchSite?: string
     jsonGuard?: boolean
     host?: string
     database?: D1Database
@@ -77,6 +78,9 @@ function operatorRequest(
   if (method === "POST" && options.origin !== null) {
     headers.set("Origin", options.origin ?? "https://control.invalid")
     headers.set("Sec-Fetch-Site", "same-origin")
+  }
+  if (options.fetchSite) {
+    headers.set("Sec-Fetch-Site", options.fetchSite)
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
@@ -132,6 +136,18 @@ describe("operator mutation protection and client administration", () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 
     expect((await operatorRequest("/operator/clients", { method: "POST", form, origin: null })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey: `fetch-${crypto.randomUUID()}`, displayName: "Fetch metadata" },
+      origin: null,
+      fetchSite: "same-origin",
+    })).status).toBe(303)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey: `cross-${crypto.randomUUID()}`, displayName: "Cross site" },
+      origin: null,
+      fetchSite: "cross-site",
+    })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", {
       method: "POST",
       form: { clientKey: `host-${crypto.randomUUID()}`, displayName: "Host injection" },

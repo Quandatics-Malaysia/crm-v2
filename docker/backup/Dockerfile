@@ -35,12 +35,26 @@ FROM ${ALPINE_IMAGE}
 
 ARG POSTGRESQL_CLIENT_VERSION=17.10-r0
 ARG CA_CERTIFICATES_VERSION=20260611-r0
+ARG LIBPQ_VERSION=18.4-r0
+ARG LIBNCURSESW_VERSION=6.5_p20251123-r0
+ARG LZ4_LIBS_VERSION=1.10.0-r0
+ARG NCURSES_TERMINFO_BASE_VERSION=6.5_p20251123-r0
+ARG POSTGRESQL_COMMON_VERSION=1.2-r2
+ARG READLINE_VERSION=8.3.1-r0
 ARG TZDATA_VERSION=2026c-r0
+ARG ZSTD_LIBS_VERSION=1.5.7-r2
 
 RUN apk add --no-cache \
       "ca-certificates=${CA_CERTIFICATES_VERSION}" \
+      "libncursesw=${LIBNCURSESW_VERSION}" \
+      "libpq=${LIBPQ_VERSION}" \
+      "lz4-libs=${LZ4_LIBS_VERSION}" \
+      "ncurses-terminfo-base=${NCURSES_TERMINFO_BASE_VERSION}" \
+      "postgresql-common=${POSTGRESQL_COMMON_VERSION}" \
       "postgresql17-client=${POSTGRESQL_CLIENT_VERSION}" \
+      "readline=${READLINE_VERSION}" \
       "tzdata=${TZDATA_VERSION}" \
+      "zstd-libs=${ZSTD_LIBS_VERSION}" \
     && addgroup -S -g 10001 backup \
     && adduser -S -D -H -u 10001 -G backup backup \
     && install -d -m 0755 /opt/backup \

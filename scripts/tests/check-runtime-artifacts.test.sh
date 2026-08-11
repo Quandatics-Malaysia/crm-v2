@@ -243,6 +243,38 @@ if scripts/check-runtime-artifacts.sh "$backup_root"; then
 fi
 rm "$backup_root/opt/backup/build-notes.md"
 
+mkdir -p "$backup_root/workspace"
+touch "$backup_root/workspace/backup.py"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected source in a non-system top-level directory to fail" >&2
+  exit 1
+fi
+rm -rf "$backup_root/workspace"
+
+mkdir -p "$backup_root/usr/share/backup"
+touch "$backup_root/usr/share/backup/Dockerfile"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected nested Dockerfile to fail" >&2
+  exit 1
+fi
+rm -rf "$backup_root/usr/share/backup"
+
+mkdir -p "$backup_root/root"
+touch "$backup_root/root/client-recovery-identity.txt"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected recovery identity filename to fail" >&2
+  exit 1
+fi
+rm "$backup_root/root/client-recovery-identity.txt"
+
+printf '%s\n' 'AGE-SECRET-KEY-1TESTONLYNOTAREALIDENTITY' \
+  > "$backup_root/root/innocent-name.txt"
+if scripts/check-runtime-artifacts.sh "$backup_root"; then
+  echo "expected age identity material to fail" >&2
+  exit 1
+fi
+rm "$backup_root/root/innocent-name.txt"
+
 mkdir -p "$backup_root/sbin"
 touch "$backup_root/sbin/apk"
 if scripts/check-runtime-artifacts.sh "$backup_root"; then

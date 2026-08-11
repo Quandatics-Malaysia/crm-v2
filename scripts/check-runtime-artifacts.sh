@@ -35,7 +35,10 @@ forbidden=$(find "$canonical_root" \( \
   -name '*.ts' -o \
   -name '*.tsx' -o \
   -name '*.jsx' -o \
+  -name '*.py' -o \
   -name '*.map' -o \
+  -name Dockerfile -o \
+  -name Containerfile -o \
   -name '*.test.*' -o \
   -name '*.spec.*' -o \
   -name .env -o \
@@ -52,6 +55,8 @@ forbidden=$(find "$canonical_root" \( \
   -name '*.p12' -o \
   -name '*.pfx' -o \
   -name '*private*.pem' -o \
+  -path '*/root/*identity*' -o \
+  -name 'age-identity*' -o \
   \( -type d \( \
     -name test -o \
     -name tests -o \
@@ -74,6 +79,18 @@ private_key=$(find "$canonical_root" -type f -size -1048576c \
 
 if [ -n "$private_key" ]; then
   echo "private key material in runtime artifact: $private_key" >&2
+  exit 1
+fi
+
+age_identity=$(find "$canonical_root" -type f -size -1048576c \
+  -exec grep -l \
+    -e 'AGE-SECRET-KEY-1' \
+    -e 'AGE-SECRET-KEY-PQ-1' \
+    {} + 2>/dev/null \
+  | sed -n '1p')
+
+if [ -n "$age_identity" ]; then
+  echo "age identity material in runtime artifact: $age_identity" >&2
   exit 1
 fi
 
@@ -163,6 +180,41 @@ elif [ -f "$payload_root/apps/web/server.js" ]; then
     exit 1
   fi
 elif [ -f "$canonical_root/opt/backup/check-tools.sh" ]; then
+  unexpected_top=$(find "$canonical_root" -mindepth 1 -maxdepth 1 \
+    ! -name .dockerenv \
+    ! -name bin \
+    ! -name dev \
+    ! -name etc \
+    ! -name home \
+    ! -name lib \
+    ! -name media \
+    ! -name mnt \
+    ! -name opt \
+    ! -name proc \
+    ! -name root \
+    ! -name run \
+    ! -name sbin \
+    ! -name srv \
+    ! -name sys \
+    ! -name tmp \
+    ! -name usr \
+    ! -name var \
+    -print -quit)
+
+  if [ -n "$unexpected_top" ]; then
+    echo "unexpected backup runtime top-level artifact: $unexpected_top" >&2
+    exit 1
+  fi
+
+  unexpected_opt=$(find "$canonical_root/opt" -mindepth 1 -maxdepth 1 \
+    ! -name backup \
+    -print -quit)
+
+  if [ -n "$unexpected_opt" ]; then
+    echo "unexpected backup runtime /opt artifact: $unexpected_opt" >&2
+    exit 1
+  fi
+
   for required_tool in \
     opt/backup/check-tools.sh \
     usr/bin/pg_dump \

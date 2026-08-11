@@ -10,7 +10,7 @@ type AuthPostOperation = Extract<OperationalWriteOperation, `auth_${string}`>
 
 const AUTH_POST_OPERATIONS = {
   "/sign-in/email": "auth_sign_in",
-  "/sign-in/social": "auth_sign_in",
+  "/sign-in/oauth2": "auth_sign_in",
   "/sign-out": "auth_sign_out",
   "/request-password-reset": "auth_account_recovery",
   "/reset-password": "auth_account_recovery",

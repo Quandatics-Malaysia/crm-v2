@@ -18,7 +18,7 @@ import {
 import { InternalJsonRequestError, readInternalJsonObject } from "@/lib/internal-json"
 import {
   assertWriteAllowed,
-  type WriteAccessCheck,
+  type OperationalWriteAccessCheck,
 } from "@/lib/write-access"
 import { revalidatePath } from "next/cache"
 
@@ -43,7 +43,7 @@ const SAFE_REJECTION_REASONS = new Set([
 ])
 
 type EntitlementRouteDependencies = {
-  authorizeWrite: WriteAccessCheck
+  authorizeWrite: OperationalWriteAccessCheck
   authenticate(request: Request): InternalAgentAuthentication
   loadEnvironment(): InternalDeploymentEnv
   readBody(request: Request): Promise<{ value: Record<string, unknown>; bodyBytes: number }>

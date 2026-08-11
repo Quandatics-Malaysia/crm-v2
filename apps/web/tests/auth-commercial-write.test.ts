@@ -11,6 +11,7 @@ vi.mock("better-auth/next-js", () => ({
 vi.mock("@/lib/auth", () => ({ auth: { handler: vi.fn() } }))
 
 import {
+  POST,
   createAuthPostHandler,
   resolveAuthPostOperation,
 } from "@/app/api/auth/[...all]/route"
@@ -54,7 +55,7 @@ describe("Better Auth commercial POST boundary", () => {
 
   it.each([
     ["/sign-in/email", "auth_sign_in"],
-    ["/sign-in/social", "auth_sign_in"],
+    ["/sign-in/oauth2", "auth_sign_in"],
     ["/sign-out", "auth_sign_out"],
     ["/request-password-reset", "auth_account_recovery"],
     ["/reset-password", "auth_account_recovery"],
@@ -78,11 +79,21 @@ describe("Better Auth commercial POST boundary", () => {
     expect(betterAuth).toHaveBeenCalledOnce()
   })
 
+  it("allows the configured Microsoft OAuth POST through the exported route", async () => {
+    adapter.post.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(POST(request("/sign-in/oauth2"))).resolves.toMatchObject({
+      status: 204,
+    })
+    expect(adapter.post).toHaveBeenCalledOnce()
+  })
+
   it.each([
     "/organization/update",
     "/organization/invite-member",
     "/update-user",
     "/change-email",
+    "/sign-in/social",
     "/unknown-future-mutation",
   ])("default-denies %s before Better Auth while read-only", async (path) => {
     const commercial = createWriteAccessGuard(async () => access("read_only"))

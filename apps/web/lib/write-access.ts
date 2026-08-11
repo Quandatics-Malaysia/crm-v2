@@ -53,6 +53,12 @@ export type WriteAccessInput = {
 }
 
 export type WriteAccessCheck = (input: WriteAccessInput) => Promise<void>
+export type BusinessWriteAccessCheck = (input: {
+  operation: BusinessWriteOperation
+}) => Promise<void>
+export type OperationalWriteAccessCheck = (input: {
+  operation: OperationalWriteOperation
+}) => Promise<void>
 
 export class LicenseReadOnlyError extends Error {
   readonly code = LICENSE_READ_ONLY

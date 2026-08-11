@@ -6,8 +6,8 @@ import {
   LICENSE_READ_ONLY,
   LicenseReadOnlyError,
   assertWriteAllowed,
-  type WriteAccessCheck,
-  type WriteOperation,
+  type BusinessWriteAccessCheck,
+  type BusinessWriteOperation,
 } from "@/lib/write-access"
 
 /**
@@ -29,13 +29,25 @@ export type ActionResult<T = undefined> =
 
 export type RunActionOptions = {
   /** New business capabilities use the typed `business:*` default-deny namespace. */
-  operation?: WriteOperation
+  operation?: BusinessWriteOperation
 }
 
 export type ActionRunner = <T>(
   fn: () => Promise<T>,
   options?: RunActionOptions
 ) => Promise<ActionResult<[T] extends [void] ? undefined : T>>
+
+function isBusinessActionOperation(
+  operation: string
+): operation is BusinessWriteOperation {
+  return (
+    operation === "business_mutation" ||
+    operation === "membership_mutation" ||
+    operation === "api_business_mutation" ||
+    operation === "auth_business_mutation" ||
+    operation.startsWith("business:")
+  )
+}
 
 /**
  * Wrap a mutating Server Action body. Runs `fn`, returning its value as
@@ -52,12 +64,17 @@ export type ActionRunner = <T>(
  *     })
  *   }
  */
-export function createActionRunner(checkWriteAccess: WriteAccessCheck): ActionRunner {
+export function createActionRunner(checkWriteAccess: BusinessWriteAccessCheck): ActionRunner {
   return async function run<T>(fn: () => Promise<T>, options?: RunActionOptions) {
+    const operation = (options?.operation ?? "business_mutation") as string
+    if (!isBusinessActionOperation(operation)) {
+      return {
+        ok: false,
+        error: "runAction only accepts business write operations",
+      }
+    }
     try {
-      await checkWriteAccess({
-        operation: options?.operation ?? "business_mutation",
-      })
+      await checkWriteAccess({ operation })
       const data = await fn()
       // A void-returning body yields `undefined` at runtime; normalize its type
       // to `undefined` so void actions satisfy the documented `Promise<ActionResult>`

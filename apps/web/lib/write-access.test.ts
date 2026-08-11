@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { DeploymentAccess } from "@/lib/deployment-control"
-import { createActionRunner } from "@/lib/action-result"
+import {
+  createActionRunner,
+  type RunActionOptions,
+} from "@/lib/action-result"
 import { hasStandingTenantAccess } from "@/lib/server-context"
 import { createSubscriptionEntitlementReader } from "@/app/(app)/settings/subscription/actions"
 import {
@@ -111,6 +114,43 @@ describe("commercial write-access boundary", () => {
 })
 
 describe("mutating server entrypoints", () => {
+  it("types action-runner options as business operations only", () => {
+    const business: RunActionOptions = { operation: "business:bulk_update" }
+    const acceptsBusinessOptions = (_options: RunActionOptions) => undefined
+    // @ts-expect-error operational exemptions require their explicit boundary
+    acceptsBusinessOptions({ operation: "export" })
+    // @ts-expect-error recovery exemptions require their explicit boundary
+    acceptsBusinessOptions({ operation: "license_apply" })
+    // @ts-expect-error diagnostic exemptions require their explicit boundary
+    acceptsBusinessOptions({ operation: "support_diagnostics" })
+    // @ts-expect-error auth exemptions require their explicit boundary
+    acceptsBusinessOptions({ operation: "auth_sign_in" })
+
+    expect(business.operation).toBe("business:bulk_update")
+  })
+
+  it.each([
+    "export",
+    "encrypted_backup",
+    "license_apply",
+    "license_repair",
+    "support_diagnostics",
+    "auth_sign_in",
+  ] as const)("rejects operational capability %s from an untyped action caller", async (operation) => {
+    const checkWriteAccess = vi.fn(async () => undefined)
+    const runAction = createActionRunner(checkWriteAccess)
+    const work = vi.fn(async () => "exported")
+
+    await expect(
+      runAction(work, { operation } as unknown as RunActionOptions)
+    ).resolves.toEqual({
+      ok: false,
+      error: "runAction only accepts business write operations",
+    })
+    expect(checkWriteAccess).not.toHaveBeenCalled()
+    expect(work).not.toHaveBeenCalled()
+  })
+
   it("central action runner rejects before business work with typed result", async () => {
     const guard = createWriteAccessGuard(async () =>
       access("read_only", false, "Subscription is suspended")

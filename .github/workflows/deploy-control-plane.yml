@@ -59,6 +59,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build shared control protocol
+        run: pnpm --filter @crm/control-protocol build
       - name: Validate protected values and render deploy config
         env:
           CONTROL_PLANE_ENVIRONMENT: staging
@@ -116,6 +118,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build shared control protocol
+        run: pnpm --filter @crm/control-protocol build
       - name: Validate protected values and render deploy config
         env:
           CONTROL_PLANE_ENVIRONMENT: production

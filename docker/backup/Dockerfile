@@ -1,32 +1,38 @@
 # syntax=docker/dockerfile:1.17@sha256:38387523653efa0039f8e1c89bb74a30504e76ee9f565e25c9a09841f9427b05
 
 ARG ALPINE_IMAGE=alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+ARG GO_IMAGE=golang:1.25.12-alpine3.23@sha256:cc985ef6f9c3bf9ece7488129c9abe0a150388ccdfa428d886fc709dca0b230a
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS age-build
+ARG TARGETARCH
+ADD --checksum=sha256:396007bc0bc53de253391493bda1252757ba63af1a19db86cfb60a35cb9d290a \
+  https://github.com/FiloSottile/age/archive/refs/tags/v1.3.1.tar.gz \
+  /tmp/age.tar.gz
+RUN mkdir -p /src /out \
+    && tar -xzf /tmp/age.tar.gz --strip-components=1 -C /src \
+    && cd /src \
+    && go get golang.org/x/crypto@v0.52.0 golang.org/x/text@v0.39.0 \
+    && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" \
+      go build -trimpath -ldflags='-s -w -X main.Version=v1.3.1' \
+      -o /out/age ./cmd/age
 
 FROM ${ALPINE_IMAGE} AS tools-amd64
-ADD --checksum=sha256:bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377 \
-  https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz \
-  /tmp/age.tar.gz
 ADD --checksum=sha256:aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa \
   https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-amd64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
-    && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
-    && install -m 0555 /tmp/age/age /out/age \
     && install -m 0555 /tmp/rclone-v1.75.0-linux-amd64/rclone /out/rclone
+COPY --from=age-build /out/age /out/age
 
 FROM ${ALPINE_IMAGE} AS tools-arm64
-ADD --checksum=sha256:c6878a324421b69e3e20b00ba17c04bc5c6dab0030cfe55bf8f68fa8d9e9093a \
-  https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-arm64.tar.gz \
-  /tmp/age.tar.gz
 ADD --checksum=sha256:d0ad88ba4c8e285b7c9efa591e0ab643280a91741e13c27f3a9c0957ccfa5203 \
   https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-arm64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
-    && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
-    && install -m 0555 /tmp/age/age /out/age \
     && install -m 0555 /tmp/rclone-v1.75.0-linux-arm64/rclone /out/rclone
+COPY --from=age-build /out/age /out/age
 
 ARG TARGETARCH
 FROM tools-${TARGETARCH} AS tools

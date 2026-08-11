@@ -63,6 +63,11 @@ jobs:
             context: docker/backup
             file: docker/backup/Dockerfile
             target: ""
+          - name: agent
+            repository: crm-deployment-agent
+            context: .
+            file: apps/deployment-agent/Dockerfile
+            target: runtime
     steps:
       - name: Check out release source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -218,8 +223,8 @@ jobs:
           jq -e '
             .source_commit == env.GITHUB_SHA and
             .workflow_identity == env.WORKFLOW_IDENTITY and
-            (.images | length == 3) and
-            ([.images[].name] | sort == ["backup", "migrator", "web"]) and
+            (.images | length == 4) and
+            ([.images[].name] | sort == ["agent", "backup", "migrator", "web"]) and
             all(.images[]; (.digest | test("^sha256:[0-9a-f]{64}$")))
           ' release-manifest.json >/dev/null
       - name: Upload release manifest

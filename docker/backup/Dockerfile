@@ -6,27 +6,27 @@ FROM ${ALPINE_IMAGE} AS tools-amd64
 ADD --checksum=sha256:bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377 \
   https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz \
   /tmp/age.tar.gz
-ADD --checksum=sha256:72a806370072015ccbe4d81bcd348cc5eaf3beca6c65ba693fd43fb31fcca5b1 \
-  https://downloads.rclone.org/v1.74.2/rclone-v1.74.2-linux-amd64.zip \
+ADD --checksum=sha256:fe435e0c36228e7c2f116a8701f01127bb1f694005fc11d1f27186c8bca4115d \
+  https://downloads.rclone.org/v1.74.4/rclone-v1.74.4-linux-amd64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
     && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
     && install -m 0555 /tmp/age/age /out/age \
-    && install -m 0555 /tmp/rclone-v1.74.2-linux-amd64/rclone /out/rclone
+    && install -m 0555 /tmp/rclone-v1.74.4-linux-amd64/rclone /out/rclone
 
 FROM ${ALPINE_IMAGE} AS tools-arm64
 ADD --checksum=sha256:c6878a324421b69e3e20b00ba17c04bc5c6dab0030cfe55bf8f68fa8d9e9093a \
   https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-arm64.tar.gz \
   /tmp/age.tar.gz
-ADD --checksum=sha256:bc2b2eb8269b743ed7bcea869f3782cfb4931e41efa53fc8befc6dc8308b7a50 \
-  https://downloads.rclone.org/v1.74.2/rclone-v1.74.2-linux-arm64.zip \
+ADD --checksum=sha256:97685285c9ad6a0cf17d5844115d2a67245af6444db672187074bd9c358de419 \
+  https://downloads.rclone.org/v1.74.4/rclone-v1.74.4-linux-arm64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
     && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
     && install -m 0555 /tmp/age/age /out/age \
-    && install -m 0555 /tmp/rclone-v1.74.2-linux-arm64/rclone /out/rclone
+    && install -m 0555 /tmp/rclone-v1.74.4-linux-arm64/rclone /out/rclone
 
 ARG TARGETARCH
 FROM tools-${TARGETARCH} AS tools
@@ -76,7 +76,7 @@ LABEL org.opencontainers.image.title="Quandatics encrypted backup runtime" \
   org.opencontainers.image.source="https://github.com/Quandatics-Malaysia/crm-v2" \
   com.quandatics.postgresql-client.version="17.10-r0" \
   com.quandatics.age.version="1.3.1" \
-  com.quandatics.rclone.version="1.74.2"
+  com.quandatics.rclone.version="1.74.4"
 
 WORKDIR /var/lib/backup/work
 USER 10001:10001

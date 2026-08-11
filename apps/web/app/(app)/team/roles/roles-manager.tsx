@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { showActionError } from "@/lib/show-action-error"
-import { PERMISSION_GROUPS } from "@/lib/permissions"
+import type { PermissionGroup } from "@/lib/permissions"
 import {
   setRolePermissions,
   createRole,
@@ -61,32 +61,29 @@ const AREAS: { id: string; label: string; groups: string[] }[] = [
   },
 ]
 
-type Group = (typeof PERMISSION_GROUPS)[number]
-
-function areaGroups(areaId: string): Group[] {
+function areaGroups(areaId: string, permissionGroups: PermissionGroup[]): PermissionGroup[] {
   const area = AREAS.find((a) => a.id === areaId)!
-  const inArea = PERMISSION_GROUPS.filter((g) => area.groups.includes(g.group))
+  const inArea = permissionGroups.filter((g) => area.groups.includes(g.group))
   // Anything the AREAS map missed lands in Administration so nothing is hidden.
   if (areaId === "admin") {
     const known = new Set(AREAS.flatMap((a) => a.groups))
-    return [...inArea, ...PERMISSION_GROUPS.filter((g) => !known.has(g.group))]
+    return [...inArea, ...permissionGroups.filter((g) => !known.has(g.group))]
   }
   return inArea
 }
 
 // Only areas that actually have visible permission groups. Areas whose every
-// group is gated off by a disabled plugin (e.g. "Finance & Insights" in the
-// Core Edition) drop out entirely rather than showing an empty tab.
-const VISIBLE_AREAS = AREAS.filter((a) => areaGroups(a.id).length > 0)
-
+// group lacks entitlement drop out entirely rather than showing an empty tab.
 export function RolesManager({
   roles,
   admins,
   initialRoleId,
+  permissionGroups,
 }: {
   roles: RoleWithPermissions[]
   admins: PermissionAdmin[]
   initialRoleId?: string
+  permissionGroups: PermissionGroup[]
 }) {
   const router = useRouter()
   const [selectedId, setSelectedId] = React.useState(
@@ -99,7 +96,11 @@ export function RolesManager({
   const [checked, setChecked] = React.useState<Set<string>>(
     () => new Set(selected?.permissions ?? [])
   )
-  const [area, setArea] = React.useState(VISIBLE_AREAS[0]?.id ?? "crm")
+  const visibleAreas = React.useMemo(
+    () => AREAS.filter((item) => areaGroups(item.id, permissionGroups).length > 0),
+    [permissionGroups]
+  )
+  const [area, setArea] = React.useState(visibleAreas[0]?.id ?? "crm")
   const [saving, setSaving] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
@@ -254,16 +255,16 @@ export function RolesManager({
           ) : null}
           <Tabs value={area} onValueChange={setArea}>
             <TabsList>
-              {VISIBLE_AREAS.map((a) => (
+              {visibleAreas.map((a) => (
                 <TabsTrigger key={a.id} value={a.id}>
                   {a.label}
                 </TabsTrigger>
               ))}
             </TabsList>
 
-            {VISIBLE_AREAS.map((a) => (
+            {visibleAreas.map((a) => (
               <TabsContent key={a.id} value={a.id} className="mt-4 grid gap-3">
-                {areaGroups(a.id).map((group) => {
+                {areaGroups(a.id, permissionGroups).map((group) => {
                   const keys = group.items.map((i) => i.key)
                   const allOn = keys.every((k) => checked.has(k))
                   const someOn = keys.some((k) => checked.has(k))
@@ -297,7 +298,7 @@ export function RolesManager({
                     </div>
                   )
                 })}
-                {areaGroups(a.id).length === 0 ? (
+                {areaGroups(a.id, permissionGroups).length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No permissions in this area (its module may be disabled).
                   </p>

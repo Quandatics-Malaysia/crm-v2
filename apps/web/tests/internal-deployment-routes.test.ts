@@ -75,6 +75,7 @@ function entitlementDependencies() {
     getAccess: vi.fn<() => Promise<{ mode: "active" | "grace" | "read_only"; revision: number | null }>>(
       async () => ({ mode: "active", revision: 7 }),
     ),
+    invalidate: vi.fn(),
     log: vi.fn<(entry: InternalDeploymentApiLog) => void>(),
   }
 }
@@ -109,6 +110,7 @@ describe("PUT internal entitlement route", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ outcome, revision: 7, mode: "active" })
     expect(dependencies.apply).toHaveBeenCalledWith({ envelope: true }, deploymentId)
+    expect(dependencies.invalidate).toHaveBeenCalledOnce()
     expectPrivateHeaders(response)
   })
 

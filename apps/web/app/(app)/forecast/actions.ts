@@ -4,7 +4,10 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import { requireContext, assertCan } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
-import { assertModuleEnabled, isModuleEnabled } from "@/lib/modules"
+import {
+  getEntitledModuleMap,
+  requireEntitledModule,
+} from "@/lib/modules.server"
 import { visibleMemberIds, canManageAllRecords } from "@/lib/access-scope"
 import { intercompanyDeals, organization, tenantSettings } from "@/db/schema"
 import { partyShare } from "@/lib/interco-share"
@@ -53,7 +56,7 @@ export type PipelineSummaryRow = {
  * Derived from `v_billing_forecast`; never an editable table.
  */
 export async function getForecast(): Promise<ForecastRow[]> {
-  assertModuleEnabled("forecast")
+  await requireEntitledModule("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -103,7 +106,7 @@ export async function getForecast(): Promise<ForecastRow[]> {
     // (snapshotted on the mirror). Gated by the intercompany permission so
     // record-scoped reps don't see whole-entity numbers through the back door.
     // Also requires the finance plugin (intercompany billing lives there).
-    if (!isModuleEnabled("finance") || !ctx.can(PERMISSIONS.INTERCOMPANY_VIEW))
+    if (!(await getEntitledModuleMap()).finance || !ctx.can(PERMISSIONS.INTERCOMPANY_VIEW))
       return own
 
     const inboundRows = await tx
@@ -176,7 +179,7 @@ export async function getForecast(): Promise<ForecastRow[]> {
 export async function getForecastConfig(): Promise<{
   fiscalYearStartMonth: number
 }> {
-  assertModuleEnabled("forecast")
+  await requireEntitledModule("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -194,7 +197,7 @@ export async function getForecastConfig(): Promise<{
  * Derived from `v_pipeline_summary`.
  */
 export async function getPipelineSummary(): Promise<PipelineSummaryRow[]> {
-  assertModuleEnabled("forecast")
+  await requireEntitledModule("forecast")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.FORECAST_VIEW)
   return runInTenant(ctx.tenantId, async (tx) => {

@@ -5,7 +5,11 @@
  * `roles`, and `role_permissions` per tenant.
  */
 
-import { isModuleEnabled, type ModuleId } from "@/lib/modules"
+import {
+  filterPermissionGroups,
+  type ModuleId,
+  type ModuleMap,
+} from "@/lib/module-registry"
 
 export const PERMISSIONS = {
   // leads
@@ -155,15 +159,17 @@ const DEVELOPER: PermissionKey[] = ALL_PERMISSION_KEYS.filter(
 /** Grouped, human-labeled catalog for the role permission-matrix UI. */
 /**
  * Full permission catalog for the role matrix. Groups tagged with a `module`
- * are only offered in the UI while that plugin is enabled (modules.config.ts);
+ * are only offered in the UI while signed runtime entitlement includes them;
  * the underlying keys always stay in ALL_PERMISSION_KEYS so grants survive a
- * plugin being toggled off and back on.
+ * entitlement being removed and restored.
  */
-const ALL_GROUPS: {
+export type PermissionGroup = {
   group: string
   module?: ModuleId
   items: { key: PermissionKey; label: string }[]
-}[] = [
+}
+
+export const ALL_PERMISSION_GROUPS: PermissionGroup[] = [
   {
     group: "Leads",
     items: [
@@ -317,12 +323,12 @@ const ALL_GROUPS: {
 ]
 
 /**
- * Groups to render in the role matrix — only those whose plugin is enabled
+ * Groups to render in the role matrix — only those with signed entitlement
  * (untagged groups are core, always shown).
  */
-export const PERMISSION_GROUPS = ALL_GROUPS.filter(
-  (g) => !g.module || isModuleEnabled(g.module)
-)
+export function getPermissionGroups(modules: ModuleMap): PermissionGroup[] {
+  return filterPermissionGroups(ALL_PERMISSION_GROUPS, modules)
+}
 
 /**
  * Human label for a permission key, for friendly "withheld permission" errors.
@@ -330,7 +336,7 @@ export const PERMISSION_GROUPS = ALL_GROUPS.filter(
  * permission still resolves a friendly label.
  */
 export const PERMISSION_LABELS: Map<string, string> = new Map(
-  ALL_GROUPS.flatMap((g) => g.items.map((i) => [i.key as string, i.label]))
+  ALL_PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => [i.key as string, i.label]))
 )
 
 export function permLabel(key: string): string {

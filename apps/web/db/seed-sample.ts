@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm"
 import * as schema from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { computeQuotation } from "@/server/services/quotation-math"
-import { isModuleEnabled } from "@/lib/modules"
+import { COMPILED_MODULE_MAP } from "@/lib/module-registry"
 
 /**
  * Idempotent sample-data seed for role-play / demos.
@@ -627,7 +627,7 @@ async function main() {
   // unconditionally (a deterministic id, harmless) so section 8 can reference it.
   // Payment milestones (below) are funnel-scoped and no longer depend on this.
   const PROJECT_ID = det("project:stark-msp")
-  if (isModuleEnabled("projects")) {
+  if (COMPILED_MODULE_MAP.projects) {
     await db
       .insert(projects)
       .values({
@@ -653,7 +653,7 @@ async function main() {
   // ── 7. payment milestones on FUNNELS ────────────────────────────────────
   // Milestones are a funnel child (see app/(app)/payment-milestones/actions.ts)
   // and work independently of the (off) projects module — always seeded, never
-  // gated behind isModuleEnabled("projects"). Each milestone attaches to the
+  // gated behind compiled project capability. Each milestone attaches to the
   // funnel that closed (via funnelId) and the funnel's accepted quote (via
   // quotationId, for billing traceability); projectId is left null. Amounts
   // reconcile to the FUNNEL's quoted/estimated amount, not a project's value.
@@ -710,7 +710,7 @@ async function main() {
 
   // ── 8. sales order submitted against the project (awaits manager review) ──
   // Requires BOTH projects (for the parent row) and salesOrders plugins.
-  if (isModuleEnabled("projects") && isModuleEnabled("salesOrders")) {
+  if (COMPILED_MODULE_MAP.projects && COMPILED_MODULE_MAP.salesOrders) {
     await db
       .insert(salesOrders)
       .values({

@@ -1,6 +1,6 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { getForecast, getPipelineSummary, getForecastConfig } from "./actions"
 import { getBilledMargin } from "@/app/(app)/billing/actions"
 import { formatMoney } from "@/lib/format"
@@ -13,7 +13,7 @@ import {
 import { ForecastView } from "./forecast-client"
 
 export default async function ForecastPage() {
-  requireModule("forecast")
+  await requireEntitledRoute("forecast")
   const [rows, pipeline, config, billedMargin] = await Promise.all([
     getForecast(),
     getPipelineSummary(),

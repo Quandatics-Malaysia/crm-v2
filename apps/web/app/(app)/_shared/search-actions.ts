@@ -13,6 +13,7 @@ import {
 } from "@/db/schema"
 import { PERMISSIONS } from "@/lib/permissions"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 
 export type SearchHitType =
   | "lead"
@@ -45,6 +46,7 @@ const PER_TYPE_LIMIT = 5
 export async function globalSearch(query: string): Promise<SearchHit[]> {
   const q = query.trim()
   if (q.length < 2) return []
+  const modules = await getEntitledModuleMap()
   const ctx = await requireContext()
   if (!ctx.tenantId) return []
   const like = `%${q.replace(/[%_]/g, (m) => `\\${m}`)}%`
@@ -198,7 +200,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
         })
     }
 
-    if (ctx.can(PERMISSIONS.PROJECT_VIEW)) {
+    if (modules.projects && ctx.can(PERMISSIONS.PROJECT_VIEW)) {
       const rows = await tx
         .select({
           id: projects.id,

@@ -6,7 +6,8 @@ import {
 } from "@/lib/server-context"
 import { runInTenant, type Tx } from "@/db"
 import type { PermissionKey } from "@/lib/permissions"
-import { assertModuleEnabled, type ModuleId } from "@/lib/modules"
+import type { ModuleId } from "@/lib/module-registry"
+import { withEntitledModule } from "@/lib/modules.server"
 
 /**
  * Standard server-action wrapper: authenticate → authorize → open a
@@ -27,9 +28,9 @@ export async function withTenant<T>(
 }
 
 /**
- * Like `withTenant`, but first asserts that a plugin is enabled. Use for every
+ * Like `withTenant`, but first asserts signed runtime entitlement. Use for every
  * server action that belongs to an optional module (projects, salesOrders,
- * finance, forecast) so a disabled plugin's actions throw before touching the
+ * finance, forecast) so an unlicensed module throws before touching the
  * DB — defense in depth behind the hidden nav and route redirects.
  *
  *   const project = await withModule("projects", PERMISSIONS.PROJECT_CREATE,
@@ -40,8 +41,7 @@ export async function withModule<T>(
   permission: PermissionKey,
   fn: (tx: Tx, ctx: ServerContext) => Promise<T>
 ): Promise<T> {
-  assertModuleEnabled(moduleId)
-  return withTenant(permission, fn)
+  return withEntitledModule(moduleId, () => withTenant(permission, fn))
 }
 
 export { requireContext, assertCan }

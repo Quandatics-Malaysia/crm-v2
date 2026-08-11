@@ -3,7 +3,7 @@ import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { listAccountOptions } from "@/lib/lookups"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   listOpportunityOptions,
@@ -24,7 +24,7 @@ export default async function ProjectsPage({
     quotationId?: string
   }>
 }) {
-  requireModule("projects")
+  await requireEntitledRoute("projects")
   const [rows, ctx, sp] = await Promise.all([
     listProjects(),
     requireContext(),

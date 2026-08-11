@@ -39,7 +39,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled, type ModuleId } from "@/lib/modules"
+import {
+  createDisabledModuleMap,
+  type ModuleId,
+  type ModuleMap,
+} from "@/lib/module-registry"
 import { globalSearch, type SearchHit } from "@/app/(app)/_shared/search-actions"
 
 /**
@@ -48,6 +52,7 @@ import { globalSearch, type SearchHit } from "@/app/(app)/_shared/search-actions
  * `SiteHeader` having to thread the permission set through.
  */
 const PermissionsContext = React.createContext<Set<string>>(new Set())
+const ModulesContext = React.createContext<ModuleMap>(createDisabledModuleMap())
 
 /**
  * Client-side permission set provided by {@link HeaderActionsProvider}. Reuse
@@ -61,15 +66,17 @@ export function usePermissions() {
 
 export function HeaderActionsProvider({
   permissions,
+  modules,
   children,
 }: {
   permissions: string[]
+  modules: ModuleMap
   children: React.ReactNode
 }) {
   const perms = React.useMemo(() => new Set(permissions), [permissions])
   return (
     <PermissionsContext.Provider value={perms}>
-      {children}
+      <ModulesContext.Provider value={modules}>{children}</ModulesContext.Provider>
     </PermissionsContext.Provider>
   )
 }
@@ -129,6 +136,7 @@ const NAV_ITEMS: {
 /** Search button + ⌘K palette + "+ New" quick-create menu for the site header. */
 export function HeaderActions() {
   const perms = React.useContext(PermissionsContext)
+  const modules = React.useContext(ModulesContext)
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
@@ -137,16 +145,16 @@ export function HeaderActions() {
   const reqId = React.useRef(0)
 
   const createItems = QUICK_CREATE.filter(
-    (i) => perms.has(i.permission) && (!i.module || isModuleEnabled(i.module))
+    (i) => perms.has(i.permission) && (!i.module || modules[i.module])
   )
   const navItems = React.useMemo(
     () =>
       NAV_ITEMS.filter(
         (i) =>
           (!i.permission || perms.has(i.permission)) &&
-          (!i.module || isModuleEnabled(i.module))
+          (!i.module || modules[i.module])
       ),
-    [perms]
+    [modules, perms]
   )
 
   // Resets the query on close so the next open starts clean.

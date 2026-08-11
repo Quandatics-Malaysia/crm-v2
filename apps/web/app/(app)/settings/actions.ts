@@ -20,7 +20,7 @@ import {
 } from "@/lib/subscription-licensing"
 import { listEntities } from "@/lib/lookups"
 import { storage } from "@/lib/storage"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   CUSTOM_FIELD_TYPES,
   type CustomFunnelField,
@@ -79,7 +79,7 @@ export type TenantSettingsView = {
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
   leadFollowUpDays: number | null
-  /** Finance add-on live for this tenant (module flag AND master switch). */
+  /** Finance is present in the signed deployment entitlement. */
   financeEnabled: boolean
   /** In-app documentation switch (/documentation). */
   documentationModule: boolean
@@ -222,6 +222,7 @@ function parseDateInput(
 
 /** Tenant settings for the active org. Creates a default row if missing. */
 export async function getSettings(): Promise<TenantSettingsView> {
+  const financeEnabled = (await getEntitledModuleMap()).finance
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -245,9 +246,9 @@ export async function getSettings(): Promise<TenantSettingsView> {
         .insert(tenantSettings)
         .values({ organizationId: ctx.tenantId, ...DEFAULTS })
         .returning()
-      return toView(created, entityName, license, ctx.isSuperadmin)
+      return toView(created, entityName, license, ctx.isSuperadmin, financeEnabled)
     }
-    return toView(row, entityName, license, ctx.isSuperadmin)
+    return toView(row, entityName, license, ctx.isSuperadmin, financeEnabled)
   })
 }
 
@@ -258,7 +259,8 @@ function toView(
     activeMemberCount: 0,
     isSubscriptionActive: true,
   },
-  isPlatformMaster = false
+  isPlatformMaster = false,
+  financeEnabled = false
 ): TenantSettingsView {
   return {
     organizationId: row.organizationId,
@@ -292,7 +294,7 @@ function toView(
     autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
-    financeEnabled: isModuleEnabled("finance"),
+    financeEnabled,
     documentationModule: row.documentationModule,
     invoiceReminderDays: row.invoiceReminderDays ?? [],
     invoiceDueDays: row.invoiceDueDays ?? null,
@@ -341,7 +343,8 @@ async function toViewWithLicense(
   tenantId = row.organizationId
 ): Promise<TenantSettingsView> {
   const license = await getLicenseStateForTenant(tx, tenantId)
-  return toView(row, entityName, license)
+  const financeEnabled = (await getEntitledModuleMap()).finance
+  return toView(row, entityName, license, false, financeEnabled)
 }
 
 /** Shared helper: replace one jsonb picklist column with an audited upsert. */

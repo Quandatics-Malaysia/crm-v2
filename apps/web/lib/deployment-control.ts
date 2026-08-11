@@ -13,7 +13,7 @@ import { z } from "zod"
 
 import { db } from "@/db"
 import { env } from "@/lib/env"
-import { MODULES } from "@/lib/modules"
+import { isDependencyClosed } from "@/lib/module-registry"
 
 const MAX_CANONICAL_ENVELOPE_BYTES = 131_072
 const isoTimestamp = z.iso.datetime({ offset: true })
@@ -132,8 +132,7 @@ export interface DeploymentControlPersistence {
 }
 
 function modulesAreValid(moduleIds: EntitlementLease["moduleIds"]): boolean {
-  const enabled = new Set(moduleIds)
-  return moduleIds.every((moduleId) => MODULES[moduleId].dependsOn.every((dependency) => enabled.has(dependency)))
+  return isDependencyClosed(moduleIds)
 }
 
 async function sha256Hex(value: unknown): Promise<string> {

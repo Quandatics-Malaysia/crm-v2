@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { withModule, type Tx } from "@/lib/actions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   projects,
@@ -456,7 +456,7 @@ export async function deleteProject(id: string): Promise<ActionResult<void>> {
     // milestones, so an approved (number-minted) SO would keep showing in the
     // global list pointing at a hidden project, and milestones would orphan.
     // Refuse while live dependents exist, mirroring deleteAccount's guard.
-    if (isModuleEnabled("salesOrders")) {
+    if ((await getEntitledModuleMap()).salesOrders) {
       const [{ soCount }] = await tx
         .select({
           soCount: sql<number>`count(*)`,

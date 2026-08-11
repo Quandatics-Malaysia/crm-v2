@@ -1,13 +1,13 @@
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listSalesOrders, listSubmittableProjects } from "./actions"
 import { SalesOrdersTable } from "./sales-orders-table"
 
 export default async function SalesOrdersPage() {
-  requireModule("salesOrders")
+  await requireEntitledRoute("salesOrders")
   const [rows, ctx] = await Promise.all([listSalesOrders(), requireContext()])
   const canApprove = ctx.can(PERMISSIONS.SALES_ORDER_APPROVE)
   const canSubmit = ctx.can(PERMISSIONS.SALES_ORDER_SUBMIT)

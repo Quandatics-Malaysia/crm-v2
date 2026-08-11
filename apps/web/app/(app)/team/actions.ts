@@ -7,6 +7,7 @@ import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
 import { PERMISSIONS, permLabel } from "@/lib/permissions"
+import { requireEntitledModule } from "@/lib/modules.server"
 import {
   activateMembership,
   disableOrRemoveMembership,
@@ -258,6 +259,7 @@ export type RoleWithPermissions = TeamRoleView & { permissions: string[] }
 
 /** All roles with their granted permission keys — for the roles page. */
 export async function listRolesWithPermissions(): Promise<RoleWithPermissions[]> {
+  await requireEntitledModule("advancedRoles")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
   const roleViews = await listTeamRoles()
@@ -284,6 +286,7 @@ export type PermissionAdmin = { memberId: string; name: string; roleNames: strin
  * page so it's clear WHO is able to change permissions.
  */
 export async function listPermissionAdmins(): Promise<PermissionAdmin[]> {
+  await requireEntitledModule("advancedRoles")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -356,6 +359,7 @@ export async function listPermissionAdmins(): Promise<PermissionAdmin[]> {
 
 /** Permission keys currently granted to a role. */
 export async function getRolePermissions(roleId: string): Promise<string[]> {
+  await requireEntitledModule("advancedRoles")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_USERS)
 
@@ -377,6 +381,7 @@ export async function setRolePermissions(
   keys: string[]
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
+    await requireEntitledModule("advancedRoles")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
 
@@ -475,6 +480,7 @@ export async function createRole(input: {
   tier?: number
 }): Promise<ActionResult<TeamRoleView>> {
   return runAction(async () => {
+    await requireEntitledModule("advancedRoles")
     const ctx = await requireContext()
     assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
     validateRoleInput(input.name)
@@ -524,6 +530,7 @@ export async function updateRole(
   input: { name: string; tier?: number }
 ): Promise<ActionResult<void>> {
   return runAction(async () => {
+  await requireEntitledModule("advancedRoles")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
   validateRoleInput(input.name)
@@ -576,6 +583,7 @@ export async function updateRole(
 
 export async function deleteRole(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
+  await requireEntitledModule("advancedRoles")
   const ctx = await requireContext()
   assertCan(ctx, PERMISSIONS.TENANT_MANAGE_ROLES)
 

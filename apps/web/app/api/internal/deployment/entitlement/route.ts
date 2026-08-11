@@ -16,6 +16,7 @@ import {
   type InternalDeploymentApiLog,
 } from "@/lib/internal-deployment-api"
 import { InternalJsonRequestError, readInternalJsonObject } from "@/lib/internal-json"
+import { revalidatePath } from "next/cache"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -43,6 +44,7 @@ type EntitlementRouteDependencies = {
   readBody(request: Request): Promise<{ value: Record<string, unknown>; bodyBytes: number }>
   apply(value: unknown, deploymentId: string): Promise<EntitlementApplicationResult>
   getAccess(): Promise<{ mode: "active" | "grace" | "read_only"; revision: number | null }>
+  invalidate(): void
   log(entry: InternalDeploymentApiLog): void
 }
 
@@ -136,6 +138,7 @@ export function createEntitlementRoute(dependencies: EntitlementRouteDependencie
       if (result.revision === null || access.revision !== result.revision) {
         throw new Error("Inconsistent applied entitlement state")
       }
+      dependencies.invalidate()
       writeLog(result.outcome, null, result.revision, 200)
       return internalJsonResponse({
         outcome: result.outcome,
@@ -157,6 +160,16 @@ export function createProductionEntitlementRoute(
     loadEnvironment: loadInternalDeploymentEnv,
     readBody: readInternalJsonObject,
     log: logInternalDeploymentApi,
+    invalidate: () => {
+      // Cache invalidation is a freshness hint only; every server entrypoint
+      // still rechecks entitlement. Applying a valid bundle must not fail if
+      // the current runtime has no revalidation context.
+      try {
+        revalidatePath("/", "layout")
+      } catch {
+        // No-op: stale client navigation is non-authoritative.
+      }
+    },
     ...dal,
   })
 }

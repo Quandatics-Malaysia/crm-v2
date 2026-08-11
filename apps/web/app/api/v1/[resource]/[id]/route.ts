@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { getApiContext, withApiTenant } from "@/lib/api-auth"
 import { API_RESOURCES } from "@/lib/api-readers"
 import { corsHeaders, preflight } from "@/lib/api-cors"
+import { ModuleAccessDeniedError } from "@/lib/modules.server"
+import { withApiResourceEntitlement } from "@/lib/api-module-guard"
 
 export const dynamic = "force-dynamic"
 
@@ -25,10 +27,15 @@ export async function GET(
   if (!def) return err("not_found", `Unknown resource '${resource}'`, 404, req)
 
   try {
-    const row = await withApiTenant(ctx, def.permission, (tx, c) => def.get(tx, c, id))
+    const row = await withApiResourceEntitlement(def, () =>
+      withApiTenant(ctx, def.permission, (tx, c) => def.get(tx, c, id))
+    )
     if (row === null) return err("not_found", `${resource} '${id}' not found`, 404, req)
     return NextResponse.json({ data: row }, { headers: corsHeaders(req) })
   } catch (e) {
+    if (e instanceof ModuleAccessDeniedError) {
+      return err("module_unavailable", "This resource is not licensed", 403, req)
+    }
     if (e instanceof Error && e.message.startsWith("FORBIDDEN")) {
       return err(
         "forbidden",

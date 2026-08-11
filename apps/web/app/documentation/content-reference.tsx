@@ -187,7 +187,7 @@ export const settingsReferencePage: DocPage = {
       <DocTable
         head={["Knob", "How", "Effect"]}
         rows={[
-          [<Code key="s">MODULE_CONFIG</Code>, <Code key="h">modules.config.ts</Code>, "Deployment-wide on/off for every optional module (projects, salesOrders, finance, forecast, audit, documentation). Rebuild + redeploy to change."],
+          [<Code key="s">Signed entitlement</Code>, "Deployment control API", "Runtime ownership for every optional module; accepted revisions apply to fresh requests without rebuilding the image."],
           [<Code key="s">tenant_settings.status</Code>, "SQL", "suspended locks the entity; active restores it."],
           [<Code key="s">user.is_superadmin</Code>, "SQL", "Permission bypass (break-glass)."],
         ]}
@@ -326,7 +326,7 @@ export const operationsPage: DocPage = {
 npm run db:migrate       # migrations + RLS + views + permission sync + backfills
 npm run db:seed          # base data (roles, funnel stages, tax, demo admin)
 npm run db:seed-sample   # sample CRM data
-# optional modules: edit modules.config.ts (projects/salesOrders/finance/forecast/audit), then rebuild
+# optional modules: apply a vendor-signed deployment entitlement revision
 npm test                 # vitest suite (money math, milestone split, reminders…)
 npx tsc --noEmit && npm run lint && npm run build
 docker compose up -d --build   # full stack; migrate runs automatically`}</Pre>
@@ -484,8 +484,8 @@ export const changelogPage: DocPage = {
         <Li>
           <B>Behavior:</B> O2C + P2P chains as data
           (<Code>lib/finance-kinds.ts</Code>), status machine
-          draft→issued→settled/cancelled, count-based numbering, toggled by the{" "}
-          <Code>finance</Code> flag in <Code>modules.config.ts</Code>.
+          draft→issued→settled/cancelled, count-based numbering, gated by the{" "}
+          signed <Code>finance</Code> deployment entitlement.
         </Li>
       </Ul>
 

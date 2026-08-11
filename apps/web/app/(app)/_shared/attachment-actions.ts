@@ -5,7 +5,10 @@ import { revalidatePath } from "next/cache"
 import { requireContext, assertCan } from "@/lib/server-context"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { PERMISSIONS } from "@/lib/permissions"
-import { canAccessAttachable } from "@/lib/access-scope"
+import {
+  canAccessAttachable,
+  requireAttachableEntitlement,
+} from "@/lib/access-scope"
 import {
   attachViewPerm,
   attachWritePerm,
@@ -25,6 +28,7 @@ import { FINANCE_KINDS, type FinanceDocKind } from "@/lib/finance-kinds"
 import { storage } from "@/lib/storage"
 import { logActivity, type ActivityEntity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 
 export type AttachmentRow = {
   id: string
@@ -46,6 +50,7 @@ export async function listEntityAttachments(
   type: AttachableType,
   id: string
 ): Promise<AttachmentRow[]> {
+  await requireAttachableEntitlement(type)
   const ctx = await requireContext()
   assertCan(ctx, attachViewPerm(type))
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -168,7 +173,8 @@ const SOURCE_LABEL: Record<string, string> = {
 async function docPairs(
   tx: Tx,
   rootType: "account" | "project" | "person" | "finance_doc",
-  rootId: string
+  rootId: string,
+  projectsEnabled: boolean
 ): Promise<{ type: AttachableType; ids: string[] }[]> {
   if (rootType === "account") {
     const personIds = (
@@ -188,9 +194,11 @@ async function docPairs(
             .where(inArray(quotations.funnelId, oppIds))
         ).map((r) => r.id)
       : []
-    const projIds = (
-      await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
-    ).map((r) => r.id)
+    const projIds = projectsEnabled
+      ? (
+          await tx.select({ id: projects.id }).from(projects).where(eq(projects.accountId, rootId))
+        ).map((r) => r.id)
+      : []
     return [
       { type: "account", ids: [rootId] },
       { type: "person", ids: personIds },
@@ -234,11 +242,13 @@ export async function listEntityDocuments(
   rootType: "account" | "project" | "person" | "finance_doc",
   rootId: string
 ): Promise<EntityDocument[]> {
+  await requireAttachableEntitlement(rootType)
+  const modules = await getEntitledModuleMap()
   const ctx = await requireContext()
   assertCan(ctx, attachViewPerm(rootType))
   return runInTenant(ctx.tenantId, async (tx) => {
     if (!(await canAccessAttachable(tx, ctx, rootType, rootId, "view"))) return []
-    const pairs = (await docPairs(tx, rootType, rootId)).filter((p) => p.ids.length)
+    const pairs = (await docPairs(tx, rootType, rootId, modules.projects)).filter((p) => p.ids.length)
     if (!pairs.length) return []
     const conds = pairs.map((p) =>
       and(eq(attachments.attachableType, p.type), inArray(attachments.attachableId, p.ids))
@@ -277,6 +287,7 @@ export async function uploadEntityAttachment(
     const id = formData.get("attachableId") as string
     const revalidate = formData.get("revalidate") as string | null
     if (!file || !id || !type) throw new Error("Missing file or target")
+    await requireAttachableEntitlement(type)
     assertCan(ctx, attachWritePerm(type))
     if (file.size > 25 * 1024 * 1024) throw new Error("File exceeds 25 MB")
 
@@ -331,6 +342,7 @@ export async function renameEntityAttachment(
         .limit(1)
       if (!row) throw new Error("Attachment not found")
       const type = row.attachableType as AttachableType
+      await requireAttachableEntitlement(type)
       assertCan(ctx, attachWritePerm(type))
       if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
         throw new Error("FORBIDDEN: not permitted on this record")
@@ -366,6 +378,7 @@ export async function deleteEntityAttachment(
         .limit(1)
       if (!row) return
       const type = row.attachableType as AttachableType
+      await requireAttachableEntitlement(type)
       assertCan(ctx, attachWritePerm(type))
       if (!(await canAccessAttachable(tx, ctx, type, row.attachableId, "manage"))) {
         throw new Error("FORBIDDEN: not permitted on this record")

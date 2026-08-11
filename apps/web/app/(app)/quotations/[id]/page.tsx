@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions, listProjectNatures, listProductOptions } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
@@ -41,6 +41,7 @@ export default async function QuotationDetailPage({
     attachments,
     project,
     ctx,
+    modules,
   ] = await Promise.all([
     getQuotation(id),
     listTaxOptions(),
@@ -50,6 +51,7 @@ export default async function QuotationDetailPage({
     listEntityAttachments("quotation", id),
     getProjectForQuotation(id),
     requireContext(),
+    getEntitledModuleMap(),
   ])
   if (!detail) notFound()
 
@@ -59,7 +61,7 @@ export default async function QuotationDetailPage({
     canAccept: ctx.can(PERMISSIONS.QUOTATION_ACCEPT),
     canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),
     canCreateProject:
-      isModuleEnabled("projects") && ctx.can(PERMISSIONS.PROJECT_CREATE),
+      modules.projects && ctx.can(PERMISSIONS.PROJECT_CREATE),
   }
 
   return (

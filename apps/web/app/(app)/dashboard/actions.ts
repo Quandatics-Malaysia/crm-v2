@@ -17,7 +17,7 @@ import {
   financeDocs,
   opportunityProducts,
 } from "@/db/schema"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import { DEFAULT_REMINDER_DAYS } from "@/lib/tenant-defaults"
 import { canViewAllRecords } from "@/lib/access-scope"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -225,7 +225,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
     // Overdue customer invoices — finance add-on, capability-gated.
     const financeOn =
-      isModuleEnabled("finance") && ctx.can(PERMISSIONS.FINANCE_VIEW)
+      (await getEntitledModuleMap()).finance && ctx.can(PERMISSIONS.FINANCE_VIEW)
     const reminderSchedule = financeOn
       ? s?.invoiceReminderDays?.length
         ? s.invoiceReminderDays

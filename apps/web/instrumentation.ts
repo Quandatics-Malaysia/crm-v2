@@ -25,7 +25,7 @@ export async function register() {
   const moduleErrors = validateModuleConfig()
   if (moduleErrors.length) {
     throw new Error(
-      "Invalid module configuration (modules.config.ts):\n" +
+      "Invalid compiled module composition (modules.config.ts):\n" +
         moduleErrors.map((e) => `  - ${e}`).join("\n")
     )
   }

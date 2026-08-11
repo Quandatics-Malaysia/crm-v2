@@ -35,7 +35,7 @@ import {
   validatePartyShares,
 } from "@/lib/interco-share"
 import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
-import { isModuleEnabled } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   createOpportunityContainer,
   recomputeOpportunityTotal,
@@ -336,7 +336,7 @@ export async function createOpportunity(
       // Intercompany billing is part of the finance plugin — force it off when
       // that plugin is disabled so no partner rows or mirror are written.
       const wantsInterco =
-        isModuleEnabled("finance") && (input.isIntercompany ?? false)
+        (await getEntitledModuleMap()).finance && (input.isIntercompany ?? false)
       const parties = await resolvePartyList(
         tx,
         ctx,
@@ -437,7 +437,7 @@ export async function createOpportunity(
         })
         .returning({ id: funnels.id })
 
-      if (isModuleEnabled("finance")) {
+      if ((await getEntitledModuleMap()).finance) {
         await saveParties(tx, row.id, parties, currency)
       }
 
@@ -467,7 +467,7 @@ export async function createOpportunity(
       })
       // Publish the partner-facing mirror rows (no-op unless intercompany).
       // Loaded lazily so core funnel carries no static dependency on finance.
-      if (isModuleEnabled("finance")) {
+      if ((await getEntitledModuleMap()).finance) {
         const { syncIntercompanyMirror } = await import(
           "@/server/services/intercompany"
         )
@@ -532,7 +532,7 @@ export async function updateOpportunity(
     // Intercompany billing belongs to the finance plugin — force it off (and
     // clear any parties) when that plugin is disabled.
     const effectiveInterco =
-      isModuleEnabled("finance") &&
+      (await getEntitledModuleMap()).finance &&
       (input.isIntercompany === undefined
         ? existing.isIntercompany
         : !!input.isIntercompany)
@@ -639,7 +639,7 @@ export async function updateOpportunity(
     // estimatedAmount may have changed → refresh the parent container's rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
 
-    if (isModuleEnabled("finance")) {
+    if ((await getEntitledModuleMap()).finance) {
       await saveParties(tx, id, parties, input.currency ?? existing.currency)
     }
 
@@ -652,7 +652,7 @@ export async function updateOpportunity(
       subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.
-    if (isModuleEnabled("finance")) {
+    if ((await getEntitledModuleMap()).finance) {
       const { syncIntercompanyMirror } = await import(
         "@/server/services/intercompany"
       )
@@ -695,7 +695,7 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
       entityId: id,
     })
     // A deleted deal must disappear from the partner's inbound list too.
-    if (isModuleEnabled("finance")) {
+    if ((await getEntitledModuleMap()).finance) {
       const { syncIntercompanyMirror } = await import(
         "@/server/services/intercompany"
       )
@@ -747,6 +747,7 @@ export type OpportunityProjectRow = {
 export async function listOpportunityProjects(
   funnelId: string
 ): Promise<OpportunityProjectRow[]> {
+  if (!(await getEntitledModuleMap()).projects) return []
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx

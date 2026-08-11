@@ -9,7 +9,7 @@ import { getServerContext } from "@/lib/server-context"
 import { ensureBootstrap } from "@/lib/bootstrap"
 import { db } from "@/db"
 import { member, organization } from "@/db/schema"
-import { MODULE_IDS, isModuleEnabled, type ModuleId } from "@/lib/modules"
+import { getEntitledModuleMap } from "@/lib/modules.server"
 
 export default async function AppLayout({
   children,
@@ -61,11 +61,7 @@ export default async function AppLayout({
   const activeTenant =
     tenants.find((t) => t.id === ctx.tenantId) ?? tenants[0] ?? null
 
-  // Plugin gates for the nav — read straight from the global config
-  // (modules.config.ts). No per-request DB query.
-  const modules = Object.fromEntries(
-    MODULE_IDS.map((id) => [id, isModuleEnabled(id)])
-  ) as Record<ModuleId, boolean>
+  const modules = await getEntitledModuleMap()
 
   return (
     <SidebarProvider
@@ -104,7 +100,9 @@ export default async function AppLayout({
             </p>
           </div>
         ) : (
-          <HeaderActionsProvider permissions={[...ctx.permissions]}>{children}</HeaderActionsProvider>
+          <HeaderActionsProvider permissions={[...ctx.permissions]} modules={modules}>
+            {children}
+          </HeaderActionsProvider>
         )}
       </SidebarInset>
     </SidebarProvider>

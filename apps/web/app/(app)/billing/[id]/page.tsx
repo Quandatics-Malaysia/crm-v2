@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { requireContext } from "@/lib/server-context"
-import { requireModule } from "@/lib/module-guard"
+import { requireEntitledRoute } from "@/lib/module-guard"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityDocuments } from "@/app/(app)/_shared/attachment-actions"
@@ -15,7 +15,7 @@ export default async function FinanceDocPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  requireModule("finance")
+  await requireEntitledRoute("finance")
   const ctx = await requireContext()
   if (!ctx.can(PERMISSIONS.FINANCE_VIEW)) redirect("/dashboard")
 

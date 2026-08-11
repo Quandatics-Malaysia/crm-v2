@@ -2,7 +2,10 @@ import { eq } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import { attachments } from "@/db/schema"
 import { getServerContext } from "@/lib/server-context"
-import { canAccessAttachable } from "@/lib/access-scope"
+import {
+  canAccessAttachable,
+  requireAttachableEntitlement,
+} from "@/lib/access-scope"
 import {
   ATTACH_PERMS,
   type AttachableType,
@@ -36,6 +39,11 @@ export async function GET(
       .limit(1)
     if (!r) return { row: null, allowed: false }
     const type = r.attachableType as AttachableType
+    try {
+      await requireAttachableEntitlement(type)
+    } catch {
+      return { row: r, allowed: false }
+    }
     // Authorize by capability AND the parent record's ownership (own/subtree/
     // elevation), matching the attachment actions — not the capability alone.
     const perm = ATTACH_PERMS[type]?.view

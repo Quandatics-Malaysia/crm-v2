@@ -140,7 +140,8 @@ export const tenantSettings = pgTable("tenant_settings", {
    */
   leadFollowUpDays: integer("lead_follow_up_days"),
   /**
-   * ADD-ON module flag, flipped in the backend (no tenant-facing UI):
+   * Legacy add-on field retained for schema compatibility; signed deployment
+   * entitlement is authoritative (no tenant-facing ownership UI):
    * `UPDATE tenant_settings SET finance_module = true WHERE organization_id=…`.
    * Gates the O2C/P2P document chain (Billing + Purchasing pages, finance_docs).
    */

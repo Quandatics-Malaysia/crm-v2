@@ -1142,6 +1142,8 @@ export async function quotationsGet(
 
 export type ApiResource = {
   permission: PermissionKey
+  /** Signed runtime entitlement owner. Omit for core resources. */
+  module?: import("@/lib/module-registry").ModuleId
   list(tx: Tx, ctx: ServerContext, opts: PagingOpts): Promise<{ rows: unknown[]; total: number }>
   get(tx: Tx, ctx: ServerContext, id: string): Promise<unknown | null>
 }

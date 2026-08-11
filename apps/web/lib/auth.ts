@@ -12,7 +12,7 @@ import { writeAuthAudit } from "@/server/audit"
 import { ROLE_TEMPLATES } from "@/lib/permissions"
 import { env, microsoftConfigured, isProd } from "@/lib/env"
 import {
-  activateMembership,
+  autoJoinMembership,
   consumeInvitation,
   normalizeSeatEmail,
 } from "@/lib/deployment-seats"
@@ -59,7 +59,6 @@ async function consumePendingInvites(user: {
         invitationId: invite.id,
         userId: user.id,
         memberId: randomUUID(),
-        actor: { userId: user.id },
       })
       firstOrgId ??= invite.tenantId
     } catch (e) {
@@ -116,13 +115,13 @@ async function autoJoinByDomain(user: {
       .limit(1)
     return row
   })
-  await activateMembership({
+  if (!roleRow) throw new Error("Auto-join role is not configured.")
+  await autoJoinMembership({
     tenantId: org.orgId,
     userId: user.id,
     memberId: randomUUID(),
-    roleId: roleRow?.id ?? null,
+    roleId: roleRow.id,
     tierLevel: tier,
-    actor: { userId: user.id },
   })
   return org.orgId
 }

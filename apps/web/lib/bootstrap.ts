@@ -5,7 +5,7 @@ import {
   organization,
   roles,
 } from "@/db/schema"
-import { activateMembership } from "@/lib/deployment-seats"
+import { bootstrapOwner } from "@/lib/deployment-seats"
 
 /**
  * First-login provisioning. If the (deterministically selected) default entity
@@ -19,8 +19,10 @@ import { activateMembership } from "@/lib/deployment-seats"
  */
 export async function ensureBootstrap(
   userId: string,
-  _userEmail: string
+  userEmail: string
 ): Promise<boolean> {
+  const configuredEmail = process.env.BOOTSTRAP_OWNER_EMAIL?.trim().toLowerCase()
+  const normalizedUserEmail = userEmail.trim().toLowerCase()
   const [org] = await db
       .select()
       .from(organization)
@@ -36,13 +38,12 @@ export async function ensureBootstrap(
   if (!ownerRole) return false
 
   try {
-    const activation = await activateMembership({
+    const activation = await bootstrapOwner({
       tenantId: org.id,
       roleId: ownerRole?.id ?? null,
       tierLevel: 100,
       userId,
-      actor: { userId },
-      bootstrap: true,
+      mode: configuredEmail && normalizedUserEmail === configuredEmail ? "configured" : "empty",
     })
     return activation.result.reason !== "idempotent"
   } catch (error) {

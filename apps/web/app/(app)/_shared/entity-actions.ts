@@ -1,12 +1,11 @@
 "use server"
 
 import { randomUUID } from "node:crypto"
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { db, runInTenant } from "@/db"
 import {
   organization,
   roles,
-  user,
 } from "@/db/schema"
 import { getServerContext } from "@/lib/server-context"
 import { seedTenant } from "@/server/services/tenant-seed"
@@ -84,13 +83,7 @@ export async function createEntity(input: {
     for (const invite of invites) {
       const role = roleByName.get(invite.roleName)
       if (!role) throw new Error(`Role ${invite.roleName} was not seeded.`)
-      const [existingUser] = await db.select({ id: user.id }).from(user)
-        .where(sql`lower(btrim(${user.email})) = ${invite.email}`).limit(1)
-      if (existingUser) {
-        entries.push({ kind: "active", userId: existingUser.id, roleId: role.id, tierLevel: role.tier })
-      } else {
-        entries.push({ kind: "invite", email: invite.email, roleId: role.id, tierLevel: role.tier })
-      }
+      entries.push({ kind: "invite", email: invite.email, roleId: role.id, tierLevel: role.tier })
     }
     await provisionEntitySeats({
       tenantId: orgId,

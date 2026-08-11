@@ -10,18 +10,51 @@ const prefix = "task4-seat-test-"
 integration("deployment seat PostgreSQL boundary", () => {
   let admin: Sql
   let app: Sql
+  const defaultActor = {
+    memberId: `${prefix}default-actor-member`,
+    userId: `${prefix}default-actor-user`,
+  }
 
-  async function reserve(tenantId: string, invitationId: string, email: string, now = "2026-08-11T01:00:00Z", expires = "2026-08-18T00:00:00Z") {
+  async function reserve(
+    tenantId: string, invitationId: string, email: string,
+    now = "2026-08-11T01:00:00Z", expires = "2026-08-18T00:00:00Z",
+    actor = defaultActor,
+  ) {
     return (await app`select * from reserve_deployment_invitation(
-      ${invitationId}::uuid, ${tenantId}, ${email}, null, 0, null, null, null,
+      ${invitationId}::uuid, ${tenantId}, ${email}, null, 0, ${actor.memberId},
+      ${actor.userId}, ${actor.memberId},
       ${expires}::timestamp with time zone, ${now}::timestamp with time zone
     )`)[0]
   }
 
-  async function revoke(tenantId: string, invitationId: string, now = "2026-08-11T01:00:00Z") {
+  async function revoke(
+    tenantId: string, invitationId: string, now = "2026-08-11T01:00:00Z", actor = defaultActor,
+  ) {
     return (await app`select * from revoke_deployment_invitation(
-      ${tenantId}, ${invitationId}::uuid, null, null, ${now}::timestamp with time zone
+      ${tenantId}, ${invitationId}::uuid, ${actor.userId}, ${actor.memberId},
+      ${now}::timestamp with time zone
     )`)[0]
+  }
+
+  async function createActor(
+    tenantId: string,
+    suffix: string,
+    roleName: "Owner" | "Admin" | "Rep" = "Owner",
+    isSuperadmin = false,
+  ) {
+    const roleId = crypto.randomUUID()
+    const userId = `${prefix}${suffix}-actor-user`
+    const memberId = `${prefix}${suffix}-actor-member`
+    await admin`insert into roles (id, tenant_id, name, is_system, default_tier_level, created_at, updated_at)
+      values (${roleId}::uuid, ${tenantId}, ${roleName}, ${roleName !== "Rep"}, 100, now(), now())`
+    await admin`insert into "user" (id, name, email, email_verified, is_superadmin, created_at, updated_at)
+      values (${userId}, 'Actor', ${`${prefix}${suffix}-actor@example.com`}, true, ${isSuperadmin}, now(), now())`
+    await admin`insert into member (id, organization_id, user_id, role, created_at)
+      values (${memberId}, ${tenantId}, ${userId}, 'member', now())`
+    await admin`insert into membership_profiles (
+      member_id, tenant_id, role_id, status, tier_level, created_at, updated_at
+    ) values (${memberId}, ${tenantId}, ${roleId}::uuid, 'active', 100, now(), now())`
+    return { memberId, roleId, userId }
   }
 
   beforeAll(() => {
@@ -53,6 +86,7 @@ integration("deployment seat PostgreSQL boundary", () => {
       insert into organization (id, name, slug, created_at)
       values (${`${prefix}org`}, 'Task 4', ${`${prefix}org`}, now())
     `
+    await createActor(`${prefix}org`, "default", "Admin", true)
   })
 
   afterAll(async () => {
@@ -84,7 +118,8 @@ integration("deployment seat PostgreSQL boundary", () => {
     async function reserve(suffix: string) {
       return (await app`select * from reserve_deployment_invitation(
         ${suffix}::uuid, ${`${prefix}org`}, ${`${prefix}${suffix}@example.com`}, null, 0,
-        null, null, null, '2026-08-18T00:00:00Z', '2026-08-11T01:00:00Z'
+        ${defaultActor.memberId}, ${defaultActor.userId}, ${defaultActor.memberId},
+        '2026-08-18T00:00:00Z', '2026-08-11T01:00:00Z'
       )`)[0]
     }
 
@@ -97,6 +132,64 @@ integration("deployment seat PostgreSQL boundary", () => {
     expect(Number(usage.seat_limit)).toBe(1)
   })
 
+  it("rejects a general invitation mutation with null actor identity", async () => {
+    await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
+    await expect(app`select * from reserve_deployment_invitation(
+      '00000000-0000-4000-8000-000000000101'::uuid, ${`${prefix}org`},
+      ${`${prefix}null-actor@example.com`}, null, 0, null, null, null,
+      '2026-08-18', '2026-08-11'
+    )`).rejects.toThrow(/authenticated active Owner or Admin/)
+  })
+
+  it("rejects a general membership activation by an active non-admin actor", async () => {
+    await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
+    const actor = await createActor(`${prefix}org`, "rep", "Rep")
+    const targetUserId = `${prefix}unauthorized-target`
+    await admin`insert into "user" (id, name, email, email_verified, created_at, updated_at)
+      values (${targetUserId}, 'Target', ${`${prefix}unauthorized@example.com`}, true, now(), now())`
+    await expect(app`select * from activate_deployment_membership(
+      ${`${prefix}org`}, ${targetUserId}, ${`${prefix}unauthorized-member`}, null, 0,
+      null, ${actor.userId}, ${actor.memberId}, false, '2026-08-11'
+    )`).rejects.toThrow(/authenticated active Owner or Admin/)
+  })
+
+  it("rejects mismatched cross-tenant actor user and member identities", async () => {
+    await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
+    const actor = await createActor(`${prefix}org`, "owner")
+    await admin`insert into organization (id, name, slug, created_at)
+      values (${`${prefix}actor-other-org`}, 'Other', ${`${prefix}actor-other-org`}, now())`
+    const otherActor = await createActor(`${prefix}actor-other-org`, "other-owner")
+    await expect(app`select * from reserve_deployment_invitation(
+      '00000000-0000-4000-8000-000000000102'::uuid, ${`${prefix}org`},
+      ${`${prefix}cross-actor@example.com`}, null, 0, ${actor.memberId},
+      ${otherActor.userId}, ${actor.memberId}, '2026-08-18', '2026-08-11'
+    )`).rejects.toThrow(/authenticated active Owner or Admin/)
+  })
+
+  it("limits self-service consumption to the live invite's exact user email", async () => {
+    await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
+    const invitationId = "00000000-0000-4000-8000-000000000103"
+    const invitedUserId = `${prefix}consume-invited`
+    const otherUserId = `${prefix}consume-other`
+    const email = `${prefix}consume@example.com`
+    expect((await reserve(`${prefix}org`, invitationId, email)).allowed).toBe(true)
+    await admin`insert into "user" (id, name, email, email_verified, created_at, updated_at) values
+      (${invitedUserId}, 'Invited', ${email}, true, now(), now()),
+      (${otherUserId}, 'Other', ${`${prefix}consume-other@example.com`}, true, now(), now())`
+
+    await expect(app`select * from consume_deployment_invitation(
+      ${`${prefix}org`}, ${invitationId}::uuid, ${otherUserId}, ${`${prefix}consume-other-member`}, '2026-08-11'
+    )`).rejects.toThrow(/invited user/)
+    expect((await app`select * from consume_deployment_invitation(
+      ${`${prefix}org`}, ${invitationId}::uuid, ${invitedUserId}, ${`${prefix}consume-member`}, '2026-08-11'
+    )`)[0].allowed).toBe(true)
+    const retry = (await app`select * from consume_deployment_invitation(
+      ${`${prefix}org`}, ${invitationId}::uuid, ${invitedUserId}, ${`${prefix}consume-member`}, '2026-08-11'
+    )`)[0]
+    expect(retry.allowed).toBe(true)
+    expect(retry.reason).toBe("idempotent")
+  })
+
   it("deduplicates canonical invitation identities and releases only the last live reservation", async () => {
     const email = `${prefix}dedupe@example.com`
     const first = "00000000-0000-4000-8000-000000000011"
@@ -104,16 +197,17 @@ integration("deployment seat PostgreSQL boundary", () => {
     await admin`update deployment_control_state set seat_limit = 2 where singleton = 1`
     await admin`insert into organization (id, name, slug, created_at)
       values (${`${prefix}dedupe-org`}, 'Dedupe', ${`${prefix}dedupe-org`}, now())`
+    const dedupeActor = await createActor(`${prefix}dedupe-org`, "dedupe", "Admin")
     expect((await reserve(`${prefix}org`, first, email)).allowed).toBe(true)
     expect((await reserve(`${prefix}org`, first, email)).reason).toBe("idempotent")
     expect(await admin`select id from audit_log where action = 'member.invited' and entity_id = ${first}`).toHaveLength(1)
-    expect((await reserve(`${prefix}dedupe-org`, second, email)).allowed).toBe(true)
+    expect((await reserve(`${prefix}dedupe-org`, second, email, undefined, undefined, dedupeActor)).allowed).toBe(true)
     expect(Number((await app`select * from read_deployment_seat_usage('2026-08-11')`)[0].reserved_invitation_count)).toBe(1)
 
     expect((await revoke(`${prefix}org`, first)).allowed).toBe(true)
     expect(Number((await app`select * from read_deployment_seat_usage('2026-08-11')`)[0].reserved_invitation_count)).toBe(1)
     expect((await revoke(`${prefix}org`, first)).reason).toBe("idempotent")
-    await revoke(`${prefix}dedupe-org`, second)
+    await revoke(`${prefix}dedupe-org`, second, undefined, dedupeActor)
     expect(Number((await app`select * from read_deployment_seat_usage('2026-08-11')`)[0].reserved_invitation_count)).toBe(0)
   })
 
@@ -205,11 +299,12 @@ integration("deployment seat PostgreSQL boundary", () => {
     )).allowed).toBe(false)
 
     expect((await app`select * from change_deployment_membership(
-      ${`${prefix}org`}, ${`${prefix}over-member-b`}, false, null, null, '2026-08-11'
+      ${`${prefix}org`}, ${`${prefix}over-member-b`}, false,
+      ${defaultActor.userId}, ${defaultActor.memberId}, '2026-08-11'
     )`)[0].allowed).toBe(true)
     const reactivation = (await app`select * from activate_deployment_membership(
       ${`${prefix}org`}, ${`${prefix}over-b`}, ${`${prefix}over-member-b`}, null, 0,
-      null, null, null, false, '2026-08-11'
+      null, ${defaultActor.userId}, ${defaultActor.memberId}, false, '2026-08-11'
     )`)[0]
     expect(reactivation.allowed).toBe(false)
     expect(reactivation.reason).toBe("seat_limit")
@@ -218,20 +313,24 @@ integration("deployment seat PostgreSQL boundary", () => {
   it("makes an empty-tenant bootstrap retry idempotent without duplicate audit", async () => {
     const userId = `${prefix}bootstrap-user`
     const memberId = `${prefix}bootstrap-member`
+    const tenantId = `${prefix}bootstrap-org`
+    const ownerRoleId = crypto.randomUUID()
+    await admin`insert into organization (id, name, slug, created_at)
+      values (${tenantId}, 'Bootstrap', ${tenantId}, now())`
+    await admin`insert into roles (id, tenant_id, name, is_system, default_tier_level, created_at, updated_at)
+      values (${ownerRoleId}::uuid, ${tenantId}, 'Owner', true, 100, now(), now())`
     await admin`insert into "user" (id, name, email, email_verified, created_at, updated_at)
       values (${userId}, 'Bootstrap', ${`${prefix}bootstrap@example.com`}, true, now(), now())`
 
-    const first = (await app`select * from activate_deployment_membership(
-      ${`${prefix}org`}, ${userId}, ${memberId}, null, 100,
-      null, ${userId}, null, true, '2026-08-11'
+    const first = (await app`select * from bootstrap_deployment_owner(
+      ${tenantId}, ${userId}, ${memberId}, ${ownerRoleId}::uuid, 100, 'empty', '2026-08-11'
     )`)[0]
-    const retry = (await app`select * from activate_deployment_membership(
-      ${`${prefix}org`}, ${userId}, ${memberId}, null, 100,
-      null, ${userId}, null, true, '2026-08-11'
+    const retry = (await app`select * from bootstrap_deployment_owner(
+      ${tenantId}, ${userId}, ${memberId}, ${ownerRoleId}::uuid, 100, 'empty', '2026-08-11'
     )`)[0]
     const genericRetry = (await app`select * from activate_deployment_membership(
-      ${`${prefix}org`}, ${userId}, ${memberId}, null, 100,
-      null, ${userId}, null, false, '2026-08-11'
+      ${tenantId}, ${userId}, ${memberId}, ${ownerRoleId}::uuid, 100,
+      null, ${userId}, ${memberId}, false, '2026-08-11'
     )`)[0]
 
     expect(first.reason).toBe("allowed")
@@ -241,12 +340,36 @@ integration("deployment seat PostgreSQL boundary", () => {
     expect(await admin`select id from audit_log where action = 'member.added' and entity_id = ${memberId}`).toHaveLength(1)
   })
 
+  it("allows only the persisted configured bootstrap owner after a tenant is claimed", async () => {
+    const ownerRoleId = crypto.randomUUID()
+    const configuredUserId = `${prefix}configured-bootstrap-user`
+    const otherUserId = `${prefix}other-bootstrap-user`
+    const configuredEmail = `${prefix}configured-bootstrap@example.com`
+    await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
+    await admin`update deployment_bootstrap_state set configured_owner_email = ${configuredEmail} where singleton = 1`
+    await admin`insert into roles (id, tenant_id, name, is_system, default_tier_level, created_at, updated_at)
+      values (${ownerRoleId}::uuid, ${`${prefix}org`}, 'Owner', true, 100, now(), now())`
+    await admin`insert into "user" (id, name, email, email_verified, created_at, updated_at) values
+      (${configuredUserId}, 'Configured', ${configuredEmail}, true, now(), now()),
+      (${otherUserId}, 'Other', ${`${prefix}other-bootstrap@example.com`}, true, now(), now())`
+
+    await expect(app`select * from bootstrap_deployment_owner(
+      ${`${prefix}org`}, ${otherUserId}, ${`${prefix}other-bootstrap-member`},
+      ${ownerRoleId}::uuid, 100, 'configured', '2026-08-11'
+    )`).rejects.toThrow(/does not match/)
+    expect((await app`select * from bootstrap_deployment_owner(
+      ${`${prefix}org`}, ${configuredUserId}, ${`${prefix}configured-bootstrap-member`},
+      ${ownerRoleId}::uuid, 100, 'configured', '2026-08-11'
+    )`)[0].allowed).toBe(true)
+  })
+
   it("rejects vendor-support standing membership and direct crm_app seat bypasses", async () => {
     await admin`insert into "user" (id, name, email, email_verified, is_vendor_support, created_at, updated_at)
       values (${`${prefix}vendor`}, 'Vendor', ${`${prefix}vendor@example.com`}, true, true, now(), now())`
     const memberId = `${prefix}vendor-member`
     const decision = (await app`select * from activate_deployment_membership(
-      ${`${prefix}org`}, ${`${prefix}vendor`}, ${memberId}, null, 0, null, null, null, false, '2026-08-11'
+      ${`${prefix}org`}, ${`${prefix}vendor`}, ${memberId}, null, 0, null,
+      ${defaultActor.userId}, ${defaultActor.memberId}, false, '2026-08-11'
     )`)[0]
     expect(decision.allowed).toBe(false)
     expect(decision.reason).toBe("vendor_support_no_membership")
@@ -269,7 +392,9 @@ integration("deployment seat PostgreSQL boundary", () => {
         has_column_privilege('crm_app', 'membership_profiles', 'member_id', 'UPDATE') as profile_reassign,
         has_column_privilege('crm_app', 'membership_profiles', 'status', 'UPDATE') as status_update,
         has_function_privilege('crm_app', 'reserve_deployment_seat(text,text,timestamp with time zone,timestamp with time zone)', 'EXECUTE') as raw_decision_execute,
-        has_function_privilege('crm_app', 'reserve_deployment_invitation(uuid,text,text,uuid,integer,text,text,text,timestamp with time zone,timestamp with time zone)', 'EXECUTE') as authority_execute
+        has_function_privilege('crm_app', 'perform_deployment_membership_activation(text,text,text,uuid,integer,uuid,text,text,timestamp with time zone)', 'EXECUTE') as internal_core_execute,
+        has_function_privilege('crm_app', 'reserve_deployment_invitation(uuid,text,text,uuid,integer,text,text,text,timestamp with time zone,timestamp with time zone)', 'EXECUTE') as authority_execute,
+        has_function_privilege('crm_app', 'consume_deployment_invitation(text,uuid,text,text,timestamp with time zone)', 'EXECUTE') as consume_execute
     `
     expect(privileges).toEqual({
       member_insert: false,
@@ -279,7 +404,9 @@ integration("deployment seat PostgreSQL boundary", () => {
       profile_reassign: false,
       status_update: false,
       raw_decision_execute: false,
+      internal_core_execute: false,
       authority_execute: true,
+      consume_execute: true,
     })
     await expect(app`select set_config('app.deployment_seat_member_id', 'forged', true)`).resolves.toBeDefined()
     await expect(app`insert into member (id, organization_id, user_id, role, created_at)
@@ -317,7 +444,8 @@ integration("deployment seat PostgreSQL boundary", () => {
       member_id, tenant_id, role_id, status, tier_level, created_at, updated_at
     ) values (${`${prefix}owner-member`}, ${`${prefix}org`}, ${ownerRoleId}::uuid, 'active', 100, now(), now())`
     await expect(app`select * from change_deployment_membership(
-      ${`${prefix}org`}, ${`${prefix}owner-member`}, false, null, null, '2026-08-11'
+      ${`${prefix}org`}, ${`${prefix}owner-member`}, false,
+      ${defaultActor.userId}, ${defaultActor.memberId}, '2026-08-11'
     )`).rejects.toThrow(/last Owner/)
   })
 
@@ -331,6 +459,25 @@ integration("deployment seat PostgreSQL boundary", () => {
     const audits = await admin`select id from audit_log where action = 'member.invite_expired' and entity_id = ${invitationId}`
     expect(audits).toHaveLength(1)
     expect(Number((await app`select * from reconcile_expired_deployment_seat_reservations('2026-08-13')`)[0].expired_count)).toBe(0)
+  })
+
+  it("audits and removes pending state already marked expired by an unrelated mutation", async () => {
+    const expiredId = "00000000-0000-4000-8000-000000000032"
+    const unrelatedId = "00000000-0000-4000-8000-000000000033"
+    await admin`update deployment_control_state set seat_limit = 2 where singleton = 1`
+    expect((await reserve(
+      `${prefix}org`, expiredId, `${prefix}inline-expiry@example.com`, "2026-08-09", "2026-08-10",
+    )).allowed).toBe(true)
+    expect((await reserve(
+      `${prefix}org`, unrelatedId, `${prefix}unrelated@example.com`, "2026-08-11", "2026-08-18",
+    )).allowed).toBe(true)
+    expect((await admin`select status from deployment_seat_reservations where invitation_id = ${expiredId}`)[0].status).toBe("expired")
+
+    await app`select * from reconcile_expired_deployment_seat_reservations('2026-08-11')`
+    await app`select * from reconcile_expired_deployment_seat_reservations('2026-08-11')`
+
+    expect(await admin`select id from pending_invites where id = ${expiredId}::uuid`).toHaveLength(0)
+    expect(await admin`select id from audit_log where action = 'member.invite_expired' and entity_id = ${expiredId}`).toHaveLength(1)
   })
 
   it("bounds heartbeat-triggered expiry cleanup to 500 invitations per pass", async () => {

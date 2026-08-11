@@ -102,6 +102,13 @@ export const deploymentSeatState = pgTable("deployment_seat_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+/** Privileged migrator-owned bootstrap configuration; never readable by crm_app. */
+export const deploymentBootstrapState = pgTable("deployment_bootstrap_state", {
+  singleton: smallint("singleton").primaryKey().default(1),
+  configuredOwnerEmail: text("configured_owner_email"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 /** Privileged migrator-published proof of the schema version actually applied. */
 export const deploymentRuntimeMetadata = pgTable("deployment_runtime_metadata", {
   singleton: smallint("singleton").primaryKey().default(1),

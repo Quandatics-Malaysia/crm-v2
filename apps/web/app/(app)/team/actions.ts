@@ -671,7 +671,7 @@ export async function addMember(input: {
       roleId: input.roleId,
       tierLevel: roleTier,
       invitedByMemberId: ctx.memberId,
-      actor: { userId: ctx.userId, memberId: ctx.memberId },
+      actor: { userId: ctx.userId, memberId: ctx.memberId! },
     })
     revalidatePath("/team")
     return { invited: true }
@@ -682,7 +682,7 @@ export async function addMember(input: {
     userId: u.id,
     roleId: input.roleId,
     tierLevel: roleTier,
-    actor: { userId: ctx.userId, memberId: ctx.memberId },
+    actor: { userId: ctx.userId, memberId: ctx.memberId! },
   })
 
   revalidatePath("/team")
@@ -731,7 +731,7 @@ export async function revokePendingInvite(
     await releaseInvitation({
       tenantId: ctx.tenantId,
       invitationId: id,
-      actor: { userId: ctx.userId, memberId: ctx.memberId },
+      actor: { userId: ctx.userId, memberId: ctx.memberId! },
     })
     revalidatePath("/team")
   })
@@ -912,14 +912,14 @@ export async function setMemberStatus(
       userId: target.userId,
       roleId: memberRow.roleId,
       tierLevel: memberRow.tierLevel,
-      actor: { userId: ctx.userId, memberId: ctx.memberId },
+      actor: { userId: ctx.userId, memberId: ctx.memberId! },
     })
   } else if (status === "disabled" && memberRow.status !== "disabled") {
     await disableOrRemoveMembership({
       tenantId: ctx.tenantId,
       memberId,
       remove: false,
-      actor: { userId: ctx.userId, memberId: ctx.memberId },
+      actor: { userId: ctx.userId, memberId: ctx.memberId! },
     })
   }
 
@@ -940,7 +940,7 @@ export async function removeMember(memberId: string): Promise<ActionResult<void>
     tenantId: ctx.tenantId,
     memberId,
     remove: true,
-    actor: { userId: ctx.userId, memberId: ctx.memberId },
+    actor: { userId: ctx.userId, memberId: ctx.memberId! },
   })
 
   revalidatePath("/team")

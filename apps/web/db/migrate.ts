@@ -42,6 +42,19 @@ async function main() {
   console.log("→ applying RLS policies…")
   await sql.unsafe(readFileSync(path.join(process.cwd(), "db/sql/rls.sql"), "utf8"))
 
+  const configuredBootstrapOwner = process.env.BOOTSTRAP_OWNER_EMAIL?.trim().toLowerCase() || null
+  if (configuredBootstrapOwner && (
+    /[\s\x00-\x1f\x7f]/.test(configuredBootstrapOwner)
+    || configuredBootstrapOwner.length < 3
+    || configuredBootstrapOwner.length > 320
+  )) {
+    throw new Error("BOOTSTRAP_OWNER_EMAIL must be one canonical email address")
+  }
+  console.log("→ syncing configured bootstrap owner…")
+  await sql`UPDATE deployment_bootstrap_state SET
+    configured_owner_email = ${configuredBootstrapOwner}, updated_at = now()
+    WHERE singleton = 1`
+
   console.log("→ applying report views…")
   await sql.unsafe(readFileSync(path.join(process.cwd(), "db/sql/views.sql"), "utf8"))
 

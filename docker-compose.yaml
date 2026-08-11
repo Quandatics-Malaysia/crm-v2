@@ -49,6 +49,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       PLATFORM_MASTER_EMAIL: ${PLATFORM_MASTER_EMAIL:?PLATFORM_MASTER_EMAIL must be set}
       PLATFORM_MASTER_PASSWORD: ${PLATFORM_MASTER_PASSWORD:?PLATFORM_MASTER_PASSWORD must be set to a strong value}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
       # Temporary compatibility aliases for older seed code. New deployments
       # configure PLATFORM_MASTER_* only.
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-${PLATFORM_MASTER_EMAIL}}

@@ -17,6 +17,7 @@ const localJournal = {
     { idx: 66, when: 1_786_368_000_000, tag: "0066_deployment_control" },
     { idx: 67, when: 1_786_381_200_000, tag: "0067_deployment_status" },
     { idx: 68, when: 1_786_467_600_000, tag: "0068_deployment_seats" },
+    { idx: 69, when: 1_786_554_000_000, tag: "0069_deployment_seat_authority" },
   ],
 }
 
@@ -95,7 +96,7 @@ integration("deployment status PostgreSQL boundary", () => {
     const [after] = await app`select * from read_deployment_status_rollup()`
     expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(2)
     expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(2)
-    expect(after.applied_migration_version).toBe("0068")
+    expect(after.applied_migration_version).toBe("0069")
   })
 
   it("keeps reservation identities private and exposes only the safe rollup to crm_app", async () => {
@@ -116,11 +117,11 @@ integration("deployment status PostgreSQL boundary", () => {
 
   it("publishes migration versions monotonically across upgrade, replay, and an older image", async () => {
     try {
+      await publishAppliedMigrationVersion(admin, "0069")
+      await publishAppliedMigrationVersion(admin, "0069")
       await publishAppliedMigrationVersion(admin, "0068")
-      await publishAppliedMigrationVersion(admin, "0068")
-      await publishAppliedMigrationVersion(admin, "0067")
       const [rollup] = await app`select * from read_deployment_status_rollup()`
-      expect(rollup.applied_migration_version).toBe("0068")
+      expect(rollup.applied_migration_version).toBe("0069")
 
       await publishAppliedMigrationVersion(admin, "0099")
       await publishAppliedMigrationVersion(admin, "0100")
@@ -128,14 +129,14 @@ integration("deployment status PostgreSQL boundary", () => {
       const [numericBoundaryRollup] = await app`select * from read_deployment_status_rollup()`
       expect(numericBoundaryRollup.applied_migration_version).toBe("0100")
     } finally {
-      await admin`update deployment_runtime_metadata set migration_version = '0068' where singleton = 1`
+      await admin`update deployment_runtime_metadata set migration_version = '0069' where singleton = 1`
     }
   })
 
   it("rolls publication back with its database transaction", async () => {
     const [before] = await admin`select migration_version, published_at from deployment_runtime_metadata where singleton = 1`
     await expect(admin.begin(async (transaction) => {
-      await publishAppliedMigrationVersion(transaction as unknown as Sql, "0069")
+      await publishAppliedMigrationVersion(transaction as unknown as Sql, "0070")
       throw new Error("simulated failed release transaction")
     })).rejects.toThrow("simulated failed release transaction")
     const [after] = await admin`select migration_version, published_at from deployment_runtime_metadata where singleton = 1`
@@ -146,7 +147,7 @@ integration("deployment status PostgreSQL boundary", () => {
     try {
       await admin`
         insert into drizzle.__drizzle_migrations (hash, created_at)
-        values ('task4-future-0069-test', 1786554000000)
+        values ('task4-future-0070-test', 1786640400000)
       `
       await expect(readActualAppliedMigrationVersion(admin, localJournal)).rejects.toThrow(
         "Invalid future migration metadata",
@@ -159,16 +160,16 @@ integration("deployment status PostgreSQL boundary", () => {
 
       await admin`
         insert into deployment_runtime_metadata (singleton, migration_version)
-        values (1, '0069')
+        values (1, '0070')
       `
       await expect(readActualAppliedMigrationVersion(admin, localJournal)).resolves.toBeNull()
-      await admin`update deployment_runtime_metadata set migration_version = '0070' where singleton = 1`
+      await admin`update deployment_runtime_metadata set migration_version = '0071' where singleton = 1`
       await expect(readActualAppliedMigrationVersion(admin, localJournal)).resolves.toBeNull()
     } finally {
-      await admin`delete from drizzle.__drizzle_migrations where hash = 'task4-future-0069-test'`
+      await admin`delete from drizzle.__drizzle_migrations where hash = 'task4-future-0070-test'`
       await admin`
         insert into deployment_runtime_metadata (singleton, migration_version)
-        values (1, '0068')
+        values (1, '0069')
         on conflict (singleton) do update set migration_version = excluded.migration_version
       `
     }
@@ -176,14 +177,14 @@ integration("deployment status PostgreSQL boundary", () => {
 
   it("fails when a conflicting metadata row prevents publication", async () => {
     try {
-      await admin`update deployment_runtime_metadata set migration_version = '0069' where singleton = 1`
+      await admin`update deployment_runtime_metadata set migration_version = '0070' where singleton = 1`
       await expect(publishAfterSuccessfulMigration(
         async () => undefined,
         () => readActualAppliedMigrationVersion(admin, localJournal),
         (version) => publishAppliedMigrationVersion(admin, version),
       )).rejects.toThrow("Applied migration version was not published")
     } finally {
-      await admin`update deployment_runtime_metadata set migration_version = '0068' where singleton = 1`
+      await admin`update deployment_runtime_metadata set migration_version = '0069' where singleton = 1`
     }
   })
 })

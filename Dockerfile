@@ -14,6 +14,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/control-protocol/package.json ./packages/control-protocol/package.json
 RUN pnpm install --frozen-lockfile
 
 # ---- build the standalone Next.js server ----
@@ -22,14 +23,16 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter web run build
+RUN pnpm --filter @crm/control-protocol run build \
+    && pnpm --filter web run build
 
 # ---- compile the privileged migrate/seed job without application source ----
 FROM base AS migrator-build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
-RUN pnpm --filter web run build:migrator
+RUN pnpm --filter @crm/control-protocol run build \
+    && pnpm --filter web run build:migrator
 
 # ---- source-free privileged migrate/seed job image ----
 FROM base AS migrator

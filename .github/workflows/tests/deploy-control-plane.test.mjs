@@ -63,13 +63,17 @@ test("committed config stays local-only without deployable resource identifiers"
 })
 
 test("renderer emits a non-secret deploy config only after validating protected values", () => {
-  const { output, result } = render()
+  const { output, result } = render({ CONTROL_PLANE_ROUTE: "control-staging.example.com/*" })
   assert.equal(result.status, 0, result.stderr)
   const config = JSON.parse(readFileSync(output, "utf8"))
   assert.equal(config.d1_databases[0].database_id, validEnvironment.CONTROL_DB_ID)
   assert.equal(config.vars.ENVIRONMENT, "staging")
   assert.equal(config.triggers.crons[0], "*/15 * * * *")
   assert.equal(config.services, undefined)
+  assert.deepEqual(config.routes, [{
+    pattern: "control-staging.example.com",
+    custom_domain: true,
+  }])
   assert.equal(statSync(output).mode & 0o777, 0o600)
   const serialized = JSON.stringify(config)
   for (const secret of [validEnvironment.CLOUDFLARE_ACCOUNT_ID, validEnvironment.CLOUDFLARE_API_TOKEN, validEnvironment.ENTITLEMENT_SIGNING_PRIVATE_JWK, validEnvironment.INSTALL_TOKEN_PEPPER]) {

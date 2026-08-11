@@ -13,11 +13,16 @@ export function Dashboard(props: { operatorEmail: string }) {
   )
 }
 
-export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number }) {
+function CsrfInput(props: { token: string }) {
+  return <input type="hidden" name="_csrf" value={props.token} />
+}
+
+export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number; csrfToken: string }) {
   return (
     <OperatorLayout title="Clients">
       <h1>Clients</h1>
       <form method="post" action="/operator/clients">
+        <CsrfInput token={props.csrfToken} />
         <label>Stable key <input name="clientKey" required maxLength={64} /></label>
         <label>Display name <input name="displayName" required maxLength={160} /></label>
         <button type="submit">Create client</button>
@@ -58,7 +63,7 @@ function CollectionPager(props: {
   )
 }
 
-export function ClientPage(props: { client: ClientDetail }) {
+export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
   const client = props.client
   const childPagination = {
     organisations: client.organisations,
@@ -75,6 +80,7 @@ export function ClientPage(props: { client: ClientDetail }) {
         <ul>{client.organisations.items.map((item) => <li>{item.displayName} ({item.organisationKey})</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="organisations" collection={client.organisations} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/organisations`}>
+          <CsrfInput token={props.csrfToken} />
           <input name="organisationKey" required placeholder="stable-key" />
           <input name="displayName" required placeholder="Display name" />
           <textarea name="metadataJson" required>{"{}"}</textarea>
@@ -87,6 +93,7 @@ export function ClientPage(props: { client: ClientDetail }) {
         <ul>{client.deployments.items.map((item) => <li>{item.deploymentKey} ({item.environment})</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="deployments" collection={client.deployments} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/deployments`}>
+          <CsrfInput token={props.csrfToken} />
           <input name="deploymentKey" required placeholder="stable-key" />
           <select name="environment"><option>development</option><option>staging</option><option>production</option></select>
           <select name="status"><option>active</option><option>disabled</option></select>
@@ -99,6 +106,7 @@ export function ClientPage(props: { client: ClientDetail }) {
         <ul>{client.contracts.items.map((item) => <li><a href={`/operator/contracts/${item.id}`}>{item.startsAt}–{item.endsAt}</a>, {item.seatLimit} seats</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="contracts" collection={client.contracts} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/contracts`}>
+          <CsrfInput token={props.csrfToken} />
           <input name="planId" required placeholder="Plan ID" />
           <select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select>
           <input name="startsAt" required type="date" />
@@ -120,7 +128,7 @@ export function ClientPage(props: { client: ClientDetail }) {
   )
 }
 
-export function ContractPage(props: { contract: ContractDetail }) {
+export function ContractPage(props: { contract: ContractDetail; csrfToken: string }) {
   const contract = props.contract
   return (
     <OperatorLayout title="Contract">
@@ -130,6 +138,7 @@ export function ContractPage(props: { contract: ContractDetail }) {
       <ul>{contract.invoices.items.map((invoice) => <li>{invoice.invoiceNumber}: {invoice.totalCents} {invoice.currency} cents</li>)}</ul>
       <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />
       <form method="post" action={`/operator/contracts/${contract.id}/invoices`}>
+        <CsrfInput token={props.csrfToken} />
         <input name="invoiceNumber" required placeholder="Invoice number" />
         <select name="status"><option>draft</option><option>issued</option><option>paid</option><option>void</option></select>
         <input name="issuedAt" required placeholder="2026-08-10T00:00:00.000Z" />

@@ -15,6 +15,7 @@ const secondClientKey = `client-${crypto.randomUUID()}`
 const deploymentKey = `deployment-${crypto.randomUUID()}`
 const invoiceNumber = `INV-${crypto.randomUUID()}`
 const hugeFiniteWeight = "1".padEnd(309, "0")
+const csrfToken = crypto.randomUUID()
 let clientId = ""
 let secondClientId = ""
 let contractId = ""
@@ -52,6 +53,7 @@ function operatorRequest(
     fetchSite?: string
     referer?: string
     jsonGuard?: boolean
+    csrf?: string | null
     host?: string
     database?: D1Database
   } = {},
@@ -69,6 +71,7 @@ function operatorRequest(
         form.append(key, item)
       }
     }
+    if (options.csrf !== null && !form.has("_csrf")) form.set("_csrf", options.csrf ?? csrfToken)
     headers.set("Content-Type", "application/x-www-form-urlencoded")
     body = form
   } else if (options.json) {
@@ -85,6 +88,11 @@ function operatorRequest(
   }
   if (options.referer) {
     headers.set("Referer", options.referer)
+  }
+  if (method === "POST" && options.csrf !== null) {
+    const token = options.csrf ?? csrfToken
+    headers.set("Cookie", `operator_csrf=${token}`)
+    if (options.json) headers.set("X-CSRF-Token", token)
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
@@ -136,46 +144,20 @@ beforeAll(async () => {
 })
 
 describe("operator mutation protection and client administration", () => {
-  it("requires same-origin protection and owner authority for client creation", async () => {
+  it("requires matching CSRF protection and owner authority for client creation", async () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 
-    expect((await operatorRequest("/operator/clients", { method: "POST", form, origin: null })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", { method: "POST", form, csrf: null })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", {
       method: "POST",
-      form: { clientKey: `fetch-${crypto.randomUUID()}`, displayName: "Fetch metadata" },
-      origin: null,
-      fetchSite: "same-origin",
-    })).status).toBe(303)
-    expect((await operatorRequest("/operator/clients", {
-      method: "POST",
-      form: { clientKey: `cross-${crypto.randomUUID()}`, displayName: "Cross site" },
-      origin: null,
-      fetchSite: "cross-site",
-    })).status).toBe(403)
-    expect((await operatorRequest("/operator/clients", {
-      method: "POST",
-      form: { clientKey: `safari-${crypto.randomUUID()}`, displayName: "Safari same origin" },
-      origin: null,
-      referer: "https://control.invalid/operator/clients",
-    })).status).toBe(303)
-    expect((await operatorRequest("/operator/clients", {
-      method: "POST",
-      form: { clientKey: `referer-${crypto.randomUUID()}`, displayName: "Cross-origin referer" },
-      origin: null,
-      referer: "https://attacker.invalid/operator/clients",
-    })).status).toBe(403)
-    expect((await operatorRequest("/operator/clients", {
-      method: "POST",
-      form: { clientKey: `host-${crypto.randomUUID()}`, displayName: "Host injection" },
-      host: "https://attacker.invalid",
-      origin: "https://attacker.invalid",
+      form: { ...form, _csrf: crypto.randomUUID() },
     })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", { method: "POST", form, token: "billing-token" })).status).toBe(403)
 
     const denialAudits = await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'denied'",
     ).first<{ count: number }>()
-    expect(denialAudits?.count).toBe(5)
+    expect(denialAudits?.count).toBe(3)
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)

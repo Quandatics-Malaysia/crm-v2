@@ -123,6 +123,8 @@ export type DeploymentAccess = {
   contractEndsAt: string | null
   revision: number | null
   configurationVersion: string | null
+  subscriptionStatus: EntitlementLease["subscriptionStatus"] | null
+  planId: string | null
 }
 
 export interface DeploymentControlPersistence {
@@ -258,6 +260,8 @@ function unavailable(reason: string): DeploymentAccess {
     contractEndsAt: null,
     revision: null,
     configurationVersion: null,
+    subscriptionStatus: null,
+    planId: null,
   }
 }
 
@@ -279,6 +283,8 @@ async function readAccess(persistence: DeploymentControlPersistence, now: Date):
     contractEndsAt: state.contractEndsAt.toISOString(),
     revision: state.revision,
     configurationVersion: state.envelope.payload.configurationVersion,
+    subscriptionStatus: state.subscriptionStatus,
+    planId: state.envelope.payload.planId,
   }
 }
 

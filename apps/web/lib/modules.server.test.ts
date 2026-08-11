@@ -39,6 +39,8 @@ function access(
     contractEndsAt: null,
     revision: 1,
     configurationVersion: "test",
+    subscriptionStatus: "active",
+    planId: "test",
   }
 }
 

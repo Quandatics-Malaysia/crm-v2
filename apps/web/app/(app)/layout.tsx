@@ -10,6 +10,7 @@ import { ensureBootstrap } from "@/lib/bootstrap"
 import { db } from "@/db"
 import { member, organization } from "@/db/schema"
 import { getEntitledModuleMap } from "@/lib/modules.server"
+import { getDeploymentAccess } from "@/lib/deployment-control"
 
 export default async function AppLayout({
   children,
@@ -40,7 +41,8 @@ export default async function AppLayout({
           <div>
             <h1 className="text-lg font-semibold">Create your first customer organization</h1>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Set the customer&apos;s seat count, access period, and initial user roles during setup.
+              Set organization details and initial user roles. Commercial access
+              comes from vendor-issued entitlement.
             </p>
           </div>
           <CreateFirstEntity />
@@ -61,7 +63,13 @@ export default async function AppLayout({
   const activeTenant =
     tenants.find((t) => t.id === ctx.tenantId) ?? tenants[0] ?? null
 
-  const modules = await getEntitledModuleMap()
+  const [modules, deploymentAccess] = await Promise.all([
+    getEntitledModuleMap(),
+    getDeploymentAccess(),
+  ])
+  const showCommercialBanner =
+    deploymentAccess.mode !== "active" ||
+    deploymentAccess.subscriptionStatus === "past_due"
 
   return (
     <SidebarProvider
@@ -92,18 +100,30 @@ export default async function AppLayout({
             Interactive demo · All companies, people and transactions are fictional.
           </div>
         ) : null}
-        {ctx.subscriptionInactive && !ctx.isSuperadmin ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-            <h1 className="text-lg font-semibold">Access period ended</h1>
-            <p className="max-w-md text-sm text-muted-foreground">
-              This organization&apos;s seat licence is not active. Contact Quandatics to renew access.
-            </p>
+        {showCommercialBanner ? (
+          <div
+            className={
+              deploymentAccess.mode === "read_only"
+                ? "border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm"
+                : "border-b border-amber-300/60 bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-100"
+            }
+          >
+            <span className="font-medium">
+              {deploymentAccess.mode === "read_only"
+                ? "Commercial read-only mode"
+                : deploymentAccess.mode === "grace"
+                  ? "Offline grace mode"
+                  : "Subscription payment overdue"}
+            </span>
+            {` · ${deploymentAccess.reason}`}
+            {deploymentAccess.graceUntil
+              ? ` · Recovery deadline ${deploymentAccess.graceUntil}`
+              : null}
           </div>
-        ) : (
-          <HeaderActionsProvider permissions={[...ctx.permissions]} modules={modules}>
-            {children}
-          </HeaderActionsProvider>
-        )}
+        ) : null}
+        <HeaderActionsProvider permissions={[...ctx.permissions]} modules={modules}>
+          {children}
+        </HeaderActionsProvider>
       </SidebarInset>
     </SidebarProvider>
   )

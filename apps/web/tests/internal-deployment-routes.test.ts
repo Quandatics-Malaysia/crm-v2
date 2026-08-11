@@ -61,6 +61,7 @@ function expectPrivateHeaders(response: Response): void {
 
 function entitlementDependencies() {
   return {
+    authorizeWrite: vi.fn(async (_input: { operation: string }) => undefined),
     authenticate: vi.fn<(request: Request) => InternalAgentAuthentication>(() => "authenticated"),
     loadEnvironment: vi.fn<() => InternalDeploymentEnv>(() => ({
       deploymentId,
@@ -94,6 +95,7 @@ describe("PUT internal entitlement route", () => {
     expect(await response.json()).toEqual({ error: { code: auth === "unauthorized" ? "unauthorized" : "internal_error" } })
     if (auth === "unauthorized") expect(response.headers.get("www-authenticate")).toBe("Bearer")
     expect(dependencies.loadEnvironment).not.toHaveBeenCalled()
+    expect(dependencies.authorizeWrite).not.toHaveBeenCalled()
     expect(dependencies.readBody).not.toHaveBeenCalled()
     expect(dependencies.apply).not.toHaveBeenCalled()
     expectPrivateHeaders(response)
@@ -110,6 +112,9 @@ describe("PUT internal entitlement route", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ outcome, revision: 7, mode: "active" })
     expect(dependencies.apply).toHaveBeenCalledWith({ envelope: true }, deploymentId)
+    expect(dependencies.authorizeWrite).toHaveBeenCalledWith({
+      operation: "license_apply",
+    })
     expect(dependencies.invalidate).toHaveBeenCalledOnce()
     expectPrivateHeaders(response)
   })

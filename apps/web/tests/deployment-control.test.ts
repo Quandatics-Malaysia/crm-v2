@@ -345,6 +345,8 @@ describe("getDeploymentAccess", () => {
       contractEndsAt: null,
       revision: null,
       configurationVersion: null,
+      subscriptionStatus: null,
+      planId: null,
     })
   })
 

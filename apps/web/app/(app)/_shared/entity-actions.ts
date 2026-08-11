@@ -13,6 +13,7 @@ import {
   normalizeSeatEmail,
   provisionEntitySeats,
 } from "@/lib/deployment-seats"
+import { runAction, type ActionResult } from "@/lib/action-result"
 
 const ALLOWED_INITIAL_ROLES = new Set([
   "Owner", "Admin", "Developer", "Manager", "Senior Rep", "Rep", "Viewer",
@@ -28,12 +29,9 @@ export async function createEntity(input: {
   name: string
   slug?: string
   entityCode?: string
-  plan: string
-  seats: number
-  startsAt: string
-  endsAt: string
   invites: { email: string; roleName: string }[]
-}): Promise<{ id: string }> {
+}): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
   const ctx = await getServerContext()
   if (!ctx) throw new Error("UNAUTHENTICATED")
   if (!ctx.isSuperadmin) throw new Error("Only the platform master can create organizations.")
@@ -97,4 +95,5 @@ export async function createEntity(input: {
   }
 
   return { id: orgId }
+  })
 }

@@ -78,6 +78,11 @@ vi.mock("@/lib/subscription-licensing", () => ({
     isSubscriptionActive: true,
   })),
 }))
+vi.mock("@/lib/write-access", () => ({
+  LICENSE_READ_ONLY: "LICENSE_READ_ONLY",
+  LicenseReadOnlyError: class LicenseReadOnlyError extends Error {},
+  assertWriteAllowed: vi.fn(async () => undefined),
+}))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 
 import { db } from "@/db"

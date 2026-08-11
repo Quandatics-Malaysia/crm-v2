@@ -14,6 +14,8 @@ const baseAccess = {
   contractEndsAt: "2027-08-01T00:00:00.000Z",
   revision: 7,
   configurationVersion: "config-3",
+  subscriptionStatus: "active" as const,
+  planId: "growth",
 }
 
 describe("deployment status service", () => {

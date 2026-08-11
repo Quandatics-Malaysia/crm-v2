@@ -24,18 +24,6 @@ const INITIAL_ROLES = [
   ["Viewer", "Read-only workspace access"],
 ] as const
 
-function today() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function addPeriod(start: string, months: number, days = 0) {
-  const date = new Date(`${start}T00:00:00Z`)
-  if (months) date.setUTCMonth(date.getUTCMonth() + months)
-  if (days) date.setUTCDate(date.getUTCDate() + days - 1)
-  else date.setUTCDate(date.getUTCDate() - 1)
-  return date.toISOString().slice(0, 10)
-}
-
 type Invite = { id: string; email: string; roleName: string }
 
 export function CreateEntityDialog({
@@ -46,13 +34,8 @@ export function CreateEntityDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
-  const initialDate = today()
   const [name, setName] = React.useState("")
   const [entityCode, setEntityCode] = React.useState("")
-  const [plan, setPlan] = React.useState("Starter")
-  const [seats, setSeats] = React.useState("1")
-  const [startsAt, setStartsAt] = React.useState(initialDate)
-  const [endsAt, setEndsAt] = React.useState(addPeriod(initialDate, 12))
   const [invites, setInvites] = React.useState<Invite[]>([])
   const [busy, setBusy] = React.useState(false)
 
@@ -61,32 +44,26 @@ export function CreateEntityDialog({
   }
 
   function reset() {
-    const start = today()
     setName("")
     setEntityCode("")
-    setPlan("Starter")
-    setSeats("1")
-    setStartsAt(start)
-    setEndsAt(addPeriod(start, 12))
     setInvites([])
   }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    const seatCount = Number(seats)
-    if (!name.trim() || !Number.isInteger(seatCount) || seatCount < 1) return
+    if (!name.trim()) return
     setBusy(true)
     try {
-      await createEntity({
+      const result = await createEntity({
         name: name.trim(),
         entityCode: entityCode.trim() || undefined,
-        plan,
-        seats: seatCount,
-        startsAt,
-        endsAt,
         invites: invites.map(({ email, roleName }) => ({ email, roleName })),
       })
-      toast.success(`${name.trim()} created with ${seatCount} seats`)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(`${name.trim()} created`)
       onOpenChange(false)
       reset()
       router.push("/dashboard")
@@ -98,9 +75,7 @@ export function CreateEntityDialog({
     }
   }
 
-  const seatCount = Number(seats)
-  const invalid = !name.trim() || !plan.trim() || !Number.isInteger(seatCount) ||
-    seatCount < 1 || !startsAt || !endsAt || startsAt > endsAt || invites.length > seatCount
+  const invalid = !name.trim()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -108,7 +83,8 @@ export function CreateEntityDialog({
         <DialogHeader>
           <DialogTitle>Create customer organization</DialogTitle>
           <DialogDescription>
-            Set its licence and prepare its first users in one step. Invited users receive their selected seeded role when they sign in.
+            Prepare customer organization and initial users. Commercial seats,
+            contract dates, and modules come from vendor-issued entitlement.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="grid gap-6" id="create-entity-form">
@@ -117,22 +93,6 @@ export function CreateEntityDialog({
             <div className="grid gap-4 sm:grid-cols-[1fr_12rem]">
               <div className="grid gap-2"><Label htmlFor="ent-name">Customer name</Label><Input id="ent-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Citrus Cloud" autoFocus /></div>
               <div className="grid gap-2"><Label htmlFor="ent-code">Code</Label><Input id="ent-code" value={entityCode} onChange={(event) => setEntityCode(event.target.value.toUpperCase())} placeholder="CC" maxLength={8} className="uppercase" /></div>
-            </div>
-          </section>
-
-          <section className="grid gap-3 rounded-lg border p-4">
-            <div><h3 className="text-sm font-medium">Access licence</h3><p className="text-xs text-muted-foreground">Seats become usable immediately on the chosen start date and stop after the end date.</p></div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="grid gap-2"><Label htmlFor="ent-plan">Plan</Label><Input id="ent-plan" value={plan} onChange={(event) => setPlan(event.target.value)} /></div>
-              <div className="grid gap-2"><Label htmlFor="ent-seats">Customer seats</Label><Input id="ent-seats" type="number" min="1" step="1" value={seats} onChange={(event) => setSeats(event.target.value)} /></div>
-              <div className="grid gap-2"><Label htmlFor="ent-start">Valid from</Label><Input id="ent-start" type="date" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></div>
-              <div className="grid gap-2"><Label htmlFor="ent-end">Valid until</Label><Input id="ent-end" type="date" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /></div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">Set period:</span>
-              <Button type="button" size="sm" variant="outline" onClick={() => setEndsAt(addPeriod(startsAt || today(), 0, 30))}>30 days</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => setEndsAt(addPeriod(startsAt || today(), 6))}>6 months</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => setEndsAt(addPeriod(startsAt || today(), 12))}>1 year</Button>
             </div>
           </section>
 
@@ -148,11 +108,10 @@ export function CreateEntityDialog({
                 <Button type="button" size="icon" variant="ghost" aria-label="Remove user" onClick={() => setInvites((rows) => rows.filter((row) => row.id !== invite.id))}><Trash2Icon className="size-4" /></Button>
               </div>
             ))}
-            {invites.length > seatCount ? <p className="text-sm text-destructive">Issue at least {invites.length} seats for these users.</p> : null}
           </section>
         </form>
         <DialogFooter>
-          <Button type="submit" form="create-entity-form" disabled={busy || invalid}>{busy ? "Creating…" : "Create and issue access"}</Button>
+          <Button type="submit" form="create-entity-form" disabled={busy || invalid}>{busy ? "Creating…" : "Create organization"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

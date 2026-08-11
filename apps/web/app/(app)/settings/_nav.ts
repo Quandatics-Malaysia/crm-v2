@@ -95,7 +95,6 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       {
         label: "Subscription",
         href: "/settings/subscription",
-        superadminOnly: true,
       },
     ],
   },

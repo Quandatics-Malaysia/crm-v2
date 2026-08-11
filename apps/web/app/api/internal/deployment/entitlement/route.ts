@@ -16,6 +16,10 @@ import {
   type InternalDeploymentApiLog,
 } from "@/lib/internal-deployment-api"
 import { InternalJsonRequestError, readInternalJsonObject } from "@/lib/internal-json"
+import {
+  assertWriteAllowed,
+  type WriteAccessCheck,
+} from "@/lib/write-access"
 import { revalidatePath } from "next/cache"
 
 export const runtime = "nodejs"
@@ -39,6 +43,7 @@ const SAFE_REJECTION_REASONS = new Set([
 ])
 
 type EntitlementRouteDependencies = {
+  authorizeWrite: WriteAccessCheck
   authenticate(request: Request): InternalAgentAuthentication
   loadEnvironment(): InternalDeploymentEnv
   readBody(request: Request): Promise<{ value: Record<string, unknown>; bodyBytes: number }>
@@ -89,6 +94,11 @@ export function createEntitlementRoute(dependencies: EntitlementRouteDependencie
       writeLog("error", "server_configuration", null, 500)
       return internalJsonResponse({ error: { code: "internal_error" } }, 500)
     }
+
+    // Entitlement apply is an explicit recovery operation. Keeping this call at
+    // the direct route boundary proves it bypasses commercial read-only mode
+    // without bypassing agent authentication or envelope verification.
+    await dependencies.authorizeWrite({ operation: "license_apply" })
 
     let environment: InternalDeploymentEnv
     try {
@@ -156,6 +166,7 @@ export function createProductionEntitlementRoute(
   dal: ProductionEntitlementDal = productionDal,
 ) {
   return createEntitlementRoute({
+    authorizeWrite: assertWriteAllowed,
     authenticate: authenticateInternalAgent,
     loadEnvironment: loadInternalDeploymentEnv,
     readBody: readInternalJsonObject,

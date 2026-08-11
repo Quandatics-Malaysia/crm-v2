@@ -10,9 +10,11 @@ import type { ModuleId } from "@/lib/module-registry"
 import { withEntitledModule } from "@/lib/modules.server"
 
 /**
- * Standard server-action wrapper: authenticate → authorize → open a
- * tenant-scoped transaction (RLS GUC set). Use for every mutation/read that
- * touches tenant data.
+ * Standard tenant-data wrapper: authenticate → authorize → open a
+ * tenant-scoped transaction (RLS GUC set). Mutating Server Actions must enter
+ * through `runAction`, which adds signed commercial write enforcement before
+ * this authorization/RLS layer. This wrapper intentionally stays usable for
+ * reads; never add a blanket write assertion here.
  *
  *   const lead = await withTenant(PERMISSIONS.LEAD_CREATE, (tx, ctx) =>
  *     tx.insert(leads).values({ tenantId: ctx.tenantId, ... }).returning()
@@ -28,10 +30,10 @@ export async function withTenant<T>(
 }
 
 /**
- * Like `withTenant`, but first asserts signed runtime entitlement. Use for every
- * server action that belongs to an optional module (projects, salesOrders,
- * finance, forecast) so an unlicensed module throws before touching the
- * DB — defense in depth behind the hidden nav and route redirects.
+ * Like `withTenant`, but first asserts signed runtime module ownership. Use for
+ * every action that belongs to an optional module. Mutations still enter via
+ * `runAction`, so module ownership, role authorization, RLS, and commercial
+ * write access remain independent defense layers.
  *
  *   const project = await withModule("projects", PERMISSIONS.PROJECT_CREATE,
  *     (tx, ctx) => tx.insert(projects).values({ ... }).returning())

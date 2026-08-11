@@ -4,6 +4,11 @@ import { sql } from "drizzle-orm"
 
 import { db, type Tx } from "@/db"
 import { writeAuthAudit } from "@/server/audit"
+import { assertWriteAllowed } from "@/lib/write-access"
+
+function assertMembershipWriteAllowed(): Promise<void> {
+  return assertWriteAllowed({ operation: "membership_mutation" })
+}
 
 export function normalizeSeatEmail(value: string): string {
   const normalized = value.trim().toLowerCase()
@@ -114,6 +119,7 @@ export async function provisionEntitySeats(input: {
   entityAudit: { name: string; slug: string; invites: Array<{ email: string; roleName: string }> }
   now?: Date
 }): Promise<void> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   await db.transaction(async (tx) => {
     await lockUsage(tx, now)
@@ -160,6 +166,7 @@ export async function reserveInvitation(input: {
   expiresAt?: Date
   now?: Date
 }): Promise<{ invitationId: string; result: DeploymentSeatResult }> {
+  await assertMembershipWriteAllowed()
   const normalizedEmail = normalizeSeatEmail(input.email)
   const now = input.now ?? new Date()
   const expiresAt = input.expiresAt ?? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -189,6 +196,7 @@ export async function activateMembership(input: {
   actor: SeatActor
   now?: Date
 }): Promise<{ memberId: string; result: DeploymentSeatResult }> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const proposedMemberId = input.memberId ?? crypto.randomUUID()
@@ -211,6 +219,7 @@ export async function consumeInvitation(input: {
   memberId?: string
   now?: Date
 }): Promise<{ memberId: string; result: DeploymentSeatResult }> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const proposedMemberId = input.memberId ?? crypto.randomUUID()
@@ -233,6 +242,7 @@ export async function autoJoinMembership(input: {
   tierLevel?: number
   now?: Date
 }): Promise<{ memberId: string; result: DeploymentSeatResult }> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const proposedMemberId = input.memberId ?? crypto.randomUUID()
@@ -256,6 +266,7 @@ export async function bootstrapOwner(input: {
   mode: "empty" | "configured"
   now?: Date
 }): Promise<{ memberId: string; result: DeploymentSeatResult }> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const proposedMemberId = input.memberId ?? crypto.randomUUID()
@@ -277,6 +288,7 @@ export async function disableOrRemoveMembership(input: {
   actor: SeatActor
   now?: Date
 }): Promise<DeploymentSeatResult> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const rows = await tx.execute(sql`select * from change_deployment_membership(
@@ -295,6 +307,7 @@ export async function releaseInvitation(input: {
   actor: SeatActor
   now?: Date
 }): Promise<DeploymentSeatResult> {
+  await assertMembershipWriteAllowed()
   const now = input.now ?? new Date()
   return db.transaction(async (tx) => {
     const rows = await tx.execute(sql`select * from revoke_deployment_invitation(
@@ -312,6 +325,7 @@ export async function reconcileExpiredReservations(now = new Date()): Promise<{
   occupiedUsers: number
   reservedInvitations: number
 }> {
+  await assertMembershipWriteAllowed()
   const rows = await db.execute(sql`
     select * from reconcile_expired_deployment_seat_reservations(
       ${now.toISOString()}::timestamp with time zone

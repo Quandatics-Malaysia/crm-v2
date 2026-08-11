@@ -6,11 +6,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter web run build",
+    "build": "pnpm run build:control-protocol && pnpm --filter web run build",
+    "build:control-protocol": "pnpm --filter @crm/control-protocol run build",
     "dev": "pnpm --filter web run dev",
     "lint": "pnpm --filter web run lint",
-    "typecheck": "pnpm --filter web run typecheck",
-    "test": "pnpm --filter web run test",
+    "typecheck": "pnpm run build:control-protocol && pnpm --filter web run typecheck",
+    "test": "pnpm run build:control-protocol && pnpm --filter web run test",
     "test:workflows": "node --test .github/workflows/tests/*.test.mjs",
     "db:migrate": "pnpm --filter web run db:migrate",
     "db:setup": "pnpm --filter web run db:setup",

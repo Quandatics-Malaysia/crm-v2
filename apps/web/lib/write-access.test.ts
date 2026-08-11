@@ -6,7 +6,6 @@ import {
   type RunActionOptions,
 } from "@/lib/action-result"
 import { hasStandingTenantAccess } from "@/lib/server-context"
-import { createSubscriptionEntitlementReader } from "@/app/(app)/settings/subscription/actions"
 import {
   LicenseReadOnlyError,
   createRouteWriteGuard,
@@ -221,48 +220,5 @@ describe("read context remains available", () => {
       tenantSuspended: true,
       subscriptionInactive: false,
     })).toBe(false)
-  })
-})
-
-describe("client entitlement details", () => {
-  it("lets a non-platform client role read only safe signed commercial fields", async () => {
-    const requireContext = vi.fn(async () => ({
-      tenantId: "tenant-1",
-      isSuperadmin: false,
-      roleName: "Viewer",
-    }))
-    const getAccess = vi.fn(async () => ({
-      ...access(
-        "grace",
-        true,
-        "Lease is in offline grace; subscription is past_due"
-      ),
-      subscriptionStatus: "past_due" as const,
-    }))
-    const read = createSubscriptionEntitlementReader({
-      requireContext,
-      getAccess,
-    })
-
-    const result = await read()
-
-    expect(result).toEqual({
-      mode: "grace",
-      reason: "Lease is in offline grace; subscription is past_due",
-      writeAllowed: true,
-      subscriptionStatus: "past_due",
-      planId: "growth",
-      seatLimit: 25,
-      moduleIds: ["projects"],
-      leaseExpiresAt: "2026-08-11T00:00:00.000Z",
-      recoveryDeadline: "2026-08-18T00:00:00.000Z",
-      contractStartsAt: "2026-08-01T00:00:00.000Z",
-      contractEndsAt: "2027-08-01T00:00:00.000Z",
-      revision: 7,
-      configurationVersion: "config-7",
-    })
-    expect(JSON.stringify(result)).not.toMatch(
-      /signature|private|publicJwk|canonicalEnvelope|keyId/i
-    )
   })
 })

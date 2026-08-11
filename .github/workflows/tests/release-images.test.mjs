@@ -38,11 +38,11 @@ test("release runs only for version tags with least-privilege publishing permiss
   assert.deepEqual([...new Set(allowedSecrets)], ["secrets.GITHUB_TOKEN"])
 })
 
-test("build matrix publishes web, migrator, and backup for amd64 and arm64", () => {
+test("build matrix publishes web, migrator, backup, and agent for amd64 and arm64", () => {
   const build = workflow.jobs?.build
   const include = build?.strategy?.matrix?.include
   assert.equal(Array.isArray(include), true)
-  assert.deepEqual(include.map((entry) => entry.name).sort(), ["backup", "migrator", "web"])
+  assert.deepEqual(include.map((entry) => entry.name).sort(), ["agent", "backup", "migrator", "web"])
 
   const byName = Object.fromEntries(include.map((entry) => [entry.name, entry]))
   assert.deepEqual(byName.web, {
@@ -65,6 +65,13 @@ test("build matrix publishes web, migrator, and backup for amd64 and arm64", () 
     context: "docker/backup",
     file: "docker/backup/Dockerfile",
     target: "",
+  })
+  assert.deepEqual(byName.agent, {
+    name: "agent",
+    repository: "crm-deployment-agent",
+    context: ".",
+    file: "apps/deployment-agent/Dockerfile",
+    target: "runtime",
   })
 
   const buildSteps = steps("build")
@@ -122,7 +129,7 @@ test("release manifest records immutable provenance for all images", () => {
   for (const field of ["image", "digest", "source_commit", "workflow_identity", "build_time"]) {
     assert.match(compose.run, new RegExp(field))
   }
-  assert.match(compose.run, /length == 3/)
+  assert.match(compose.run, /length == 4/)
 
   const upload = findStep(manifestSteps, (step) => /actions\/upload-artifact@/.test(step.uses ?? ""), "missing manifest upload")
   assert.match(upload.with?.path ?? "", /release-manifest\.json/)

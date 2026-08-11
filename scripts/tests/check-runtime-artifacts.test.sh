@@ -54,6 +54,34 @@ if scripts/check-runtime-artifacts.sh "$export_root"; then
   exit 1
 fi
 
+metadata_failures=0
+assert_external_metadata_rejected() {
+  artifact=$1
+  new_fixture
+  private_metadata_root="$scratch/private-metadata-export-$fixture_count"
+  mkdir -p "$private_metadata_root/app" \
+    "$(dirname "$private_metadata_root/$artifact")"
+  mv "$fixture/apps" "$fixture/node_modules" "$fixture/packages" \
+    "$private_metadata_root/app/"
+  touch "$private_metadata_root/$artifact"
+  if scripts/check-runtime-artifacts.sh "$private_metadata_root"; then
+    echo "expected $artifact outside /app to fail" >&2
+    metadata_failures=$((metadata_failures + 1))
+  fi
+}
+
+for artifact in \
+  workspace/tests/test.js \
+  root/docs/private.md \
+  opt/fixtures/customer.json
+do
+  assert_external_metadata_rejected "$artifact"
+done
+
+if [ "$metadata_failures" -ne 0 ]; then
+  exit 1
+fi
+
 assert_rejected() {
   artifact=$1
   new_fixture

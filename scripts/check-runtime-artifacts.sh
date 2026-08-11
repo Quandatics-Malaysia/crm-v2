@@ -51,15 +51,7 @@ forbidden=$(find "$canonical_root" \( \
   -name '*.key' -o \
   -name '*.p12' -o \
   -name '*.pfx' -o \
-  -name '*private*.pem' \
-\) -print -quit)
-
-if [ -n "$forbidden" ]; then
-  echo "forbidden runtime artifact: $forbidden" >&2
-  exit 1
-fi
-
-forbidden=$(find "$payload_root" \( \
+  -name '*private*.pem' -o \
   -name test -o \
   -name tests -o \
   -name __tests__ -o \

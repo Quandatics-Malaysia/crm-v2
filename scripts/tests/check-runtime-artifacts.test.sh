@@ -12,14 +12,21 @@ new_fixture() {
   fixture="$scratch/fixture-$fixture_count"
   mkdir -p "$fixture/apps/web/.next/static/chunks" \
     "$fixture/apps/web/public" \
-    "$fixture/node_modules/postgres/src"
+    "$fixture/node_modules/postgres/src" \
+    "$fixture/packages/control-protocol/dist" \
+    "$fixture/packages/control-protocol/node_modules/zod"
   touch "$fixture/apps/web/server.js" \
     "$fixture/apps/web/package.json" \
     "$fixture/apps/web/.next/static/chunks/main.js" \
     "$fixture/apps/web/public/logo.svg" \
     "$fixture/node_modules/postgres/package.json" \
     "$fixture/node_modules/postgres/src/index.js" \
-    "$fixture/node_modules/postgres/README.md"
+    "$fixture/node_modules/postgres/README.md" \
+    "$fixture/packages/control-protocol/package.json" \
+    "$fixture/packages/control-protocol/dist/index.js" \
+    "$fixture/packages/control-protocol/dist/runtime.json" \
+    "$fixture/packages/control-protocol/node_modules/zod/package.json" \
+    "$fixture/packages/control-protocol/node_modules/zod/index.js"
 }
 
 new_fixture
@@ -32,6 +39,20 @@ fi
 
 rm "$fixture/apps/web/leak.ts"
 scripts/check-runtime-artifacts.sh "$fixture"
+
+export_root="$scratch/export-root"
+mkdir -p "$export_root/app" \
+  "$export_root/root" \
+  "$export_root/workspace" \
+  "$export_root/var/lib/stray/.git"
+mv "$fixture/apps" "$fixture/node_modules" "$fixture/packages" "$export_root/app/"
+touch "$export_root/root/.npmrc" \
+  "$export_root/workspace/source.ts" \
+  "$export_root/var/lib/stray/.git/config"
+if scripts/check-runtime-artifacts.sh "$export_root"; then
+  echo "expected forbidden artifacts outside /app to fail" >&2
+  exit 1
+fi
 
 assert_rejected() {
   artifact=$1
@@ -70,6 +91,15 @@ do
 done
 
 assert_rejected internal-source.js
+assert_rejected packages/private/internal-source.js
+
+new_fixture
+rm -rf "$fixture/packages/control-protocol"
+touch "$fixture/packages/control-protocol"
+if scripts/check-runtime-artifacts.sh "$fixture"; then
+  echo "expected non-directory runtime package to fail" >&2
+  exit 1
+fi
 
 new_fixture
 mkdir -p "$fixture/apps/web/.next/server"

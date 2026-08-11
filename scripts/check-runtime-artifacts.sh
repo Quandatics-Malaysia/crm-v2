@@ -28,7 +28,7 @@ if [ -d "$canonical_root/app" ]; then
   payload_root="$canonical_root/app"
 fi
 
-forbidden=$(find "$payload_root" \( \
+forbidden=$(find "$canonical_root" \( \
   -name .git -o \
   -name .github -o \
   -name .superpowers -o \
@@ -51,7 +51,15 @@ forbidden=$(find "$payload_root" \( \
   -name '*.key' -o \
   -name '*.p12' -o \
   -name '*.pfx' -o \
-  -name '*private*.pem' -o \
+  -name '*private*.pem' \
+\) -print -quit)
+
+if [ -n "$forbidden" ]; then
+  echo "forbidden runtime artifact: $forbidden" >&2
+  exit 1
+fi
+
+forbidden=$(find "$payload_root" \( \
   -name test -o \
   -name tests -o \
   -name __tests__ -o \
@@ -66,7 +74,7 @@ if [ -n "$forbidden" ]; then
   exit 1
 fi
 
-private_key=$(find "$payload_root" -type f -size -1048576c \
+private_key=$(find "$canonical_root" -type f -size -1048576c \
   -exec grep -l -- '-----BEGIN .*PRIVATE KEY-----' {} + 2>/dev/null \
   | sed -n '1p')
 
@@ -127,6 +135,32 @@ elif [ -f "$payload_root/apps/web/server.js" ]; then
       ! -name .next \
       ! -name public \
       ! -name node_modules \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$payload_root/packages" ]; then
+    unexpected=$(find "$payload_root/packages" -mindepth 1 -maxdepth 1 \
+      \( ! -name control-protocol -o ! -type d \) \
+      -print -quit)
+  fi
+
+  package_root="$payload_root/packages/control-protocol"
+  if [ -z "$unexpected" ] && [ -d "$package_root" ]; then
+    unexpected=$(find "$package_root" -mindepth 1 -maxdepth 1 \
+      ! -name package.json \
+      ! -name dist \
+      ! -name node_modules \
+      -print -quit)
+  fi
+
+  if [ -z "$unexpected" ] && [ -d "$package_root/dist" ]; then
+    unexpected=$(find "$package_root/dist" -type f \
+      ! -name '*.js' \
+      ! -name '*.mjs' \
+      ! -name '*.cjs' \
+      ! -name '*.json' \
+      ! -name '*.node' \
+      ! -name '*.wasm' \
       -print -quit)
   fi
 

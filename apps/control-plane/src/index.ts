@@ -27,6 +27,12 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
 
   app.onError((error, context) => {
     if (error instanceof SafeHttpError) {
+      if (context.req.path.startsWith("/operator/") && !context.req.header("Content-Type")?.startsWith("application/json")) {
+        const message = error.code === "invalid_request"
+          ? "Contract details are invalid. Select an active plan and check the dates and numbers."
+          : "The request could not be completed."
+        return context.html(`<main style="max-width:680px;margin:48px auto;font:16px system-ui"><h1>Could not save</h1><p>${message}</p><p><a href="javascript:history.back()">Back to form</a></p></main>`, error.status)
+      }
       return context.json({ error: error.code }, error.status)
     }
     if (error instanceof HTTPException && error.status === 403) {

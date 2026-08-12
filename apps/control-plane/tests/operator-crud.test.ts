@@ -312,6 +312,24 @@ describe("contract and invoice administration", () => {
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
   })
 
+  it("offers active plans and allows Core CRM with no optional modules", async () => {
+    const page = await operatorRequest(`/operator/clients/${clientId}`)
+    const html = await page.text()
+    expect(html).toContain("Basic (basic)")
+    expect(html).toContain("Leave all unchecked for Core CRM only.")
+
+    const response = await operatorRequest(`/operator/clients/${clientId}/contracts`, {
+      method: "POST",
+      token: "billing-token",
+      form: { ...validContract, moduleIds: [] },
+    })
+    expect(response.status).toBe(303)
+    const core = await env.CONTROL_DB.prepare(
+      "SELECT id FROM contracts WHERE client_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(clientId).first<{ id: string }>()
+    expect(await countRows("SELECT COUNT(*) AS count FROM contract_modules WHERE contract_id = ?", core?.id ?? "")).toBe(0)
+  })
+
   it("labels contract fields and atomically updates future terms", async () => {
     const page = await operatorRequest(`/operator/clients/${clientId}`)
     const html = await page.text()

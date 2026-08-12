@@ -82,7 +82,7 @@ function collectionFrequency(value: unknown): CollectionFrequency {
 
 function selectedModules(value: unknown): ModuleId[] {
   const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
-  if (values.length === 0 || values.length > Object.keys(MODULE_CATALOG).length) throw badRequest()
+  if (values.length > Object.keys(MODULE_CATALOG).length) throw badRequest()
   const selected = new Set<ModuleId>()
   for (const item of values) {
     if (typeof item !== "string" || !(item in MODULE_CATALOG)) throw badRequest()

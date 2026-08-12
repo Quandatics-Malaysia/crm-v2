@@ -50,6 +50,7 @@ export interface ClientChildPagination {
 }
 
 export interface ClientDetail extends ClientListItem {
+  activePlans: Array<{ id: string; planKey: string; displayName: string }>
   organisations: PageResult<{ id: string; organisationKey: string; displayName: string }>
   deployments: PageResult<{
     id: string
@@ -313,7 +314,7 @@ export async function getClientDetail(
   }>()
   if (!client) throw notFound()
 
-  const [organisations, deployments, contracts] = await Promise.all([
+  const [organisations, deployments, contracts, activePlans] = await Promise.all([
     database.prepare(
       "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT ? OFFSET ?",
     ).bind(
@@ -355,6 +356,9 @@ export async function getClientDetail(
       ends_at: string
       seat_limit: number
     }>(),
+    database.prepare(
+      "SELECT id, plan_key, display_name FROM plans WHERE active = 1 ORDER BY display_name, plan_key",
+    ).all<{ id: string; plan_key: string; display_name: string }>(),
   ])
 
   return {
@@ -362,6 +366,11 @@ export async function getClientDetail(
     clientKey: client.client_key,
     displayName: client.display_name,
     status: client.status,
+    activePlans: activePlans.results.map((row) => ({
+      id: row.id,
+      planKey: row.plan_key,
+      displayName: row.display_name,
+    })),
     organisations: pageResult(
       organisations.results.map((row) => ({
         id: row.id,

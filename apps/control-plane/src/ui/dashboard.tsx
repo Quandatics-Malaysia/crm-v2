@@ -105,23 +105,24 @@ export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
         <h2>Contracts</h2>
         <table><thead><tr><th>Term</th><th>Status</th><th>Seats</th></tr></thead><tbody>{client.contracts.items.map((item) => <tr><td><a href={`/operator/contracts/${item.id}`}>{item.startsAt} – {item.endsAt}</a></td><td><span class={`badge ${item.status}`}>{item.status}</span></td><td>{item.seatLimit}</td></tr>)}</tbody></table>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="contracts" collection={client.contracts} preserved={childPagination} />
-        <form method="post" action={`/operator/clients/${client.id}/contracts`}>
+        <h3>Create contract</h3>
+        <form class="actions" method="post" action={`/operator/clients/${client.id}/contracts`}>
           <CsrfInput token={props.csrfToken} />
-          <input name="planId" required placeholder="Plan ID" />
-          <select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select>
-          <input name="startsAt" required type="date" />
-          <input name="endsAt" required type="date" />
-          <input name="seatLimit" required type="number" min="1" max="100000" step="1" />
-          <input name="monthlySeatPriceCents" required type="number" min="0" step="1" />
-          <input name="taxBasisPoints" required type="number" min="0" max="10000" step="1" />
-          <select name="collectionFrequency"><option>monthly</option><option>upfront</option></select>
+          <label>Plan ID<input name="planId" required placeholder="quandatics-demo" /></label>
+          <label>Status<select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select></label>
+          <label>Start date<input name="startsAt" required type="date" /></label>
+          <label>End date<input name="endsAt" required type="date" /></label>
+          <label>Seat limit<input name="seatLimit" required type="number" min="1" max="100000" step="1" value="4" /></label>
+          <label>Monthly seat price (cents)<input name="monthlySeatPriceCents" required type="number" min="0" step="1" value="0" /><small>10000 = 100.00</small></label>
+          <label>Tax (basis points)<input name="taxBasisPoints" required type="number" min="0" max="10000" step="1" value="0" /><small>800 = 8%; 0 = no tax</small></label>
+          <label>Collection frequency<select name="collectionFrequency"><option>monthly</option><option>upfront</option></select></label>
           <fieldset>
             <legend>Modules</legend>
             {Object.entries(MODULE_CATALOG).map(([moduleId, module]) => (
               <label><input type="checkbox" name="moduleIds" value={moduleId} /> {module.displayName}</label>
             ))}
           </fieldset>
-          <button type="submit">Add contract</button>
+          <button type="submit">Create contract</button>
         </form>
       </section>
     </OperatorLayout>
@@ -134,7 +135,7 @@ export function ContractPage(props: { contract: ContractDetail; csrfToken: strin
     <OperatorLayout title="Contract">
       <h1>Contract</h1>
       <section><h2>License</h2><p><span class={`badge ${contract.status}`}>{contract.status}</span> · {contract.startsAt} – {contract.endsAt} · {contract.seatLimit} seats · revision {contract.entitlementRevision}</p><p>Renewal: {contract.renewalPolicy} · Suspension: {contract.suspensionAt ?? "not scheduled"}</p><p>Modules: {contract.modules.join(", ") || "none"}</p></section>
-      <section class="danger"><h2>Commercial controls</h2><form class="actions" method="post" action={`/operator/contracts/${contract.id}/entitlement-controls`}><CsrfInput token={props.csrfToken} /><label>Status<select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select></label><label>Seat limit<input name="seatLimit" type="number" min="1" max="100000" /></label><label>Effective at<input name="effectiveAt" placeholder="ISO timestamp (optional)" /></label><label>Suspension at<input name="suspensionAt" placeholder="ISO timestamp (optional)" /></label><label><input type="checkbox" name="confirmCommercialState" value="confirmed" /> Confirm suspension/cancellation</label><button type="submit">Update license</button></form></section>
+      <section><h2>Edit contract</h2><form class="actions" method="post" action={`/operator/contracts/${contract.id}`}><CsrfInput token={props.csrfToken} /><label>Plan ID<input name="planId" required value={contract.planId} /></label><label>Status<select name="status">{["active", "past_due", "suspended", "cancelled"].map((status) => <option selected={contract.status === status}>{status}</option>)}</select></label><label>Start date<input name="startsAt" required type="date" value={contract.startsAt} /></label><label>End date<input name="endsAt" required type="date" value={contract.endsAt} /></label><label>Seat limit<input name="seatLimit" required type="number" min="1" max="100000" value={contract.seatLimit} /></label><label>Monthly seat price (cents)<input name="monthlySeatPriceCents" required type="number" min="0" value={contract.monthlySeatPriceCents} /></label><label>Tax (basis points)<input name="taxBasisPoints" required type="number" min="0" max="10000" value={contract.taxBasisPoints} /><small>800 = 8%</small></label><label>Collection frequency<select name="collectionFrequency"><option selected={contract.collectionFrequency === "monthly"}>monthly</option><option selected={contract.collectionFrequency === "upfront"}>upfront</option></select></label><fieldset><legend>Licensed modules</legend>{Object.entries(MODULE_CATALOG).map(([moduleId, module]) => <label><input type="checkbox" name="moduleIds" value={moduleId} checked={contract.modules.includes(moduleId)} /> {module.displayName}</label>)}</fieldset><label><input type="checkbox" name="confirmCommercialState" value="confirmed" /> Confirm suspension/cancellation</label><button type="submit">Save contract</button></form></section>
       <h2>Invoices</h2>
       <ul>{contract.invoices.items.map((invoice) => <li>{invoice.invoiceNumber}: {invoice.totalCents} {invoice.currency} cents</li>)}</ul>
       <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />

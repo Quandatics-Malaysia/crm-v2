@@ -36,6 +36,12 @@ import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatDate, formatMoney } from "@/lib/format"
+import {
+  isValidDateInput,
+  isValidMoneyInput,
+  isValidPercentInput,
+  isValidYearInput,
+} from "@/lib/input-validation"
 import { partyShare, deriveOriginRecognizedAmount } from "@/lib/interco-share"
 import type { Option, MemberOption } from "@/lib/lookups"
 import {
@@ -691,7 +697,16 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   formatDraft={(v) => formatMoney(v || "0", currency)}
                   type="number"
                   title="Click to edit estimated amount"
-                  onSave={(next) => saveField({ estimatedAmount: next || null })}
+                  onSave={(next) => {
+                    const value = next.trim()
+                    if (!value) return saveField({ estimatedAmount: null })
+                    if (!isValidMoneyInput(value)) {
+                      throw new Error(
+                        "Estimated amount must be a non-negative number with up to 2 decimals."
+                      )
+                    }
+                    return saveField({ estimatedAmount: value })
+                  }}
                   className="font-semibold tabular-nums"
                 />
               ) : (
@@ -736,7 +751,14 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     formatDraft={(v) => (v ? `${Number(v)}%` : "—")}
                     type="number"
                     title="Click to edit recognized %"
-                    onSave={(next) => saveField({ recognizedPercent: next || null })}
+                    onSave={(next) => {
+                      const value = next.trim()
+                      if (!value) return saveField({ recognizedPercent: null })
+                      if (!isValidPercentInput(value)) {
+                        throw new Error("Recognized % must be between 0 and 100.")
+                      }
+                      return saveField({ recognizedPercent: value })
+                    }}
                   />
                 ) : recognizedPercent ? (
                   <span className="tabular-nums">
@@ -829,7 +851,15 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   type="number"
                   title="Click to edit project year"
                   onSave={(next) =>
-                    saveField({ projectYear: next ? Number(next) : null })
+                    {
+                      const value = next.trim()
+                      if (!value) return saveField({ projectYear: null })
+                      const year = Number(value)
+                      if (!isValidYearInput(value) || !Number.isInteger(year)) {
+                        throw new Error("Project / license year must be a 4-digit year.")
+                      }
+                      return saveField({ projectYear: year })
+                    }
                   }
                 />
               ) : (
@@ -844,7 +874,16 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   formatDraft={(v) => (v ? formatDate(v) : "—")}
                   type="date"
                   title="Click to edit close date"
-                  onSave={(next) => saveField({ expectedCloseDate: next || null })}
+                  onSave={(next) => {
+                    const value = next.trim()
+                    if (!value) return saveField({ expectedCloseDate: null })
+                    if (!isValidDateInput(value)) {
+                      throw new Error(
+                        "Expected close date must be a valid date in YYYY-MM-DD format."
+                      )
+                    }
+                    return saveField({ expectedCloseDate: value })
+                  }}
                 />
               ) : (
                 formatDate(expectedCloseDate)

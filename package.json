@@ -18,5 +18,10 @@
   },
   "devDependencies": {
     "yaml": "2.8.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": "^0.35.2"
+    }
   }
 }

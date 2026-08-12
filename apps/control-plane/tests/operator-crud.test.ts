@@ -319,6 +319,10 @@ describe("contract and invoice administration", () => {
     expect(html).toContain("Tax (basis points)")
     expect(html).toContain("Create contract")
 
+    const before = await env.CONTROL_DB.prepare(
+      "SELECT entitlement_revision FROM contracts WHERE id = ?",
+    ).bind(contractId).first<{ entitlement_revision: number }>()
+
     const response = await operatorRequest(`/operator/contracts/${contractId}`, {
       method: "POST",
       token: "billing-token",
@@ -328,7 +332,11 @@ describe("contract and invoice administration", () => {
     const updated = await env.CONTROL_DB.prepare(
       "SELECT starts_at, seat_limit, entitlement_revision FROM contracts WHERE id = ?",
     ).bind(contractId).first<{ starts_at: string; seat_limit: number; entitlement_revision: number }>()
-    expect(updated).toMatchObject({ starts_at: "2026-08-20", seat_limit: 4, entitlement_revision: 1 })
+    expect(updated).toMatchObject({
+      starts_at: "2026-08-20",
+      seat_limit: 4,
+      entitlement_revision: (before?.entitlement_revision ?? 0) + 1,
+    })
     const modules = await env.CONTROL_DB.prepare(
       "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
     ).bind(contractId).all<{ module_id: string }>()

@@ -28,6 +28,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @crm/control-protocol run build
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm test

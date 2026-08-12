@@ -270,6 +270,7 @@ const config: ZudokuConfig = {
         { type: "doc", file: "operations/production-promotion", label: "Production promotion" },
         { type: "doc", file: "operations/environment-inventory", label: "Environment inventory" },
         { type: "doc", file: "operations/incident-response", label: "Incident response" },
+        { type: "doc", file: "operations/release-log", label: "Release log" },
         { type: "doc", file: "architecture", label: "Architecture" },
       ],
     },

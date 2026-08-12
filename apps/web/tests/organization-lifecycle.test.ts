@@ -12,6 +12,7 @@ import {
   type BackupProofPayload,
   type OrganizationLifecycleDependencies,
   type OrganizationLifecycleRepository,
+  type OrganizationLifecycleTransaction,
 } from "../scripts/organization-lifecycle"
 
 const now = new Date("2026-08-12T12:00:00.000Z")
@@ -26,7 +27,7 @@ if (
   exportedPublicJwk.crv !== "Ed25519" ||
   typeof exportedPublicJwk.x !== "string"
 ) throw new Error("test Ed25519 public key export is invalid")
-const publicJwk = {
+const publicJwk: OrganizationLifecycleDependencies["trustSet"]["keys"][number]["publicJwk"] = {
   kty: exportedPublicJwk.kty,
   crv: exportedPublicJwk.crv,
   x: exportedPublicJwk.x,
@@ -70,7 +71,9 @@ function lifecycleHarness() {
   let status: "active" | "archived" = "active"
   const audit: Array<{ action: string; actorUserId: string | null }> = []
   const repository: OrganizationLifecycleRepository = {
-    transaction: async (operation) => operation({
+    transaction: async <T>(
+      operation: (transaction: OrganizationLifecycleTransaction) => Promise<T>,
+    ): Promise<Awaited<T>> => await operation({
       findOrganizationBySlug: async (slug) => slug === "acme" ? { id: "org-acme" } : null,
       findServerOperator: async (userId, email) =>
         userId === "operator-1" && email === "owner@example.test"

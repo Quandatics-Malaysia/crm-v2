@@ -5,8 +5,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "browser": "./src/index.ts",
+      "worker": "./src/index.ts",
+      "node": "./dist/index.js",
+      "default": "./src/index.ts"
     },
     "./billing": {
       "types": "./src/billing.ts",

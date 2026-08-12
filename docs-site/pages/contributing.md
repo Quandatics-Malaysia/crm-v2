@@ -181,3 +181,25 @@ Not built yet:
 - The `apps/` **workspace** restructure has landed (the app is under
   `apps/web/`); the `packages/` and `modules/` layers of the design are still
   reserved, not built.
+
+## 9. External developer workflow
+
+For external developers, this is the required path:
+
+- Fork the repo (if you are not on the Quandatics org team).
+- Branch from latest `main` using `feat/<short-feature>`.
+- Implement changes on that branch only.
+- Never commit secrets (`.env`, cloud keys, certificates, DB passwords).
+- Before PR: run local checks:
+  - `pnpm run lint`
+  - `pnpm run typecheck`
+  - `pnpm test`
+  - `pnpm run build`
+- Open PR with full checklist and wait for PR preview checks.
+- Use PR preview for validation; keep production untouched until PR is approved.
+
+Operational rule:
+
+- External developers should not have access to any source/runtime on `app.quandatics.com`.
+- All code review and production merges are routed through `@Quandatics-Malaysia/core`.
+- Violations of this workflow are treated as a hard security/ops issue.

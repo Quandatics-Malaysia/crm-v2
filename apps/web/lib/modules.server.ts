@@ -37,7 +37,7 @@ export function createEntitledModuleGate(
       return createDisabledModuleMap()
     }
 
-    const missing = access.moduleIds.find((id) => !compiled[id])
+    const missing = access.moduleIds.find((id: ModuleId) => !compiled[id])
     if (missing) {
       throw new Error(
         `Signed entitlement owns module "${missing}", but the image omits it.`

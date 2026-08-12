@@ -1,11 +1,12 @@
 import "server-only"
 import { headers } from "next/headers"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { asc, eq, inArray } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import {
   user as userTable,
   member,
+  organization,
   membershipProfiles,
   memberRoles,
   roles,
@@ -30,6 +31,8 @@ export type ServerContext = {
   status: "active" | "invited" | "disabled"
   /** Tenant lifecycle — a suspended tenant is locked for everyone in it. */
   tenantSuspended: boolean
+  /** Organization lifecycle — archived tenants are never accessible. */
+  tenantArchived: boolean
   /** Legacy tenant billing state, retained for migration/display only. */
   subscriptionInactive: boolean
   permissions: Set<string>
@@ -43,9 +46,9 @@ export type ServerContext = {
  */
 export function hasStandingTenantAccess(input: Pick<
   ServerContext,
-  "status" | "tenantSuspended" | "subscriptionInactive"
+  "status" | "tenantSuspended" | "tenantArchived" | "subscriptionInactive"
 >): boolean {
-  return input.status === "active" && !input.tenantSuspended
+  return input.status === "active" && !input.tenantSuspended && !input.tenantArchived
 }
 
 /**
@@ -59,27 +62,30 @@ export async function getServerContext(): Promise<ServerContext | null> {
   const sessionUser = session.user
   const activeOrgId = session.session.activeOrganizationId ?? null
 
-  // Resolve the member row for the active tenant (or fall back to the user's
-  // oldest membership — a STABLE key, so a multi-org user always lands in the
-  // same tenant rather than an arbitrary `.limit(1)` pick).
-  const memberRow = activeOrgId
-    ? (
-        await db
-          .select()
-          .from(member)
-          .where(
-            and(eq(member.userId, sessionUser.id), eq(member.organizationId, activeOrgId))
-          )
-          .limit(1)
-      )[0]
-    : (
-        await db
-          .select()
-          .from(member)
-          .where(eq(member.userId, sessionUser.id))
-          .orderBy(asc(member.createdAt), asc(member.id))
-          .limit(1)
-      )[0]
+  // Resolve every membership with its organization lifecycle. An archived
+  // organization cannot become either the selected or fallback tenant.
+  const membershipRows = await db
+    .select({ member, organizationStatus: organization.status })
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(eq(member.userId, sessionUser.id))
+    .orderBy(asc(member.createdAt), asc(member.id))
+  const activeMember =
+    membershipRows.find(
+      (row) =>
+        row.organizationStatus === "active" && row.member.organizationId === activeOrgId
+    ) ?? membershipRows.find((row) => row.organizationStatus === "active")
+  const archivedActiveMember = activeOrgId
+    ? membershipRows.find(
+        (row) =>
+          row.member.organizationId === activeOrgId &&
+          row.organizationStatus === "archived"
+      )
+    : undefined
+  const memberRow = activeMember?.member ?? archivedActiveMember?.member
+  const tenantArchived = !activeMember && membershipRows.some(
+    (row) => row.organizationStatus === "archived"
+  )
 
   // is_superadmin lives on our user table extension.
   const [u] = await db
@@ -106,6 +112,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       roleName: null,
       status: "disabled",
       tenantSuspended: false,
+      tenantArchived: false,
       subscriptionInactive: false,
       permissions: new Set(),
       can: () => false,
@@ -124,6 +131,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       roleName: null,
       status: "active",
       tenantSuspended: false,
+      tenantArchived,
       subscriptionInactive: false,
       permissions: new Set(),
       can: () => isSuperadmin,
@@ -136,7 +144,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
   // subsequent requests are stable. Best-effort — setting the session cookie is
   // only possible in a request that can write cookies (actions/route handlers),
   // so we swallow failures during pure Server Component renders.
-  if (!activeOrgId) {
+  if (!tenantArchived && tenantId !== activeOrgId) {
     try {
       await auth.api.setActiveOrganization({
         body: { organizationId: tenantId },
@@ -214,6 +222,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       permKeys,
       status: (profile?.status ?? "active") as ServerContext["status"],
       tenantSuspended,
+      tenantArchived,
       subscriptionInactive,
     }
   })
@@ -235,18 +244,19 @@ export async function getServerContext(): Promise<ServerContext | null> {
     roleName: resolved.roleName,
     status: resolved.status,
     tenantSuspended: resolved.tenantSuspended,
+    tenantArchived: resolved.tenantArchived,
     subscriptionInactive: resolved.subscriptionInactive,
     permissions: perms,
-    can: (key) => isSuperadmin || perms.has(key as string),
+    can: (key) => isActive && (isSuperadmin || perms.has(key as string)),
   }
 }
 
-/** Throws if unauthenticated, has no active tenant, the tenant is suspended,
- * or the membership is not active (e.g. disabled/invited). Use in server
- * actions. */
+/** Throws if unauthenticated, lacks an active tenant, or its membership or
+ * tenant lifecycle does not grant standing access. Use in server actions. */
 export async function requireContext(): Promise<ServerContext> {
   const ctx = await getServerContext()
   if (!ctx) throw new Error("UNAUTHENTICATED")
+  if (ctx.tenantArchived) throw new Error("ORGANIZATION_ARCHIVED")
   if (!ctx.tenantId) throw new Error("NO_ACTIVE_TENANT")
   if (ctx.tenantSuspended) {
     throw new Error(

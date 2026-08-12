@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react"
 import { redirect } from "next/navigation"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { CreateFirstEntity } from "@/components/create-entity-dialog"
@@ -26,11 +26,16 @@ export default async function AppLayout({
       .select({ id: organization.id, name: organization.name })
       .from(member)
       .innerJoin(organization, eq(member.organizationId, organization.id))
-      .where(eq(member.userId, userId))
+      .where(
+        and(
+          eq(member.userId, userId),
+          eq(organization.status, "active")
+        )
+      )
   }
 
   let tenants = await loadTenants(ctx.userId)
-  if (tenants.length === 0) {
+  if (tenants.length === 0 && !ctx.tenantArchived) {
     try {
       const provisioned = await ensureBootstrap(ctx.userId, ctx.userEmail)
       if (provisioned) tenants = await loadTenants(ctx.userId)

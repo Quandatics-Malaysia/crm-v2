@@ -13,8 +13,12 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import { opportunities, funnels } from "@/db/schema"
+import {
+  normalizeDateInput,
+  normalizeMoneyInput,
+} from "@/lib/input-validation"
 
-/** A resolved contact for display: name + derived "Designation" (persons.title). */
+/** A resolved contact for display: name + resolved designation (persons.designation). */
 export type ContactRef = { id: string; name: string; designation: string | null }
 
 export type OpportunityContainerRow = {
@@ -137,6 +141,23 @@ export async function updateOpportunityContainer(
         throw new Error("FORBIDDEN: not permitted on this Opportunity")
       }
 
+      const ownerBudgetLimit = normalizeMoneyInput(
+        input.ownerBudgetLimit,
+        "Owner budget limit"
+      )
+      const powerSponsorBudgetLimit = normalizeMoneyInput(
+        input.powerSponsorBudgetLimit,
+        "Power sponsor budget limit"
+      )
+      const estimatedBudget = normalizeMoneyInput(
+        input.estimatedBudget,
+        "Estimated budget"
+      )
+      const estimatedCloseDate = normalizeDateInput(
+        input.estimatedCloseDate,
+        "Estimated close date"
+      )
+
       const cascade = {
         pain: input.pain === undefined ? existing.pain : input.pain || null,
         power: input.power === undefined ? existing.power : input.power || null,
@@ -169,7 +190,7 @@ export async function updateOpportunityContainer(
         ownerBudgetLimit:
           input.ownerBudgetLimit === undefined
             ? existing.ownerBudgetLimit
-            : input.ownerBudgetLimit || null,
+            : ownerBudgetLimit,
         powerSponsorContactId:
           input.powerSponsorContactId === undefined
             ? existing.powerSponsorContactId
@@ -177,15 +198,15 @@ export async function updateOpportunityContainer(
         powerSponsorBudgetLimit:
           input.powerSponsorBudgetLimit === undefined
             ? existing.powerSponsorBudgetLimit
-            : input.powerSponsorBudgetLimit || null,
+            : powerSponsorBudgetLimit,
         estimatedBudget:
           input.estimatedBudget === undefined
             ? existing.estimatedBudget
-            : input.estimatedBudget || null,
+            : estimatedBudget,
         estimatedCloseDate:
           input.estimatedCloseDate === undefined
             ? existing.estimatedCloseDate
-            : input.estimatedCloseDate || null,
+            : estimatedCloseDate,
         isRenewal: input.isRenewal ?? existing.isRenewal,
         showDashboards: input.showDashboards ?? existing.showDashboards,
         assignedPresales:

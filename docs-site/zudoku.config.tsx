@@ -264,6 +264,7 @@ const config: ZudokuConfig = {
       icon: "settings",
       items: [
         { type: "doc", file: "operations", label: "Operations" },
+        { type: "doc", file: "operations/release-versioning", label: "Release versioning" },
         { type: "doc", file: "architecture", label: "Architecture" },
       ],
     },

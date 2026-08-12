@@ -20,11 +20,21 @@ import {
 import { createContract, getContractDetail, updateContract } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
 import {
+  dashboardSummary,
+  listAudit,
+  listDeployments,
+  listPlans,
+  savePlan,
+  setPlanActive,
+  updateDeployment,
+} from "../repos/management"
+import {
   assignEntitlementSchedule,
   issueEntitlement,
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
+import { AuditPage, DeploymentsPage, ManagementDashboard, PlansPage } from "../ui/management"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
@@ -104,6 +114,18 @@ function mutationDescriptor(pathname: string): {
 } {
   if (pathname === "/operator/clients") {
     return { action: "client.create", targetType: "client", targetId: "pending" }
+  }
+  if (pathname === "/operator/plans") {
+    return { action: "plan.create", targetType: "plan", targetId: "pending" }
+  }
+  if (/^\/operator\/plans\/[^/]+$/.test(pathname)) {
+    return { action: "plan.update", targetType: "plan", targetId: "request-target" }
+  }
+  if (/^\/operator\/plans\/[^/]+\/status$/.test(pathname)) {
+    return { action: "plan.status.update", targetType: "plan", targetId: "request-target" }
+  }
+  if (/^\/operator\/deployments\/[^/]+$/.test(pathname)) {
+    return { action: "deployment.update", targetType: "deployment", targetId: "request-target" }
   }
   if (/^\/operator\/clients\/[^/]+\/organisations$/.test(pathname)) {
     return {
@@ -210,6 +232,24 @@ function actor(context: OperatorContext) {
   }
 }
 
+async function writeSuccessAudit(
+  context: OperatorContext,
+  action: string,
+  targetType: string,
+  targetId: string,
+): Promise<void> {
+  const audit = await prepareOperatorAuditStatement(context.env.CONTROL_DB, {
+    operatorId: context.get("operator").operatorId,
+    action,
+    targetType,
+    targetId,
+    outcome: "success",
+    requestId: requestId(context),
+    metadata: {},
+  })
+  await context.env.CONTROL_DB.batch([audit.statement])
+}
+
 export function createOperatorRoutes() {
   const routes = new Hono<ControlPlaneEnvironment>()
 
@@ -220,9 +260,19 @@ export function createOperatorRoutes() {
     await next()
   })
   routes.use("*", auditMutationFailures)
-  routes.get("/", (context) =>
-    context.html(<Dashboard operatorEmail={context.get("operator").email} />),
-  )
+  routes.get("/", async (context) => context.html(
+    <ManagementDashboard summary={await dashboardSummary(context.env.CONTROL_DB)} />,
+  ))
+  routes.get("/plans", async (context) => context.html(
+    <PlansPage plans={await listPlans(context.env.CONTROL_DB)} csrfToken={csrfToken(context)} />,
+  ))
+  routes.get("/deployments", async (context) => context.html(
+    <DeploymentsPage deployments={await listDeployments(context.env.CONTROL_DB)} csrfToken={csrfToken(context)} />,
+  ))
+  routes.get("/contracts", (context) => context.redirect("/operator/clients", 302))
+  routes.get("/audit", async (context) => context.html(
+    <AuditPage records={await listAudit(context.env.CONTROL_DB)} />,
+  ))
   routes.get("/clients", async (context) => {
     const pagination = parsePagination(context.req.url)
     const clients = await listClients(
@@ -259,6 +309,51 @@ export function createOperatorRoutes() {
       context,
       (data) => createClient(context.env.CONTROL_DB, data as never, actor(context)),
     ),
+  )
+  routes.post(
+    "/plans",
+    requireCsrfToken,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const data = await mutationData(context)
+      const id = await savePlan(context.env.CONTROL_DB, data)
+      await writeSuccessAudit(context, "plan.create", "plan", id)
+      return isJson(context) ? context.json({ id }, 201) : context.redirect("/operator/plans", 303)
+    },
+  )
+  routes.post(
+    "/plans/:planId",
+    requireCsrfToken,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const id = context.req.param("planId")
+      await savePlan(context.env.CONTROL_DB, await mutationData(context), id)
+      await writeSuccessAudit(context, "plan.update", "plan", id)
+      return context.redirect("/operator/plans", 303)
+    },
+  )
+  routes.post(
+    "/plans/:planId/status",
+    requireCsrfToken,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const id = context.req.param("planId")
+      const data = await mutationData(context)
+      await setPlanActive(context.env.CONTROL_DB, id, data.active === "true")
+      await writeSuccessAudit(context, "plan.status.update", "plan", id)
+      return context.redirect("/operator/plans", 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId",
+    requireCsrfToken,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const id = context.req.param("deploymentId")
+      await updateDeployment(context.env.CONTROL_DB, id, await mutationData(context))
+      await writeSuccessAudit(context, "deployment.update", "deployment", id)
+      return context.redirect("/operator/deployments", 303)
+    },
   )
   routes.post(
     "/clients/:clientId/organisations",

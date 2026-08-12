@@ -1,0 +1,31 @@
+---
+title: Release log
+description: Canonical immutable release manifest history for signed client deployments.
+---
+
+# Release log
+
+Every release now writes an entry to:
+
+`docs/operations/release-log.md`
+
+This log is the canonical version history for:
+
+- `release_tag`
+- source commit SHA
+- GitHub Actions run id
+- immutable web/migrator/backup/agent images
+
+Use it for audit questions and rollback checks.
+
+To generate a new release entry from one command, use:
+
+```bash
+rtk scripts/release-one-command.sh --bump patch --rc 1 --wait
+```
+
+After the manifest lands, validate quickly in the app:
+
+- Health: `/api/health`
+- Release metadata: `/settings/system`
+- Playground: `/api-playground`

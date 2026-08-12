@@ -168,6 +168,25 @@ export const REQUIRABLE_FIELD_KEYS = Object.keys(
   REQUIRABLE_FIELDS
 ) as PresetFieldKey[]
 
+/**
+ * Preset keys tied to Opportunity-level PPVVC analysis fields. These can be
+ * skipped for direct Won transitions to preserve the Salesforce behavior noted
+ * by the team (quick Won closure from early stages without full PPVVC blocks).
+ */
+export const PPVVC_PRESET_KEYS: PresetFieldKey[] = [
+  "vision",
+  "objective",
+  "powerSponsorContact",
+  "powerSponsorBudgetLimit",
+  "value",
+]
+
+const PPVVC_PRESET_KEY_SET = new Set(PPVVC_PRESET_KEYS)
+
+type RequiredKeysOptions = {
+  skipPpvvcForWonTransition?: boolean
+}
+
 export function isPresetFieldKey(k: string): k is PresetFieldKey {
   return k in REQUIRABLE_FIELDS
 }
@@ -255,15 +274,19 @@ export function stagesEnteredBy<
 /** Union (order-preserving, de-duplicated) of requiredFields across stages. */
 export function requiredKeysForStages<
   T extends { requiredFields?: string[] | null }
->(stages: T[]): string[] {
+>(stages: T[], options: RequiredKeysOptions = {}): string[] {
   const seen = new Set<string>()
+  const skipPpvvc = options.skipPpvvcForWonTransition
   const out: string[] = []
   for (const s of stages)
-    for (const k of s.requiredFields ?? [])
+    for (const k of s.requiredFields ?? []) {
+      if (skipPpvvc && isPresetFieldKey(k) && PPVVC_PRESET_KEY_SET.has(k))
+        continue
       if (!seen.has(k)) {
         seen.add(k)
         out.push(k)
       }
+    }
   return out
 }
 
@@ -335,4 +358,3 @@ export function entersMilestoneAutoCreateStage(stage: {
 export function entersMilestoneDeleteStage(kind: string): boolean {
   return kind === "LOST" || kind === "PARKED"
 }
-

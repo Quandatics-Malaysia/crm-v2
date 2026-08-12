@@ -287,6 +287,10 @@ export function requiredKeysForStages<
         out.push(k)
       }
     }
+  // A direct Won shortcut may omit PPVVC analysis, but it must still identify
+  // the opportunity owner even when that requirement belongs to the stage
+  // being left rather than one of the entered stages.
+  if (skipPpvvc && !seen.has("ownerContact")) out.push("ownerContact")
   return out
 }
 

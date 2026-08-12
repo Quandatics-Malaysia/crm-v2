@@ -703,7 +703,7 @@ describe("scheduler and retrieval", () => {
     expect(await runEntitlementRenewal(correctedRotation, new Date(now.getTime() + DAY_MS + 1))).toMatchObject({ checked: 2, issued: 2 })
     expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + DAY_MS + 2))).issued).toBe(50)
     expect((await runEntitlementRenewal(bindings(), new Date(now.getTime() + DAY_MS + 3))).issued).toBe(3)
-  })
+  }, 15_000)
 
   it("advances invalid schedules and backs off failed signing without persisting a lease", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()

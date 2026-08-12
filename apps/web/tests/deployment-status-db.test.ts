@@ -50,10 +50,10 @@ integration("deployment status PostgreSQL boundary", () => {
   it("counts active cc and qar tenants while excluding archived demo memberships and invitations", async () => {
     const [before] = await app`select * from read_deployment_status_rollup()`
     await admin`
-      insert into organization (id, name, slug, created_at)
+      insert into organization (id, name, slug, status, archived_at, created_at)
       values
-        (${`${prefix}cc`}, ${"CC"}, ${`${prefix}cc`}, now()),
-        (${`${prefix}qar`}, ${"QAR"}, ${`${prefix}qar`}, now()),
+        (${`${prefix}cc`}, ${"CC"}, ${`${prefix}cc`}, 'active', null, now()),
+        (${`${prefix}qar`}, ${"QAR"}, ${`${prefix}qar`}, 'active', null, now()),
         (${`${prefix}demo`}, ${"Demo"}, ${`${prefix}demo`}, 'archived', now(), now())
     `
     await admin`
@@ -88,8 +88,8 @@ integration("deployment status PostgreSQL boundary", () => {
     await admin`
       insert into pending_invites (id, tenant_id, email, normalized_email, expires_at, tier_level, created_at, updated_at)
       values
-        ('00000000-0000-4000-8000-000000000071', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '1 day', 0, now(), now()),
-        ('00000000-0000-4000-8000-000000000072', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '2 days', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000071', ${`${prefix}cc`}, ${`${prefix}invite-one@example.com`}, ${`${prefix}invite-one@example.com`}, now() + interval '1 day', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}cc`}, ${`${prefix}invite-two@example.com`}, ${`${prefix}invite-two@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000073', ${`${prefix}cc`}, ${`${prefix}a@example.com`}, ${`${prefix}a@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000074', ${`${prefix}qar`}, ${`${prefix}other@example.com`}, ${`${prefix}other@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000075', ${`${prefix}demo`}, ${`${prefix}demo-invite@example.com`}, ${`${prefix}demo-invite@example.com`}, now() + interval '2 days', 0, now(), now())
@@ -99,8 +99,8 @@ integration("deployment status PostgreSQL boundary", () => {
         invitation_id, normalized_email, status, expires_at, released_at, expired_at
       )
       values
-        ('00000000-0000-4000-8000-000000000071', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '1 day', null, null),
-        ('00000000-0000-4000-8000-000000000072', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '2 days', null, null),
+        ('00000000-0000-4000-8000-000000000071', ${`${prefix}invite-one@example.com`}, 'reserved', now() + interval '1 day', null, null),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}invite-two@example.com`}, 'reserved', now() + interval '2 days', null, null),
         ('00000000-0000-4000-8000-000000000073', ${`${prefix}a@example.com`}, 'reserved', now() + interval '2 days', null, null),
         (${`${prefix}invite-expired`}, ${`${prefix}expired@example.com`}, 'expired', now(), null, now()),
         (${`${prefix}invite-released`}, ${`${prefix}released@example.com`}, 'released', now() + interval '2 days', now(), null),
@@ -110,7 +110,7 @@ integration("deployment status PostgreSQL boundary", () => {
 
     const [after] = await app`select * from read_deployment_status_rollup()`
     expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(2)
-    expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(2)
+    expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(3)
     expect(after.applied_migration_version).toBe("0070")
   })
 

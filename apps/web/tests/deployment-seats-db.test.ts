@@ -114,6 +114,64 @@ integration("deployment seat PostgreSQL boundary", () => {
     await expect(app`select * from deployment_seat_reservations`).rejects.toThrow(/permission denied/)
   })
 
+  it("archives a tenant atomically and rejects every seat mutation authority", async () => {
+    const tenantId = `${prefix}demo`
+    await admin`insert into organization (id, name, slug, created_at)
+      values (${tenantId}, 'Demo', ${tenantId}, now())`
+    const archivedActor = await createActor(tenantId, "demo", "Admin")
+
+    await admin`select archive_organization(
+      ${tenantId}, ${archivedActor.userId}, ${archivedActor.memberId}, '2026-08-11T01:00:00Z'
+    )`
+    expect((await admin`select status, archived_at from organization where id = ${tenantId}`)[0]).toEqual({
+      status: "archived",
+      archived_at: new Date("2026-08-11T01:00:00.000Z"),
+    })
+
+    const invitationId = "00000000-0000-4000-8000-000000000070"
+    const expiresAt = "2026-08-18T00:00:00Z"
+    const now = "2026-08-11T01:00:00Z"
+    await expect(app`select * from reserve_deployment_invitation(
+      ${invitationId}::uuid, ${tenantId}, ${`${prefix}demo@example.com`}, null, 0,
+      ${archivedActor.memberId}, ${archivedActor.userId}, ${archivedActor.memberId}, ${expiresAt}, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from bootstrap_deployment_invitation(
+      ${invitationId}::uuid, ${tenantId}, ${`${prefix}demo@example.com`}, null, 0,
+      ${defaultActor.userId}, ${expiresAt}, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from activate_deployment_membership(
+      ${tenantId}, ${archivedActor.userId}, ${archivedActor.memberId}, null, 0, null,
+      ${archivedActor.userId}, ${archivedActor.memberId}, false, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from consume_deployment_invitation(
+      ${tenantId}, ${invitationId}::uuid, ${archivedActor.userId}, ${archivedActor.memberId}, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from auto_join_deployment_membership(
+      ${tenantId}, ${archivedActor.userId}, ${archivedActor.memberId}, null, 0, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from bootstrap_deployment_owner(
+      ${tenantId}, ${archivedActor.userId}, ${archivedActor.memberId}, null, 0, 'empty', ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from change_deployment_membership(
+      ${tenantId}, ${archivedActor.memberId}, false, ${archivedActor.userId}, ${archivedActor.memberId}, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+    await expect(app`select * from revoke_deployment_invitation(
+      ${tenantId}, ${invitationId}::uuid, ${archivedActor.userId}, ${archivedActor.memberId}, ${now}
+    )`).rejects.toThrow(/organization_archived/)
+
+    await admin`select restore_organization(
+      ${tenantId}, ${archivedActor.userId}, ${archivedActor.memberId}, '2026-08-11T02:00:00Z'
+    )`
+    expect((await admin`select status, archived_at from organization where id = ${tenantId}`)[0]).toEqual({
+      status: "active",
+      archived_at: null,
+    })
+    expect(await admin`select action from audit_log where tenant_id = ${tenantId} and action in ('organization.archived', 'organization.restored') order by action`).toEqual([
+      { action: "organization.archived" },
+      { action: "organization.restored" },
+    ])
+  })
+
   it("serializes two final-seat reservations so exactly one commits", async () => {
     async function reserve(suffix: string) {
       return (await app`select * from reserve_deployment_invitation(

@@ -98,6 +98,17 @@ const INVOICE_MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ].map((m) => ({ value: m, label: m }))
 
+const PPVVC: {
+  key: "pain" | "power" | "vision" | "value" | "control"
+  label: string
+}[] = [
+  { key: "power", label: "1-P: Power Sponsor" },
+  { key: "pain", label: "2-P: Pain" },
+  { key: "vision", label: "3-V: Vision" },
+  { key: "value", label: "4-V: Value" },
+  { key: "control", label: "5-C: Control" },
+]
+
 // Status pills render via the app-wide <StatusBadge> tone map; the stage-change
 // source labels come from the shared status-meta module.
 
@@ -160,7 +171,16 @@ export type FunnelDetailData = {
   accountName: string | null
   /** Every account, for the inline Account picker. */
   accountOptions: Option[]
-  container: { id: string; code: string; name: string } | null
+  container: {
+    id: string
+    code: string
+    name: string
+    pain: string | null
+    power: string | null
+    vision: string | null
+    value: string | null
+    control: string | null
+  } | null
   ownerMemberId: string
   ownerName: string | null
   /** Every tenant member, for the inline Owner picker. */
@@ -561,6 +581,19 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 "—"
               )}
             </FieldRow>
+            {container ? (
+              <>
+                <Separator />
+                <h3 className="text-sm font-semibold">Opportunity Analysis (PPVVC)</h3>
+                {PPVVC.map((f) => (
+                  <FieldRow key={f.key} label={f.label}>
+                    <span className="whitespace-pre-wrap">
+                      {container[f.key] || "—"}
+                    </span>
+                  </FieldRow>
+                ))}
+              </>
+            ) : null}
             <FieldRow label="Owner">
               {canEdit ? (
                 <InlineCombobox

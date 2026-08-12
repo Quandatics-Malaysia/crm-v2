@@ -47,6 +47,7 @@ export default async function PersonDetailPage({
     { label: "First name", value: person.firstName, editKey: "firstName" },
     { label: "Last name", value: person.lastName ?? "—", editKey: "lastName" },
     { label: "Title", value: person.title ?? "—", editKey: "title" },
+    { label: "Department", value: person.department ?? "—", editKey: "department" },
     {
       label: "Email",
       editKey: "email",
@@ -99,6 +100,7 @@ export default async function PersonDetailPage({
     firstName: person.firstName,
     lastName: person.lastName,
     title: person.title,
+    department: person.department,
     email: person.email,
     phone: person.phone,
     isPrimary: person.isPrimary,

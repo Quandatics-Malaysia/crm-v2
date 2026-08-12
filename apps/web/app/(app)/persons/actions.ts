@@ -15,6 +15,11 @@ import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { accounts, persons } from "@/db/schema"
+import {
+  normalizeEmailInput,
+  normalizePhoneInput,
+  normalizeTextInput,
+} from "@/lib/input-validation"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
 const LIST_LIMIT = 1000
@@ -52,11 +57,31 @@ function fullName(p: { firstName: string; lastName: string | null }) {
   return [p.firstName, p.lastName].filter(Boolean).join(" ")
 }
 
+function normalizePersonInput(input: PersonInput): PersonInput {
+  const firstName = normalizeTextInput(input.firstName, "First name", 120)
+  const lastName = normalizeTextInput(input.lastName, "Last name", 120)
+  const title = normalizeTextInput(input.title, "Title", 160)
+  const department = normalizeTextInput(input.department, "Department", 160)
+  const email = normalizeEmailInput(input.email, "Email")
+  const phone = normalizePhoneInput(input.phone, "Phone")
+  if (!firstName) throw new Error("First name is required.")
+  return {
+    ...input,
+    firstName,
+    lastName,
+    title,
+    department,
+    email,
+    phone,
+  }
+}
+
 export type PersonInput = {
   accountId: string
   firstName: string
   lastName?: string | null
   title?: string | null
+  department?: string | null
   email?: string | null
   phone?: string | null
   isPrimary?: boolean
@@ -103,6 +128,8 @@ export async function createPerson(
   return runAction(async () => {
     if (!input.accountId) throw new Error("A contact must belong to an account.")
 
+    const normalized = normalizePersonInput(input)
+
     const row = await withTenant(PERMISSIONS.PERSON_CREATE, async (tx, ctx) => {
       const visible = await visibleMemberIds(tx, ctx)
       const [account] = await tx
@@ -125,11 +152,12 @@ export async function createPerson(
         .values({
           tenantId: ctx.tenantId,
           accountId: input.accountId,
-          firstName: input.firstName,
-          lastName: input.lastName || null,
-          title: input.title || null,
-          email: input.email || null,
-          phone: input.phone || null,
+          firstName: normalized.firstName,
+          lastName: normalized.lastName || null,
+          title: normalized.title || null,
+          department: normalized.department || null,
+          email: normalized.email || null,
+          phone: normalized.phone || null,
           isPrimary: input.isPrimary ?? false,
         })
         .returning()
@@ -159,6 +187,8 @@ export async function updatePerson(
 ): Promise<ActionResult<PersonRow>> {
   return runAction(async () => {
     if (!input.accountId) throw new Error("A contact must belong to an account.")
+
+    const normalized = normalizePersonInput(input)
 
     const row = await withTenant(PERMISSIONS.PERSON_UPDATE, async (tx, ctx) => {
       const [before] = await tx
@@ -203,11 +233,12 @@ export async function updatePerson(
 
       const updated = {
         accountId: input.accountId,
-        firstName: input.firstName,
-        lastName: input.lastName || null,
-        title: input.title || null,
-        email: input.email || null,
-        phone: input.phone || null,
+        firstName: normalized.firstName,
+        lastName: normalized.lastName || null,
+        title: normalized.title || null,
+        department: normalized.department || null,
+        email: normalized.email || null,
+        phone: normalized.phone || null,
         isPrimary: input.isPrimary ?? false,
         updatedAt: new Date(),
       }

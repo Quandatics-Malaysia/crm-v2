@@ -38,6 +38,7 @@ const schema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().optional(),
   title: z.string().optional(),
+  department: z.string().optional(),
   email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
   phone: z.string().optional(),
   isPrimary: z.boolean(),
@@ -81,6 +82,7 @@ export function PersonForm({
       firstName: person?.firstName ?? "",
       lastName: person?.lastName ?? "",
       title: person?.title ?? "",
+      department: person?.department ?? "",
       email: person?.email ?? "",
       phone: person ? person.phone ?? "" : phonePrefix ?? "",
       isPrimary: person?.isPrimary ?? false,
@@ -94,6 +96,7 @@ export function PersonForm({
         firstName: person?.firstName ?? "",
         lastName: person?.lastName ?? "",
         title: person?.title ?? "",
+        department: person?.department ?? "",
         email: person?.email ?? "",
         phone: person ? person.phone ?? "" : phonePrefix ?? "",
         isPrimary: person?.isPrimary ?? false,
@@ -118,6 +121,7 @@ export function PersonForm({
       firstName: values.firstName,
       lastName: values.lastName || null,
       title: values.title || null,
+      department: values.department || null,
       email: values.email || null,
       phone: values.phone || null,
       isPrimary: values.isPrimary,
@@ -218,6 +222,19 @@ export function PersonForm({
                   <FormLabel>Title</FormLabel>
                   <FormControl>
                     <Input placeholder="VP of Engineering" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="department"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Department</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Commercial" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

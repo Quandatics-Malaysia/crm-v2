@@ -45,6 +45,14 @@ import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 import {
+  normalizeDateInput,
+  normalizeMoneyInput,
+  normalizeCustomFieldValue,
+  normalizeYearInput,
+  isValidPercentInput,
+} from "@/lib/input-validation"
+import { type CustomFunnelField } from "@/lib/stage-gate"
+import {
   funnelsList,
   funnelsGet,
   loadPartiesByOpportunity,
@@ -89,6 +97,10 @@ async function resolvePartyList(
 
   const resolved: PartyRow[] = parties.map((p) => {
     const id = (p.partnerEntityId ?? "").trim()
+    const normalizedShareValue = normalizeMoneyInput(p.shareValue, "Partner share value")
+    if (normalizedShareValue === null) {
+      throw new Error("Handling partner share value is required.")
+    }
     const match = entities.find((e) => e.id === id)
     if (!match)
       throw new Error(
@@ -103,7 +115,7 @@ async function resolvePartyList(
       partnerEntityId: match.id,
       partnerName: match.name,
       shareType: p.shareType,
-      shareValue: p.shareValue,
+      shareValue: normalizedShareValue,
       currency: p.currency || null,
       manualFxRate: p.manualFxRate || null,
     }
@@ -146,12 +158,45 @@ async function saveParties(
   )
 }
 
+async function loadCustomFunnelFieldDefs(
+  tx: Tx,
+  tenantId: string
+): Promise<CustomFunnelField[]> {
+  const [row] = await tx
+    .select({ customFunnelFields: tenantSettings.customFunnelFields })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .limit(1)
+  return row?.customFunnelFields ?? []
+}
+
+function normalizeOpportunityCustomFields(
+  customFields: Record<string, string> | null | undefined,
+  defs: CustomFunnelField[]
+): Record<string, string> {
+  if (!customFields) return {}
+  const byKey = new Map(defs.map((f) => [f.key, f]))
+  const normalized: Record<string, string> = {}
+  for (const [key, rawValue] of Object.entries(customFields)) {
+    const def = byKey.get(key)
+    if (!def) continue
+    const type = def.type ?? "text"
+    const options = type === "select" ? def.options ?? [] : []
+    normalized[key] = normalizeCustomFieldValue(
+      rawValue,
+      type,
+      options,
+      `${def.label} (${key})`
+    )
+  }
+  return normalized
+}
+
 /** Server-side range guard for the recognized-% (the client Zod schema alone
  *  is bypassable). Accepts undefined/null/"" (= unset). */
 function assertRecognizedPercent(v: string | null | undefined): void {
   if (v === undefined || v === null || v === "") return
-  const n = Number(v)
-  if (!Number.isFinite(n) || n < 0 || n > 100) {
+  if (!isValidPercentInput(v)) {
     throw new Error("Recognized % must be between 0 and 100.")
   }
 }
@@ -331,8 +376,14 @@ export async function createOpportunity(
       const ownerMemberId = input.ownerMemberId || ctx.memberId
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
+      const estimatedAmount = normalizeMoneyInput(input.estimatedAmount, "Estimated funnel amount")
+      const expectedCloseDate = normalizeDateInput(
+        input.expectedCloseDate,
+        "Expected close date"
+      )
+      const projectYear = normalizeYearInput(input.projectYear, "Project / license year")
       assertRecognizedPercent(input.recognizedPercent)
-      const dealBasis = Number(input.estimatedAmount ?? 0)
+      const dealBasis = Number(estimatedAmount ?? 0)
       // Intercompany billing is part of the finance plugin — force it off when
       // that plugin is disabled so no partner rows or mirror are written.
       const wantsInterco =
@@ -343,6 +394,14 @@ export async function createOpportunity(
         wantsInterco,
         input.parties,
         dealBasis
+      )
+      const customFieldDefs = await loadCustomFunnelFieldDefs(
+        tx,
+        ctx.tenantId
+      )
+      const customFields = normalizeOpportunityCustomFields(
+        input.customFields,
+        customFieldDefs
       )
 
       // Multi-party interco split: when parties are authored, recognizedPercent
@@ -397,7 +456,7 @@ export async function createOpportunity(
           accountId: input.accountId,
           ownerMemberId,
           name: input.name,
-          year: input.projectYear,
+          year: projectYear,
           currency,
           description: input.description,
           ppvvc: pickPpvvc(input),
@@ -424,16 +483,16 @@ export async function createOpportunity(
           ownerMemberId,
           ...ppvvc,
           // amount stays null on create — it's synced from the primary quote.
-          estimatedAmount: input.estimatedAmount ? input.estimatedAmount : null,
+          estimatedAmount,
           recognizedPercent: recognizedPercentValue,
           description: input.description || null,
-          projectYear: input.projectYear ?? null,
+          projectYear,
           isIntercompany: wantsInterco,
           currency,
           // Cascaded from the container (source of truth) — same pattern as PPVVC.
           ...nature,
-          customFields: input.customFields ?? {},
-          expectedCloseDate: input.expectedCloseDate || null,
+          customFields,
+          expectedCloseDate,
         })
         .returning({ id: funnels.id })
 
@@ -449,7 +508,7 @@ export async function createOpportunity(
         toStageId: stage.id,
         changedByMemberId: ctx.memberId,
         probabilityAtChange: stage.probability,
-        valueAtChange: input.estimatedAmount ? input.estimatedAmount : null,
+        valueAtChange: estimatedAmount,
         source: "manual",
       })
 
@@ -536,12 +595,25 @@ export async function updateOpportunity(
       (input.isIntercompany === undefined
         ? existing.isIntercompany
         : !!input.isIntercompany)
-    assertRecognizedPercent(input.recognizedPercent)
     const nextEstimated =
       input.estimatedAmount === undefined
         ? existing.estimatedAmount
-        : input.estimatedAmount || null
+        : normalizeMoneyInput(input.estimatedAmount, "Estimated funnel amount")
+    assertRecognizedPercent(input.recognizedPercent)
     const dealBasis = Number(existing.amount ?? nextEstimated ?? 0)
+    const expectedCloseDate =
+      input.expectedCloseDate === undefined
+        ? undefined
+        : normalizeDateInput(input.expectedCloseDate, "Expected close date")
+    const projectYear =
+      input.projectYear === undefined
+        ? undefined
+        : normalizeYearInput(input.projectYear, "Project / license year")
+    const customFieldDefs = await loadCustomFunnelFieldDefs(tx, ctx.tenantId)
+    const customFields =
+      input.customFields === undefined
+        ? existing.customFields
+        : normalizeOpportunityCustomFields(input.customFields, customFieldDefs)
 
     let partyInputs: PartyInput[] | null = input.parties ?? null
     if (effectiveInterco && input.parties === undefined) {
@@ -591,7 +663,7 @@ export async function updateOpportunity(
       projectYear:
         input.projectYear === undefined
           ? existing.projectYear
-          : input.projectYear ?? null,
+          : projectYear,
       isIntercompany: effectiveInterco,
       currency: input.currency ?? existing.currency,
       projectNatures:
@@ -603,7 +675,7 @@ export async function updateOpportunity(
       customFields:
         input.customFields === undefined
           ? existing.customFields
-          : input.customFields ?? {},
+          : customFields,
       projectNatureCode:
         input.projectNatures !== undefined
           ? input.projectNatures?.[0] ?? null
@@ -613,7 +685,7 @@ export async function updateOpportunity(
       expectedCloseDate:
         input.expectedCloseDate === undefined
           ? existing.expectedCloseDate
-          : input.expectedCloseDate || null,
+          : expectedCloseDate,
       procurementStage:
         input.procurementStage === undefined
           ? existing.procurementStage
@@ -708,7 +780,7 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
 
 /** All persons with their accountId, for client-side filtering in the form. */
 export async function listPersonsWithAccount(): Promise<
-  { id: string; name: string; accountId: string }[]
+  { id: string; name: string; accountId: string; designation: string | null; department: string | null }[]
 > {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
@@ -718,6 +790,8 @@ export async function listPersonsWithAccount(): Promise<
         firstName: persons.firstName,
         lastName: persons.lastName,
         accountId: persons.accountId,
+        designation: persons.title,
+        department: persons.department,
       })
       .from(persons)
       .innerJoin(accounts, eq(persons.accountId, accounts.id))
@@ -732,6 +806,8 @@ export async function listPersonsWithAccount(): Promise<
       id: p.id,
       name: [p.firstName, p.lastName].filter(Boolean).join(" "),
       accountId: p.accountId,
+      designation: p.designation ?? null,
+      department: p.department ?? null,
     }))
   })
 }

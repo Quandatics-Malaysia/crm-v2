@@ -42,14 +42,6 @@ type FunnelRow = OpportunityContainerDetail["funnels"][number]
 type QuoteRow = OpportunityContainerDetail["quotations"][number]
 type ProductRow = OpportunityContainerDetail["products"][number]
 
-const PPVVC: { key: "pain" | "power" | "vision" | "value" | "control"; label: string }[] = [
-  { key: "power", label: "1-P: Power Sponsor" },
-  { key: "pain", label: "2-P: Pain" },
-  { key: "vision", label: "3-V: Vision" },
-  { key: "value", label: "4-V: Value" },
-  { key: "control", label: "5-C: Control" },
-]
-
 function stageVariant(kind: string | null): "default" | "secondary" | "destructive" | "outline" {
   if (kind === "WON") return "default"
   if (kind === "LOST") return "destructive"
@@ -375,7 +367,7 @@ export function OpportunityDetailBody({
                     {detail.products.length}
                   </Badge>
                 </TabsTrigger>
-                <CountTab value="analysis">Analysis (PPVVC)</CountTab>
+                <CountTab value="analysis">Analysis</CountTab>
                 <CountTab value="remarks">Remarks</CountTab>
                 <TabsTrigger value="documents">
                   Documents
@@ -474,25 +466,6 @@ export function OpportunityDetailBody({
                         )}
                       </div>
                     </div>
-                    {PPVVC.map((f) => (
-                      <div key={f.key}>
-                        <div className="text-xs font-medium text-muted-foreground">
-                          {f.label}
-                        </div>
-                        <div className="text-sm">
-                          {canEdit ? (
-                            <InlineValue
-                              value={o[f.key] ?? ""}
-                              display={o[f.key] || "—"}
-                              title={`Click to edit ${f.label}`}
-                              onSave={(next) => saveField({ [f.key]: next || null })}
-                            />
-                          ) : (
-                            o[f.key] || "—"
-                          )}
-                        </div>
-                      </div>
-                    ))}
                     <div>
                       <div className="text-xs font-medium text-muted-foreground">
                         Estimated Budget

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { formatMoney, formatDate } from "@/lib/format"
 import { getQuotationDocument } from "../../actions"
 import { PrintButton } from "./print-button"
+import { EntityQuotationDocument } from "./entity-quotation-document"
+import { resolveQuotationPdfTemplate } from "@/lib/quotation-pdf-template"
 
 type DocAddress = {
   line1?: string | null
@@ -15,6 +17,20 @@ type DocAddress = {
   postcode?: string | null
   country?: string | null
 } | null
+
+type QuotationPdfTemplateSpec = {
+  key: string
+  label: string
+  accentClass: string
+  metaLabel: string
+}
+
+const DEFAULT_QUOTATION_PDF_TEMPLATE: QuotationPdfTemplateSpec = {
+  key: "default",
+  label: "Quotation",
+  accentClass: "bg-red-600",
+  metaLabel: "Quotation",
+}
 
 function addressLines(addr: DocAddress): string[] {
   if (!addr) return []
@@ -26,6 +42,24 @@ function addressLines(addr: DocAddress): string[] {
   )
 }
 
+function resolveQuotationPdfTemplateSpec(
+  rawTemplateKey: string | null
+): QuotationPdfTemplateSpec {
+  const key = (rawTemplateKey ?? "").trim().toLowerCase()
+  if (!key) return DEFAULT_QUOTATION_PDF_TEMPLATE
+  if (key === "default") return DEFAULT_QUOTATION_PDF_TEMPLATE
+  return {
+    key,
+    label: `Quotation (${key})`,
+    accentClass: "bg-slate-700",
+    metaLabel: "Quotation model",
+  }
+}
+
+function isDefaultPdfTemplate(template: QuotationPdfTemplateSpec): boolean {
+  return template.key === DEFAULT_QUOTATION_PDF_TEMPLATE.key
+}
+
 export default async function QuotationPreviewPage({
   params,
 }: {
@@ -35,13 +69,45 @@ export default async function QuotationPreviewPage({
   const doc = await getQuotationDocument(id)
   if (!doc) notFound()
 
-  const { quotation: q, lines, account, contact, entityName, company } = doc
+  const {
+    quotation: q,
+    lines,
+    account,
+    contact,
+    entityName,
+    company,
+    pdfTemplateKey,
+  } = doc
   const currency = q.currency
   const subtotal = Number(q.subtotal)
   const discountTotal = Number(q.discountTotal)
   const taxTotal = Number(q.taxTotal)
   const total = Number(q.total)
+  const entityTemplate = resolveQuotationPdfTemplate({
+    entityCode: doc.entityCode,
+    entitySlug: doc.entitySlug,
+    entityName,
+    legacyKey: pdfTemplateKey,
+  })
+  const template = resolveQuotationPdfTemplateSpec(pdfTemplateKey)
   const lineAddr = addressLines(account?.address ?? null)
+  const isDefaultTemplate = isDefaultPdfTemplate(template)
+  const attentionName =
+    contact?.name ?? account?.name ?? "—"
+
+  if (entityTemplate !== "default") {
+    return (
+      <div className="bg-muted/30 py-6 print:bg-white print:py-0">
+        <div className="no-print mx-auto mb-4 flex max-w-3xl items-center justify-between px-4">
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/quotations/${q.id}`} />}>
+            <ArrowLeftIcon className="size-4" /> Back to quotation
+          </Button>
+          <PrintButton />
+        </div>
+        <EntityQuotationDocument doc={doc} template={entityTemplate} />
+      </div>
+    )
+  }
 
   return (
     <div className="bg-muted/30 py-6 print:bg-white print:py-0">
@@ -63,9 +129,12 @@ export default async function QuotationPreviewPage({
       <div
         id="quote-doc"
         className="mx-auto min-h-[297mm] w-[210mm] max-w-full overflow-hidden rounded-lg bg-white text-sm text-zinc-900 shadow-lg ring-1 ring-zinc-200/60 print:min-h-0 print:w-full print:max-w-none print:rounded-none print:shadow-none print:ring-0"
+        data-template={template.key}
       >
         {/* Brand accent bar */}
-        <div className="h-2 w-full bg-red-600 print:h-1.5" />
+        <div
+          className={`h-2 w-full print:h-1.5 ${template.accentClass}`}
+        />
 
         <div className="p-10 print:p-8">
           <header className="flex items-start justify-between gap-6 border-b border-zinc-200 pb-6">
@@ -96,12 +165,12 @@ export default async function QuotationPreviewPage({
                     company.email,
                     company.website,
                   ]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  .filter(Boolean)
+                  .join(" · ")}
                 </p>
               )}
               <p className="mt-2 text-xs font-medium uppercase tracking-[0.2em] text-zinc-400">
-                Quotation
+                {template.label}
               </p>
             </div>
             <div className="text-right">
@@ -123,47 +192,76 @@ export default async function QuotationPreviewPage({
             </div>
           </header>
 
-        {/* Bill to */}
-        <section className="grid grid-cols-2 gap-6 py-6">
-          <div>
-            <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
-              Bill to
-            </h2>
-            {account ? (
-              <div className="mt-1.5 space-y-0.5">
-                <div className="font-medium">{account.name}</div>
-                {lineAddr.map((l, i) => (
-                  <div key={i} className="text-zinc-600">
-                    {l}
+          {isDefaultTemplate ? (
+            <section className="grid grid-cols-2 gap-6 py-6">
+              <div>
+                <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+                  Bill to
+                </h2>
+                {account ? (
+                  <div className="mt-1.5 space-y-0.5">
+                    <div className="font-medium">{account.name}</div>
+                    {lineAddr.map((l, i) => (
+                      <div key={i} className="text-zinc-600">
+                        {l}
+                      </div>
+                    ))}
+                    {account.phone ? (
+                      <div className="text-zinc-600">Tel: {account.phone}</div>
+                    ) : null}
                   </div>
-                ))}
-                {account.phone ? (
-                  <div className="text-zinc-600">Tel: {account.phone}</div>
-                ) : null}
+                ) : (
+                  <p className="mt-1.5 text-zinc-500">—</p>
+                )}
               </div>
-            ) : (
-              <p className="mt-1.5 text-zinc-500">—</p>
-            )}
-          </div>
-          <div>
-            <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
-              Contact
-            </h2>
-            {contact ? (
-              <div className="mt-1.5 space-y-0.5">
-                <div className="font-medium">{contact.name}</div>
-                {contact.email ? (
-                  <div className="text-zinc-600">{contact.email}</div>
-                ) : null}
-                {contact.phone ? (
-                  <div className="text-zinc-600">{contact.phone}</div>
-                ) : null}
+              <div>
+                <h2 className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+                  Contact
+                </h2>
+                {contact ? (
+                  <div className="mt-1.5 space-y-0.5">
+                    <div className="font-medium">{contact.name}</div>
+                    {contact.email ? (
+                      <div className="text-zinc-600">{contact.email}</div>
+                    ) : null}
+                    {contact.phone ? (
+                      <div className="text-zinc-600">{contact.phone}</div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-1.5 text-zinc-500">—</p>
+                )}
               </div>
-            ) : (
-              <p className="mt-1.5 text-zinc-500">—</p>
-            )}
-          </div>
-        </section>
+            </section>
+          ) : (
+            <section className="avoid-break mt-6 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <div className="font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    {template.metaLabel}
+                  </div>
+                  <div className="mt-1 font-medium text-slate-900">
+                    {template.label}
+                  </div>
+                  {account?.code ? (
+                    <div className="mt-1 text-slate-600">Account code: {account.code}</div>
+                  ) : null}
+                </div>
+                <div>
+                  <div className="font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Attention
+                  </div>
+                  <div className="mt-1 font-medium text-slate-900">{attentionName}</div>
+                  {contact?.email ? (
+                    <div className="mt-1 text-slate-600">{contact.email}</div>
+                  ) : null}
+                  {contact?.phone ? (
+                    <div className="text-slate-600">{contact.phone}</div>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          )}
 
         {/* Line items */}
         <table className="w-full border-collapse text-sm">

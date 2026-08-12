@@ -312,6 +312,38 @@ describe("contract and invoice administration", () => {
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
   })
 
+  it("labels contract fields and atomically updates future terms", async () => {
+    const page = await operatorRequest(`/operator/clients/${clientId}`)
+    const html = await page.text()
+    expect(html).toContain("Monthly seat price (cents)")
+    expect(html).toContain("Tax (basis points)")
+    expect(html).toContain("Create contract")
+
+    const before = await env.CONTROL_DB.prepare(
+      "SELECT entitlement_revision FROM contracts WHERE id = ?",
+    ).bind(contractId).first<{ entitlement_revision: number }>()
+
+    const response = await operatorRequest(`/operator/contracts/${contractId}`, {
+      method: "POST",
+      token: "billing-token",
+      form: { ...validContract, startsAt: "2026-08-20", endsAt: "2026-09-20", seatLimit: "4", moduleIds: ["projects", "forecast"] },
+    })
+    expect(response.status).toBe(303)
+    const updated = await env.CONTROL_DB.prepare(
+      "SELECT starts_at, seat_limit, entitlement_revision FROM contracts WHERE id = ?",
+    ).bind(contractId).first<{ starts_at: string; seat_limit: number; entitlement_revision: number }>()
+    expect(updated).toMatchObject({
+      starts_at: "2026-08-20",
+      seat_limit: 4,
+      entitlement_revision: (before?.entitlement_revision ?? 0) + 1,
+    })
+    const modules = await env.CONTROL_DB.prepare(
+      "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
+    ).bind(contractId).all<{ module_id: string }>()
+    expect(modules.results.map((row) => row.module_id)).toEqual(["forecast", "projects"])
+    expect(await countRows("SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'contract.update' AND target_id = ?", contractId)).toBe(1)
+  })
+
   it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {
     const before = await env.CONTROL_DB.prepare(
       "SELECT entitlement_revision FROM contracts WHERE id = ?",

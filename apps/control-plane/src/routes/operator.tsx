@@ -17,7 +17,7 @@ import {
   parseNamedPagination,
   parsePagination,
 } from "../repos/clients"
-import { createContract, getContractDetail } from "../repos/contracts"
+import { createContract, getContractDetail, updateContract } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
 import {
   assignEntitlementSchedule,
@@ -294,6 +294,18 @@ export function createOperatorRoutes() {
         context,
         (data) => createContract(context.env.CONTROL_DB, clientId, data as never, actor(context)),
       )
+    },
+  )
+  routes.post(
+    "/contracts/:contractId",
+    requireCsrfToken,
+    requireOperatorRole("vendor_owner", "billing_operator"),
+    async (context) => {
+      const contractId = context.req.param("contractId")
+      const data = await mutationData(context)
+      if ((data.status === "suspended" || data.status === "cancelled") && data.confirmCommercialState !== "confirmed") throw badRequest()
+      const id = await updateContract(context.env.CONTROL_DB, contractId, data as never, actor(context))
+      return isJson(context) ? context.json({ id }, 200) : context.redirect(`/operator/contracts/${id}`, 303)
     },
   )
   routes.post(

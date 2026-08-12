@@ -18,8 +18,13 @@ import {
   normalizeMoneyInput,
 } from "@/lib/input-validation"
 
-/** A resolved contact for display: name + resolved designation (persons.designation). */
-export type ContactRef = { id: string; name: string; designation: string | null }
+/** A resolved contact for display: name + derived designation (title) + department. */
+export type ContactRef = {
+  id: string
+  name: string
+  designation: string | null
+  department: string | null
+}
 
 export type OpportunityContainerRow = {
   id: string

@@ -316,6 +316,9 @@ export function OpportunityDetailBody({
               {detail.ownerContact?.designation ? (
                 <span className="text-muted-foreground"> · {detail.ownerContact.designation}</span>
               ) : null}
+              {detail.ownerContact?.department ? (
+                <span className="text-muted-foreground"> · {detail.ownerContact.department}</span>
+              ) : null}
             </FieldRow>
             <FieldRow inline label="Opportunity Owner Budget Limit">
               {canEdit ? (
@@ -463,6 +466,14 @@ export function OpportunityDetailBody({
                       </div>
                       <div className="text-sm">
                         {detail.powerSponsorContact?.designation || "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground">
+                        Power Sponsor Department
+                      </div>
+                      <div className="text-sm">
+                        {detail.powerSponsorContact?.department || "—"}
                       </div>
                     </div>
                     <div>

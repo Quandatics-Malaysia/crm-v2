@@ -57,6 +57,7 @@ export type PersonInput = {
   firstName: string
   lastName?: string | null
   title?: string | null
+  department?: string | null
   email?: string | null
   phone?: string | null
   isPrimary?: boolean
@@ -128,6 +129,7 @@ export async function createPerson(
           firstName: input.firstName,
           lastName: input.lastName || null,
           title: input.title || null,
+          department: input.department || null,
           email: input.email || null,
           phone: input.phone || null,
           isPrimary: input.isPrimary ?? false,
@@ -206,6 +208,7 @@ export async function updatePerson(
         firstName: input.firstName,
         lastName: input.lastName || null,
         title: input.title || null,
+        department: input.department || null,
         email: input.email || null,
         phone: input.phone || null,
         isPrimary: input.isPrimary ?? false,

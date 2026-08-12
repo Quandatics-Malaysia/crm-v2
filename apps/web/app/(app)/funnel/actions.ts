@@ -731,7 +731,7 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
 
 /** All persons with their accountId, for client-side filtering in the form. */
 export async function listPersonsWithAccount(): Promise<
-  { id: string; name: string; accountId: string }[]
+  { id: string; name: string; accountId: string; designation: string | null; department: string | null }[]
 > {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
@@ -741,6 +741,8 @@ export async function listPersonsWithAccount(): Promise<
         firstName: persons.firstName,
         lastName: persons.lastName,
         accountId: persons.accountId,
+        designation: persons.title,
+        department: persons.department,
       })
       .from(persons)
       .innerJoin(accounts, eq(persons.accountId, accounts.id))
@@ -755,6 +757,8 @@ export async function listPersonsWithAccount(): Promise<
       id: p.id,
       name: [p.firstName, p.lastName].filter(Boolean).join(" "),
       accountId: p.accountId,
+      designation: p.designation ?? null,
+      department: p.department ?? null,
     }))
   })
 }

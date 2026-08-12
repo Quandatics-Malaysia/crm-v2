@@ -188,7 +188,13 @@ export type FunnelDetailData = {
   personId: string | null
   personName: string | null
   /** Every person (with account), for the inline Contact picker — filtered client-side to `accountId`. */
-  persons: { id: string; name: string; accountId: string }[]
+  persons: {
+    id: string
+    name: string
+    accountId: string
+    designation: string | null
+    department: string | null
+  }[]
   /** Quoted amount (from the primary quotation). */
   quotedAmount: string | null
   /** Estimated Funnel Amount (manual) — drives the forecast. */
@@ -540,6 +546,10 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     () => activity.filter((a) => a.type === "update"),
     [activity]
   )
+  const selectedContact = React.useMemo(
+    () => persons.find((p) => p.id === personId),
+    [persons, personId]
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
@@ -621,15 +631,26 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   emptyMessage="No contacts for this account."
                   title="Click to change contact"
                 />
-              ) : personId && personName ? (
-                <Link
-                  href={`/persons/${personId}`}
-                  className="link"
-                >
-                  {personName}
-                </Link>
               ) : (
-                personName ?? "—"
+                <span className="grid gap-1">
+                  {personId && personName ? (
+                    <Link href={`/persons/${personId}`} className="link">
+                      {personName}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                  {(selectedContact?.designation || selectedContact?.department) && (
+                    <span className="text-xs text-muted-foreground">
+                      {[
+                        selectedContact?.designation,
+                        selectedContact?.department,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </span>
               )}
             </FieldRow>
             <FieldRow label="Project nature(s)">

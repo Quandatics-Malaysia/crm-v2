@@ -2,15 +2,18 @@
 
 ARG ALPINE_IMAGE=alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
-FROM golang:1.25.7-alpine AS age-builder
+FROM golang:1.25-alpine AS age-builder
 
 ARG TARGETARCH
 
 RUN apk add --no-cache git
 
 RUN mkdir -p /out \
-    && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" GOBIN=/out \
-       go install filippo.io/age/cmd/age@v1.3.1
+    && git -c advice.detachedHead=false clone --depth=1 --branch v1.3.1 https://github.com/FiloSottile/age.git /tmp/age \
+    && cd /tmp/age \
+    && go mod edit -replace golang.org/x/crypto=golang.org/x/crypto@v0.52.0 \
+    && go mod tidy \
+    && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -o /out/age ./cmd/age
 
 FROM ${ALPINE_IMAGE} AS tools-amd64
 ADD --checksum=sha256:aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa \
@@ -76,7 +79,7 @@ LABEL org.opencontainers.image.title="Quandatics encrypted backup runtime" \
   org.opencontainers.image.source="https://github.com/Quandatics-Malaysia/crm-v2" \
   com.quandatics.postgresql-client.version="17.10-r0" \
   com.quandatics.age.version="1.3.1" \
-  com.quandatics.rclone.version="1.74.4"
+  com.quandatics.rclone.version="1.75.0"
 
 WORKDIR /var/lib/backup/work
 USER 10001:10001

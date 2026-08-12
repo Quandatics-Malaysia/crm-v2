@@ -1,0 +1,85 @@
+---
+title: Signed deployment model
+description: Source-free, immutable rollout between vendor control plane and client runtime.
+---
+
+# Signed deployment model
+
+This site now separates business logic ownership from runtime ownership:
+
+- **Vendor owns code and release process**
+- **Client runs signed binaries on their infrastructure**
+
+## Core principles
+
+- No source checkout on production hosts.
+- Immutable images only, always by digest.
+- Signature verification happens before every deployment.
+- Deployment state includes active lease, environment, and module/seat policy.
+- If verification or health checks fail, rollout is blocked or rolled back.
+
+## Trust flow
+
+```mermaid
+flowchart LR
+  A[Git branch / PR] --> B[Quality gate]
+  B --> C[SemVer tag]
+  C --> D[CI image build]
+  D --> E[SBOM + scan]
+  E --> F[Cosign signing]
+  F --> G[Manifest publish]
+  G --> H[Staging pull + verify]
+  H --> I[Vendor acceptance]
+  I --> J[Production pull + verify]
+  J --> K[Health gate]
+  K --> L[Rollback or keep]
+```
+
+## Runtime assets
+
+The release manifest references four images:
+
+- Web application
+- Database migrator
+- Backup runtime
+- Deployment agent
+
+Each image is signed and versioned in lockstep for a release candidate or stable tag.
+
+## Client-hosted deployment path
+
+1. Vendor issues release manifest plus entitlement proof for the target tenant.
+2. Agent receives the manifest and verifies:
+   - image signatures
+   - backup evidence
+   - deployment lock state
+3. Agent applies runtime values and starts containers.
+4. A readiness check runs against app health and license state.
+5. The old digest is preserved for rollback.
+
+## Security boundaries
+
+- Signing keys stay in secret vaults, not in app logs.
+- Deployment env is read by mounted runtime files only.
+- Backups are restored only with matching deployment identity checks.
+- Client-side users cannot edit signing policy or entitlement records.
+
+## Rollback behavior
+
+If readiness or health checks fail:
+
+- Deployment agent reverts to previous running manifest.
+- Database migration rollback follows configured policy and never drops client data.
+- License enforcement state is restored from previous manifest.
+
+## Publicly visible status
+
+The client can expose safe status only:
+
+- release tag/channel
+- environment
+- short image digest
+- last successful health timestamp
+- tenant seat/module snapshot
+
+Internal signing keys, secret names, registry credentials, and policy rules are not exposed.

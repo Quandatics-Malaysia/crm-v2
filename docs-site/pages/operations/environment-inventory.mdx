@@ -1,0 +1,53 @@
+---
+title: Environment inventory
+description: Required runtime and control-plane values for staged and production deployment.
+---
+
+# Environment inventory
+
+Use this as a checklist when preparing a new deployment stack or rotating environments.
+
+## Scope
+
+This page lists non-secret operational values only. Secret material belongs in secure
+vaults (Cloudflare secrets, container runtime secrets), not in docs.
+
+## Control plane values (vendor side)
+
+- Deployment channel and release channel mapping
+- Tenant/org map (tenant key, plan, module policy)
+- Seat policy and status (`active`, `suspended`, `disabled`)
+- Active deployment manifest digest
+- Backup rule and retention settings
+
+## Client runtime values (host side)
+
+- Runtime app image digest
+- Migrator and backup image digests
+- Agent image digest
+- Deployment identity/namespace used for this environment
+- PostgreSQL host and database name for that environment
+- Storage path for backup and restore artifacts
+
+## Recommended record format (internal)
+
+- Keep one inventory record per stack (`staging`, `production`) with:
+  - current release tag
+  - image digests
+  - lease status
+  - last successful health timestamp
+  - last rollback point
+
+## Change control
+
+- Any inventory change must be paired with release manifest history.
+- Never reuse production image digests for staging acceptance and vice versa.
+- Document every environment update in a ticket or change request.
+
+## Verification checklist
+
+1. Control plane and host record the same tenant key.
+2. Tenant status in host config matches control-plane status.
+3. Digests are immutable and not empty.
+4. PostgreSQL and file storage are isolated per environment.
+5. Backup proof exists before production promotion.

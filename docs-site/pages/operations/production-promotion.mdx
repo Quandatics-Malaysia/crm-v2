@@ -1,0 +1,57 @@
+---
+title: Production promotion
+description: How to promote a release candidate to production safely.
+---
+
+# Production promotion
+
+Promotion is intentionally explicit. A release is promoted only after clear acceptance of the same release candidate that passed staging.
+
+## Pre-conditions
+
+- Candidate is on an accepted release tag (`vX.Y.Z-rc.N`).
+- Deployment metadata is complete:
+  - signed manifest
+  - image digests
+  - entitlement snapshot
+  - migration plan
+  - backup proof
+- Control plane confirms organization status and seat state.
+
+## Promotion sequence
+
+1. Confirm tenant and organization state.
+2. Confirm staging acceptance artifacts are attached to the same digest set.
+3. Trigger production deployment through the control plane.
+4. Agent verifies all signatures and backup evidence.
+5. Migrator and application containers are applied in order.
+6. Run post-deploy health checks:
+   - app readiness
+   - license status
+   - expected modules enabled/disabled
+7. Record deployment identity and release metadata.
+8. Keep previous manifest available until checks are stable for one cycle.
+
+## If production fails
+
+- Deployment agent should revert to prior manifest automatically.
+- Keep failed tenant and deployment state immutable for audit.
+- Investigate using signed logs and control-plane manifest history.
+- Do not manually edit client database schemas outside approved migration workflow.
+
+## Post-promotion checks
+
+- Client can see visible status in system settings.
+- Seat and module policy remains effective.
+- Backup workflow still produces matching restore proof.
+- Version labels show the new channel/tag and environment.
+
+## Deactivating / suspending without removal
+
+Suspension changes only tenancy state and policy:
+
+- `suspended` blocks new writes in controlled scopes.
+- `disabled` blocks access according to policy and preserves history.
+- `active` restores normal write and module state.
+
+Promotion and state transitions remain separate operations in the control plane.

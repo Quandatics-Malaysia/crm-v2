@@ -36,10 +36,10 @@ integration("deployment seat forward migration", () => {
     const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
       entries: Array<{ idx: number }>
     }
-    journal.entries = journal.entries.filter((entry) => entry.idx <= 68)
+    journal.entries = journal.entries.filter((entry) => entry.idx <= 69)
     await writeFile(journalPath, `${JSON.stringify(journal, null, "\t")}\n`)
     for (const name of await readdir(phaseOneFolder)) {
-      if (/^\d{4}_.+\.sql$/.test(name) && Number(name.slice(0, 4)) > 68) {
+      if (/^\d{4}_.+\.sql$/.test(name) && Number(name.slice(0, 4)) > 69) {
         await unlink(path.join(phaseOneFolder, name))
       }
     }
@@ -51,25 +51,29 @@ integration("deployment seat forward migration", () => {
     if (phaseOneFolder) await rm(phaseOneFolder, { recursive: true, force: true })
   }, 30_000)
 
-  it("keeps the journaled 0068 bytes immutable and appends 0069", async () => {
+  it("keeps the journaled 0068 bytes immutable and appends 0070", async () => {
     const migration0068 = await readFile(path.join(migrationsFolder, "0068_deployment_seats.sql"))
     expect(createHash("sha256").update(migration0068).digest("hex")).toBe(original0068Sha256)
     const journal = JSON.parse(await readFile(path.join(migrationsFolder, "meta/_journal.json"), "utf8")) as {
       entries: Array<{ idx: number; tag: string }>
     }
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 69, tag: "0069_deployment_seat_authority" })
+    expect(journal.entries.at(-1)).toMatchObject({ idx: 70, tag: "0070_organization_archive" })
   })
 
-  it("upgrades a database applied through original 0068, then applies current RLS", async () => {
+  it("upgrades a database applied through 0069, then applies current RLS", async () => {
     const sql = postgres(databaseUrl, { max: 1 })
     try {
       await migrate(drizzle(sql), { migrationsFolder: phaseOneFolder })
-      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0068")
+      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0069")
 
       await migrate(drizzle(sql), { migrationsFolder })
       await sql.unsafe(await readFile(path.resolve(process.cwd(), "db/sql/rls.sql"), "utf8"))
-      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0069")
+      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0070")
       expect(await sql`select last_reconciled_at from deployment_seat_state where singleton = 1`).toHaveLength(1)
+      expect((await sql`select status, archived_at from organization limit 0`).columns.map((column) => column.name)).toEqual([
+        "status",
+        "archived_at",
+      ])
     } finally {
       await sql.end()
     }

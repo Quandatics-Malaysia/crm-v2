@@ -163,8 +163,11 @@ export function StageAdvanceDialog({
     [ordered, currentStageId, target]
   )
   const requiredKeys = React.useMemo(
-    () => requiredKeysForStages(enteredStages),
-    [enteredStages]
+    () =>
+      requiredKeysForStages(enteredStages, {
+        skipPpvvcForWonTransition: target?.kind === "WON",
+      }),
+    [enteredStages, target?.kind]
   )
   // Live gate: keep the server-computed presets, but recompute the custom keys
   // from the merged values so the checklist/blocked state update as you type.

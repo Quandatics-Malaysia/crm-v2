@@ -123,6 +123,20 @@ describe("stagesEnteredBy — a skip still collects intermediate requirements", 
     expect(requiredKeysForStages(entered)).toEqual(["contact", "quote", "estimate"])
   })
 
+  it("direct Open→Won can skip PPVVC preset requirements", () => {
+    const jump = [
+      { id: "a", kind: "OPEN", sortOrder: 1, requiredFields: ["vision", "ownerContact"] },
+      { id: "b", kind: "OPEN", sortOrder: 2, requiredFields: ["objective", "procurementStage"] },
+      { id: "won", kind: "WON", sortOrder: 3, requiredFields: ["value"] },
+    ]
+    const entered = stagesEnteredBy(jump, "a", "won")
+    expect(entered.map((s) => s.id)).toEqual(["b", "won"])
+    expect(requiredKeysForStages(entered, { skipPpvvcForWonTransition: true })).toEqual([
+      "procurementStage",
+      "ownerContact",
+    ])
+  })
+
   it("a terminal LOST/PARKED target enters only itself", () => {
     expect(stagesEnteredBy(ladder, "a", "lost").map((s) => s.id)).toEqual(["lost"])
   })

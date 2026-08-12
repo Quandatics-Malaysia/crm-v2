@@ -26,6 +26,11 @@ import {
   projects,
   quotations,
 } from "@/db/schema"
+import {
+  normalizePhoneInput,
+  normalizeTextInput,
+  normalizeUrlInput,
+} from "@/lib/input-validation"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
 const LIST_LIMIT = 1000
@@ -101,6 +106,23 @@ function resolveAccountType(input: AccountInput): {
     return { accountType, endUserAccountId: input.endUserAccountId }
   }
   return { accountType, endUserAccountId: null }
+}
+
+function normalizeAccountInput(input: AccountInput): AccountInput {
+  const name = normalizeTextInput(input.name, "Account name", 240)
+  if (!name) throw new Error("Name is required.")
+  return {
+    ...input,
+    name,
+    industry: normalizeTextInput(input.industry, "Industry", 160),
+    website: normalizeUrlInput(input.website, "Website"),
+    phone: normalizePhoneInput(input.phone, "Phone"),
+    registrationNumber: normalizeTextInput(
+      input.registrationNumber,
+      "Registration number",
+      120
+    ),
+  }
 }
 
 /**
@@ -432,6 +454,7 @@ export async function createAccount(
   input: AccountInput
 ): Promise<ActionResult<AccountRow>> {
   return runAction(async () => {
+    const normalized = normalizeAccountInput(input)
     const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
       // Duplicate guard: an exact (case-insensitive) name match almost always
       // means the account already exists — block with a pointer instead of
@@ -457,7 +480,7 @@ export async function createAccount(
       // feeds the project code).
       let code = normalizeCode(input.code)
       if (code) await assertCodeUnique(tx, ctx.tenantId, code)
-      else code = await generateAccountCode(tx, ctx.tenantId, input.name)
+      else code = await generateAccountCode(tx, ctx.tenantId, normalized.name)
       const parentAccountId = input.parentAccountId || null
       if (parentAccountId) await assertParentValid(tx, parentAccountId)
       const { accountType, endUserAccountId } = resolveAccountType(input)
@@ -468,15 +491,15 @@ export async function createAccount(
         .values({
           tenantId: ctx.tenantId,
           ownerMemberId: ctx.memberId,
-          name: input.name,
+          name: normalized.name,
           code,
           parentAccountId,
           accountType,
           endUserAccountId,
-          industry: input.industry || null,
-          website: input.website || null,
-          phone: input.phone || null,
-          registrationNumber: input.registrationNumber || null,
+          industry: normalized.industry ?? null,
+          website: normalized.website ?? null,
+          phone: normalized.phone ?? null,
+          registrationNumber: normalized.registrationNumber ?? null,
           billingAddress: cleanAddress(input.billingAddress),
         })
         .returning()
@@ -504,6 +527,8 @@ export async function updateAccount(
   input: AccountInput
 ): Promise<ActionResult<AccountRow>> {
   return runAction(async () => {
+    const normalized = normalizeAccountInput(input)
+
     if (input.parentAccountId && input.parentAccountId === id) {
       throw new Error("An account cannot be its own parent.")
     }
@@ -540,16 +565,16 @@ export async function updateAccount(
           : before.ownerMemberId
 
       const updated = {
-        name: input.name,
+        name: normalized.name,
         code,
         parentAccountId,
         accountType,
         endUserAccountId,
         ownerMemberId: newOwnerMemberId,
-        industry: input.industry || null,
-        website: input.website || null,
-        phone: input.phone || null,
-        registrationNumber: input.registrationNumber || null,
+        industry: normalized.industry ?? null,
+        website: normalized.website ?? null,
+        phone: normalized.phone ?? null,
+        registrationNumber: normalized.registrationNumber ?? null,
         billingAddress: cleanAddress(input.billingAddress),
         updatedAt: new Date(),
       }

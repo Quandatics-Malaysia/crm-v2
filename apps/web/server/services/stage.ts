@@ -32,12 +32,14 @@ import {
   canBypassApproval,
   entersMilestoneAutoCreateStage,
   entersMilestoneDeleteStage,
+  type CustomFunnelField,
   type StageGateState,
 } from "@/lib/stage-gate"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { getEntitledModuleMap } from "@/lib/modules.server"
 import type { ServerContext } from "@/lib/server-context"
+import { normalizeCustomFieldValue } from "@/lib/input-validation"
 // Shared LOCAL YYYY-MM-DD formatter. Deriving `actualCloseDate` from this (a
 // local-calendar slice) instead of a raw UTC `toISOString().slice(0,10)` keeps
 // the date consistent with the `closedAt` timestamptz instead of rolling a day
@@ -129,6 +131,29 @@ async function resolveApprover(
       "No approver is available to route this request. Ask an administrator to grant the stage-approval permission."
     )
   return fallback.m
+}
+
+function normalizeAdvanceCustomFields(
+  customFields: Record<string, string> | null | undefined,
+  defs: CustomFunnelField[]
+): Record<string, string> | undefined {
+  if (customFields === undefined) return undefined
+  const safeCustomFields = customFields ?? {}
+  const byKey = new Map(defs.map((f) => [f.key, f]))
+  const normalized: Record<string, string> = {}
+  for (const [key, rawValue] of Object.entries(safeCustomFields)) {
+    const def = byKey.get(key)
+    if (!def) continue
+    const type = def.type ?? "text"
+    const options = type === "select" ? def.options ?? [] : []
+    normalized[key] = normalizeCustomFieldValue(
+      rawValue,
+      type,
+      options,
+      `${def.label} (${key})`
+    )
+  }
+  return normalized
 }
 
 /**
@@ -423,12 +448,17 @@ export async function requestStageAdvance(
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
+    const customFieldDefs = settings?.customFunnelFields ?? []
+    const stageCustomFields = normalizeAdvanceCustomFields(
+      input.customFields,
+      customFieldDefs
+    )
 
     // Merge the dialog's custom-field values onto the funnel before evaluating
     // the gate, so the info the user just filled in counts.
     const mergedCustom: Record<string, unknown> = {
       ...((opp.customFields ?? {}) as Record<string, unknown>),
-      ...(input.customFields ?? {}),
+      ...(stageCustomFields ?? {}),
     }
 
     // Entry requirements: the information that must be on the funnel before it
@@ -465,16 +495,17 @@ export async function requestStageAdvance(
     const stageGate = buildStageGate(
       presets,
       mergedCustom,
-      settings?.customFunnelFields ?? []
+      customFieldDefs
     )
     // Requirements are either a tenant custom field OR a current preset key —
     // anything else is a stale/orphaned key (e.g. left over from a renamed
     // preset) and is dropped so it can't silently block a move.
     const customKeys = new Set(
-      (settings?.customFunnelFields ?? []).map((f) => f.key)
+      customFieldDefs.map((f) => f.key)
     )
     const requiredKeys = requiredKeysForStages(
-      stagesEnteredBy(allStages, from.id, target.id)
+      stagesEnteredBy(allStages, from.id, target.id),
+      { skipPpvvcForWonTransition: target.kind === "WON" }
     ).filter((k) => customKeys.has(k) || isPresetFieldKey(k))
     const missing = missingFromKeys(requiredKeys, stageGate)
     if (missing.length > 0) {
@@ -490,7 +521,7 @@ export async function requestStageAdvance(
 
     // Persist the captured custom-field values (even when the move only queues
     // an approval — the info is now on record for the approver).
-    if (input.customFields && Object.keys(input.customFields).length > 0) {
+    if (stageCustomFields && Object.keys(stageCustomFields).length > 0) {
       await tx
         .update(funnels)
         .set({ customFields: mergedCustom as Record<string, string> })

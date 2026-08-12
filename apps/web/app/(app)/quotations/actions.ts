@@ -25,6 +25,8 @@ import {
   accounts,
   persons,
   organization,
+  member,
+  user,
 } from "@/db/schema"
 import type { ProductOption } from "@/lib/lookups"
 import { computeQuotation } from "@/server/services/quotation-math"
@@ -94,8 +96,14 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
 
 export type QuotationDocument = {
   quotation: QuotationRow
-  lines: QuotationLineRow[]
+  lines: Array<QuotationLineRow & { sku: string | null }>
   entityName: string
+  entityCode: string | null
+  entitySlug: string
+  projectName: string
+  preparedBy: { name: string; email: string | null } | null
+  /** Seller-entity identifier retained for preview compatibility. */
+  pdfTemplateKey: string | null
   /** Company profile from Settings — the sender block, bank details, footer. */
   company: {
     address: string | null
@@ -138,44 +146,64 @@ export async function getQuotationDocument(
         q: quotations,
         oppOwner: funnels.ownerMemberId,
         accountId: funnels.accountId,
+        projectName: funnels.name,
+        preparedByName: user.name,
+        preparedByEmail: user.email,
       })
       .from(quotations)
       .leftJoin(funnels, eq(quotations.funnelId, funnels.id))
+      .leftJoin(member, eq(funnels.ownerMemberId, member.id))
+      .leftJoin(user, eq(member.userId, user.id))
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
     if (!row) return null
     if (!ownsOrManages(visible, row.oppOwner)) return null
 
     const lines = await tx
-      .select()
+      .select({
+        line: quotationLineItems,
+        sku: products.productCode,
+      })
       .from(quotationLineItems)
+      .leftJoin(products, eq(quotationLineItems.productId, products.id))
       .where(eq(quotationLineItems.quotationId, id))
       .orderBy(asc(quotationLineItems.sortOrder))
+      .then((rows) => rows.map(({ line, sku }) => ({ ...line, sku })))
 
     let account: QuotationDocument["account"] = null
     let contact: QuotationDocument["contact"] = null
     if (row.accountId) {
-      const [acc] = await tx
+      const [accountWithType] = await tx
         .select({
           name: accounts.name,
           code: accounts.code,
           phone: accounts.phone,
           billingAddress: accounts.billingAddress,
+          accountType: accounts.accountType,
+          endUserAccountId: accounts.endUserAccountId,
         })
         .from(accounts)
         .where(eq(accounts.id, row.accountId))
         .limit(1)
-      if (acc) {
+
+      const attentionAccountId =
+        accountWithType?.accountType === "reseller" &&
+        accountWithType?.endUserAccountId
+          ? accountWithType.endUserAccountId
+          : row.accountId
+
+      if (accountWithType) {
         account = {
-          name: acc.name,
-          code: acc.code,
-          phone: acc.phone,
+          name: accountWithType.name,
+          code: accountWithType.code,
+          phone: accountWithType.phone,
           address:
-            (acc.billingAddress as NonNullable<
+            (accountWithType.billingAddress as NonNullable<
               QuotationDocument["account"]
             >["address"]) ?? null,
         }
       }
+
       const [primary] = await tx
         .select({
           firstName: persons.firstName,
@@ -186,7 +214,7 @@ export async function getQuotationDocument(
         .from(persons)
         .where(
           and(
-            eq(persons.accountId, row.accountId),
+            eq(persons.accountId, attentionAccountId),
             eq(persons.isPrimary, true),
             isNull(persons.deletedAt)
           )
@@ -202,7 +230,7 @@ export async function getQuotationDocument(
     }
 
     const [org] = await tx
-      .select({ name: organization.name })
+      .select({ name: organization.name, slug: organization.slug })
       .from(organization)
       .where(eq(organization.id, ctx.tenantId))
       .limit(1)
@@ -217,6 +245,7 @@ export async function getQuotationDocument(
         bankDetails: tenantSettings.bankDetails,
         quoteFooter: tenantSettings.quoteFooter,
         logoStorageKey: tenantSettings.logoStorageKey,
+        entityCode: tenantSettings.entityCode,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
@@ -226,6 +255,14 @@ export async function getQuotationDocument(
       quotation: row.q,
       lines,
       entityName: org?.name ?? "Quotation",
+      entityCode: profile?.entityCode ?? null,
+      entitySlug: org?.slug ?? "",
+      projectName: row.projectName ?? "",
+      preparedBy:
+        row.preparedByName || row.preparedByEmail
+          ? { name: row.preparedByName ?? "", email: row.preparedByEmail }
+          : null,
+      pdfTemplateKey: profile?.entityCode ?? org?.slug ?? null,
       company: {
         address: profile?.address ?? null,
         registrationNo: profile?.registrationNo ?? null,

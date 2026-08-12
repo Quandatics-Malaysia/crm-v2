@@ -241,6 +241,11 @@ export function PersonsTable({
         cell: ({ row }) => row.original.title ?? "—",
       },
       {
+        accessorKey: "department",
+        header: "Department",
+        cell: ({ row }) => row.original.department ?? "—",
+      },
+      {
         accessorKey: "phone",
         header: "Phone",
         cell: ({ row }) => row.original.phone ?? "—",

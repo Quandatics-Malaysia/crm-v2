@@ -3,51 +3,43 @@ title: Operations
 category: ""
 ---
 
-This page describes the production operator model for the new client-hosted architecture: vendor control plane in Cloudflare and source-free signed runtime on client infrastructure.
+How the Quandatics CRM is built and deployed, at a glance. The full operator
+runbook — server access, backups & restore, database admin, and hardening —
+lives in **`OPERATIONS.md` in the repository** (kept out of this public site on
+purpose).
 
 ## Environments
 
-- **Production**: `app.quandatics.com` with client data and active signed deployment
-- **Staging**: isolated preview environment and dry-run deployment stack (`staging.app.quandatics.com` by default)
-- **Cloud control plane**: Cloudflare Workers/D1/R2 that stores licenses, entitlements, and deployment state
+- **Production** — the live app, deployed from the `main` branch.
+- **Staging** — an isolated stack built from the `staging` branch, so changes
+  can be reviewed before they reach production. Its Cloudflare quick-tunnel URL
+  changes on each redeploy and is published in the latest workflow summary.
 
-## Control and deployment model
+The flow is: **feature branch → `staging` (preview) → `main` (production)**.
 
-The operator flow is now:
+## How a deploy works
 
-1. Internal build pipeline creates immutable images (app, migrator, backup, deployment agent).
-2. Images are signed and published to a private registry.
-3. Vendor operators issue an entitlement envelope (modules, seats, status).
-4. Clients pull only signatures and image digests, never source code.
-5. Agent verifies signature + entitlement proof before applying runtime changes.
-6. Health checks confirm rollout success; failed releases are rolled back to the last known-good signed bundle.
+Every push follows the same gate:
 
-## What changed from older flow
+1. A **quality gate** runs on a GitHub-hosted runner — lint, typecheck, tests,
+   and a production build. A pull request must pass it before merge.
+2. On a merge to `main`, a **self-hosted runner rebuilds the app on the server**
+   (Docker Compose) and restarts it. Staging works the same way from its own
+   branch, in a separate namespaced stack, so a staging deploy never disturbs
+   production. The stack listens locally on port `8091`; the workflow starts a
+   temporary public tunnel for browser review.
 
-- No server-side build.
-- No source code deployment to client hosts.
-- No long-lived source checkout on live hosts.
-- No “self-serve” upgrade path for licenses or seats.
-- No direct control-plane bypass from the client app.
+There is no cloud build step and no image registry — the server builds and runs
+its own containers.
 
-## Recommended page map
+## Modules
 
-- [Signed deployment model](/operations/signed-deployment)
-- [Release versioning](/operations/release-versioning)
-- [Staging guide](/operations/staging-guide)
-- [Production promotion](/operations/production-promotion)
-- [Environment inventory](/operations/environment-inventory)
-- [Incident response](/operations/incident-response)
-- [System architecture](/architecture)
+Optional features (Projects, Sales Orders, Finance, Forecast, …) are toggled by
+a single boolean each in `modules.config.ts` and take effect on the next
+rebuild. See **[Modules](/extensibility/plugin-system)** for the full plugin system.
 
-## Minimum governance rules
+## Where the details live
 
-- Client users can see health/version and operational status, but cannot access signing keys, tokens, or control-plane secrets.
-- Vendors retain license creation, seat limit changes, module activation/disable, and production deployment controls.
-- Any production change is logged with deployment identity and immutable digests.
-
-## If something fails
-
-- Recheck deployment manifest verification and backup evidence in the control plane.
-- Validate the entitlement status of the target organization.
-- Perform fallback to previous deployment digest before touching client data.
+For anything operational — connecting to the database, running migrations,
+backups and restore, or hardening — read `OPERATIONS.md` in the repository. It is
+intentionally not published here.

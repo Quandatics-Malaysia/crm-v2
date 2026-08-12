@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context, type MiddlewareHandler } from "hono"
-import { getCookie, setCookie } from "hono/cookie"
+import { csrf } from "hono/csrf"
 import { HTTPException } from "hono/http-exception"
 
 import { prepareOperatorAuditStatement } from "../audit"
@@ -17,29 +17,17 @@ import {
   parseNamedPagination,
   parsePagination,
 } from "../repos/clients"
-import { createContract, getContractDetail, updateContract } from "../repos/contracts"
+import { createContract, getContractDetail } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
-import {
-  dashboardSummary,
-  listAudit,
-  listDeployments,
-  listPlans,
-  savePlan,
-  setPlanActive,
-  updateDeployment,
-} from "../repos/management"
 import {
   assignEntitlementSchedule,
   issueEntitlement,
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
-import { AuditPage, DeploymentsPage, ManagementDashboard, PlansPage } from "../ui/management"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
-const CSRF_COOKIE = "operator_csrf"
-const csrfTokenPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function requestId(context: OperatorContext): string {
   return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
@@ -49,35 +37,21 @@ function isJson(context: OperatorContext): boolean {
   return context.req.header("Content-Type")?.split(";", 1)[0].trim().toLowerCase() === "application/json"
 }
 
-function csrfToken(context: OperatorContext): string {
-  const current = getCookie(context, CSRF_COOKIE)
-  if (current && csrfTokenPattern.test(current)) return current
-  const token = crypto.randomUUID()
-  setCookie(context, CSRF_COOKIE, token, {
-    httpOnly: true,
-    path: "/operator",
-    sameSite: "Strict",
-    secure: true,
-  })
-  return token
-}
-
-const requireCsrfToken: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
-  const cookieToken = getCookie(context, CSRF_COOKIE)
-  if (!cookieToken || !csrfTokenPattern.test(cookieToken)) throw forbidden()
-
-  let requestToken: string | undefined
-  if (isJson(context)) {
-    if (context.req.header("X-Control-Request") !== "same-origin") throw forbidden()
-    requestToken = context.req.header("X-CSRF-Token")
-  } else {
-    const contentType = context.req.header("Content-Type")?.toLowerCase() ?? ""
-    if (!contentType.startsWith("application/x-www-form-urlencoded")) throw forbidden()
-    const form = await context.req.raw.clone().formData().catch(() => null)
-    const value = form?.get("_csrf")
-    requestToken = typeof value === "string" ? value : undefined
+const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (context, next) => {
+  const origin = context.req.header("Origin")
+  const fetchSite = context.req.header("Sec-Fetch-Site")
+  let allowedOrigin: string
+  try {
+    allowedOrigin = new URL(context.env.OPERATOR_ORIGIN).origin
+  } catch {
+    throw forbidden()
   }
-  if (requestToken !== cookieToken) throw forbidden()
+  if (origin !== allowedOrigin || fetchSite && fetchSite !== "same-origin") {
+    throw forbidden()
+  }
+  if (isJson(context) && context.req.header("X-Control-Request") !== "same-origin") {
+    throw forbidden()
+  }
   await next()
 }
 
@@ -114,18 +88,6 @@ function mutationDescriptor(pathname: string): {
 } {
   if (pathname === "/operator/clients") {
     return { action: "client.create", targetType: "client", targetId: "pending" }
-  }
-  if (pathname === "/operator/plans") {
-    return { action: "plan.create", targetType: "plan", targetId: "pending" }
-  }
-  if (/^\/operator\/plans\/[^/]+$/.test(pathname)) {
-    return { action: "plan.update", targetType: "plan", targetId: "request-target" }
-  }
-  if (/^\/operator\/plans\/[^/]+\/status$/.test(pathname)) {
-    return { action: "plan.status.update", targetType: "plan", targetId: "request-target" }
-  }
-  if (/^\/operator\/deployments\/[^/]+$/.test(pathname)) {
-    return { action: "deployment.update", targetType: "deployment", targetId: "request-target" }
   }
   if (/^\/operator\/clients\/[^/]+\/organisations$/.test(pathname)) {
     return {
@@ -232,24 +194,6 @@ function actor(context: OperatorContext) {
   }
 }
 
-async function writeSuccessAudit(
-  context: OperatorContext,
-  action: string,
-  targetType: string,
-  targetId: string,
-): Promise<void> {
-  const audit = await prepareOperatorAuditStatement(context.env.CONTROL_DB, {
-    operatorId: context.get("operator").operatorId,
-    action,
-    targetType,
-    targetId,
-    outcome: "success",
-    requestId: requestId(context),
-    metadata: {},
-  })
-  await context.env.CONTROL_DB.batch([audit.statement])
-}
-
 export function createOperatorRoutes() {
   const routes = new Hono<ControlPlaneEnvironment>()
 
@@ -260,19 +204,11 @@ export function createOperatorRoutes() {
     await next()
   })
   routes.use("*", auditMutationFailures)
-  routes.get("/", async (context) => context.html(
-    <ManagementDashboard summary={await dashboardSummary(context.env.CONTROL_DB)} />,
-  ))
-  routes.get("/plans", async (context) => context.html(
-    <PlansPage plans={await listPlans(context.env.CONTROL_DB)} csrfToken={csrfToken(context)} />,
-  ))
-  routes.get("/deployments", async (context) => context.html(
-    <DeploymentsPage deployments={await listDeployments(context.env.CONTROL_DB)} csrfToken={csrfToken(context)} />,
-  ))
-  routes.get("/contracts", (context) => context.redirect("/operator/clients", 302))
-  routes.get("/audit", async (context) => context.html(
-    <AuditPage records={await listAudit(context.env.CONTROL_DB)} />,
-  ))
+  routes.use("*", csrf())
+
+  routes.get("/", (context) =>
+    context.html(<Dashboard operatorEmail={context.get("operator").email} />),
+  )
   routes.get("/clients", async (context) => {
     const pagination = parsePagination(context.req.url)
     const clients = await listClients(
@@ -281,7 +217,7 @@ export function createOperatorRoutes() {
       pagination.offset,
     )
     return context.html(
-      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} csrfToken={csrfToken(context)} />,
+      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} />,
     )
   })
   routes.get("/clients/:clientId", async (context) => {
@@ -290,7 +226,7 @@ export function createOperatorRoutes() {
       context.req.param("clientId"),
       parseClientChildPagination(context.req.url),
     )
-    return context.html(<ClientPage client={client} csrfToken={csrfToken(context)} />)
+    return context.html(<ClientPage client={client} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
@@ -298,12 +234,12 @@ export function createOperatorRoutes() {
       context.req.param("contractId"),
       parseNamedPagination(context.req.url, "invoices"),
     )
-    return context.html(<ContractPage contract={contract} csrfToken={csrfToken(context)} />)
+    return context.html(<ContractPage contract={contract} />)
   })
 
   routes.post(
     "/clients",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner"),
     (context) => runMutation(
       context,
@@ -311,53 +247,8 @@ export function createOperatorRoutes() {
     ),
   )
   routes.post(
-    "/plans",
-    requireCsrfToken,
-    requireOperatorRole("vendor_owner"),
-    async (context) => {
-      const data = await mutationData(context)
-      const id = await savePlan(context.env.CONTROL_DB, data)
-      await writeSuccessAudit(context, "plan.create", "plan", id)
-      return isJson(context) ? context.json({ id }, 201) : context.redirect("/operator/plans", 303)
-    },
-  )
-  routes.post(
-    "/plans/:planId",
-    requireCsrfToken,
-    requireOperatorRole("vendor_owner"),
-    async (context) => {
-      const id = context.req.param("planId")
-      await savePlan(context.env.CONTROL_DB, await mutationData(context), id)
-      await writeSuccessAudit(context, "plan.update", "plan", id)
-      return context.redirect("/operator/plans", 303)
-    },
-  )
-  routes.post(
-    "/plans/:planId/status",
-    requireCsrfToken,
-    requireOperatorRole("vendor_owner"),
-    async (context) => {
-      const id = context.req.param("planId")
-      const data = await mutationData(context)
-      await setPlanActive(context.env.CONTROL_DB, id, data.active === "true")
-      await writeSuccessAudit(context, "plan.status.update", "plan", id)
-      return context.redirect("/operator/plans", 303)
-    },
-  )
-  routes.post(
-    "/deployments/:deploymentId",
-    requireCsrfToken,
-    requireOperatorRole("vendor_owner"),
-    async (context) => {
-      const id = context.req.param("deploymentId")
-      await updateDeployment(context.env.CONTROL_DB, id, await mutationData(context))
-      await writeSuccessAudit(context, "deployment.update", "deployment", id)
-      return context.redirect("/operator/deployments", 303)
-    },
-  )
-  routes.post(
     "/clients/:clientId/organisations",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -369,7 +260,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/clients/:clientId/deployments",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -381,7 +272,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/clients/:clientId/contracts",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const clientId = context.req.param("clientId")
@@ -392,20 +283,8 @@ export function createOperatorRoutes() {
     },
   )
   routes.post(
-    "/contracts/:contractId",
-    requireCsrfToken,
-    requireOperatorRole("vendor_owner", "billing_operator"),
-    async (context) => {
-      const contractId = context.req.param("contractId")
-      const data = await mutationData(context)
-      if ((data.status === "suspended" || data.status === "cancelled") && data.confirmCommercialState !== "confirmed") throw badRequest()
-      const id = await updateContract(context.env.CONTROL_DB, contractId, data as never, actor(context))
-      return isJson(context) ? context.json({ id }, 200) : context.redirect(`/operator/contracts/${id}`, 303)
-    },
-  )
-  routes.post(
     "/contracts/:contractId/invoices",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner", "billing_operator"),
     (context) => {
       const contractId = context.req.param("contractId")
@@ -417,7 +296,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/deployments/:deploymentId/entitlements/schedule",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
@@ -437,7 +316,7 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/deployments/:deploymentId/entitlements/issue",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
@@ -453,14 +332,11 @@ export function createOperatorRoutes() {
   )
   routes.post(
     "/contracts/:contractId/entitlement-controls",
-    requireCsrfToken,
+    sameOriginMutation,
     requireOperatorRole("vendor_owner", "billing_operator"),
     async (context) => {
       const contractId = context.req.param("contractId")
       const data = await mutationData(context)
-      if ((data.status === "suspended" || data.status === "cancelled") && data.confirmCommercialState !== "confirmed") {
-        throw badRequest()
-      }
       const seatLimit = data.seatLimit === undefined || data.seatLimit === ""
         ? undefined
         : Number(data.seatLimit)

@@ -9,15 +9,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
-const layoutMocks = vi.hoisted(() => ({ activeOrganizationStatus: {} }))
-
-vi.mock("drizzle-orm", () => ({
-  and: vi.fn((...conditions) => conditions),
-  eq: vi.fn((left, right) => ({ left, right })),
-}))
+vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => ({})) }))
 vi.mock("@/db/schema", () => ({
   member: { organizationId: {}, userId: {} },
-  organization: { id: {}, name: {}, status: layoutMocks.activeOrganizationStatus },
+  organization: { id: {}, name: {} },
 }))
 vi.mock("@/db", () => ({
   db: {
@@ -117,29 +112,5 @@ describe("commercial read-only app shell", () => {
     expect(serialized).toContain("No organization access yet")
     expect(serialized).not.toContain("must not render")
     expect(mocks.ensureBootstrap).toHaveBeenCalledOnce()
-  })
-
-  it("filters archived organizations from the tenant switcher query", async () => {
-    mocks.getServerContext.mockResolvedValue({
-      userId: "user-1",
-      userName: "Client User",
-      userEmail: "client@example.com",
-      tenantId: "tenant-1",
-      tenantArchived: false,
-      isSuperadmin: false,
-      subscriptionInactive: false,
-      permissions: new Set(["lead.view"]),
-    })
-    mocks.getDeploymentAccess.mockResolvedValue({
-      mode: "active",
-      reason: "Active",
-      writeAllowed: true,
-      recoveryDeadline: null,
-    })
-
-    await AppLayout({ children: "content" })
-
-    const { eq } = await import("drizzle-orm")
-    expect(eq).toHaveBeenCalledWith(layoutMocks.activeOrganizationStatus, "active")
   })
 })

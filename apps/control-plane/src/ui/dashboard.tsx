@@ -13,25 +13,20 @@ export function Dashboard(props: { operatorEmail: string }) {
   )
 }
 
-function CsrfInput(props: { token: string }) {
-  return <input type="hidden" name="_csrf" value={props.token} />
-}
-
-export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number; csrfToken: string }) {
+export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number }) {
   return (
     <OperatorLayout title="Clients">
       <h1>Clients</h1>
-      <section><h2>Create client</h2><form method="post" action="/operator/clients">
-        <CsrfInput token={props.csrfToken} />
+      <form method="post" action="/operator/clients">
         <label>Stable key <input name="clientKey" required maxLength={64} /></label>
         <label>Display name <input name="displayName" required maxLength={160} /></label>
         <button type="submit">Create client</button>
-      </form></section>
-      <section><h2>Customer accounts</h2><ul>
+      </form>
+      <ul>
         {props.clients.map((client) => (
           <li><a href={`/operator/clients/${client.id}`}>{client.displayName}</a> ({client.clientKey})</li>
         ))}
-      </ul></section>
+      </ul>
       <p>Page {props.page}; maximum {props.pageSize} rows.</p>
     </OperatorLayout>
   )
@@ -63,7 +58,7 @@ function CollectionPager(props: {
   )
 }
 
-export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
+export function ClientPage(props: { client: ClientDetail }) {
   const client = props.client
   const childPagination = {
     organisations: client.organisations,
@@ -73,14 +68,13 @@ export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
   return (
     <OperatorLayout title={client.displayName}>
       <h1>{client.displayName}</h1>
-      <p>Stable key: <span class="mono">{client.clientKey}</span> · <span class={`badge ${client.status}`}>{client.status}</span></p>
+      <p>Stable key: {client.clientKey}</p>
 
       <section>
         <h2>Organisations</h2>
-        <table><thead><tr><th>Tenant</th><th>Key</th></tr></thead><tbody>{client.organisations.items.map((item) => <tr><td>{item.displayName}</td><td class="mono">{item.organisationKey}</td></tr>)}</tbody></table>
+        <ul>{client.organisations.items.map((item) => <li>{item.displayName} ({item.organisationKey})</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="organisations" collection={client.organisations} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/organisations`}>
-          <CsrfInput token={props.csrfToken} />
           <input name="organisationKey" required placeholder="stable-key" />
           <input name="displayName" required placeholder="Display name" />
           <textarea name="metadataJson" required>{"{}"}</textarea>
@@ -90,10 +84,9 @@ export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
 
       <section>
         <h2>Deployments</h2>
-        <table><thead><tr><th>Deployment</th><th>Status</th><th>Health</th><th>Seats</th><th>Versions</th><th>Last seen / backup</th></tr></thead><tbody>{client.deployments.items.map((item) => <tr><td><strong>{item.deploymentKey}</strong><div class="muted">{item.environment}</div></td><td><span class={`badge ${item.status}`}>{item.status}</span></td><td><span class={`badge ${item.healthStatus ?? "unknown"}`}>{item.healthStatus ?? "not registered"}</span></td><td>{item.occupiedSeats ?? "—"}</td><td><div>App {item.applicationVersion ?? "—"}</div><div>Agent {item.agentVersion ?? "—"}</div><div class="mono">{item.imageDigest ?? "No digest reported"}</div><div>Entitlement {item.entitlementVersion ?? "—"}</div></td><td><div>{item.observedAt ?? "Never"}</div><div class="muted">Backup {item.lastSuccessfulBackupAt ?? "Never"}</div></td></tr>)}</tbody></table>
+        <ul>{client.deployments.items.map((item) => <li>{item.deploymentKey} ({item.environment})</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="deployments" collection={client.deployments} preserved={childPagination} />
         <form method="post" action={`/operator/clients/${client.id}/deployments`}>
-          <CsrfInput token={props.csrfToken} />
           <input name="deploymentKey" required placeholder="stable-key" />
           <select name="environment"><option>development</option><option>staging</option><option>production</option></select>
           <select name="status"><option>active</option><option>disabled</option></select>
@@ -103,45 +96,40 @@ export function ClientPage(props: { client: ClientDetail; csrfToken: string }) {
 
       <section>
         <h2>Contracts</h2>
-        <table><thead><tr><th>Term</th><th>Status</th><th>Seats</th></tr></thead><tbody>{client.contracts.items.map((item) => <tr><td><a href={`/operator/contracts/${item.id}`}>{item.startsAt} – {item.endsAt}</a></td><td><span class={`badge ${item.status}`}>{item.status}</span></td><td>{item.seatLimit}</td></tr>)}</tbody></table>
+        <ul>{client.contracts.items.map((item) => <li><a href={`/operator/contracts/${item.id}`}>{item.startsAt}–{item.endsAt}</a>, {item.seatLimit} seats</li>)}</ul>
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="contracts" collection={client.contracts} preserved={childPagination} />
-        <h3>Create contract</h3>
-        <form class="actions" method="post" action={`/operator/clients/${client.id}/contracts`}>
-          <CsrfInput token={props.csrfToken} />
-          <label>Plan<select name="planId" required><option value="">Select active plan</option>{client.activePlans.map((plan) => <option value={plan.id}>{plan.displayName} ({plan.planKey})</option>)}</select></label>
-          <label>Status<select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select></label>
-          <label>Start date<input name="startsAt" required type="date" /></label>
-          <label>End date<input name="endsAt" required type="date" /></label>
-          <label>Seat limit<input name="seatLimit" required type="number" min="1" max="100000" step="1" value="4" /></label>
-          <label>Monthly seat price (cents)<input name="monthlySeatPriceCents" required type="number" min="0" step="1" value="0" /><small>10000 = 100.00</small></label>
-          <label>Tax (basis points)<input name="taxBasisPoints" required type="number" min="0" max="10000" step="1" value="0" /><small>800 = 8%; 0 = no tax</small></label>
-          <label>Collection frequency<select name="collectionFrequency"><option>monthly</option><option>upfront</option></select></label>
+        <form method="post" action={`/operator/clients/${client.id}/contracts`}>
+          <input name="planId" required placeholder="Plan ID" />
+          <select name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select>
+          <input name="startsAt" required type="date" />
+          <input name="endsAt" required type="date" />
+          <input name="seatLimit" required type="number" min="1" max="100000" step="1" />
+          <input name="monthlySeatPriceCents" required type="number" min="0" step="1" />
+          <input name="taxBasisPoints" required type="number" min="0" max="10000" step="1" />
+          <select name="collectionFrequency"><option>monthly</option><option>upfront</option></select>
           <fieldset>
-            <legend>Optional modules</legend>
-            <p class="muted">Leave all unchecked for Core CRM only.</p>
+            <legend>Modules</legend>
             {Object.entries(MODULE_CATALOG).map(([moduleId, module]) => (
               <label><input type="checkbox" name="moduleIds" value={moduleId} /> {module.displayName}</label>
             ))}
           </fieldset>
-          <button type="submit">Create contract</button>
+          <button type="submit">Add contract</button>
         </form>
       </section>
     </OperatorLayout>
   )
 }
 
-export function ContractPage(props: { contract: ContractDetail; csrfToken: string }) {
+export function ContractPage(props: { contract: ContractDetail }) {
   const contract = props.contract
   return (
     <OperatorLayout title="Contract">
       <h1>Contract</h1>
-      <section><h2>License</h2><p><span class={`badge ${contract.status}`}>{contract.status}</span> · {contract.startsAt} – {contract.endsAt} · {contract.seatLimit} seats · revision {contract.entitlementRevision}</p><p>Renewal: {contract.renewalPolicy} · Suspension: {contract.suspensionAt ?? "not scheduled"}</p><p>Modules: {contract.modules.join(", ") || "none"}</p></section>
-      <section><h2>Edit contract</h2><form class="actions" method="post" action={`/operator/contracts/${contract.id}`}><CsrfInput token={props.csrfToken} /><label>Plan ID<input name="planId" required value={contract.planId} /></label><label>Status<select name="status">{["active", "past_due", "suspended", "cancelled"].map((status) => <option selected={contract.status === status}>{status}</option>)}</select></label><label>Start date<input name="startsAt" required type="date" value={contract.startsAt} /></label><label>End date<input name="endsAt" required type="date" value={contract.endsAt} /></label><label>Seat limit<input name="seatLimit" required type="number" min="1" max="100000" value={contract.seatLimit} /></label><label>Monthly seat price (cents)<input name="monthlySeatPriceCents" required type="number" min="0" value={contract.monthlySeatPriceCents} /></label><label>Tax (basis points)<input name="taxBasisPoints" required type="number" min="0" max="10000" value={contract.taxBasisPoints} /><small>800 = 8%</small></label><label>Collection frequency<select name="collectionFrequency"><option selected={contract.collectionFrequency === "monthly"}>monthly</option><option selected={contract.collectionFrequency === "upfront"}>upfront</option></select></label><fieldset><legend>Optional modules</legend><p class="muted">Leave all unchecked for Core CRM only.</p>{Object.entries(MODULE_CATALOG).map(([moduleId, module]) => <label><input type="checkbox" name="moduleIds" value={moduleId} checked={contract.modules.includes(moduleId)} /> {module.displayName}</label>)}</fieldset><label><input type="checkbox" name="confirmCommercialState" value="confirmed" /> Confirm suspension/cancellation</label><button type="submit">Save contract</button></form></section>
+      <p>{contract.startsAt}–{contract.endsAt}; {contract.seatLimit} seats; {contract.totalCents} cents.</p>
       <h2>Invoices</h2>
       <ul>{contract.invoices.items.map((invoice) => <li>{invoice.invoiceNumber}: {invoice.totalCents} {invoice.currency} cents</li>)}</ul>
       <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />
       <form method="post" action={`/operator/contracts/${contract.id}/invoices`}>
-        <CsrfInput token={props.csrfToken} />
         <input name="invoiceNumber" required placeholder="Invoice number" />
         <select name="status"><option>draft</option><option>issued</option><option>paid</option><option>void</option></select>
         <input name="issuedAt" required placeholder="2026-08-10T00:00:00.000Z" />
@@ -154,7 +142,6 @@ export function ContractPage(props: { contract: ContractDetail; csrfToken: strin
         <input name="weights" required placeholder="1,1,1" />
         <button type="submit">Issue invoice</button>
       </form>
-      <section><h2>Recent audit</h2><table><thead><tr><th>Time</th><th>Action</th><th>Outcome</th></tr></thead><tbody>{contract.audit.map((entry) => <tr><td>{entry.createdAt}</td><td>{entry.action}</td><td><span class={`badge ${entry.outcome}`}>{entry.outcome}</span></td></tr>)}</tbody></table></section>
     </OperatorLayout>
   )
 }

@@ -15,7 +15,6 @@ const secondClientKey = `client-${crypto.randomUUID()}`
 const deploymentKey = `deployment-${crypto.randomUUID()}`
 const invoiceNumber = `INV-${crypto.randomUUID()}`
 const hugeFiniteWeight = "1".padEnd(309, "0")
-const csrfToken = crypto.randomUUID()
 let clientId = ""
 let secondClientId = ""
 let contractId = ""
@@ -50,10 +49,7 @@ function operatorRequest(
     form?: Record<string, string | readonly string[]>
     json?: Record<string, unknown>
     origin?: string | null
-    fetchSite?: string
-    referer?: string
     jsonGuard?: boolean
-    csrf?: string | null
     host?: string
     database?: D1Database
   } = {},
@@ -71,7 +67,6 @@ function operatorRequest(
         form.append(key, item)
       }
     }
-    if (options.csrf !== null && !form.has("_csrf")) form.set("_csrf", options.csrf ?? csrfToken)
     headers.set("Content-Type", "application/x-www-form-urlencoded")
     body = form
   } else if (options.json) {
@@ -82,17 +77,6 @@ function operatorRequest(
   if (method === "POST" && options.origin !== null) {
     headers.set("Origin", options.origin ?? "https://control.invalid")
     headers.set("Sec-Fetch-Site", "same-origin")
-  }
-  if (options.fetchSite) {
-    headers.set("Sec-Fetch-Site", options.fetchSite)
-  }
-  if (options.referer) {
-    headers.set("Referer", options.referer)
-  }
-  if (method === "POST" && options.csrf !== null) {
-    const token = options.csrf ?? csrfToken
-    headers.set("Cookie", `operator_csrf=${token}`)
-    if (options.json) headers.set("X-CSRF-Token", token)
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
@@ -144,13 +128,15 @@ beforeAll(async () => {
 })
 
 describe("operator mutation protection and client administration", () => {
-  it("requires matching CSRF protection and owner authority for client creation", async () => {
+  it("requires same-origin protection and owner authority for client creation", async () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 
-    expect((await operatorRequest("/operator/clients", { method: "POST", form, csrf: null })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", { method: "POST", form, origin: null })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", {
       method: "POST",
-      form: { ...form, _csrf: crypto.randomUUID() },
+      form: { clientKey: `host-${crypto.randomUUID()}`, displayName: "Host injection" },
+      host: "https://attacker.invalid",
+      origin: "https://attacker.invalid",
     })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", { method: "POST", form, token: "billing-token" })).status).toBe(403)
 
@@ -310,56 +296,6 @@ describe("contract and invoice administration", () => {
     expect(detail.status).toBe(200)
     expect(detail.headers.get("Cache-Control")).toBe("no-store")
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
-  })
-
-  it("offers active plans and allows Core CRM with no optional modules", async () => {
-    const page = await operatorRequest(`/operator/clients/${clientId}`)
-    const html = await page.text()
-    expect(html).toContain("Basic (basic)")
-    expect(html).toContain("Leave all unchecked for Core CRM only.")
-
-    const response = await operatorRequest(`/operator/clients/${clientId}/contracts`, {
-      method: "POST",
-      token: "billing-token",
-      form: { ...validContract, moduleIds: [] },
-    })
-    expect(response.status).toBe(303)
-    const core = await env.CONTROL_DB.prepare(
-      "SELECT id FROM contracts WHERE client_id = ? ORDER BY created_at DESC LIMIT 1",
-    ).bind(clientId).first<{ id: string }>()
-    expect(await countRows("SELECT COUNT(*) AS count FROM contract_modules WHERE contract_id = ?", core?.id ?? "")).toBe(0)
-  })
-
-  it("labels contract fields and atomically updates future terms", async () => {
-    const page = await operatorRequest(`/operator/clients/${clientId}`)
-    const html = await page.text()
-    expect(html).toContain("Monthly seat price (cents)")
-    expect(html).toContain("Tax (basis points)")
-    expect(html).toContain("Create contract")
-
-    const before = await env.CONTROL_DB.prepare(
-      "SELECT entitlement_revision FROM contracts WHERE id = ?",
-    ).bind(contractId).first<{ entitlement_revision: number }>()
-
-    const response = await operatorRequest(`/operator/contracts/${contractId}`, {
-      method: "POST",
-      token: "billing-token",
-      form: { ...validContract, startsAt: "2026-08-20", endsAt: "2026-09-20", seatLimit: "4", moduleIds: ["projects", "forecast"] },
-    })
-    expect(response.status).toBe(303)
-    const updated = await env.CONTROL_DB.prepare(
-      "SELECT starts_at, seat_limit, entitlement_revision FROM contracts WHERE id = ?",
-    ).bind(contractId).first<{ starts_at: string; seat_limit: number; entitlement_revision: number }>()
-    expect(updated).toMatchObject({
-      starts_at: "2026-08-20",
-      seat_limit: 4,
-      entitlement_revision: (before?.entitlement_revision ?? 0) + 1,
-    })
-    const modules = await env.CONTROL_DB.prepare(
-      "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
-    ).bind(contractId).all<{ module_id: string }>()
-    expect(modules.results.map((row) => row.module_id)).toEqual(["forecast", "projects"])
-    expect(await countRows("SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'contract.update' AND target_id = ?", contractId)).toBe(1)
   })
 
   it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {

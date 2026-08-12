@@ -40,15 +40,7 @@ export interface ContractDetail {
   startsAt: string
   endsAt: string
   seatLimit: number
-  monthlySeatPriceCents: number
-  taxBasisPoints: number
-  collectionFrequency: CollectionFrequency
   totalCents: number
-  renewalPolicy: string
-  suspensionAt: string | null
-  entitlementRevision: number
-  modules: string[]
-  audit: Array<{ action: string; outcome: string; createdAt: string }>
   invoices: PageResult<{ id: string; invoiceNumber: string; status: string; currency: string; totalCents: number }>
 }
 
@@ -82,7 +74,7 @@ function collectionFrequency(value: unknown): CollectionFrequency {
 
 function selectedModules(value: unknown): ModuleId[] {
   const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
-  if (values.length > Object.keys(MODULE_CATALOG).length) throw badRequest()
+  if (values.length === 0 || values.length > Object.keys(MODULE_CATALOG).length) throw badRequest()
   const selected = new Set<ModuleId>()
   for (const item of values) {
     if (typeof item !== "string" || !(item in MODULE_CATALOG)) throw badRequest()
@@ -101,7 +93,12 @@ function selectedModules(value: unknown): ModuleId[] {
   return [...selected]
 }
 
-function validatedContract(input: ContractInput) {
+export async function createContract(
+  database: D1Database,
+  clientId: string,
+  input: ContractInput,
+  actor: MutationActor,
+): Promise<string> {
   const planId = boundedText(input.planId, 128)
   const status = boundedText(input.status, 32)
   if (!["active", "past_due", "suspended", "cancelled"].includes(status)) throw badRequest()
@@ -113,22 +110,6 @@ function validatedContract(input: ContractInput) {
   const taxBasisPoints = integer(input.taxBasisPoints, 0, 10_000)
   const frequency = collectionFrequency(input.collectionFrequency)
   const moduleIds = selectedModules(input.moduleIds)
-  const periods = getMonthlyBillingPeriods(startsAt, endsAt)
-  if (periods.length === 0 || periods.length >= 1_200 && periods.at(-1)?.endsAt !== endsAt) throw badRequest()
-  const billingFactor = periods.reduce((sum, period) => sum + period.factor, 0)
-  const total = calculateContractTotal(monthlySeatPriceCents / 100, seatLimit, billingFactor, taxBasisPoints / 100)
-  const totalCents = Math.round(total.total * 100)
-  if (!Number.isSafeInteger(totalCents) || totalCents < 0) throw badRequest()
-  return { planId, status, startsAt, endsAt, seatLimit, monthlySeatPriceCents, taxBasisPoints, frequency, moduleIds, totalCents }
-}
-
-export async function createContract(
-  database: D1Database,
-  clientId: string,
-  input: ContractInput,
-  actor: MutationActor,
-): Promise<string> {
-  const { planId, status, startsAt, endsAt, seatLimit, monthlySeatPriceCents, taxBasisPoints, frequency, moduleIds, totalCents } = validatedContract(input)
 
   const client = await database.prepare("SELECT 1 FROM clients WHERE id = ?").bind(clientId).first()
   if (!client) throw notFound()
@@ -136,6 +117,20 @@ export async function createContract(
     active: number
   }>()
   if (!plan || plan.active !== 1) throw badRequest()
+
+  const periods = getMonthlyBillingPeriods(startsAt, endsAt)
+  if (periods.length === 0 || periods.length >= 1_200 && periods.at(-1)?.endsAt !== endsAt) {
+    throw badRequest()
+  }
+  const billingFactor = periods.reduce((sum, period) => sum + period.factor, 0)
+  const total = calculateContractTotal(
+    monthlySeatPriceCents / 100,
+    seatLimit,
+    billingFactor,
+    taxBasisPoints / 100,
+  )
+  const totalCents = Math.round(total.total * 100)
+  if (!Number.isSafeInteger(totalCents) || totalCents < 0) throw badRequest()
 
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
@@ -191,58 +186,13 @@ export async function createContract(
   return id
 }
 
-export async function updateContract(
-  database: D1Database,
-  contractId: string,
-  input: ContractInput,
-  actor: MutationActor,
-): Promise<string> {
-  const values = validatedContract(input)
-  const existing = await database.prepare(
-    "SELECT client_id, plan_id, status, starts_at, ends_at, seat_limit, monthly_seat_price_cents, tax_basis_points, collection_frequency FROM contracts WHERE id = ?",
-  ).bind(contractId).first<Record<string, unknown>>()
-  if (!existing) throw notFound()
-  const plan = await database.prepare("SELECT active FROM plans WHERE id = ?").bind(values.planId).first<{ active: number }>()
-  if (!plan || plan.active !== 1) throw badRequest()
-  const previousModules = await database.prepare(
-    "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
-  ).bind(contractId).all<{ module_id: string }>()
-  const now = new Date().toISOString()
-  const audit = await prepareOperatorAuditStatement(database, {
-    operatorId: actor.operatorId,
-    action: "contract.update",
-    targetType: "contract",
-    targetId: contractId,
-    outcome: "success",
-    requestId: actor.requestId,
-    metadata: { before: { ...existing, moduleIds: previousModules.results.map((row) => row.module_id) }, after: values },
-    createdAt: now,
-  })
-  const catalogStatements = values.moduleIds.map((moduleId) => database.prepare(
-    "INSERT OR IGNORE INTO module_catalog (module_id, display_name, dependency_ids_json, active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  ).bind(moduleId, MODULE_CATALOG[moduleId].displayName, JSON.stringify(MODULE_CATALOG[moduleId].dependencies), now, now))
-  const moduleStatements = values.moduleIds.map((moduleId) => database.prepare(
-    "INSERT INTO contract_modules (contract_id, module_id, created_at) VALUES (?, ?, ?)",
-  ).bind(contractId, moduleId, now))
-  await database.batch([
-    ...catalogStatements,
-    database.prepare(
-      "UPDATE contracts SET plan_id = ?, status = ?, starts_at = ?, ends_at = ?, seat_limit = ?, monthly_seat_price_cents = ?, tax_basis_points = ?, collection_frequency = ?, total_cents = ?, entitlement_revision = entitlement_revision + 1, updated_at = ? WHERE id = ?",
-    ).bind(values.planId, values.status, values.startsAt, values.endsAt, values.seatLimit, values.monthlySeatPriceCents, values.taxBasisPoints, values.frequency, values.totalCents, now, contractId),
-    database.prepare("DELETE FROM contract_modules WHERE contract_id = ?").bind(contractId),
-    ...moduleStatements,
-    audit.statement,
-  ])
-  return contractId
-}
-
 export async function getContractDetail(
   database: D1Database,
   contractId: string,
   invoicePagination: PageRequest,
 ): Promise<ContractDetail> {
   const contract = await database.prepare(
-    "SELECT id, client_id, plan_id, status, starts_at, ends_at, seat_limit, monthly_seat_price_cents, tax_basis_points, collection_frequency, total_cents, renewal_policy, suspension_at, entitlement_revision FROM contracts WHERE id = ?",
+    "SELECT id, client_id, plan_id, status, starts_at, ends_at, seat_limit, total_cents FROM contracts WHERE id = ?",
   ).bind(contractId).first<{
     id: string
     client_id: string
@@ -251,16 +201,10 @@ export async function getContractDetail(
     starts_at: string
     ends_at: string
     seat_limit: number
-    monthly_seat_price_cents: number
-    tax_basis_points: number
-    collection_frequency: CollectionFrequency
     total_cents: number
-    renewal_policy: string
-    suspension_at: string | null
-    entitlement_revision: number
   }>()
   if (!contract) throw notFound()
-  const [invoices, modules, audit] = await Promise.all([database.prepare(
+  const invoices = await database.prepare(
     "SELECT id, invoice_number, status, currency, total_cents FROM invoices WHERE contract_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
   ).bind(
     contractId,
@@ -272,11 +216,7 @@ export async function getContractDetail(
     status: string
     currency: string
     total_cents: number
-  }>(), database.prepare(
-    "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
-  ).bind(contractId).all<{ module_id: string }>(), database.prepare(
-    "SELECT action, outcome, created_at FROM operator_audit_log WHERE target_id = ? ORDER BY created_at DESC LIMIT 20",
-  ).bind(contractId).all<{ action: string; outcome: string; created_at: string }>()])
+  }>()
   return {
     id: contract.id,
     clientId: contract.client_id,
@@ -285,15 +225,7 @@ export async function getContractDetail(
     startsAt: contract.starts_at,
     endsAt: contract.ends_at,
     seatLimit: contract.seat_limit,
-    monthlySeatPriceCents: contract.monthly_seat_price_cents,
-    taxBasisPoints: contract.tax_basis_points,
-    collectionFrequency: contract.collection_frequency,
     totalCents: contract.total_cents,
-    renewalPolicy: contract.renewal_policy,
-    suspensionAt: contract.suspension_at,
-    entitlementRevision: contract.entitlement_revision,
-    modules: modules.results.map((row) => row.module_id),
-    audit: audit.results.map((row) => ({ action: row.action, outcome: row.outcome, createdAt: row.created_at })),
     invoices: {
       items: invoices.results.slice(0, invoicePagination.pageSize).map((invoice) => ({
         id: invoice.id,

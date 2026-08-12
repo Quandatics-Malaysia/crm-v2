@@ -45,7 +45,6 @@ export type PersonEditKey =
   | "firstName"
   | "lastName"
   | "title"
-  | "department"
   | "email"
   | "phone"
   | "accountId"

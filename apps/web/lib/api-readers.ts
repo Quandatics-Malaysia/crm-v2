@@ -437,12 +437,7 @@ export async function personsGet(
 // opportunities — Opportunity containers (apps/web/app/(app)/opportunities/actions.ts)
 // ---------------------------------------------------------------------------
 
-export type ContactRef = {
-  id: string
-  name: string
-  designation: string | null
-  department: string | null
-}
+export type ContactRef = { id: string; name: string; designation: string | null }
 
 export type OpportunityContainerRow = {
   id: string
@@ -584,7 +579,6 @@ export async function opportunitiesGet(
         firstName: persons.firstName,
         lastName: persons.lastName,
         title: persons.title,
-        department: persons.department,
       })
       .from(persons)
       .where(eq(persons.id, personId))
@@ -594,7 +588,6 @@ export async function opportunitiesGet(
       id: personId,
       name: [p.firstName, p.lastName].filter(Boolean).join(" "),
       designation: p.title,
-      department: p.department ?? null,
     }
   }
   const [ownerContact, powerSponsorContact] = await Promise.all([

@@ -31,7 +31,6 @@ import { InlineCombobox } from "@/components/inline-combobox"
 import { ChangeHistory } from "@/components/activity/change-history"
 import type { ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import { formatMoney, formatDate } from "@/lib/format"
-import { isValidDateInput, isValidMoneyInput } from "@/lib/input-validation"
 import { cn } from "@/lib/utils"
 import {
   updateOpportunityContainer,
@@ -316,9 +315,6 @@ export function OpportunityDetailBody({
               {detail.ownerContact?.designation ? (
                 <span className="text-muted-foreground"> · {detail.ownerContact.designation}</span>
               ) : null}
-              {detail.ownerContact?.department ? (
-                <span className="text-muted-foreground"> · {detail.ownerContact.department}</span>
-              ) : null}
             </FieldRow>
             <FieldRow inline label="Opportunity Owner Budget Limit">
               {canEdit ? (
@@ -328,16 +324,7 @@ export function OpportunityDetailBody({
                   formatDraft={(v) => formatMoney(v || "0", o.currency)}
                   type="number"
                   title="Click to edit budget limit"
-                  onSave={(next) => {
-                    const value = next.trim()
-                    if (!value) return saveField({ ownerBudgetLimit: null })
-                    if (!isValidMoneyInput(value)) {
-                      throw new Error(
-                        "Owner budget limit must be a non-negative number with up to 2 decimals."
-                      )
-                    }
-                    return saveField({ ownerBudgetLimit: value })
-                  }}
+                  onSave={(next) => saveField({ ownerBudgetLimit: next || null })}
                 />
               ) : (
                 formatMoney(o.ownerBudgetLimit, o.currency)
@@ -470,14 +457,6 @@ export function OpportunityDetailBody({
                     </div>
                     <div>
                       <div className="text-xs font-medium text-muted-foreground">
-                        Power Sponsor Department
-                      </div>
-                      <div className="text-sm">
-                        {detail.powerSponsorContact?.department || "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
                         Power Sponsor Budget Limit
                       </div>
                       <div className="text-sm">
@@ -488,17 +467,7 @@ export function OpportunityDetailBody({
                             formatDraft={(v) => formatMoney(v || "0", o.currency)}
                             type="number"
                             title="Click to edit budget limit"
-                            onSave={(next) => {
-                              const value = next.trim()
-                              if (!value)
-                                return saveField({ powerSponsorBudgetLimit: null })
-                              if (!isValidMoneyInput(value)) {
-                                throw new Error(
-                                  "Power sponsor budget limit must be a non-negative number with up to 2 decimals."
-                                )
-                              }
-                              return saveField({ powerSponsorBudgetLimit: value })
-                            }}
+                            onSave={(next) => saveField({ powerSponsorBudgetLimit: next || null })}
                           />
                         ) : (
                           formatMoney(o.powerSponsorBudgetLimit, o.currency)
@@ -536,16 +505,7 @@ export function OpportunityDetailBody({
                             formatDraft={(v) => formatMoney(v || "0", o.currency)}
                             type="number"
                             title="Click to edit estimated budget"
-                            onSave={(next) => {
-                              const value = next.trim()
-                              if (!value) return saveField({ estimatedBudget: null })
-                              if (!isValidMoneyInput(value)) {
-                                throw new Error(
-                                  "Estimated budget must be a non-negative number with up to 2 decimals."
-                                )
-                              }
-                              return saveField({ estimatedBudget: value })
-                            }}
+                            onSave={(next) => saveField({ estimatedBudget: next || null })}
                           />
                         ) : (
                           formatMoney(o.estimatedBudget, o.currency)
@@ -564,16 +524,7 @@ export function OpportunityDetailBody({
                             formatDraft={(v) => (v ? formatDate(v) : "—")}
                             type="date"
                             title="Click to edit close date"
-                            onSave={(next) => {
-                              const value = next.trim()
-                              if (!value) return saveField({ estimatedCloseDate: null })
-                              if (!isValidDateInput(value)) {
-                                throw new Error(
-                                  "Estimated close date must be a valid date in YYYY-MM-DD format."
-                                )
-                              }
-                              return saveField({ estimatedCloseDate: value })
-                            }}
+                            onSave={(next) => saveField({ estimatedCloseDate: next || null })}
                           />
                         ) : (
                           formatDate(o.estimatedCloseDate)

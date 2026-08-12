@@ -14,6 +14,8 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
+COPY apps/deployment-agent/package.json ./apps/deployment-agent/package.json
+COPY apps/control-plane/package.json ./apps/control-plane/package.json
 COPY packages/control-protocol/package.json ./packages/control-protocol/package.json
 RUN pnpm install --frozen-lockfile
 
@@ -21,18 +23,21 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /app/apps/deployment-agent/node_modules ./apps/deployment-agent/node_modules
+COPY --from=deps /app/apps/control-plane/node_modules ./apps/control-plane/node_modules
+COPY --from=deps /app/packages/control-protocol/node_modules ./packages/control-protocol/node_modules
 COPY . .
+RUN pnpm --filter @crm/control-protocol run build
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @crm/control-protocol run build \
-    && pnpm --filter web run build
+RUN pnpm --filter web run build
 
 # ---- compile the privileged migrate/seed job without application source ----
 FROM base AS migrator-build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
-RUN pnpm --filter @crm/control-protocol run build \
-    && pnpm --filter web run build:migrator
+RUN pnpm --filter @crm/control-protocol run build
+RUN pnpm --filter web run build:migrator
 
 # ---- source-free privileged migrate/seed job image ----
 FROM base AS migrator

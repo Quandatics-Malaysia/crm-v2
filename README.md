@@ -121,42 +121,6 @@ time. Client deployment values (`WEB_IMAGE`, `MIGRATOR_IMAGE`, and
 coordinates. The source-free bundle under `deploy/client/` verifies the exact
 workflow identity before pulling any image.
 
-### One-command release run
-
-Run this from the repository root after your normal PRs are merged and CI quality is green:
-
-```bash
-rtk scripts/release-one-command.sh --bump patch --rc 1 --wait
-```
-
-- `--bump patch|minor|major` picks the next version from the latest stable tag.
-- `--rc 1` creates `-rc.1`; omit this for stable release tags.
-- `--wait` blocks until `release-images.yml` finishes and downloads the manifest.
-- `docs/operations/release-log.md` is updated with every successful run.
-
-Direct manual tag mode:
-
-```bash
-rtk scripts/release-one-command.sh --tag v1.2.15 --wait
-```
-
-### Versioning and verification log
-
-Open the release log file for every immutable image set used in production:
-
-```text
-docs/operations/release-log.md
-```
-
-Use `release_tag`, image digests, and `workflow_run` as your authoritative
-version record during audits and rollback decisions.
-
-### Playground and sanity checks
-
-- API playground: `https://app.quandatics.com/api-playground`
-- Health check: `https://app.quandatics.com/api/health`
-- Release metadata page (signed immutable runtime): `https://app.quandatics.com/settings/system`
-
 ## Production (Docker, internet-exposed)
 ```bash
 # set these in your shell / .env for compose (REQUIRED — compose fails fast if unset):

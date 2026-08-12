@@ -173,8 +173,6 @@ parse_environment() {
     case "$key" in
       COMPOSE_PROJECT_NAME) COMPOSE_PROJECT_NAME=$value ;;
       RELEASE_TAG) RELEASE_TAG=$value ;;
-      RELEASE_CHANNEL) RELEASE_CHANNEL=$value ;;
-      DEPLOYED_AT) DEPLOYED_AT=$value ;;
       SOURCE_COMMIT_SHA) SOURCE_COMMIT_SHA=$value ;;
       WEB_IMAGE) WEB_IMAGE=$value ;;
       MIGRATOR_IMAGE) MIGRATOR_IMAGE=$value ;;
@@ -289,8 +287,6 @@ parse_previous_record() {
     case "$key" in
       RECORD_VERSION) PREVIOUS_RECORD_VERSION=$value ;;
       RELEASE_TAG) PREVIOUS_RELEASE_TAG=$value ;;
-      RELEASE_CHANNEL) PREVIOUS_RELEASE_CHANNEL=$value ;;
-      DEPLOYED_AT) PREVIOUS_DEPLOYED_AT=$value ;;
       SOURCE_COMMIT_SHA) PREVIOUS_SOURCE_COMMIT_SHA=$value ;;
       DEPLOYMENT_ID) PREVIOUS_DEPLOYMENT_ID=$value ;;
       COMPOSE_PROJECT_NAME) PREVIOUS_COMPOSE_PROJECT_NAME=$value ;;
@@ -352,7 +348,7 @@ assert_evidence_equal() {
 }
 
 compose() (
-  export COMPOSE_PROJECT_NAME RELEASE_TAG RELEASE_CHANNEL DEPLOYED_AT SOURCE_COMMIT_SHA
+  export COMPOSE_PROJECT_NAME RELEASE_TAG SOURCE_COMMIT_SHA
   export WEB_IMAGE MIGRATOR_IMAGE BACKUP_IMAGE AGENT_IMAGE POSTGRES_IMAGE CADDY_IMAGE
   export POSTGRES_PASSWORD CRM_APP_PASSWORD DB_NAME STORAGE_ID
   export DATABASE_ADMIN_URL MIGRATOR_DATABASE_URL APP_DATABASE_URL
@@ -415,8 +411,6 @@ restore_target_environment() {
   POSTGRES_IMAGE=$TARGET_POSTGRES_IMAGE
   CADDY_IMAGE=$TARGET_CADDY_IMAGE
   RELEASE_TAG=$TARGET_RELEASE_TAG
-  RELEASE_CHANNEL=$TARGET_RELEASE_CHANNEL
-  DEPLOYED_AT=$TARGET_DEPLOYED_AT
   SOURCE_COMMIT_SHA=$TARGET_SOURCE_COMMIT_SHA
   POSTGRES_PASSWORD=$TARGET_POSTGRES_PASSWORD
   CRM_APP_PASSWORD=$TARGET_CRM_APP_PASSWORD
@@ -466,8 +460,6 @@ use_previous_environment() {
   POSTGRES_IMAGE=$PREVIOUS_POSTGRES_IMAGE
   CADDY_IMAGE=$PREVIOUS_CADDY_IMAGE
   RELEASE_TAG=$PREVIOUS_RELEASE_TAG
-  RELEASE_CHANNEL=$PREVIOUS_RELEASE_CHANNEL
-  DEPLOYED_AT=$PREVIOUS_DEPLOYED_AT
   SOURCE_COMMIT_SHA=$PREVIOUS_SOURCE_COMMIT_SHA
   POSTGRES_PASSWORD=$PREVIOUS_POSTGRES_PASSWORD
   CRM_APP_PASSWORD=$PREVIOUS_CRM_APP_PASSWORD
@@ -525,7 +517,6 @@ wait_for_database() {
 
 verify_runtime_identity() {
   [ "$(compose exec -T web printenv RELEASE_TAG)" = "$RELEASE_TAG" ] || return 1
-  [ "$(compose exec -T web printenv RELEASE_CHANNEL)" = "$RELEASE_CHANNEL" ] || return 1
   [ "$(compose exec -T web printenv SOURCE_COMMIT_SHA)" = "$SOURCE_COMMIT_SHA" ] || return 1
   [ "$(compose exec -T web printenv APPLICATION_VERSION)" = "$APPLICATION_VERSION" ] || return 1
   [ "$(compose exec -T web printenv MIGRATION_VERSION)" = "$MIGRATION_VERSION" ] || return 1
@@ -593,10 +584,8 @@ write_deployment_record() {
   umask 077
   record_tmp=$(mktemp "$DEPLOYMENT_RECORD_FILE.XXXXXX") || return 1
   {
-    printf 'RECORD_VERSION=4\n'
+    printf 'RECORD_VERSION=3\n'
     printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
-    printf 'RELEASE_CHANNEL=%s\n' "$RELEASE_CHANNEL"
-    printf 'DEPLOYED_AT=%s\n' "$DEPLOYED_AT"
     printf 'SOURCE_COMMIT_SHA=%s\n' "$SOURCE_COMMIT_SHA"
     printf 'DEPLOYMENT_ID=%s\n' "$DEPLOYMENT_ID"
     printf 'COMPOSE_PROJECT_NAME=%s\n' "$COMPOSE_PROJECT_NAME"
@@ -662,7 +651,7 @@ assert_secure_file "$env_file" "environment file"
 cp "$env_file" "$temp_dir/environment.env" || fail "could not read environment file"
 
 # Clear every accepted key so ambient variables cannot bypass the data file.
-unset COMPOSE_PROJECT_NAME RELEASE_TAG RELEASE_CHANNEL DEPLOYED_AT SOURCE_COMMIT_SHA
+unset COMPOSE_PROJECT_NAME RELEASE_TAG SOURCE_COMMIT_SHA
 unset WEB_IMAGE MIGRATOR_IMAGE BACKUP_IMAGE AGENT_IMAGE POSTGRES_IMAGE CADDY_IMAGE
 unset POSTGRES_PASSWORD CRM_APP_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL APP_URL
 unset PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD BOOTSTRAP_OWNER_EMAIL
@@ -676,7 +665,7 @@ unset BACKUP_MAX_AGE_SECONDS DEPLOYMENT_RECORD_FILE GATEWAY_HOST_PORT DB_HOST_PO
 unset HEALTHCHECK_ATTEMPTS HEALTHCHECK_INTERVAL_SECONDS HEALTHCHECK_TIMEOUT_SECONDS
 unset DB_HEALTH_ATTEMPTS DB_HEALTH_INTERVAL_SECONDS
 unset DB_MEMORY_LIMIT WEB_MEMORY_LIMIT BACKUP_MEMORY_LIMIT GATEWAY_MEMORY_LIMIT AGENT_MEMORY_LIMIT
-COMPOSE_PROJECT_NAME= RELEASE_TAG= RELEASE_CHANNEL= DEPLOYED_AT= SOURCE_COMMIT_SHA=
+COMPOSE_PROJECT_NAME= RELEASE_TAG= SOURCE_COMMIT_SHA=
 WEB_IMAGE= MIGRATOR_IMAGE= BACKUP_IMAGE= AGENT_IMAGE= POSTGRES_IMAGE= CADDY_IMAGE=
 POSTGRES_PASSWORD= CRM_APP_PASSWORD= BETTER_AUTH_SECRET= BETTER_AUTH_URL= APP_URL=
 PLATFORM_MASTER_EMAIL= PLATFORM_MASTER_PASSWORD= BOOTSTRAP_OWNER_EMAIL=
@@ -696,8 +685,6 @@ parse_environment "$temp_dir/environment.env"
 
 required COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
 required RELEASE_TAG "$RELEASE_TAG"
-required RELEASE_CHANNEL "$RELEASE_CHANNEL"
-required DEPLOYED_AT "$DEPLOYED_AT"
 required SOURCE_COMMIT_SHA "$SOURCE_COMMIT_SHA"
 required WEB_IMAGE "$WEB_IMAGE"
 required MIGRATOR_IMAGE "$MIGRATOR_IMAGE"
@@ -744,9 +731,6 @@ printf '%s\n' "$COMPOSE_PROJECT_NAME" | grep -Eq '^[a-z0-9][a-z0-9_-]*$' ||
   fail "COMPOSE_PROJECT_NAME contains unsupported characters"
 printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
   fail "RELEASE_TAG must be an immutable release tag such as v1.2.3"
-case "$RELEASE_CHANNEL" in stable|beta|canary) ;; *) fail "RELEASE_CHANNEL is invalid" ;; esac
-printf '%s\n' "$DEPLOYED_AT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' ||
-  fail "DEPLOYED_AT must be a UTC ISO timestamp"
 printf '%s\n' "$SOURCE_COMMIT_SHA" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' ||
   fail "SOURCE_COMMIT_SHA must be a full lowercase Git object ID"
 printf '%s\n' "$DB_NAME" | grep -Eq '^[a-z_][a-z0-9_]*$' || fail "DB_NAME is invalid"
@@ -921,7 +905,7 @@ previous_available=0
 if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   assert_secure_file "$DEPLOYMENT_RECORD_FILE" "previous deployment record"
   cp "$DEPLOYMENT_RECORD_FILE" "$temp_dir/previous-record.env" || fail "could not read previous deployment record"
-  PREVIOUS_RECORD_VERSION= PREVIOUS_RELEASE_TAG= PREVIOUS_RELEASE_CHANNEL= PREVIOUS_DEPLOYED_AT= PREVIOUS_SOURCE_COMMIT_SHA=
+  PREVIOUS_RECORD_VERSION= PREVIOUS_RELEASE_TAG= PREVIOUS_SOURCE_COMMIT_SHA=
   PREVIOUS_DEPLOYMENT_ID= PREVIOUS_COMPOSE_PROJECT_NAME= PREVIOUS_DB_NAME= PREVIOUS_STORAGE_ID=
   PREVIOUS_WEB_IMAGE= PREVIOUS_MIGRATOR_IMAGE= PREVIOUS_BACKUP_IMAGE= PREVIOUS_AGENT_IMAGE=
   PREVIOUS_POSTGRES_IMAGE= PREVIOUS_CADDY_IMAGE= PREVIOUS_BACKUP_ARTIFACT_SHA256=
@@ -942,15 +926,7 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   PREVIOUS_DB_HEALTH_INTERVAL_SECONDS=
   PREVIOUS_DEPLOYED_AT_EPOCH=
   parse_previous_record "$temp_dir/previous-record.env"
-  case "$PREVIOUS_RECORD_VERSION" in
-    3)
-      PREVIOUS_RELEASE_CHANNEL=stable
-      PREVIOUS_DEPLOYED_AT=$(date -u -d "@$PREVIOUS_DEPLOYED_AT_EPOCH" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null) ||
-        fail "previous deployment record timestamp cannot be converted"
-      ;;
-    4) ;;
-    *) fail "previous deployment record version is invalid; protected version 3 or 4 is required" ;;
-  esac
+  [ "$PREVIOUS_RECORD_VERSION" = 3 ] || fail "previous deployment record version is invalid; a protected version 3 rollback record is required"
   printf '%s\n' "$PREVIOUS_RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
     fail "previous deployment record release tag is invalid"
   printf '%s\n' "$PREVIOUS_SOURCE_COMMIT_SHA" | grep -Eq '^([0-9a-f]{40}|[0-9a-f]{64})$' ||
@@ -981,9 +957,6 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   required PREVIOUS_CONTROL_PLANE_URL "$PREVIOUS_CONTROL_PLANE_URL"
   required PREVIOUS_DEPLOYMENT_ENV "$PREVIOUS_DEPLOYMENT_ENV"
   required PREVIOUS_AGENT_VERSION "$PREVIOUS_AGENT_VERSION"
-  case "$PREVIOUS_RELEASE_CHANNEL" in stable|beta|canary) ;; *) fail "previous deployment record release channel is invalid" ;; esac
-  printf '%s\n' "$PREVIOUS_DEPLOYED_AT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' ||
-    fail "previous deployment record deployed timestamp is invalid"
   validate_uuid PREVIOUS_DEPLOYMENT_ID "$PREVIOUS_DEPLOYMENT_ID"
   validate_base64url32 PREVIOUS_AGENT_WEB_SECRET "$PREVIOUS_AGENT_WEB_SECRET"
   validate_semver PREVIOUS_APPLICATION_VERSION "$PREVIOUS_APPLICATION_VERSION"
@@ -1020,8 +993,6 @@ TARGET_AGENT_IMAGE=$AGENT_IMAGE
 TARGET_POSTGRES_IMAGE=$POSTGRES_IMAGE
 TARGET_CADDY_IMAGE=$CADDY_IMAGE
 TARGET_RELEASE_TAG=$RELEASE_TAG
-TARGET_RELEASE_CHANNEL=$RELEASE_CHANNEL
-TARGET_DEPLOYED_AT=$DEPLOYED_AT
 TARGET_SOURCE_COMMIT_SHA=$SOURCE_COMMIT_SHA
 TARGET_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 TARGET_CRM_APP_PASSWORD=$CRM_APP_PASSWORD

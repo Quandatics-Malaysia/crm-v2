@@ -2,67 +2,44 @@
 title: Architecture
 ---
 
-The repository remains a monorepo, but operations are split by trust boundary:
+A short tour of how the codebase is organised and where it's heading. Full design
+specs live in `docs/superpowers/specs/` in the repository; these are summaries.
 
-- **Vendor control plane** (Cloudflare): license authoring, entitlements, module policy, seat limits, and release registry metadata.
-- **Client runtime** (Quandatics host): PostgreSQL + runtime containers only.
+## One repository, module-by-module
 
-## Architecture sketch
+The CRM is built as a **single repository**, not a set of per-module repos. The
+decision was grounded in the code's own history — a large share of changes touch
+more than one module at once, which a multi-repo split would turn into painful
+cross-repo PR chains. A single repo keeps those changes to one pull request.
 
-```mermaid
-flowchart TD
-  A[Monorepo / release pipeline] --> B[CI build]
-  B --> C[Signed immutable images]
-  C --> D[Private registry]
-  D --> E[Deployment agent on client host]
-  E --> F[Verify signature + entitlement]
-  F --> G[Apply web + migrations + backup runtime]
-  G --> H[App serves]
-  I[Cloudflare Operator UI] --> J[Issue/alter licenses & status]
-  J --> K[Signed lease state]
-  K --> E
-```
+Everything beyond the core CRM (leads, accounts, contacts, opportunities, funnel,
+quotations, tax, products, RBAC) is an **optional module** — a plugin switched on
+or off by one boolean in `modules.config.ts`. See **[Modules](/extensibility/plugin-system)** for the
+plugin system and how to add one, and **[Contributing](/contributing)** for the
+rules that keep module boundaries clean.
 
-## Runtime split
+## Settings
 
-- **Core web image**: authenticated app container used by users.
-- **Migrator image**: applies DB schema changes safely and exits.
-- **Backup image**: produces and verifies restore evidence.
-- **Agent image**: applies signed release manifests and handles rollback.
+Settings is organised as **nested routes under a grouped sub-navigation**,
+following how established products (Stripe, Odoo) structure their settings:
 
-The client host has no source checkout for deployments. It receives image digests, license proof, and runtime parameters only.
+- **General** — organisation profile, currency, behaviour
+- **Billing** — numbering, invoicing, and tax
+- **Taxonomy** — industries, project natures, product codes, funnel stages
+- **People** — team access
 
-## Module and entitlement model
+Money and document configuration is consolidated under one **Billing** umbrella
+rather than scattered — the same grouping the big CRMs use.
 
-Modules are no longer simple local booleans.
+## Staging & previews
 
-- A license envelope defines allowed modules for the active plan.
-- The app reads entitlement from signed runtime state and enforces:
-  - page and menu visibility
-  - route and action checks
-  - write/modify behavior where applicable
-- Module changes are applied through control-plane operations and then rolled into the next signed release.
+An isolated **staging** stack mirrors production closely (a second,
+fully-namespaced stack on the same server) so changes can be previewed before
+they go live. Its public quick-tunnel URL is temporary and appears in the latest
+staging workflow summary. See **[Operations](/operations)** for the deploy flow.
 
-## Staging
+## The road ahead
 
-Staging is an isolated copy of the same architecture and data shape. It validates:
-
-- migration order and compatibility
-- signed image verification
-- entitlement transitions
-- health checks and rollback readiness
-
-The client app should not be used to run deployments, issue seats, or edit entitlement state.
-
-## Settings and scope
-
-Repository development still happens centrally, but operations are intentionally
-split so client users keep access to business features while deployment controls
-remain controlled by the vendor.
-
-## Why this architecture
-
-- Source remains vendor-owned.
-- Client-side cannot extract build metadata or secrets.
-- Production cutovers are reproducible from digests and audit records.
-- Rollbacks are deterministic because every release is immutable.
+The repository is moving toward a workspace layout (`apps/` + `packages/` +
+`modules/`) so that many contributors can build modules in parallel with clear
+boundaries. The design for this lives in the repository's specs.

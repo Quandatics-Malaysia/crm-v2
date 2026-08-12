@@ -163,10 +163,7 @@ export function StageAdvanceDialog({
     [ordered, currentStageId, target]
   )
   const requiredKeys = React.useMemo(
-    () =>
-      requiredKeysForStages(enteredStages, {
-        skipPpvvcForWonTransition: target?.kind === "WON",
-      }),
+    () => requiredKeysForStages(enteredStages),
     [enteredStages]
   )
   // Live gate: keep the server-computed presets, but recompute the custom keys

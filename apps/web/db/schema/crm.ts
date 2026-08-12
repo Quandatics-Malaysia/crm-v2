@@ -83,12 +83,11 @@ export const persons = pgTable(
       .references(() => organization.id, { onDelete: "cascade" }),
     // Tenant-safe composite FK -> accounts(tenant_id, id); see table config below.
     accountId: uuid("account_id").notNull(),
-  firstName: text("first_name").notNull(),
-  lastName: text("last_name"),
-  title: text("title"),
-  department: text("department"),
-  email: text("email"),
-  phone: text("phone"),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name"),
+    title: text("title"),
+    email: text("email"),
+    phone: text("phone"),
     /** Contact owner (Salesforce "Contact Owner"). */
     ownerMemberId: text("owner_member_id").references(() => member.id, {
       onDelete: "set null",

@@ -45,12 +45,6 @@ import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 import {
-  normalizeDateInput,
-  normalizeMoneyInput,
-  normalizeYearInput,
-  isValidPercentInput,
-} from "@/lib/input-validation"
-import {
   funnelsList,
   funnelsGet,
   loadPartiesByOpportunity,
@@ -95,10 +89,6 @@ async function resolvePartyList(
 
   const resolved: PartyRow[] = parties.map((p) => {
     const id = (p.partnerEntityId ?? "").trim()
-    const normalizedShareValue = normalizeMoneyInput(p.shareValue, "Partner share value")
-    if (normalizedShareValue === null) {
-      throw new Error("Handling partner share value is required.")
-    }
     const match = entities.find((e) => e.id === id)
     if (!match)
       throw new Error(
@@ -113,7 +103,7 @@ async function resolvePartyList(
       partnerEntityId: match.id,
       partnerName: match.name,
       shareType: p.shareType,
-      shareValue: normalizedShareValue,
+      shareValue: p.shareValue,
       currency: p.currency || null,
       manualFxRate: p.manualFxRate || null,
     }
@@ -160,7 +150,8 @@ async function saveParties(
  *  is bypassable). Accepts undefined/null/"" (= unset). */
 function assertRecognizedPercent(v: string | null | undefined): void {
   if (v === undefined || v === null || v === "") return
-  if (!isValidPercentInput(v)) {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0 || n > 100) {
     throw new Error("Recognized % must be between 0 and 100.")
   }
 }
@@ -340,14 +331,8 @@ export async function createOpportunity(
       const ownerMemberId = input.ownerMemberId || ctx.memberId
       if (!ownerMemberId) throw new Error("No owner for the Funnel")
 
-      const estimatedAmount = normalizeMoneyInput(input.estimatedAmount, "Estimated funnel amount")
-      const expectedCloseDate = normalizeDateInput(
-        input.expectedCloseDate,
-        "Expected close date"
-      )
-      const projectYear = normalizeYearInput(input.projectYear, "Project / license year")
       assertRecognizedPercent(input.recognizedPercent)
-      const dealBasis = Number(estimatedAmount ?? 0)
+      const dealBasis = Number(input.estimatedAmount ?? 0)
       // Intercompany billing is part of the finance plugin — force it off when
       // that plugin is disabled so no partner rows or mirror are written.
       const wantsInterco =
@@ -412,7 +397,7 @@ export async function createOpportunity(
           accountId: input.accountId,
           ownerMemberId,
           name: input.name,
-          year: projectYear,
+          year: input.projectYear,
           currency,
           description: input.description,
           ppvvc: pickPpvvc(input),
@@ -439,16 +424,16 @@ export async function createOpportunity(
           ownerMemberId,
           ...ppvvc,
           // amount stays null on create — it's synced from the primary quote.
-          estimatedAmount,
+          estimatedAmount: input.estimatedAmount ? input.estimatedAmount : null,
           recognizedPercent: recognizedPercentValue,
           description: input.description || null,
-          projectYear,
+          projectYear: input.projectYear ?? null,
           isIntercompany: wantsInterco,
           currency,
           // Cascaded from the container (source of truth) — same pattern as PPVVC.
           ...nature,
           customFields: input.customFields ?? {},
-          expectedCloseDate,
+          expectedCloseDate: input.expectedCloseDate || null,
         })
         .returning({ id: funnels.id })
 
@@ -464,7 +449,7 @@ export async function createOpportunity(
         toStageId: stage.id,
         changedByMemberId: ctx.memberId,
         probabilityAtChange: stage.probability,
-        valueAtChange: estimatedAmount,
+        valueAtChange: input.estimatedAmount ? input.estimatedAmount : null,
         source: "manual",
       })
 
@@ -551,20 +536,12 @@ export async function updateOpportunity(
       (input.isIntercompany === undefined
         ? existing.isIntercompany
         : !!input.isIntercompany)
+    assertRecognizedPercent(input.recognizedPercent)
     const nextEstimated =
       input.estimatedAmount === undefined
         ? existing.estimatedAmount
-        : normalizeMoneyInput(input.estimatedAmount, "Estimated funnel amount")
-    assertRecognizedPercent(input.recognizedPercent)
+        : input.estimatedAmount || null
     const dealBasis = Number(existing.amount ?? nextEstimated ?? 0)
-    const expectedCloseDate =
-      input.expectedCloseDate === undefined
-        ? undefined
-        : normalizeDateInput(input.expectedCloseDate, "Expected close date")
-    const projectYear =
-      input.projectYear === undefined
-        ? undefined
-        : normalizeYearInput(input.projectYear, "Project / license year")
 
     let partyInputs: PartyInput[] | null = input.parties ?? null
     if (effectiveInterco && input.parties === undefined) {
@@ -614,7 +591,7 @@ export async function updateOpportunity(
       projectYear:
         input.projectYear === undefined
           ? existing.projectYear
-          : projectYear,
+          : input.projectYear ?? null,
       isIntercompany: effectiveInterco,
       currency: input.currency ?? existing.currency,
       projectNatures:
@@ -636,7 +613,7 @@ export async function updateOpportunity(
       expectedCloseDate:
         input.expectedCloseDate === undefined
           ? existing.expectedCloseDate
-          : expectedCloseDate,
+          : input.expectedCloseDate || null,
       procurementStage:
         input.procurementStage === undefined
           ? existing.procurementStage
@@ -731,7 +708,7 @@ export async function deleteOpportunity(id: string): Promise<ActionResult> {
 
 /** All persons with their accountId, for client-side filtering in the form. */
 export async function listPersonsWithAccount(): Promise<
-  { id: string; name: string; accountId: string; designation: string | null; department: string | null }[]
+  { id: string; name: string; accountId: string }[]
 > {
   return withTenant(PERMISSIONS.OPPORTUNITY_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
@@ -741,8 +718,6 @@ export async function listPersonsWithAccount(): Promise<
         firstName: persons.firstName,
         lastName: persons.lastName,
         accountId: persons.accountId,
-        designation: persons.title,
-        department: persons.department,
       })
       .from(persons)
       .innerJoin(accounts, eq(persons.accountId, accounts.id))
@@ -757,8 +732,6 @@ export async function listPersonsWithAccount(): Promise<
       id: p.id,
       name: [p.firstName, p.lastName].filter(Boolean).join(" "),
       accountId: p.accountId,
-      designation: p.designation ?? null,
-      department: p.department ?? null,
     }))
   })
 }

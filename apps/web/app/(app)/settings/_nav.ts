@@ -99,8 +99,4 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       },
     ],
   },
-  {
-    label: "System",
-    items: [{ label: "Version", href: "/settings/system" }],
-  },
 ]

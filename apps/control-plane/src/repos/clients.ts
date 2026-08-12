@@ -50,23 +50,8 @@ export interface ClientChildPagination {
 }
 
 export interface ClientDetail extends ClientListItem {
-  activePlans: Array<{ id: string; planKey: string; displayName: string }>
   organisations: PageResult<{ id: string; organisationKey: string; displayName: string }>
-  deployments: PageResult<{
-    id: string
-    deploymentKey: string
-    environment: string
-    status: string
-    registeredAt: string | null
-    observedAt: string | null
-    healthStatus: string | null
-    occupiedSeats: number | null
-    applicationVersion: string | null
-    agentVersion: string | null
-    imageDigest: string | null
-    entitlementVersion: string | null
-    lastSuccessfulBackupAt: string | null
-  }>
+  deployments: PageResult<{ id: string; deploymentKey: string; environment: string; status: string }>
   contracts: PageResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
 }
 
@@ -314,7 +299,7 @@ export async function getClientDetail(
   }>()
   if (!client) throw notFound()
 
-  const [organisations, deployments, contracts, activePlans] = await Promise.all([
+  const [organisations, deployments, contracts] = await Promise.all([
     database.prepare(
       "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT ? OFFSET ?",
     ).bind(
@@ -323,26 +308,12 @@ export async function getClientDetail(
       pagination.organisations.offset,
     ).all<{ id: string; organisation_key: string; display_name: string }>(),
     database.prepare(
-      "SELECT d.id, d.deployment_key, d.environment, d.status, d.registered_at, h.observed_at, h.health_status, h.occupied_seats, h.application_version, h.agent_version, h.image_digest, h.entitlement_version, h.last_successful_backup_at FROM deployments d LEFT JOIN heartbeat_rollups h ON h.id = (SELECT latest.id FROM heartbeat_rollups latest WHERE latest.deployment_id = d.id ORDER BY latest.observed_at DESC, latest.id DESC LIMIT 1) WHERE d.client_id = ? ORDER BY d.deployment_key LIMIT ? OFFSET ?",
+      "SELECT id, deployment_key, environment, status FROM deployments WHERE client_id = ? ORDER BY deployment_key LIMIT ? OFFSET ?",
     ).bind(
       clientId,
       pagination.deployments.pageSize + 1,
       pagination.deployments.offset,
-    ).all<{
-      id: string
-      deployment_key: string
-      environment: string
-      status: string
-      registered_at: string | null
-      observed_at: string | null
-      health_status: string | null
-      occupied_seats: number | null
-      application_version: string | null
-      agent_version: string | null
-      image_digest: string | null
-      entitlement_version: string | null
-      last_successful_backup_at: string | null
-    }>(),
+    ).all<{ id: string; deployment_key: string; environment: string; status: string }>(),
     database.prepare(
       "SELECT id, status, starts_at, ends_at, seat_limit FROM contracts WHERE client_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
     ).bind(
@@ -356,9 +327,6 @@ export async function getClientDetail(
       ends_at: string
       seat_limit: number
     }>(),
-    database.prepare(
-      "SELECT id, plan_key, display_name FROM plans WHERE active = 1 ORDER BY display_name, plan_key",
-    ).all<{ id: string; plan_key: string; display_name: string }>(),
   ])
 
   return {
@@ -366,11 +334,6 @@ export async function getClientDetail(
     clientKey: client.client_key,
     displayName: client.display_name,
     status: client.status,
-    activePlans: activePlans.results.map((row) => ({
-      id: row.id,
-      planKey: row.plan_key,
-      displayName: row.display_name,
-    })),
     organisations: pageResult(
       organisations.results.map((row) => ({
         id: row.id,
@@ -385,15 +348,6 @@ export async function getClientDetail(
         deploymentKey: row.deployment_key,
         environment: row.environment,
         status: row.status,
-        registeredAt: row.registered_at,
-        observedAt: row.observed_at,
-        healthStatus: row.health_status,
-        occupiedSeats: row.occupied_seats,
-        applicationVersion: row.application_version,
-        agentVersion: row.agent_version,
-        imageDigest: row.image_digest,
-        entitlementVersion: row.entitlement_version,
-        lastSuccessfulBackupAt: row.last_successful_backup_at,
       })),
       pagination.deployments,
     ),

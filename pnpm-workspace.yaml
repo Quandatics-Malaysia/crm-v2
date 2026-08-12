@@ -18,5 +18,4 @@ minimumReleaseAgeExclude:
   - workerd@1.20260810.1
 
 overrides:
-  sharp: 0.35.2
   workerd: 1.20260810.1

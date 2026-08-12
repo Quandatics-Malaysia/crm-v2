@@ -36,12 +36,6 @@ import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatDate, formatMoney } from "@/lib/format"
-import {
-  isValidDateInput,
-  isValidMoneyInput,
-  isValidPercentInput,
-  isValidYearInput,
-} from "@/lib/input-validation"
 import { partyShare, deriveOriginRecognizedAmount } from "@/lib/interco-share"
 import type { Option, MemberOption } from "@/lib/lookups"
 import {
@@ -97,17 +91,6 @@ const INVOICE_MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ].map((m) => ({ value: m, label: m }))
-
-const PPVVC: {
-  key: "pain" | "power" | "vision" | "value" | "control"
-  label: string
-}[] = [
-  { key: "power", label: "1-P: Power Sponsor" },
-  { key: "pain", label: "2-P: Pain" },
-  { key: "vision", label: "3-V: Vision" },
-  { key: "value", label: "4-V: Value" },
-  { key: "control", label: "5-C: Control" },
-]
 
 // Status pills render via the app-wide <StatusBadge> tone map; the stage-change
 // source labels come from the shared status-meta module.
@@ -171,16 +154,7 @@ export type FunnelDetailData = {
   accountName: string | null
   /** Every account, for the inline Account picker. */
   accountOptions: Option[]
-  container: {
-    id: string
-    code: string
-    name: string
-    pain: string | null
-    power: string | null
-    vision: string | null
-    value: string | null
-    control: string | null
-  } | null
+  container: { id: string; code: string; name: string } | null
   ownerMemberId: string
   ownerName: string | null
   /** Every tenant member, for the inline Owner picker. */
@@ -188,13 +162,7 @@ export type FunnelDetailData = {
   personId: string | null
   personName: string | null
   /** Every person (with account), for the inline Contact picker — filtered client-side to `accountId`. */
-  persons: {
-    id: string
-    name: string
-    accountId: string
-    designation: string | null
-    department: string | null
-  }[]
+  persons: { id: string; name: string; accountId: string }[]
   /** Quoted amount (from the primary quotation). */
   quotedAmount: string | null
   /** Estimated Funnel Amount (manual) — drives the forecast. */
@@ -546,10 +514,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     () => activity.filter((a) => a.type === "update"),
     [activity]
   )
-  const selectedContact = React.useMemo(
-    () => persons.find((p) => p.id === personId),
-    [persons, personId]
-  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
@@ -591,19 +555,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 "—"
               )}
             </FieldRow>
-            {container ? (
-              <>
-                <Separator />
-                <h3 className="text-sm font-semibold">Opportunity Analysis (PPVVC)</h3>
-                {PPVVC.map((f) => (
-                  <FieldRow key={f.key} label={f.label}>
-                    <span className="whitespace-pre-wrap">
-                      {container[f.key] || "—"}
-                    </span>
-                  </FieldRow>
-                ))}
-              </>
-            ) : null}
             <FieldRow label="Owner">
               {canEdit ? (
                 <InlineCombobox
@@ -631,26 +582,15 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   emptyMessage="No contacts for this account."
                   title="Click to change contact"
                 />
+              ) : personId && personName ? (
+                <Link
+                  href={`/persons/${personId}`}
+                  className="link"
+                >
+                  {personName}
+                </Link>
               ) : (
-                <span className="grid gap-1">
-                  {personId && personName ? (
-                    <Link href={`/persons/${personId}`} className="link">
-                      {personName}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                  {(selectedContact?.designation || selectedContact?.department) && (
-                    <span className="text-xs text-muted-foreground">
-                      {[
-                        selectedContact?.designation,
-                        selectedContact?.department,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  )}
-                </span>
+                personName ?? "—"
               )}
             </FieldRow>
             <FieldRow label="Project nature(s)">
@@ -751,16 +691,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   formatDraft={(v) => formatMoney(v || "0", currency)}
                   type="number"
                   title="Click to edit estimated amount"
-                  onSave={(next) => {
-                    const value = next.trim()
-                    if (!value) return saveField({ estimatedAmount: null })
-                    if (!isValidMoneyInput(value)) {
-                      throw new Error(
-                        "Estimated amount must be a non-negative number with up to 2 decimals."
-                      )
-                    }
-                    return saveField({ estimatedAmount: value })
-                  }}
+                  onSave={(next) => saveField({ estimatedAmount: next || null })}
                   className="font-semibold tabular-nums"
                 />
               ) : (
@@ -805,14 +736,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     formatDraft={(v) => (v ? `${Number(v)}%` : "—")}
                     type="number"
                     title="Click to edit recognized %"
-                    onSave={(next) => {
-                      const value = next.trim()
-                      if (!value) return saveField({ recognizedPercent: null })
-                      if (!isValidPercentInput(value)) {
-                        throw new Error("Recognized % must be between 0 and 100.")
-                      }
-                      return saveField({ recognizedPercent: value })
-                    }}
+                    onSave={(next) => saveField({ recognizedPercent: next || null })}
                   />
                 ) : recognizedPercent ? (
                   <span className="tabular-nums">
@@ -905,15 +829,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   type="number"
                   title="Click to edit project year"
                   onSave={(next) =>
-                    {
-                      const value = next.trim()
-                      if (!value) return saveField({ projectYear: null })
-                      const year = Number(value)
-                      if (!isValidYearInput(value) || !Number.isInteger(year)) {
-                        throw new Error("Project / license year must be a 4-digit year.")
-                      }
-                      return saveField({ projectYear: year })
-                    }
+                    saveField({ projectYear: next ? Number(next) : null })
                   }
                 />
               ) : (
@@ -928,16 +844,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   formatDraft={(v) => (v ? formatDate(v) : "—")}
                   type="date"
                   title="Click to edit close date"
-                  onSave={(next) => {
-                    const value = next.trim()
-                    if (!value) return saveField({ expectedCloseDate: null })
-                    if (!isValidDateInput(value)) {
-                      throw new Error(
-                        "Expected close date must be a valid date in YYYY-MM-DD format."
-                      )
-                    }
-                    return saveField({ expectedCloseDate: value })
-                  }}
+                  onSave={(next) => saveField({ expectedCloseDate: next || null })}
                 />
               ) : (
                 formatDate(expectedCloseDate)

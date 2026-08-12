@@ -474,8 +474,7 @@ export async function requestStageAdvance(
       (settings?.customFunnelFields ?? []).map((f) => f.key)
     )
     const requiredKeys = requiredKeysForStages(
-      stagesEnteredBy(allStages, from.id, target.id),
-      { skipPpvvcForWonTransition: target.kind === "WON" }
+      stagesEnteredBy(allStages, from.id, target.id)
     ).filter((k) => customKeys.has(k) || isPresetFieldKey(k))
     const missing = missingFromKeys(requiredKeys, stageGate)
     if (missing.length > 0) {

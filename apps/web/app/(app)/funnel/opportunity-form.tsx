@@ -8,12 +8,6 @@ import { z } from "zod"
 import { toast } from "sonner"
 import { Plus, Trash2 } from "lucide-react"
 import { MAX_INTERCOMPANY_PARTIES } from "@/lib/interco-share"
-import {
-  isValidDateInput,
-  isValidMoneyInput,
-  isValidPercentInput,
-  isValidYearInput,
-} from "@/lib/input-validation"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -68,38 +62,16 @@ const schema = z.object({
   currentStageId: z.string().min(1, "Stage is required"),
   ownerMemberId: z.string().min(1, "Owner is required"),
   currency: z.string().min(1, "Currency is required"),
-  expectedCloseDate: z
-    .string()
-    .trim()
-    .optional()
-    .refine(
-      (v) => !v || isValidDateInput(v),
-      "Expected close date must be a valid YYYY-MM-DD date"
-    ),
-  estimatedAmount: z
-    .string()
-    .trim()
-    .optional()
-    .refine(
-      (v) => !v || isValidMoneyInput(v),
-      "Estimated amount must be a non-negative number with up to 2 decimals"
-    ),
+  expectedCloseDate: z.string().optional(),
+  estimatedAmount: z.string().optional(),
   recognizedPercent: z
     .string()
-    .trim()
     .optional()
     .refine(
-      (v) => !v || isValidPercentInput(v),
+      (v) => !v || (Number(v) >= 0 && Number(v) <= 100),
       "Recognized % must be between 0 and 100"
     ),
-  projectYear: z
-    .string()
-    .trim()
-    .optional()
-    .refine(
-      (v) => !v || isValidYearInput(v),
-      "Project / license year must be a 4-digit year"
-    ),
+  projectYear: z.string().optional(),
   description: z.string().optional(),
   isIntercompany: z.boolean().optional(),
   parties: z
@@ -108,13 +80,9 @@ const schema = z.object({
         partnerEntityId: z.string().min(1, "Pick a partner entity"),
         shareType: z.enum(["percent", "amount"]),
         shareValue: z
-                      .string()
-                      .trim()
-                      .min(1, "Required")
-                      .refine(
-                        (v) => isValidMoneyInput(v) && Number(v) > 0,
-                        "Must be greater than 0"
-                      ),
+          .string()
+          .min(1, "Required")
+          .refine((v) => Number(v) > 0, "Must be greater than 0"),
       })
     )
     .max(MAX_INTERCOMPANY_PARTIES, `At most ${MAX_INTERCOMPANY_PARTIES} parties`),

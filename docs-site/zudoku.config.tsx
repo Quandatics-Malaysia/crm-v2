@@ -264,13 +264,6 @@ const config: ZudokuConfig = {
       icon: "settings",
       items: [
         { type: "doc", file: "operations", label: "Operations" },
-        { type: "doc", file: "operations/release-versioning", label: "Release versioning" },
-        { type: "doc", file: "operations/signed-deployment", label: "Signed deployment model" },
-        { type: "doc", file: "operations/staging-guide", label: "Staging guide" },
-        { type: "doc", file: "operations/production-promotion", label: "Production promotion" },
-        { type: "doc", file: "operations/environment-inventory", label: "Environment inventory" },
-        { type: "doc", file: "operations/incident-response", label: "Incident response" },
-        { type: "doc", file: "operations/release-log", label: "Release log" },
         { type: "doc", file: "architecture", label: "Architecture" },
       ],
     },

@@ -41,6 +41,11 @@ export interface ContractDetail {
   endsAt: string
   seatLimit: number
   totalCents: number
+  renewalPolicy: string
+  suspensionAt: string | null
+  entitlementRevision: number
+  modules: string[]
+  audit: Array<{ action: string; outcome: string; createdAt: string }>
   invoices: PageResult<{ id: string; invoiceNumber: string; status: string; currency: string; totalCents: number }>
 }
 
@@ -192,7 +197,7 @@ export async function getContractDetail(
   invoicePagination: PageRequest,
 ): Promise<ContractDetail> {
   const contract = await database.prepare(
-    "SELECT id, client_id, plan_id, status, starts_at, ends_at, seat_limit, total_cents FROM contracts WHERE id = ?",
+    "SELECT id, client_id, plan_id, status, starts_at, ends_at, seat_limit, total_cents, renewal_policy, suspension_at, entitlement_revision FROM contracts WHERE id = ?",
   ).bind(contractId).first<{
     id: string
     client_id: string
@@ -202,9 +207,12 @@ export async function getContractDetail(
     ends_at: string
     seat_limit: number
     total_cents: number
+    renewal_policy: string
+    suspension_at: string | null
+    entitlement_revision: number
   }>()
   if (!contract) throw notFound()
-  const invoices = await database.prepare(
+  const [invoices, modules, audit] = await Promise.all([database.prepare(
     "SELECT id, invoice_number, status, currency, total_cents FROM invoices WHERE contract_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
   ).bind(
     contractId,
@@ -216,7 +224,11 @@ export async function getContractDetail(
     status: string
     currency: string
     total_cents: number
-  }>()
+  }>(), database.prepare(
+    "SELECT module_id FROM contract_modules WHERE contract_id = ? ORDER BY module_id",
+  ).bind(contractId).all<{ module_id: string }>(), database.prepare(
+    "SELECT action, outcome, created_at FROM operator_audit_log WHERE target_id = ? ORDER BY created_at DESC LIMIT 20",
+  ).bind(contractId).all<{ action: string; outcome: string; created_at: string }>()])
   return {
     id: contract.id,
     clientId: contract.client_id,
@@ -226,6 +238,11 @@ export async function getContractDetail(
     endsAt: contract.ends_at,
     seatLimit: contract.seat_limit,
     totalCents: contract.total_cents,
+    renewalPolicy: contract.renewal_policy,
+    suspensionAt: contract.suspension_at,
+    entitlementRevision: contract.entitlement_revision,
+    modules: modules.results.map((row) => row.module_id),
+    audit: audit.results.map((row) => ({ action: row.action, outcome: row.outcome, createdAt: row.created_at })),
     invoices: {
       items: invoices.results.slice(0, invoicePagination.pageSize).map((invoice) => ({
         id: invoice.id,

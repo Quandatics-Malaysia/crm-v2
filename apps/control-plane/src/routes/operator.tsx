@@ -351,6 +351,9 @@ export function createOperatorRoutes() {
     async (context) => {
       const contractId = context.req.param("contractId")
       const data = await mutationData(context)
+      if ((data.status === "suspended" || data.status === "cancelled") && data.confirmCommercialState !== "confirmed") {
+        throw badRequest()
+      }
       const seatLimit = data.seatLimit === undefined || data.seatLimit === ""
         ? undefined
         : Number(data.seatLimit)

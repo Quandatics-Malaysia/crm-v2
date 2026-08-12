@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   assertCliOnly,
+  databaseIdentityFromUrl,
   executeOrganizationLifecycle,
   parseOrganizationLifecycleArgs,
   verifyBackupProof,
@@ -82,6 +83,10 @@ function lifecycleHarness() {
 }
 
 describe("organization lifecycle command", () => {
+  it("rejects a hostless database URL instead of deriving a fake backup identity", () => {
+    expect(() => databaseIdentityFromUrl("postgres:///crm")).toThrow(/explicit hostname/)
+  })
+
   it("rejects invalid lifecycle arguments before they can reach a database", () => {
     expect(() => parseOrganizationLifecycleArgs(["destroy", "--slug", "acme", "--actor-user-id", "operator-1", "--backup-proof", "proof.json"])).toThrow(/archive or restore/)
     expect(() => parseOrganizationLifecycleArgs(["archive", "--slug", "acme", "--backup-proof", "proof.json"])).toThrow(/actor-user-id/)

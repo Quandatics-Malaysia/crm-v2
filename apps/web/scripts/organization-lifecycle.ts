@@ -166,7 +166,7 @@ export async function executeOrganizationLifecycle(
   })
 }
 
-function databaseIdentityFromUrl(value: string): string {
+export function databaseIdentityFromUrl(value: string): string {
   let url: URL
   try {
     url = new URL(value)
@@ -174,6 +174,7 @@ function databaseIdentityFromUrl(value: string): string {
     fail("DATABASE_ADMIN_URL must be a PostgreSQL URL")
   }
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") fail("DATABASE_ADMIN_URL must be a PostgreSQL URL")
+  if (!url.hostname) fail("DATABASE_ADMIN_URL must include an explicit hostname")
   const databaseName = decodeURIComponent(url.pathname).replace(/^\/+/, "")
   if (!databaseName || databaseName.includes("/")) fail("DATABASE_ADMIN_URL must include one database name")
   return `postgres://${url.hostname.toLowerCase()}:${url.port || "5432"}/${databaseName}`

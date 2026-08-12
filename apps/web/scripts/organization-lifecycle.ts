@@ -183,29 +183,32 @@ export function databaseIdentityFromUrl(value: string): string {
 function createPostgresRepository(databaseUrl: string): OrganizationLifecycleRepository & { close(): Promise<void> } {
   const client = postgres(databaseUrl, { max: 1 })
   return {
-    transaction: (operation) => client.begin(async (sql) => operation({
-      findOrganizationBySlug: async (slug) => {
-        const rows = await sql<{ id: string }[]>`
-          select id from organization where slug = ${slug} limit 2
-        `
-        return rows[0] ?? null
-      },
-      findServerOperator: async (userId, configuredEmail) => {
-        const rows = await sql<{ id: string }[]>`
-          select id from public."user"
-          where id = ${userId} and lower(email) = ${configuredEmail} and is_superadmin = true
-          limit 2
-        `
-        return rows[0] ?? null
-      },
-      callLifecycleFunction: async (action, organizationId, actorUserId, actorMemberId, at) => {
-        if (action === "archive") {
-          await sql`select archive_organization(${organizationId}, ${actorUserId}, ${actorMemberId}, ${at.toISOString()}::timestamp with time zone)`
-        } else {
-          await sql`select restore_organization(${organizationId}, ${actorUserId}, ${actorMemberId}, ${at.toISOString()}::timestamp with time zone)`
-        }
-      },
-    })),
+    transaction: async <T>(operation: (transaction: OrganizationLifecycleTransaction) => Promise<T>): Promise<T> => {
+      const [result] = await client.begin(async (sql) => [await operation({
+        findOrganizationBySlug: async (slug) => {
+          const rows = await sql<{ id: string }[]>`
+            select id from organization where slug = ${slug} limit 2
+          `
+          return rows[0] ?? null
+        },
+        findServerOperator: async (userId, configuredEmail) => {
+          const rows = await sql<{ id: string }[]>`
+            select id from public."user"
+            where id = ${userId} and lower(email) = ${configuredEmail} and is_superadmin = true
+            limit 2
+          `
+          return rows[0] ?? null
+        },
+        callLifecycleFunction: async (action, organizationId, actorUserId, actorMemberId, at) => {
+          if (action === "archive") {
+            await sql`select archive_organization(${organizationId}, ${actorUserId}, ${actorMemberId}, ${at.toISOString()}::timestamp with time zone)`
+          } else {
+            await sql`select restore_organization(${organizationId}, ${actorUserId}, ${actorMemberId}, ${at.toISOString()}::timestamp with time zone)`
+          }
+        },
+      })] as [T])
+      return result
+    },
     close: () => client.end(),
   }
 }

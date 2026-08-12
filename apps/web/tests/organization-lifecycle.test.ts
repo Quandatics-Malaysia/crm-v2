@@ -20,7 +20,17 @@ const databaseIdentity = "postgres://db.example.test:5432/crm"
 const storageLocation = "s3://crm-backups/production"
 const { privateKey, publicKey } = generateKeyPairSync("ed25519")
 const privateJwk = privateKey.export({ format: "jwk" })
-const publicJwk = publicKey.export({ format: "jwk" })
+const exportedPublicJwk = publicKey.export({ format: "jwk" })
+if (
+  exportedPublicJwk.kty !== "OKP" ||
+  exportedPublicJwk.crv !== "Ed25519" ||
+  typeof exportedPublicJwk.x !== "string"
+) throw new Error("test Ed25519 public key export is invalid")
+const publicJwk = {
+  kty: exportedPublicJwk.kty,
+  crv: exportedPublicJwk.crv,
+  x: exportedPublicJwk.x,
+}
 
 const trustSet = {
   version: 1 as const,

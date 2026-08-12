@@ -198,6 +198,7 @@ describe("read context remains available", () => {
     expect(hasStandingTenantAccess({
       status: "active",
       tenantSuspended: false,
+      tenantArchived: false,
       subscriptionInactive: true,
     })).toBe(true)
   })
@@ -210,6 +211,7 @@ describe("read context remains available", () => {
     expect(hasStandingTenantAccess({
       status,
       tenantSuspended: false,
+      tenantArchived: false,
       subscriptionInactive: false,
     })).toBe(expected)
   })
@@ -218,6 +220,7 @@ describe("read context remains available", () => {
     expect(hasStandingTenantAccess({
       status: "active",
       tenantSuspended: true,
+      tenantArchived: false,
       subscriptionInactive: false,
     })).toBe(false)
   })

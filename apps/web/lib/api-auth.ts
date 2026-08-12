@@ -5,6 +5,7 @@ import { db, runInTenant, type Tx } from "@/db"
 import {
   user as userTable,
   member,
+  organization,
   membershipProfiles,
   memberRoles,
   roles,
@@ -67,8 +68,12 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
   // table, queried outside the tenant transaction exactly as getServerContext
   // does. Constrain by organization too as a defensive cross-check.
   const [memberRow] = await db
-    .select({ userId: member.userId })
+    .select({
+      userId: member.userId,
+      organizationStatus: organization.status,
+    })
     .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
     .where(and(eq(member.id, memberId), eq(member.organizationId, organizationId)))
     .limit(1)
   if (!memberRow) return null
@@ -151,6 +156,7 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
       permKeys,
       status: (profile?.status ?? "active") as ServerContext["status"],
       tenantSuspended,
+      tenantArchived: memberRow.organizationStatus === "archived",
       subscriptionInactive,
     }
   })
@@ -176,6 +182,7 @@ export async function getApiContext(req: Request): Promise<ServerContext | null>
     roleName: resolved.roleName,
     status: resolved.status,
     tenantSuspended: resolved.tenantSuspended,
+    tenantArchived: resolved.tenantArchived,
     subscriptionInactive: resolved.subscriptionInactive,
     permissions: perms,
     can: (key) => perms.has(key as string),

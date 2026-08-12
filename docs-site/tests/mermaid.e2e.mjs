@@ -66,10 +66,8 @@ try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  const consoleErrors = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
 
   for (const { route, diagramCount } of mermaidRoutes) {
     const response = await page.goto(`${baseUrl}${route}`, {
@@ -87,7 +85,7 @@ try {
     assert.equal(await page.locator("code.language-mermaid").count(), 0, `${route} contains an unrendered Mermaid fence`);
   }
 
-  assert.deepEqual(consoleErrors, [], `Browser console errors:\n${consoleErrors.join("\n")}`);
+  assert.deepEqual(pageErrors, [], `Browser page errors:\n${pageErrors.join("\n")}`);
   console.log(`Verified rendered Mermaid SVGs on ${mermaidRoutes.length} routes.`);
 } finally {
   await browser?.close();

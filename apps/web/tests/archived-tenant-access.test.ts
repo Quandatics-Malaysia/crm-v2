@@ -177,4 +177,16 @@ describe("archived tenant access", () => {
     expect(context?.can("lead.view")).toBe(false)
     await expect(requireContext()).rejects.toThrow("ORGANIZATION_ARCHIVED")
   })
+
+  it("does not let an archived-only superadmin without a session tenant retain permissions", async () => {
+    mocks.isSuperadmin = true
+    mocks.memberships = [membership("archived", "archived", "2026-01-01")]
+
+    const context = await getServerContext()
+
+    expect(context?.tenantId).toBe("")
+    expect(context?.tenantArchived).toBe(true)
+    expect(context?.can("lead.view")).toBe(false)
+    await expect(requireContext()).rejects.toThrow("ORGANIZATION_ARCHIVED")
+  })
 })

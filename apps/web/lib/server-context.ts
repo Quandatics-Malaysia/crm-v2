@@ -134,7 +134,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
       tenantArchived,
       subscriptionInactive: false,
       permissions: new Set(),
-      can: () => isSuperadmin,
+      can: () => false,
     }
   }
 

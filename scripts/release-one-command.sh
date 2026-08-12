@@ -90,7 +90,7 @@ if [ -n "$BUMP_MODE" ]; then
     exit 1
   fi
 
-  BASE_TAG=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)
+  BASE_TAG=$(git tag --list --sort=-v:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n 1 || true)
   if [ -z "$BASE_TAG" ]; then
     echo "error: no stable release tag found for bump" >&2
     exit 1

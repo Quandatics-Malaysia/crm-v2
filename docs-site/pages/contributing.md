@@ -133,6 +133,10 @@ Every PR needs a review. Changes to `lib/`, `db/migrations/`, `modules.config.ts
 Docker, or CI need a **core maintainer**. Migrations and RLS need **two** — they
 are the highest-blast-radius change in the repo.
 
+On opened/updated PRs, `pr-preview` auto-deploys a temporary preview on the
+self-hosted runner and publishes the URL in the workflow run summary and PR
+comment. Validate against that preview before merge.
+
 **Cross-module PRs are normal.** Roughly half our commits touch more than one
 module. One PR, one review, CI proves the whole thing — that is a large part of
 why we stay in one repo.

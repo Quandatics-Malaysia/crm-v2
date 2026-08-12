@@ -28,9 +28,9 @@ esac
 
 rclone_version=$(rclone version | sed -n '1p')
 case "$rclone_version" in
-  *"v1.74.4"*) ;;
+  *"v1.75.0"*) ;;
   *)
-    echo "expected rclone 1.74.4, got: $rclone_version" >&2
+    echo "expected rclone 1.75.0, got: $rclone_version" >&2
     exit 1
     ;;
 esac

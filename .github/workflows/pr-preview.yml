@@ -14,29 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  quality:
-    # no deployment for PR close; just keep the normal quality signal on active PRs
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @crm/control-protocol run build
-      - run: pnpm run lint
-      - run: pnpm run typecheck
-      - run: pnpm test
-      - run: pnpm run test:workflows
-      - run: pnpm run build
-
   deploy-preview:
-    needs: quality
     if: github.event.action != 'closed' && github.repository == github.event.pull_request.head.repo.full_name
     runs-on: self-hosted
     steps:

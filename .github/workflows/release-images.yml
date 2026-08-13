@@ -1,18 +1,23 @@
 name: release-images
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Release tag to build (must be annotated semantic version, e.g. v1.2.3)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-images-${{ github.ref }}
+  group: release-images-${{ github.event.inputs.ref }}
   cancel-in-progress: false
 
 env:
   IMAGE_NAMESPACE: ghcr.io/quandatics-malaysia
+  TARGET_REF: ${{ github.event.inputs.ref }}
 
 jobs:
   validate-tag:
@@ -21,6 +26,7 @@ jobs:
       - name: Check out annotated release tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
@@ -28,12 +34,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$TARGET_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "release tag must be strict SemVer: vMAJOR.MINOR.PATCH" >&2
             exit 1
           fi
-          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" != "tag" ]; then
-            echo "release tag must be annotated: $GITHUB_REF_NAME" >&2
+          if [ "$(git cat-file -t "$TARGET_REF")" != "tag" ]; then
+            echo "release tag must be annotated: $TARGET_REF" >&2
             exit 1
           fi
 
@@ -144,7 +150,7 @@ jobs:
         shell: bash
         env:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
-          WORKFLOW_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@refs/tags/${{ github.ref_name }}
+          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           cosign sign --yes "$IMAGE_REF"
@@ -161,7 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx imagetools create \
-            --tag "${IMAGE_NAME}:${{ github.ref_name }}" \
+            --tag "${IMAGE_NAME}:${{ env.TARGET_REF }}" \
             --tag "${IMAGE_NAME}:sha-${{ github.sha }}" \
             "$IMAGE_REF"
       - name: Record immutable image metadata
@@ -170,7 +176,7 @@ jobs:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
           IMAGE_NAME: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.repository }}
           DIGEST: ${{ steps.build-push.outputs.digest }}
-          WORKFLOW_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@refs/tags/${{ github.ref_name }}
+          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           jq -n \
@@ -209,11 +215,11 @@ jobs:
       - name: Compose release manifest
         shell: bash
         env:
-          WORKFLOW_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@refs/tags/${{ github.ref_name }}
+          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           jq -s \
-            --arg release_tag "$GITHUB_REF_NAME" \
+            --arg release_tag "$TARGET_REF" \
             --arg source_commit "$GITHUB_SHA" \
             --arg workflow_identity "$WORKFLOW_IDENTITY" \
             --arg build_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -230,7 +236,7 @@ jobs:
       - name: Upload release manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-manifest-${{ github.ref_name }}
+          name: release-manifest-${{ env.TARGET_REF }}
           path: release-manifest.json
           if-no-files-found: error
           retention-days: 90

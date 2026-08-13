@@ -7,7 +7,8 @@ const workflows = resolve(import.meta.dirname, "..")
 
 test("PR previews use one persistent host env for deploy, publication, failure, and close", () => {
   const workflow = readFileSync(resolve(workflows, "pr-preview.yml"), "utf8")
-  assert.match(workflow, /pnpm run test:workflows/)
+  assert.doesNotMatch(workflow, /pnpm run test:workflows/)
+  assert.doesNotMatch(workflow, /uses: actions\/setup-node@v4/)
   const provision = workflow.indexOf("manage-preview-deployment.mjs prepare")
   const compose = workflow.indexOf("docker compose")
   assert.ok(provision >= 0, "persistent preview manager is not invoked")

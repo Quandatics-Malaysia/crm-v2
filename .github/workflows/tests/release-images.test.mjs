@@ -25,7 +25,10 @@ function findStep(jobSteps, predicate, message) {
 }
 
 test("release runs only for version tags with least-privilege publishing permissions", () => {
-  assert.deepEqual(workflow.on, { push: { tags: ["v*"] } })
+  assert.equal(typeof workflow.on, "object")
+  assert.equal(workflow.on?.workflow_dispatch?.inputs?.ref?.required, true)
+  assert.equal(workflow.on?.workflow_dispatch?.inputs?.ref?.type, "string")
+  assert.equal(workflow.on.push, undefined)
   assert.equal(workflow.permissions?.contents, "read")
   assert.equal(workflow.permissions?.packages, undefined)
   assert.equal(workflow.permissions?.["id-token"], undefined)
@@ -91,7 +94,7 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   assert.ok(scanIndex > buildSteps.indexOf(publish), "scan must consume the pushed digest")
   assert.ok(signIndex > scanIndex, "signing must happen only after scan")
   assert.ok(publishIndex > signIndex, "mutable tags must publish only after scan and signing")
-  assert.match(buildSteps[publishIndex].run, /github\.ref_name/)
+  assert.match(buildSteps[publishIndex].run, /env\.TARGET_REF/)
   assert.match(buildSteps[publishIndex].run, /github\.sha/)
 })
 
@@ -119,7 +122,7 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
   assert.match(signing.run, /cosign sign --yes/)
   assert.match(signing.run, /cosign verify/)
   assert.match(signing.run, /--certificate-identity/)
-  assert.match(signing.env?.WORKFLOW_IDENTITY ?? "", /release-images\.yml@refs\/tags/)
+  assert.match(signing.env?.WORKFLOW_IDENTITY ?? "", /release-images\.yml@/)
   assert.match(signing.run, /https:\/\/token\.actions\.githubusercontent\.com/)
 })
 

@@ -15,7 +15,7 @@ architecture directory.
 | [Production CRM](https://app.quandatics.com) | Live application |
 | [Latest staging deployment](https://github.com/Super-ERP/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
 | [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
-| [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers) | API integration and public contribution path |
+| [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers/overview) | API integration and public contribution path |
 | [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
 | [Contributing](/contributing) | Local setup and review rules |
 | [Operations](/operations) | Canonical operator runbook; never store secrets in it |

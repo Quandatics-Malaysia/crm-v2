@@ -98,3 +98,72 @@ rtk git diff --check
 ```
 
 Exit `0`; no whitespace errors.
+
+## Fix round 1/5
+
+### Findings addressed
+
+1. `issueEntitlement` now reloads client status and requires at least one currently active Ed25519 deployment key: not revoked, not replaced, already valid, and not expired. A disabled client or revoked last key after review rejects issuance before revision allocation, signing, persistence, or success audit.
+2. Entitlement history now fetches one look-ahead row. When more than 10 versions exist, both workspace and review label the section **Latest 10 versions** and state that older immutable versions remain stored.
+
+### RED
+
+```sh
+rtk pnpm --filter control-plane exec vitest run tests/entitlements.test.ts tests/operator-onboarding.test.ts -t "rejects issuance when|labels capped immutable history"
+```
+
+Result: `2 failed` test files; `3 failed | 69 skipped` tests.
+
+- Disabled-client issuance resolved with signed version 1 instead of rejecting.
+- Revoked-key issuance resolved with signed version 1 instead of rejecting.
+- Eleven-version history rendered `Entitlement history` while silently omitting version 1.
+
+### GREEN
+
+Focused regression command:
+
+```sh
+rtk pnpm --filter control-plane exec vitest run tests/entitlements.test.ts tests/operator-onboarding.test.ts -t "rejects issuance when|labels capped immutable history"
+```
+
+Result: `2 passed` test files; `3 passed | 69 skipped` tests.
+
+Required focused suites:
+
+```sh
+rtk pnpm --filter control-plane exec vitest run tests/operator-onboarding.test.ts
+```
+
+`1 passed` test file; `42 passed` tests.
+
+```sh
+rtk pnpm --filter control-plane exec vitest run tests/entitlements.test.ts
+```
+
+`1 passed` test file; `30 passed` tests.
+
+Typecheck:
+
+```sh
+rtk proxy pnpm --filter control-plane typecheck
+```
+
+Exit `0`; `tsc --noEmit` produced no errors.
+
+Full control-plane suite, run once:
+
+```sh
+rtk pnpm --filter control-plane test
+```
+
+Node migration suite: `1 pass`, `0 fail`.
+
+Vitest: `6 passed` test files; `167 passed` tests.
+
+Diff check:
+
+```sh
+rtk git diff --check
+```
+
+Exit `0`; no whitespace errors.

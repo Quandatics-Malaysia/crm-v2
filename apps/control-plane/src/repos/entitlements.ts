@@ -29,6 +29,8 @@ interface EntitlementStateRow {
   deployment_status: string
   registered_at: string | null
   client_id: string
+  client_status: string
+  has_active_deployment_key: number
   contract_id: string
   contract_client_id: string
   plan_id: string
@@ -351,13 +353,17 @@ export async function updateEntitlementControls(
   }
 }
 
-async function loadState(database: D1Database, deploymentId: string, contractId?: string): Promise<EntitlementStateRow> {
+async function loadState(database: D1Database, deploymentId: string, now: Date, contractId?: string): Promise<EntitlementStateRow> {
+  const at = now.toISOString()
   const row = await database.prepare(
-    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.client_id, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, c.entitlement_revision, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version, s.state_revision FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
-  ).bind(deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
+    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.client_id, client.status AS client_status, EXISTS (SELECT 1 FROM deployment_keys dk WHERE dk.deployment_id = d.id AND dk.algorithm = 'Ed25519' AND dk.revoked_at IS NULL AND dk.replaced_by_key_id IS NULL AND dk.not_before <= ? AND (dk.expires_at IS NULL OR dk.expires_at > ?)) AS has_active_deployment_key, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, c.entitlement_revision, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version, s.state_revision FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN clients client ON client.id = d.client_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
+  ).bind(at, at, deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
   if (!row) throw notFound()
   if (row.client_id !== row.contract_client_id) throw badRequest()
-  if (row.deployment_status !== "active" || row.registered_at === null) throw new DeploymentUnavailableError(row)
+  if (row.client_status !== "active" || row.deployment_status !== "active" ||
+      row.registered_at === null || row.has_active_deployment_key !== 1) {
+    throw new DeploymentUnavailableError(row)
+  }
   return row
 }
 
@@ -570,7 +576,7 @@ export async function issueEntitlement(
   ).bind(input.deploymentId, issuanceKey).first<StoredEntitlementRow>()
   if (existing) return fromStored(existing)
   const now = input.now ?? new Date()
-  const row = await loadState(environment.CONTROL_DB, input.deploymentId, input.contractId)
+  const row = await loadState(environment.CONTROL_DB, input.deploymentId, now, input.contractId)
   if (input.expectedContractRevision !== undefined &&
       input.expectedContractRevision !== row.entitlement_revision ||
       input.expectedScheduleRevision !== undefined &&
@@ -734,7 +740,7 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
     let activeClaimToken: string | null = null
     let activeSnapshot: EntitlementStateRow | null = null
     try {
-      const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, schedule.contract_id)
+      const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, now, schedule.contract_id)
       activeSnapshot = row
       const desired = await desiredLease(environment.CONTROL_DB, row, activeKeyId, (row.latest_version ?? 0) + 1, now)
       const latestRow = await environment.CONTROL_DB.prepare(

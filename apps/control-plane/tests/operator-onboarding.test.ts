@@ -531,6 +531,30 @@ describe("operator onboarding workspace", () => {
     expect(review).not.toContain('"signature"')
   })
 
+  it("labels capped immutable history as the latest 10 versions", async () => {
+    const input = await fixture()
+    await registerDeployment(input.deploymentId)
+    await assignSchedule(input)
+    for (let version = 1; version <= 11; version += 1) {
+      const response = await signingRequest(input.deploymentId, {
+        confirmation: "issue_entitlement",
+        contractId: input.contractId,
+        expectedContractRevision: "1",
+        expectedScheduleRevision: "1",
+        idempotencyKey: crypto.randomUUID(),
+      })
+      expect(response.status).toBe(303)
+    }
+
+    for (const response of [await workspaceRequest(input.deploymentId), await reviewRequest(input.deploymentId)]) {
+      const html = await response.text()
+      expect(html).toContain(">Latest 10 versions</h2>")
+      expect(html).toContain("Showing the latest 10 immutable versions. Older versions remain stored.")
+      expect(html).toContain(">Version 11</th>")
+      expect(html).not.toContain(">Version 1</th>")
+    }
+  })
+
   it("links configure, sign, and renewal next actions to real controls", async () => {
     const input = await fixture()
     await registerDeployment(input.deploymentId)

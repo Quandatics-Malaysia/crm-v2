@@ -87,6 +87,7 @@ export interface DeploymentWorkspace {
     occupiedSeats: number
   } | null
   recentEntitlements: EntitlementSummary[]
+  entitlementHistoryCapped: boolean
   recentAuditEvents: Array<{
     id: string
     action: string
@@ -217,7 +218,7 @@ export async function getDeploymentWorkspace(
     }>(),
     database.prepare(
       "SELECT id, contract_id, version, key_id, payload_json, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT ?",
-    ).bind(deploymentId, RECENT_LIMIT).all<{
+    ).bind(deploymentId, RECENT_LIMIT + 1).all<{
       id: string
       contract_id: string
       version: number
@@ -319,7 +320,8 @@ export async function getDeploymentWorkspace(
     },
     latestEntitlement: latest?.summary ?? null,
     latestHeartbeat,
-    recentEntitlements: entitlements.map(({ summary }) => summary),
+    recentEntitlements: entitlements.slice(0, RECENT_LIMIT).map(({ summary }) => summary),
+    entitlementHistoryCapped: entitlements.length > RECENT_LIMIT,
     recentAuditEvents: auditEvents.results.map((audit) => ({
       id: audit.id,
       action: audit.action,

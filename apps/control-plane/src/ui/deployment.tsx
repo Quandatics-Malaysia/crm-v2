@@ -146,12 +146,18 @@ function progressSteps(workspace: DeploymentWorkspace) {
   ]
 }
 
-function EntitlementHistory(props: { entitlements: DeploymentWorkspace["recentEntitlements"] }) {
+function EntitlementHistory(props: {
+  entitlements: DeploymentWorkspace["recentEntitlements"]
+  capped: boolean
+}) {
   if (props.entitlements.length === 0) {
     return <EmptyState title="No signed entitlements">A signed entitlement will appear here after configuration is reviewed and issued.</EmptyState>
   }
   return (
-    <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Version</th><th scope="col">Issued at (UTC)</th><th scope="col">Lease expires at (UTC)</th><th scope="col">Grace until (UTC)</th></tr></thead><tbody>{props.entitlements.map((entitlement) => <tr><th scope="row">Version {entitlement.version}</th><td>{formatUtc(entitlement.issuedAt)}</td><td>{formatUtc(entitlement.leaseExpiresAt)}</td><td>{formatUtc(entitlement.graceUntil)}</td></tr>)}</tbody></table></div>
+    <>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Version</th><th scope="col">Issued at (UTC)</th><th scope="col">Lease expires at (UTC)</th><th scope="col">Grace until (UTC)</th></tr></thead><tbody>{props.entitlements.map((entitlement) => <tr><th scope="row">Version {entitlement.version}</th><td>{formatUtc(entitlement.issuedAt)}</td><td>{formatUtc(entitlement.leaseExpiresAt)}</td><td>{formatUtc(entitlement.graceUntil)}</td></tr>)}</tbody></table></div>
+      {props.capped ? <p class="field-hint">Showing the latest 10 immutable versions. Older versions remain stored.</p> : null}
+    </>
   )
 }
 
@@ -288,8 +294,8 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
       </section>
 
       <section id="entitlement-review" class="workspace-section" aria-labelledby="entitlement-history-heading">
-        <h2 id="entitlement-history-heading">Entitlement history</h2>
-        <EntitlementHistory entitlements={workspace.recentEntitlements} />
+        <h2 id="entitlement-history-heading">{workspace.entitlementHistoryCapped ? "Latest 10 versions" : "Entitlement history"}</h2>
+        <EntitlementHistory entitlements={workspace.recentEntitlements} capped={workspace.entitlementHistoryCapped} />
         {workspace.schedule !== null ? <p><a class="button-link" href={reviewHref}>Review entitlement terms</a></p> : null}
         <p class="field-hint">Prior versions are immutable. Signed envelopes and signing keys are never displayed.</p>
       </section>
@@ -384,8 +390,8 @@ export function EntitlementReviewPage(props: {
       </> : <EmptyState title="Entitlement is not ready to issue" action={{ href: `${workspaceHref}#entitlement-configuration`, label: "Return to configuration" }}>Registration and a current compatible configuration are required. Review the deployment workspace and save current terms.</EmptyState>}
 
       <section class="workspace-section" aria-labelledby="immutable-history-heading">
-        <h2 id="immutable-history-heading">Prior immutable versions</h2>
-        <EntitlementHistory entitlements={workspace.recentEntitlements} />
+        <h2 id="immutable-history-heading">{workspace.entitlementHistoryCapped ? "Latest 10 versions" : "Prior immutable versions"}</h2>
+        <EntitlementHistory entitlements={workspace.recentEntitlements} capped={workspace.entitlementHistoryCapped} />
         <p class="field-hint">History shows lease timing only. Signed envelopes and signing keys are never rendered.</p>
       </section>
     </OperatorLayout>

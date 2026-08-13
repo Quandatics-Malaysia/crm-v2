@@ -166,6 +166,31 @@ describe("entitlement issuance", () => {
     ).bind(fixture.deploymentId).run()
   })
 
+  it.each([
+    {
+      label: "the client is disabled after review",
+      invalidate: (fixture: Awaited<ReturnType<typeof seed>>) => env.CONTROL_DB.prepare(
+        "UPDATE clients SET status = 'disabled' WHERE id = ?",
+      ).bind(fixture.clientId).run(),
+    },
+    {
+      label: "the deployment key is revoked after review",
+      invalidate: (fixture: Awaited<ReturnType<typeof seed>>) => env.CONTROL_DB.prepare(
+        "UPDATE deployment_keys SET revoked_at = ? WHERE deployment_id = ?",
+      ).bind(now.toISOString(), fixture.deploymentId).run(),
+    },
+  ])("rejects issuance when $label", async ({ invalidate }) => {
+    const fixture = await seed()
+    await invalidate(fixture)
+
+    await expect(issue(fixture)).rejects.toThrow("Deployment is unavailable")
+    expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
+    expect(await count("operator_audit_log", "WHERE action = 'entitlement.issue' AND target_id = ?", [fixture.deploymentId])).toBe(0)
+    await env.CONTROL_DB.prepare(
+      "UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).run()
+  })
+
   it("issues core CRM entitlement with no optional modules", async () => {
     const fixture = await seed({ modules: [] })
 

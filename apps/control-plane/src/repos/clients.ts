@@ -51,7 +51,7 @@ export interface ClientChildPagination {
 
 export interface ClientDetail extends ClientListItem {
   organisations: PageResult<{ id: string; organisationKey: string; displayName: string }>
-  deployments: PageResult<{ id: string; deploymentKey: string; environment: string; status: string }>
+  deployments: PageResult<{ id: string; deploymentKey: string; environment: string; status: string; href: string }>
   contracts: PageResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
 }
 
@@ -348,6 +348,7 @@ export async function getClientDetail(
         deploymentKey: row.deployment_key,
         environment: row.environment,
         status: row.status,
+        href: `/operator/deployments/${row.id}`,
       })),
       pagination.deployments,
     ),

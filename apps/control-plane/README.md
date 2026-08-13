@@ -24,7 +24,7 @@ generated production config explicitly keeps the `*.workers.dev` endpoint enable
 - Configure non-secret `ENTITLEMENT_SIGNING_KEY_ID` in Wrangler per environment.
 - Store `ENTITLEMENT_SIGNING_PRIVATE_JWK` only with `wrangler secret put`; it must be an Ed25519 private JWK.
 - Keep every retired public verification key trusted by deployments for at least eight days after its final issuance (24-hour lease plus seven-day grace).
-- Rotate by installing the new private secret and active key ID, deploying, then retaining old public trust. The next cron promptly replaces every current envelope signed by any non-current key; historical envelopes remain byte-identical.
+- Rotate by installing the new private secret and active key ID, deploying, then retaining old public trust. Cron replaces current envelopes signed by any non-current key in batches of up to 50; remaining envelopes are handled by subsequent cron ticks. Historical envelopes remain byte-identical.
 
 ## New client and deployment
 

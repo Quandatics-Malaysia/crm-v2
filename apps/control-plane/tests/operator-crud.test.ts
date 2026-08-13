@@ -1,4 +1,5 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
+import { jsx } from "hono/jsx"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 import { renderToString } from "hono/jsx/dom/server"
 
@@ -158,6 +159,15 @@ describe("operator mutation protection and client administration", () => {
     expect(await styles.text()).toContain("--operator-space-4")
   })
 
+  it("styles navigational links and selectable-control labels as touch targets", async () => {
+    const styles = await operatorRequest("/operator/styles.css")
+    const css = await styles.text()
+
+    expect(css).toMatch(/\.operator-shell :is\(\.operator-navigation a, \.operator-breadcrumbs a, nav\[aria-label\$="pagination"\] a, \.button-link\) \{[^}]*display: inline-flex;[^}]*min-block-size: 2\.75rem;[^}]*\}/)
+    expect(css).toMatch(/\.operator-shell label:has\(:is\(input\[type="checkbox"\], input\[type="radio"\]\)\) \{[^}]*min-block-size: 2\.75rem;[^}]*\}/)
+    expect(css).toContain('.operator-shell :is(input[type="checkbox"], input[type="radio"])')
+  })
+
   it("renders escaped semantic headers, status badges, and progress steps", () => {
     const html = renderToString([
       PageHeader({ title: "Workspace <admin>", eyebrow: "Signing", description: "Review details" }),
@@ -180,9 +190,9 @@ describe("operator mutation protection and client administration", () => {
   })
 
   it("renders labelled fields and cards with an accessible validation error", () => {
-    const html = renderToString(Card({
+    const html = renderToString(jsx(Card, {
       title: "Client details",
-      children: Field({
+      children: jsx(Field, {
         label: "Client name",
         name: "displayName",
         required: true,
@@ -190,7 +200,9 @@ describe("operator mutation protection and client administration", () => {
       }),
     }))
 
-    expect(html).toContain('<section class="card" aria-labelledby="card-client-details">')
+    const card = /<section class="card" aria-labelledby="([^"]+)">/.exec(html)
+    expect(card?.[1]).toBeTruthy()
+    expect(html).toContain(`<h2 id="${card?.[1]}">Client details</h2>`)
     const label = /<label for="([^"]+)">Client name/.exec(html)
     expect(label?.[1]).toBeTruthy()
     const fieldId = label?.[1] ?? ""
@@ -198,6 +210,22 @@ describe("operator mutation protection and client administration", () => {
     expect(html).toContain('aria-invalid="true"')
     expect(html).toContain(`aria-describedby="${fieldId}-error"`)
     expect(html).toContain(`id="${fieldId}-error" class="field-error" role="alert"`)
+  })
+
+  it("assigns unique IDs when repeated primitives share names and titles", () => {
+    const html = renderToString([
+      jsx(Field, { label: "Client name", name: "displayName" }),
+      jsx(Field, { label: "Client name", name: "displayName" }),
+      jsx(Card, { title: "Client details", children: "First card" }),
+      jsx(Card, { title: "Client details", children: "Second card" }),
+      jsx(Notice, { tone: "info", title: "Saved", children: "First notice" }),
+      jsx(Notice, { tone: "info", title: "Saved", children: "Second notice" }),
+    ])
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1])
+
+    expect(ids).toHaveLength(6)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(html).toMatch(/<label for="([^"]+)">Client name<\/label><input id="\1"/)
   })
 
   it("renders empty, notice, error-panel, and data-list states without raw content", () => {

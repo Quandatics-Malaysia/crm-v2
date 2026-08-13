@@ -47,3 +47,71 @@ Implemented server-rendered operator UI foundation: local scoped CSS, semantic l
 
 - This task establishes primitives and shell only; legacy dashboard pages do not yet use every new primitive. That is intentional to preserve current CRUD markup and behavior for follow-on onboarding work.
 - Rendering tests cover server HTML contracts. No browser visual-regression harness exists in this control-plane package, so visual appearance is verified through scoped CSS and semantic output rather than screenshots.
+
+## Fix round 1/5: touch targets and generated IDs
+
+### Root cause
+
+- `min-block-size` on ordinary inline anchors has no layout effect. The global selector also supplied no inline sizing, so pager and breadcrumb links had no usable touch target.
+- `Field`, `Card`, and `Notice` derived IDs only from their names or titles. Repeated instances therefore emitted duplicate `id` values and ambiguous `for`/`aria-labelledby` references.
+
+### RED evidence
+
+Command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts -t "(styles navigational links and selectable-control labels|assigns unique IDs when repeated primitives)"
+```
+
+Output: `2 failed | 29 skipped (31)`.
+
+- `styles navigational links and selectable-control labels as touch targets` failed because the served CSS had only `.operator-shell :is(a, button, input, select, textarea) { min-block-size: 2.75rem; }`, with no display-capable navigation/pager/breadcrumb selector or checkbox/radio label target.
+- `assigns unique IDs when repeated primitives share names and titles` failed with `expected 3 to be 6`; six generated IDs contained only three unique values.
+
+### GREEN evidence
+
+Focused command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts -t "(styles navigational links and selectable-control labels|assigns unique IDs when repeated primitives|renders labelled fields and cards)"
+```
+
+Output: `3 passed | 28 skipped (31)`.
+
+Operator CRUD command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts
+```
+
+Output: `1 passed` test file; `31 passed (31)` tests.
+
+Typecheck command:
+
+```sh
+pnpm --dir apps/control-plane typecheck
+```
+
+Output: `$ tsc --noEmit`; exit 0.
+
+Diff command:
+
+```sh
+git diff --check
+```
+
+Output: exit 0; no whitespace errors.
+
+Full suite command:
+
+```sh
+pnpm --dir apps/control-plane test
+```
+
+Output: migration compatibility test passed; `6 passed (6)` Vitest files; `129 passed (129)` tests.
+
+### Fix decisions
+
+- Added a 44px block target only to navigation, breadcrumb, pager, and button-like links. Prose links remain inline and keep their natural width.
+- Sized checkbox/radio visuals normally and made their wrapping labels 44px click targets. Existing module checkboxes already use wrapping labels.
+- Used Hono JSX `useId()` for per-instance field and heading IDs, retaining descriptive name/title prefixes while making repeated server-rendered instances unique.

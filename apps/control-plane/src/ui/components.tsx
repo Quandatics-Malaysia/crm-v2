@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import type { Child } from "hono/jsx"
+import { useId, type Child } from "hono/jsx"
 
 export type StatusTone = "neutral" | "success" | "warning" | "error"
 export type NoticeTone = "info" | "success" | "warning" | "error"
@@ -62,7 +62,7 @@ export function Field(props: {
   hint?: string
   error?: string
 }) {
-  const id = `field-${identifier(props.name)}`
+  const id = `field-${identifier(props.name)}-${identifier(useId())}`
   const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const describedBy = [props.hint ? hintId : null, props.error ? errorId : null].filter(Boolean).join(" ")
@@ -85,7 +85,7 @@ export function Field(props: {
 }
 
 export function Card(props: { title: string; children: Child; footer?: Child }) {
-  const headingId = `card-${identifier(props.title)}`
+  const headingId = `card-${identifier(props.title)}-${identifier(useId())}`
   return (
     <section class="card" aria-labelledby={headingId}>
       <h2 id={headingId}>{props.title}</h2>
@@ -110,7 +110,7 @@ export function EmptyState(props: {
 }
 
 export function Notice(props: { tone: NoticeTone; title: string; children: Child }) {
-  const headingId = `notice-${identifier(props.title)}`
+  const headingId = `notice-${identifier(props.title)}-${identifier(useId())}`
   return (
     <section class={`notice notice-${props.tone}`} role={props.tone === "error" ? "alert" : "status"} aria-labelledby={headingId}>
       <h2 id={headingId}>{props.title}</h2>

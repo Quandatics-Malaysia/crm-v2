@@ -32,17 +32,20 @@ export const OPERATOR_STYLES = `
 .operator-shell :is(h1, h2, h3, p, ol, ul, dl) { margin-block: 0; }
 .operator-shell a { color: var(--operator-colour-accent); text-underline-offset: 0.16em; }
 .operator-shell a:hover { color: var(--operator-colour-accent-strong); }
-.operator-shell :is(a, button, input, select, textarea) { min-block-size: 2.75rem; }
+.operator-shell :is(button, input:not([type="checkbox"]):not([type="radio"]), select, textarea) { min-block-size: 2.75rem; }
 .operator-shell :is(a, button, input, select, textarea):focus-visible { outline: 0.1875rem solid var(--operator-colour-accent); outline-offset: 0.1875rem; }
 .operator-shell button { border: 0; border-radius: var(--operator-radius); background: var(--operator-colour-accent); color: #fff; cursor: pointer; font: inherit; font-weight: 700; padding-inline: var(--operator-space-4); }
 .operator-shell input, .operator-shell select, .operator-shell textarea { border: var(--operator-border); border-radius: 0.375rem; color: inherit; font: inherit; padding: var(--operator-space-2) var(--operator-space-3); width: 100%; }
 .operator-shell textarea { min-block-size: 6rem; }
+.operator-shell :is(input[type="checkbox"], input[type="radio"]) { block-size: 1.25rem; inline-size: 1.25rem; margin: 0; width: auto; }
+.operator-shell label:has(:is(input[type="checkbox"], input[type="radio"])) { align-items: center; display: inline-flex; gap: var(--operator-space-2); min-block-size: 2.75rem; padding-inline: var(--operator-space-2); }
 .operator-shell-header { border-block-end: var(--operator-border); background: var(--operator-colour-surface); }
 .operator-shell-bar, .operator-content { inline-size: min(100% - 2rem, var(--operator-content-width)); margin-inline: auto; }
 .operator-shell-bar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-3) var(--operator-space-6); justify-content: space-between; padding-block: var(--operator-space-3); }
 .operator-brand { color: var(--operator-colour-ink); font-weight: 800; text-decoration: none; }
 .operator-navigation ul, .operator-breadcrumbs ol { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-2); list-style: none; padding: 0; }
-.operator-navigation a { align-items: center; border-radius: 0.375rem; display: inline-flex; padding-inline: var(--operator-space-2); text-decoration: none; }
+.operator-shell :is(.operator-navigation a, .operator-breadcrumbs a, nav[aria-label$="pagination"] a, .button-link) { align-items: center; display: inline-flex; min-block-size: 2.75rem; padding-inline: var(--operator-space-2); }
+.operator-navigation a { border-radius: 0.375rem; text-decoration: none; }
 .operator-navigation [aria-current="page"] { background: #e8efff; color: #00359e; font-weight: 700; }
 .operator-identity { color: var(--operator-colour-muted); font-size: 0.875rem; }
 .operator-breadcrumbs { border-block-end: var(--operator-border); background: var(--operator-colour-surface); color: var(--operator-colour-muted); font-size: 0.875rem; }
@@ -76,7 +79,7 @@ export const OPERATOR_STYLES = `
 .card-content, .card-footer { display: grid; gap: var(--operator-space-4); }
 .card-footer { border-block-start: var(--operator-border); padding-block-start: var(--operator-space-4); }
 .empty-state { align-items: start; display: grid; gap: var(--operator-space-3); justify-items: start; text-align: left; }
-.button-link { align-items: center; background: var(--operator-colour-accent); border-radius: var(--operator-radius); color: #fff !important; display: inline-flex; font-weight: 700; padding-inline: var(--operator-space-4); text-decoration: none; }
+.button-link { background: var(--operator-colour-accent); border-radius: var(--operator-radius); color: #fff !important; font-weight: 700; padding-inline: var(--operator-space-4); text-decoration: none; }
 .notice { border-inline-start-width: 0.375rem; display: grid; gap: var(--operator-space-2); }
 .notice-info { border-inline-start-color: var(--operator-colour-accent); }
 .notice-success { border-inline-start-color: var(--operator-colour-positive); }

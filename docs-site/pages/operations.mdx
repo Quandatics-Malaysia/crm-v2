@@ -3,10 +3,20 @@ title: Operations
 category: ""
 ---
 
-How the Quandatics CRM is built and deployed, at a glance. The full operator
-runbook — server access, backups & restore, database admin, and hardening —
-lives in **`OPERATIONS.md` in the repository** (kept out of this public site on
-purpose).
+How the Quandatics CRM is built and deployed, at a glance. The canonical
+operator runbook — release, recovery, backups, database admin, and hardening —
+lives in **`OPERATIONS.md` in the public repository**.
+
+## Quick map
+
+| Need | Open |
+| --- | --- |
+| External API developer | [External developers](/external-developers) |
+| Source contributor | [Contributing](/contributing) |
+| Version + release + failed deploy | [`OPERATIONS.md`](https://github.com/Super-ERP/crm-v2/blob/main/OPERATIONS.md) |
+| New production install | [`deploy/client/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/deploy/client/README.md) |
+| Client, contract, deployment, entitlement | [`apps/control-plane/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/apps/control-plane/README.md) |
+| Signed release history | [Release log](https://github.com/Super-ERP/crm-v2/blob/main/docs/operations/release-log.md) |
 
 ## Environments
 
@@ -31,6 +41,43 @@ Every release follows the same gate:
 
 Staging remains an isolated source build from its own branch and temporary URL.
 
+## Versioning and signing
+
+- Release tags use strict `vMAJOR.MINOR.PATCH` SemVer and never move.
+- Use the one-command release helper from clean, reviewed `main`.
+- Four image digests are scanned, given SBOM/provenance, signed through GitHub
+  OIDC + Cosign, then recorded in one signed source-free bundle.
+- Production accepts manifest digests only. Never deploy `latest` or build source
+  on the client host.
+
+## New customer or installation
+
+Two records are different:
+
+- **Vendor client/deployment:** in the protected control plane, create client,
+  organisation metadata, active contract, deployment, and entitlement schedule.
+  Provisioning is complete only after a one-time installation token registers
+  the deployment agent and a signed lease is applied.
+- **CRM customer organisation (tenant):** a superadmin opens the organisation
+  switcher → **Create customer organization**, enters name/code, and optionally
+  adds initial users. Contract seats/modules still come from vendor entitlement.
+
+Do not treat control-plane organisation metadata as a CRM tenant. For a new host,
+follow the signed client bundle guide; do not copy an old deployment identity,
+agent state, storage identity, or install token.
+
+## Failure checks
+
+1. **Release failed:** inspect the first failed gate; issue a new tag after the
+   fix. Never reuse a tag.
+2. **Deploy failed:** running production stays unchanged or rolls back. Check
+   bundle signature, backup evidence, host tools, image pull, migration, web
+   health, then agent entitlement health.
+3. **Offline grace:** verify active contract dates, control-plane cron, reachable
+   machine endpoint, and deployment-agent service. Do not bypass entitlement.
+4. **New tenant blocked:** only superadmin can create; deployment must allow
+   writes and have enough entitled seats for initial active users.
+
 ## Modules
 
 Optional features (Projects, Sales Orders, Finance, Forecast, …) are toggled by
@@ -39,6 +86,6 @@ rebuild. See **[Modules](/extensibility/plugin-system)** for the full plugin sys
 
 ## Where the details live
 
-For anything operational — connecting to the database, running migrations,
-backups and restore, or hardening — read `OPERATIONS.md` in the repository. It is
-intentionally not published here.
+For operational commands — releases, entitlement recovery, database access,
+backups, restore, and hardening — read `OPERATIONS.md` in the repository. Never
+copy credentials or host-specific secrets into either documentation surface.

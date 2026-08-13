@@ -23,9 +23,9 @@ Edit the **root** files — `README.md`, `CONTRIBUTING.md`, `MODULES.md` — not
 `pages/extensibility/plugin-system.md` (those are regenerated copies).
 
 `pages/operations.mdx` and `pages/architecture.mdx` are authored here directly.
-The Operations page is deliberately **public-safe** — the full operator runbook
-(server access, backups, hardening) stays in the repo's `OPERATIONS.md` and is
-never published.
+The Operations page is a short public index. Detailed deployment and recovery
+commands remain in the public repository's `OPERATIONS.md` so one runbook stays
+canonical.
 
 ## Adding a product capability
 
@@ -46,9 +46,9 @@ stable contracts instead of CRM internals. It documents API usage, sandbox expec
 support flow, and the current read-only boundary. Do not publish server access,
 database credentials, restricted contributor instructions, or production secrets.
 
-Private source contributors use the repository's `CONTRIBUTING.md` and require
-explicit GitHub access. They do not use production as their development
-environment.
+Source contributors use the public repository's `CONTRIBUTING.md`; a fork is
+enough to open a pull request. Repository visibility never grants production,
+database, secret, or server access.
 
 ## Deploy to Vercel
 

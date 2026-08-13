@@ -14,7 +14,10 @@ pnpm --filter control-plane exec wrangler deploy --dry-run
 
 Migration `0005_entitlement_issuance.sql` supports both fresh `0001`–`0005` databases and upgrades from Task 5. Entitlement rows and operator audit rows are append-only. Contract and schedule revisions serialize signing against commercial controls, while renewal claims serialize scheduler ownership. Cron runs every 15 minutes and renews missing leases, leases within six hours of expiry, materially changed effective inputs, and envelopes signed by a non-current key.
 
-Production control is expected to be hosted on a **vendor-owned operator domain** (for example `https://control.quandatics.com`) so clients never need Worker endpoint access. Set `CONTROL_PLANE_ROUTE` to expose `/operator` on that host and `OPERATOR_ORIGIN` to the same origin so same-site form posts and CSRF checks work.
+The Worker serves two boundaries: Cloudflare Access protects `/operator`, while
+deployment agents call the signed machine endpoints for registration, heartbeat,
+and entitlement retrieval. A custom vendor domain is optional. Without one, the
+generated production config explicitly keeps the `*.workers.dev` endpoint enabled.
 
 ## Signing keys
 
@@ -23,13 +26,35 @@ Production control is expected to be hosted on a **vendor-owned operator domain*
 - Keep every retired public verification key trusted by deployments for at least eight days after its final issuance (24-hour lease plus seven-day grace).
 - Rotate by installing the new private secret and active key ID, deploying, then retaining old public trust. The next cron promptly replaces every current envelope signed by the old key; historical envelopes remain byte-identical.
 
+## New client and deployment
+
+1. In `/operator/clients`, create the vendor client.
+2. Add organisation metadata, an active dated contract, modules/seats, and a
+   deployment for the target environment.
+3. Assign the deployment entitlement schedule and issue its first signed lease.
+4. Issue a short-lived, one-time installation token through approved vendor
+   provisioning, place it only in the new host's protected `.env`, then deploy
+   the signed client bundle.
+5. Confirm agent registration, heartbeat, signed entitlement, application health,
+   and matching release identity. Delete the plaintext token after registration.
+
+Current limitation: client, organisation, deployment, and contract forms exist,
+but install-token issuance is not exposed in the operator UI or public API. New
+production onboarding is therefore not self-service. Do not use direct D1 edits
+or reuse another deployment's identity/token; complete the vendor-only issuance
+surface before onboarding a new host.
+
 ## Deployment
 
 The committed Wrangler file is local/test-only and intentionally contains no deployable D1 ID or staging/production blocks. Configure protected GitHub environments named `staging` and `production`. Each requires `CONTROL_DB_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ENTITLEMENT_SIGNING_PRIVATE_JWK`, and `INSTALL_TOKEN_PEPPER` secrets, plus `CONTROL_DB_NAME`, `BACKUP_BUCKET_NAME`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `BOOTSTRAP_OWNER_EMAIL`, `OPERATOR_ORIGIN`, `ENTITLEMENT_SIGNING_KEY_ID` variables.
 
 Optional:
-- `CONTROL_PLANE_ROUTE` (for example `control.quandatics.com/*`) to deploy the worker directly to a dedicated control domain instead of only the `*.workers.dev` host.
-- `OPERATOR_ORIGIN` should be set to the same control domain (`https://control.quandatics.com`) so CSRF/checks and same-origin form posts work.
+- `CONTROL_PLANE_ROUTE` (for example `control.quandatics.com/*`) replaces the
+  `*.workers.dev` endpoint with a dedicated control domain. The Cloudflare API
+  token must have Workers Routes edit permission for that zone; otherwise leave
+  the variable unset.
+- `OPERATOR_ORIGIN` is required and must match the browser-facing operator
+  origin so CSRF checks and same-origin form posts work.
 
 The workflow validates every protected value, rejects missing, malformed, nil, or placeholder identifiers, and writes a temporary mode-0600 Wrangler config that contains no secret material. Only that config is used for remote secret installation, migrations, and deployment; it is never committed. Remote migrations run before code and cron deployment.
 

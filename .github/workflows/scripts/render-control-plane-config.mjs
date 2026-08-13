@@ -37,6 +37,7 @@ const config = {
   $schema: join(projectDirectory, "node_modules/wrangler/config-schema.json"),
   name: `crm-control-plane-${environment}`,
   main: join(projectDirectory, "src/index.ts"),
+  workers_dev: controlPlaneRoute === undefined,
   compatibility_date: "2026-08-10",
   compatibility_flags: ["nodejs_compat"],
   vars: {

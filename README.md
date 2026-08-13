@@ -13,10 +13,10 @@ architecture directory.
 | [Production CRM](https://app.quandatics.com) | Live application |
 | [Latest staging deployment](https://github.com/Super-ERP/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
 | [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
-| [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers) | No-source API integration and collaboration path |
+| [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers) | API integration and public contribution path |
 | [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
 | [Contributing](./CONTRIBUTING.md) | Local setup and review rules |
-| [Operations](./OPERATIONS.md) | Private operator runbook |
+| [Operations](./OPERATIONS.md) | Canonical operator runbook; never store secrets in it |
 | [Release log](./docs/operations/release-log.md) | Signed immutable release record |
 
 ## Module map
@@ -42,7 +42,7 @@ crm-v2/
 ├── .github/                 CI, production, and staging workflows
 ├── CONTRIBUTING.md          Development and review workflow
 ├── MODULES.md               Optional-plugin contract
-└── OPERATIONS.md            Private operator runbook
+└── OPERATIONS.md            Canonical operator runbook
 ```
 
 The app itself lives in `apps/web` (a pnpm workspace under the repo root). Local-dev

@@ -4,8 +4,8 @@ title: Collaboration model
 
 # Collaboration model
 
-External developers collaborate through an integration contract. Source-code
-changes use the separate contributor workflow.
+External developers can use the public source-contributor workflow or a stable
+API integration contract. Neither path grants production access.
 
 ## What partner sends
 
@@ -32,14 +32,13 @@ logs containing personal data.
 
 ## Source-code changes
 
-If requested work changes CRM internals, the partner must either:
+If requested work changes CRM internals, the partner may either:
 
 1. submit a product request with reproduction and acceptance criteria; or
-2. receive explicit contributor approval and follow the source
-   contributor workflow.
+2. fork the public repository and follow the source contributor workflow.
 
-An API key never grants source access. A staging login never grants SSH,
-database, Docker, or repository access.
+An API key or staging login never grants SSH, database, Docker, secrets, or
+production access. Repository read access is public and independent.
 
 ## Acceptance checklist
 

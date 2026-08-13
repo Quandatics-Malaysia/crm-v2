@@ -29,6 +29,18 @@ flowchart TD
 Middleware redirects are convenience only. Server actions, route handlers, and
 RLS remain authoritative.
 
+## Create a customer organisation
+
+Superadmin only: open the organisation switcher → **Create customer
+organization**. Enter name/code; initial users are optional and consume entitled
+seats when active. The action seeds tenant defaults, roles, permissions, settings,
+and the owner membership in one transaction. Other users must be invited through
+**Team & roles**.
+
+This CRM tenant is separate from control-plane client/organisation metadata.
+Commercial dates, seats, modules, and deployment status still come from the
+vendor-signed entitlement.
+
 ## Code map
 
 | Layer | Location |

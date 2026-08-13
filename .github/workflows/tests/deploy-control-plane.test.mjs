@@ -77,6 +77,20 @@ test("renderer emits a non-secret deploy config only after validating protected 
   }
 })
 
+test("renderer keeps workers.dev reachable unless a custom route replaces it", () => {
+  const defaultRender = render()
+  assert.equal(defaultRender.result.status, 0, defaultRender.result.stderr)
+  const defaultConfig = JSON.parse(readFileSync(defaultRender.output, "utf8"))
+  assert.equal(defaultConfig.workers_dev, true)
+  assert.equal(defaultConfig.routes, undefined)
+
+  const routedRender = render({ CONTROL_PLANE_ROUTE: "control.example.com/*" })
+  assert.equal(routedRender.result.status, 0, routedRender.result.stderr)
+  const routedConfig = JSON.parse(readFileSync(routedRender.output, "utf8"))
+  assert.equal(routedConfig.workers_dev, false)
+  assert.deepEqual(routedConfig.routes, ["control.example.com/*"])
+})
+
 for (const [label, overrides] of [
   ["missing D1 identifier", { CONTROL_DB_ID: undefined }],
   ["invalid D1 identifier", { CONTROL_DB_ID: "not-a-uuid" }],

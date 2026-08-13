@@ -24,9 +24,12 @@ jobs:
     runs-on: self-hosted
     environment: staging
     steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
       # Self-bootstrapping: creates the staging checkout + base env on first run,
       # then upgrades retained deployment-control values on every release.
-      # Staging is reachable at 127.0.0.1:8091 through its quick tunnel.
+      # Staging is reachable at 127.0.0.1:8092 through its quick tunnel.
       - name: Bootstrap or upgrade staging checkout + env
         env:
           VENDOR_ENTITLEMENT_TRUST_SET: ${{ secrets.STAGING_VENDOR_ENTITLEMENT_TRUST_SET }}
@@ -50,10 +53,11 @@ jobs:
             SAMPLE_PW="$(openssl rand -hex 16)"
             sed -i "s|change_me_strong_staging_master|${ADMIN_PW}|" .env.staging
             sed -i "s|change_me_strong_staging_sample|${SAMPLE_PW}|" .env.staging
-            # No public domain: reach staging via SSH tunnel to 127.0.0.1:8091.
-            sed -i "s|staging.quandatics.com|localhost:8091|g" .env.staging
-            sed -i "s|https://localhost:8091|http://localhost:8091|g" .env.staging
+            # No public domain: reach staging via SSH tunnel to 127.0.0.1:8092.
+            sed -i "s|staging.quandatics.com|localhost:8092|g" .env.staging
+            sed -i "s|https://localhost:8092|http://localhost:8092|g" .env.staging
           fi
+          sed -i "s|^CADDY_HOST_PORT=.*|CADDY_HOST_PORT=8092|" "$DIR/.env.staging"
           node "$DIR/.github/workflows/scripts/provision-deployment-runtime.mjs" --mode staging --env-file "$DIR/.env.staging" --repo-root "$DIR"
       # Phase 1: bring the whole stack + tunnel up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
@@ -110,8 +114,8 @@ jobs:
           get_env() {
             sed -n "s/^$1=//p" "$DIR/.env.staging" | tail -1
           }
-          ADMIN_EMAIL="$(get_env DEMO_ADMIN_EMAIL)"
-          ADMIN_PW="$(get_env DEMO_ADMIN_PASSWORD)"
+          ADMIN_EMAIL="$(get_env PLATFORM_MASTER_EMAIL)"
+          ADMIN_PW="$(get_env PLATFORM_MASTER_PASSWORD)"
           HTTP_CODE=$(curl -sS --max-time 12 \
             -o /tmp/crm-staging-auth-response.json \
             -w "%{http_code}" \

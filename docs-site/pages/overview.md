@@ -108,6 +108,19 @@ Production uses the pull-only, Cosign-verified bundle in `deploy/client/`.
 Follow [`deploy/client/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/deploy/client/README.md); do not build the
 source Compose stack on a client production host.
 
+## Operator workspace
+
+Vendor operators onboard and maintain client deployments in the protected
+control-plane UI. Create the client, current contract, and deployment; open the
+deployment workspace; issue its one-time install token; then register, configure,
+review, sign, and verify its heartbeat. Use the same workspace to issue a new
+immutable signed version after a contract, configuration, or approved-release
+change. See [operator onboarding, signing, and recovery](/operations#operator-workspace-client-onboarding-and-signing).
+
+This is an operator workflow, not a customer or integration-partner interface.
+No documentation update records a live deployment or signed release; only
+completed `release-images` runs append to the [release log](https://github.com/Super-ERP/crm-v2/blob/main/docs/operations/release-log.md).
+
 ## Upgrade notes
 
 The following are **intentional** behavior changes from this hardening pass. Operators

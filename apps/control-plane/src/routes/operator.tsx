@@ -7,10 +7,12 @@ import { prepareOperatorAuditStatement } from "../audit"
 import { requireOperatorRole } from "../auth/rbac"
 import type { ControlPlaneEnvironment } from "../index"
 import { badRequest, forbidden, SafeHttpError } from "../http/errors"
+import { requestId } from "../http/request-id"
 import {
   createClient,
   createClientOrganisation,
   createDeployment,
+  getDashboardSummary,
   getClientDetail,
   listClients,
   parseClientChildPagination,
@@ -19,18 +21,48 @@ import {
 } from "../repos/clients"
 import { createContract, getContractDetail } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
+import { issueInstallToken } from "../repos/deployments"
+import { getDeploymentWorkspace } from "../repos/onboarding"
 import {
   assignEntitlementSchedule,
   issueEntitlement,
   updateEntitlementControls,
 } from "../repos/entitlements"
-import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
+import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
+import { DeploymentPage, EntitlementReviewPage, InstallTokenResultPage } from "../ui/deployment"
+import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
 
-function requestId(context: OperatorContext): string {
-  return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
+const INSTALL_TOKEN_MAX_LIFETIME_MS = 24 * 60 * 60 * 1_000
+
+const OPERATOR_NOTICES = {
+  client_created: { tone: "success", title: "Client created", message: "Add contract terms to continue onboarding." },
+  organisation_created: { tone: "success", title: "Organisation added", message: "Organisation details are optional and saved." },
+  deployment_created: { tone: "success", title: "Deployment created", message: "Open deployment signing workspace to continue setup." },
+  contract_created: { tone: "success", title: "Contract created", message: "Create deployment when commercial terms are confirmed." },
+  invoice_created: { tone: "success", title: "Invoice issued", message: "Collection milestones are ready for review." },
+  entitlement_schedule_updated: { tone: "success", title: "Entitlement schedule updated", message: "Configuration changes are ready for the deployment." },
+  changes_saved: { tone: "success", title: "Changes saved", message: "The requested update completed." },
+} as const satisfies Record<string, OperatorNotice>
+
+function requestNotice(context: OperatorContext): OperatorNotice | undefined {
+  const parameters = new URL(context.req.url).searchParams
+  const code = parameters.get("notice")
+  if (code === "entitlement_issued") {
+    const version = parameters.get("version")
+    if (version !== null && /^[1-9]\d*$/.test(version)) {
+      return {
+        tone: "success",
+        title: `Entitlement version ${version} issued`,
+        message: "Immutable history now includes the issued version.",
+      }
+    }
+    return undefined
+  }
+  if (!code || !Object.hasOwn(OPERATOR_NOTICES, code)) return undefined
+  return OPERATOR_NOTICES[code as keyof typeof OPERATOR_NOTICES]
 }
 
 function isJson(context: OperatorContext): boolean {
@@ -106,10 +138,22 @@ function mutationDescriptor(pathname: string): {
     return { action: "invoice.create", targetType: "invoice", targetId: "request-target" }
   }
   if (/^\/operator\/deployments\/[^/]+\/entitlements\/schedule$/.test(pathname)) {
-    return { action: "entitlement.schedule.assign", targetType: "deployment", targetId: "request-target" }
+    return {
+      action: "entitlement.schedule.assign",
+      targetType: "deployment",
+      targetId: pathname.split("/")[3]!,
+    }
   }
   if (/^\/operator\/deployments\/[^/]+\/entitlements\/issue$/.test(pathname)) {
-    return { action: "entitlement.issue", targetType: "deployment", targetId: "request-target" }
+    return {
+      action: "entitlement.issue",
+      targetType: "deployment",
+      targetId: pathname.split("/")[3]!,
+    }
+  }
+  const installToken = /^\/operator\/deployments\/([^/]+)\/install-tokens$/.exec(pathname)
+  if (installToken) {
+    return { action: "install_token.issue", targetType: "deployment", targetId: installToken[1]! }
   }
   if (/^\/operator\/contracts\/[^/]+\/entitlement-controls$/.test(pathname)) {
     return { action: "entitlement.controls.update", targetType: "contract", targetId: "request-target" }
@@ -184,7 +228,31 @@ async function runMutation(
   const data = await mutationData(context)
   const id = await run(data)
   if (isJson(context)) return context.json({ id }, 201)
-  return context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+  return context.redirect(htmlSuccessRedirect(context), 303)
+}
+
+function htmlSuccessRedirect(context: OperatorContext): string {
+  const pathname = new URL(context.req.url).pathname
+  const withNotice = (path: string, notice: keyof typeof OPERATOR_NOTICES) => `${path}?notice=${notice}`
+  if (pathname === "/operator/clients") return withNotice("/operator/clients", "client_created")
+
+  const clientMutation = /^\/operator\/clients\/([^/]+)\/(organisations|deployments|contracts)$/.exec(pathname)
+  if (clientMutation) {
+    const notice = clientMutation[2] === "organisations"
+      ? "organisation_created"
+      : clientMutation[2] === "deployments"
+        ? "deployment_created"
+        : "contract_created"
+    return withNotice(`/operator/clients/${clientMutation[1]}`, notice)
+  }
+
+  const invoiceMutation = /^\/operator\/contracts\/([^/]+)\/invoices$/.exec(pathname)
+  if (invoiceMutation) return withNotice(`/operator/contracts/${invoiceMutation[1]}`, "invoice_created")
+  const scheduleMutation = /^\/operator\/deployments\/([^/]+)\/entitlements\/schedule$/.exec(pathname)
+  if (scheduleMutation) {
+    return withNotice(`/operator/deployments/${scheduleMutation[1]}`, "entitlement_schedule_updated")
+  }
+  return withNotice("/operator/clients", "changes_saved")
 }
 
 function actor(context: OperatorContext) {
@@ -192,6 +260,34 @@ function actor(context: OperatorContext) {
     operatorId: context.get("operator").operatorId,
     requestId: requestId(context),
   }
+}
+
+function installTokenExpiry(value: unknown, now = new Date()): string {
+  if (typeof value !== "string") throw badRequest()
+  const utcMinute = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+  const utcSecond = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+  if (!utcMinute && !utcSecond) throw badRequest()
+  const expiresAt = Date.parse(utcMinute ? `${value}:00.000Z` : value)
+  if (!Number.isFinite(expiresAt)) throw badRequest()
+  const canonical = new Date(expiresAt).toISOString()
+  if (
+    utcMinute && canonical.slice(0, 16) !== value ||
+    utcSecond && canonical !== value && canonical.replace(".000Z", "Z") !== value
+  ) {
+    throw badRequest()
+  }
+  const current = now.getTime()
+  if (expiresAt <= current || expiresAt > current + INSTALL_TOKEN_MAX_LIFETIME_MS) {
+    throw badRequest()
+  }
+  return new Date(expiresAt).toISOString()
+}
+
+function positiveRevision(value: unknown): number {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) throw badRequest()
+  const revision = Number(value)
+  if (!Number.isSafeInteger(revision)) throw badRequest()
+  return revision
 }
 
 export function createOperatorRoutes() {
@@ -206,9 +302,22 @@ export function createOperatorRoutes() {
   routes.use("*", auditMutationFailures)
   routes.use("*", csrf())
 
-  routes.get("/", (context) =>
-    context.html(<Dashboard operatorEmail={context.get("operator").email} />),
-  )
+  routes.get("/styles.css", (context) => context.body(OPERATOR_STYLES, 200, {
+    "Content-Type": "text/css; charset=UTF-8",
+  }))
+  routes.get("/install-token-copy.js", (context) => context.body(
+    "document.getElementById('copy-install-token')?.addEventListener('click', async () => { const value = document.getElementById('install-token-value')?.textContent; if (value && navigator.clipboard) await navigator.clipboard.writeText(value) })",
+    200,
+    { "Content-Type": "text/javascript; charset=UTF-8" },
+  ))
+
+  routes.get("/", async (context) => context.html(
+    <Dashboard
+      operatorEmail={context.get("operator").email}
+      summary={await getDashboardSummary(context.env.CONTROL_DB)}
+      notice={requestNotice(context)}
+    />,
+  ))
   routes.get("/clients", async (context) => {
     const pagination = parsePagination(context.req.url)
     const clients = await listClients(
@@ -217,7 +326,13 @@ export function createOperatorRoutes() {
       pagination.offset,
     )
     return context.html(
-      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} />,
+      <ClientList
+        clients={clients}
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        operatorEmail={context.get("operator").email}
+        notice={requestNotice(context)}
+      />,
     )
   })
   routes.get("/clients/:clientId", async (context) => {
@@ -226,7 +341,7 @@ export function createOperatorRoutes() {
       context.req.param("clientId"),
       parseClientChildPagination(context.req.url),
     )
-    return context.html(<ClientPage client={client} />)
+    return context.html(<ClientPage client={client} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
@@ -234,7 +349,27 @@ export function createOperatorRoutes() {
       context.req.param("contractId"),
       parseNamedPagination(context.req.url, "invoices"),
     )
-    return context.html(<ContractPage contract={contract} />)
+    return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
+  })
+  routes.get("/deployments/:deploymentId", async (context) => {
+    const workspace = await getDeploymentWorkspace(
+      context.env.CONTROL_DB,
+      context.req.param("deploymentId"),
+      new Date(),
+    )
+    return context.html(<DeploymentPage workspace={workspace} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
+  })
+  routes.get("/deployments/:deploymentId/entitlements/review", async (context) => {
+    const workspace = await getDeploymentWorkspace(
+      context.env.CONTROL_DB,
+      context.req.param("deploymentId"),
+      new Date(),
+    )
+    return context.html(<EntitlementReviewPage
+      workspace={workspace}
+      operatorEmail={context.get("operator").email}
+      idempotencyKey={crypto.randomUUID()}
+    />)
   })
 
   routes.post(
@@ -311,7 +446,24 @@ export function createOperatorRoutes() {
           ? null
           : String(data.approvedImageDigest),
       }, actor(context))
-      return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+      return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/install-tokens",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const data = await mutationData(context)
+      const issued = await issueInstallToken(
+        context.env.CONTROL_DB,
+        context.req.param("deploymentId"),
+        context.env.INSTALL_TOKEN_PEPPER,
+        installTokenExpiry(data.expiresAt),
+        actor(context),
+        typeof data.idempotencyKey === "string" ? data.idempotencyKey : "",
+      )
+      return context.html(<InstallTokenResultPage deploymentId={context.req.param("deploymentId")} token={issued.token} expiresAt={issued.expiresAt} operatorEmail={context.get("operator").email} />)
     },
   )
   routes.post(
@@ -321,13 +473,28 @@ export function createOperatorRoutes() {
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
       const data = await mutationData(context)
+      const json = isJson(context)
+      const contractId = typeof data.contractId === "string" && data.contractId.length > 0
+        ? data.contractId
+        : undefined
+      if (!json && (data.confirmation !== "issue_entitlement" || contractId === undefined)) {
+        throw badRequest()
+      }
       const issued = await issueEntitlement(context.env, {
         deploymentId,
-        contractId: typeof data.contractId === "string" ? data.contractId : undefined,
+        contractId,
         issuanceKey: typeof data.idempotencyKey === "string" ? `manual:${data.idempotencyKey}` : `manual:${crypto.randomUUID()}`,
         actor: { ...actor(context), source: "operator" },
+        ...json ? {} : {
+          expectedContractRevision: positiveRevision(data.expectedContractRevision),
+          expectedScheduleRevision: positiveRevision(data.expectedScheduleRevision),
+        },
       })
-      return context.json({ id: issued.id, version: issued.version }, 201)
+      if (json) return context.json({ id: issued.id, version: issued.version }, 201)
+      return context.redirect(
+        `/operator/deployments/${deploymentId}?notice=entitlement_issued&version=${issued.version}`,
+        303,
+      )
     },
   )
   routes.post(

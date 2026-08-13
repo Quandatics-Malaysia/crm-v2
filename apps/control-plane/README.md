@@ -24,25 +24,24 @@ generated production config explicitly keeps the `*.workers.dev` endpoint enable
 - Configure non-secret `ENTITLEMENT_SIGNING_KEY_ID` in Wrangler per environment.
 - Store `ENTITLEMENT_SIGNING_PRIVATE_JWK` only with `wrangler secret put`; it must be an Ed25519 private JWK.
 - Keep every retired public verification key trusted by deployments for at least eight days after its final issuance (24-hour lease plus seven-day grace).
-- Rotate by installing the new private secret and active key ID, deploying, then retaining old public trust. The next cron promptly replaces every current envelope signed by the old key; historical envelopes remain byte-identical.
+- Rotate by installing the new private secret and active key ID, deploying, then retaining old public trust. Cron replaces current envelopes signed by any non-current key in batches of up to 50; remaining envelopes are handled by subsequent cron ticks. Historical envelopes remain byte-identical.
 
 ## New client and deployment
 
-1. In `/operator/clients`, create the vendor client.
-2. Add organisation metadata, an active dated contract, modules/seats, and a
-   deployment for the target environment.
-3. Assign the deployment entitlement schedule and issue its first signed lease.
-4. Issue a short-lived, one-time installation token through approved vendor
-   provisioning, place it only in the new host's protected `.env`, then deploy
-   the signed client bundle.
-5. Confirm agent registration, heartbeat, signed entitlement, application health,
-   and matching release identity. Delete the plaintext token after registration.
+1. In `/operator/clients`, create the vendor client, organisation metadata,
+   active dated contract, modules/seats, and target deployment.
+2. Open that deployment's workspace. For an active unregistered deployment,
+   use **Issue install token**, choose an expiry no more than 24 hours ahead,
+   and copy the value from its one-time result page.
+3. Put that value only in the new host's protected `.env` as
+   `INSTALLATION_TOKEN`, then deploy the signed client bundle. The agent
+   consumes it during registration; the token cannot be recovered or reused.
+4. After registration, save the entitlement configuration, review current
+   terms, explicitly issue the first immutable signed version, and confirm a
+   current healthy heartbeat, application health, and matching release identity.
 
-Current limitation: client, organisation, deployment, and contract forms exist,
-but install-token issuance is not exposed in the operator UI or public API. New
-production onboarding is therefore not self-service. Do not use direct D1 edits
-or reuse another deployment's identity/token; complete the vendor-only issuance
-surface before onboarding a new host.
+Use the deployment workspace for all onboarding and re-signing. Do not use
+direct D1 edits or copy a deployment identity or token between hosts.
 
 ## Deployment
 

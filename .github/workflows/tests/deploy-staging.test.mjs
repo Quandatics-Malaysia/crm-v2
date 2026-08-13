@@ -42,5 +42,8 @@ assert.match(
   /\$URL\/api\/auth\/sign-in\/email/,
   "workflow must prove the published credentials can authenticate",
 );
+assert.match(workflow, /get_env PLATFORM_MASTER_EMAIL/);
+assert.match(workflow, /get_env PLATFORM_MASTER_PASSWORD/);
+assert.doesNotMatch(workflow, /get_env DEMO_ADMIN_(?:EMAIL|PASSWORD)/);
 
 console.log("deploy-staging workflow login contract OK");

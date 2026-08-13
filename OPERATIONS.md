@@ -135,6 +135,58 @@ docs/operations/release-log.md
 If the file does not exist, no release has been logged yet in this repository
 snapshot.
 
+## Operator workspace: client onboarding and signing
+
+Use the protected control-plane UI at `/operator`; it is vendor-operated, not a
+customer or partner self-service surface. Keep the deployment workspace open and
+follow its **Deployment signing progress** and **Required action** cards. They
+are authoritative for the next safe action.
+
+1. In **Clients**, create the vendor client, add organisation metadata, then
+   create a current active contract with the agreed seats and modules. Add the
+   target deployment and open its deployment workspace.
+2. For an active deployment that is not registered, open **Install
+   registration**, select **Issue install token**, and choose a UTC expiry no
+   more than 24 hours ahead. Copy it from the one-time result page into only the
+   new host's protected `.env` as `INSTALLATION_TOKEN`; do not put it in tickets,
+   logs, shell history, or another host. Deploy the approved signed client
+   bundle. Registration consumes the token; it cannot be recovered or reused.
+3. After **Registered** is shown, save **Entitlement configuration** using a
+   current compatible contract, configuration version, channel, minimum app
+   version, and optional approved image digest. Select **Review entitlement
+   terms**, check the explicit confirmation, then issue the first immutable
+   signed version.
+4. Confirm **Heartbeat status** is **Online** and **Healthy**. A current healthy
+   heartbeat is no more than 30 minutes old; also check application health and
+   release identity on the host.
+
+### Signing, renewal, and change control
+
+- Each issued entitlement version is immutable. To re-sign after a contract,
+  seats/modules, configuration, channel, supported-version, or approved-digest
+  change, update the relevant UI record, return to the deployment workspace,
+  review current terms, explicitly issue a new version, then verify a current
+  healthy heartbeat.
+- Control-plane cron checks every 15 minutes and renews leases that are missing,
+  near expiry, materially changed, or signed by any non-current key. It does
+  not replace operator review after a commercial or release-control change.
+- For renewal attention, review contract dates/status first, then deployment
+  configuration and entitlement history. Use **Review entitlement terms** to
+  issue an immediate new version when required; never edit entitlement rows or
+  signing data directly.
+
+### Diagnose entitlement state
+
+| Workspace state | Meaning | Operator action |
+|---|---|---|
+| **Unsigned entitlement** | Registration or ready configuration/signing is incomplete. | Follow **Required action**: register, configure, then review and issue. |
+| **Stale connection** or **Never connected** | No current healthy heartbeat has acknowledged the deployment. | Check agent health on host, control-plane reachability, and deployment identity; restore heartbeat. |
+| **Grace period** | Last valid lease expired; CRM uses cached signed entitlement during its seven-day offline grace period. App health can still be green. | Treat as degraded: inspect contract, cron, agent, and heartbeat; issue/renew only after reviewing current terms. |
+| **Read-only licence** | Grace ended or current commercial controls no longer allow writes. | Restore valid contract/configuration and signed entitlement, then verify heartbeat. Do not bypass write protection. |
+
+The workspace never renders signing keys or signed envelopes. Do not work around
+that boundary with direct D1 or host-state changes.
+
 ### Deploy or recover production
 
 Prefer the protected workflow; it downloads and verifies the source-free bundle:
@@ -401,7 +453,7 @@ production approval**.
    cd ~/crm-v2-staging && git checkout staging
    cp .env.staging.example .env.staging
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
-   # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
+   # and strong, non-default passwords. Keep CADDY_HOST_PORT=8092 / DB_HOST_PORT=5434.
    ```
 3. The existing self-hosted runner serves this repository; no second runner is
    required. Protected staging credentials remain on that host and are never
@@ -425,7 +477,7 @@ docker compose -p crm-staging -f ~/crm-v2-staging/docker-compose.yaml \
 # next push to staging (or a manual `up -d --build`) reseeds it
 ```
 
-**Guardrail:** staging must always keep `CADDY_HOST_PORT=8091` / `DB_HOST_PORT=5434`
+**Guardrail:** staging must always keep `CADDY_HOST_PORT=8092` / `DB_HOST_PORT=5434`
 and project `crm-staging` — never prod's `8081`/`5433`/`crm-v2`, or the two stacks
 collide on the box.
 

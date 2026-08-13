@@ -66,6 +66,43 @@ Do not treat control-plane organisation metadata as a CRM tenant. For a new host
 follow the signed client bundle guide; do not copy an old deployment identity,
 agent state, storage identity, or install token.
 
+## Operator workspace: onboarding and signing
+
+The protected `/operator` workspace is for vendor operators, not customers or
+integration partners. Open a deployment workspace and use its **Deployment
+signing progress** and **Required action** cards as the workflow.
+
+1. In **Clients**, create the client, organisation metadata, active dated
+   contract (seats/modules), and target deployment.
+2. In **Install registration**, select **Issue install token** for an active,
+   unregistered deployment; choose a UTC expiry within 24 hours. Copy the value
+   from its one-time result page into only the new host's protected `.env` as
+   `INSTALLATION_TOKEN`, then deploy the approved signed bundle. Registration
+   consumes the token; it cannot be recovered or reused.
+3. After registration, save **Entitlement configuration** from a current
+   compatible contract. Review the terms, explicitly confirm, and issue the
+   first immutable signed version.
+4. Confirm **Heartbeat status** is **Online** and **Healthy**. A current healthy
+   heartbeat is no more than 30 minutes old.
+
+For a contract, seats/modules, release channel, supported-version,
+configuration, or approved-image change, update its UI record, review current
+terms, issue a new immutable version, then verify a current healthy heartbeat.
+Cron checks every 15 minutes and renews missing, near-expiry, materially changed,
+or non-current-key leases; operator review remains required for commercial and
+release-control changes.
+
+| State | Diagnose and recover |
+| --- | --- |
+| **Unsigned entitlement** | Complete registration/configuration, then review and issue. |
+| **Stale** or **Never connected** | Restore agent health and control-plane reachability; verify heartbeat. |
+| **Grace period** | Cached signed entitlement remains during seven-day offline grace. Treat as degraded even if app health is green; inspect contract, cron, agent, and heartbeat. |
+| **Read-only licence** | Grace ended or current commercial controls deny writes. Restore valid contract/configuration and signed entitlement; do not bypass write protection. |
+
+Signing keys and signed envelopes stay hidden by design. Do not use direct D1 or
+host-state changes to work around the workspace. Full recovery commands
+remain in [`OPERATIONS.md`](https://github.com/Super-ERP/crm-v2/blob/main/OPERATIONS.md#operator-workspace-client-onboarding-and-signing).
+
 ## Failure checks
 
 1. **Release failed:** inspect the first failed gate; issue a new tag after the
@@ -73,8 +110,9 @@ agent state, storage identity, or install token.
 2. **Deploy failed:** running production stays unchanged or rolls back. Check
    bundle signature, backup evidence, host tools, image pull, migration, web
    health, then agent entitlement health.
-3. **Offline grace:** verify active contract dates, control-plane cron, reachable
-   machine endpoint, and deployment-agent service. Do not bypass entitlement.
+3. **Offline grace:** use the deployment workspace to verify contract dates,
+   configuration/version history, heartbeat, control-plane cron, and deployment
+   agent. Do not bypass entitlement.
 4. **New tenant blocked:** only superadmin can create; deployment must allow
    writes and have enough entitled seats for initial active users.
 

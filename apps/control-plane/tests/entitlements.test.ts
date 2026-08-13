@@ -98,6 +98,14 @@ beforeAll(async () => {
 })
 
 describe("entitlement issuance", () => {
+  it("issues core CRM entitlement with no optional modules", async () => {
+    const fixture = await seed({ modules: [] })
+
+    const result = await issue(fixture)
+
+    expect(result.envelope.payload.moduleIds).toEqual([])
+  })
+
   it("issues an immutable signed 24-hour lease with seven-day grace and dependency closure", async () => {
     const fixture = await seed()
     const result = await issue(fixture)

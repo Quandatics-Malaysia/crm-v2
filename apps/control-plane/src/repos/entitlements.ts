@@ -361,7 +361,7 @@ async function validatedModules(database: D1Database, contractId: string): Promi
   const rows = await database.prepare(
     "SELECT cm.module_id, mc.active, mc.dependency_ids_json FROM contract_modules cm LEFT JOIN module_catalog mc ON mc.module_id = cm.module_id WHERE cm.contract_id = ? ORDER BY cm.module_id",
   ).bind(contractId).all<{ module_id: string; active: number | null; dependency_ids_json: string | null }>()
-  if (rows.results.length === 0) throw badRequest()
+  if (rows.results.length === 0) return []
   const selected = new Set<ModuleId>()
   const graph = new Map<ModuleId, ModuleId[]>()
   for (const row of rows.results) {

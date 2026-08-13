@@ -38,27 +38,28 @@ integration("deployment status PostgreSQL boundary", () => {
   })
 
   beforeEach(async () => {
-    await admin`delete from deployment_seat_reservations where invitation_id like ${`${prefix}%`}`
+    await admin`delete from deployment_seat_reservations where normalized_email like ${`${prefix}%`}`
     await admin`delete from "user" where id like ${`${prefix}%`}`
     await admin`delete from organization where id like ${`${prefix}%`}`
   })
 
   afterAll(async () => {
     if (admin && app) {
-      await admin`delete from deployment_seat_reservations where invitation_id like ${`${prefix}%`}`
+      await admin`delete from deployment_seat_reservations where normalized_email like ${`${prefix}%`}`
       await admin`delete from "user" where id like ${`${prefix}%`}`
       await admin`delete from organization where id like ${`${prefix}%`}`
       await Promise.all([admin.end(), app.end()])
     }
   })
 
-  it("counts distinct active users across organizations and distinct live reservation identities", async () => {
+  it("counts active cc and qar tenants while excluding archived demo memberships and invitations", async () => {
     const [before] = await app`select * from read_deployment_status_rollup()`
     await admin`
-      insert into organization (id, name, slug, created_at)
+      insert into organization (id, name, slug, created_at, status, archived_at)
       values
-        (${`${prefix}org-a`}, ${"Task 3 A"}, ${`${prefix}org-a`}, now()),
-        (${`${prefix}org-b`}, ${"Task 3 B"}, ${`${prefix}org-b`}, now())
+        (${`${prefix}cc`}, ${"CC"}, ${`${prefix}cc`}, now(), 'active', null),
+        (${`${prefix}qar`}, ${"QAR"}, ${`${prefix}qar`}, now(), 'active', null),
+        (${`${prefix}demo`}, ${"Demo"}, ${`${prefix}demo`}, now(), 'archived', now())
     `
     await admin`
       insert into "user" (id, name, email, email_verified, is_superadmin, is_vendor_support, created_at, updated_at)
@@ -66,37 +67,50 @@ integration("deployment status PostgreSQL boundary", () => {
         (${`${prefix}user-a`}, ${"A"}, ${`${prefix}a@example.com`}, true, false, false, now(), now()),
         (${`${prefix}user-b`}, ${"B"}, ${`${prefix}b@example.com`}, true, false, false, now(), now()),
         (${`${prefix}support`}, ${"Support"}, ${`${prefix}support@example.com`}, true, false, true, now(), now()),
-        (${`${prefix}disabled`}, ${"Disabled"}, ${`${prefix}disabled@example.com`}, true, false, false, now(), now())
+        (${`${prefix}disabled`}, ${"Disabled"}, ${`${prefix}disabled@example.com`}, true, false, false, now(), now()),
+        (${`${prefix}demo-user`}, ${"Demo"}, ${`${prefix}demo@example.com`}, true, false, false, now(), now())
     `
     await admin`
       insert into member (id, organization_id, user_id, role, created_at)
       values
-        (${`${prefix}member-a1`}, ${`${prefix}org-a`}, ${`${prefix}user-a`}, ${"member"}, now()),
-        (${`${prefix}member-a2`}, ${`${prefix}org-b`}, ${`${prefix}user-a`}, ${"member"}, now()),
-        (${`${prefix}member-b`}, ${`${prefix}org-a`}, ${`${prefix}user-b`}, ${"member"}, now()),
-        (${`${prefix}member-support`}, ${`${prefix}org-a`}, ${`${prefix}support`}, ${"member"}, now()),
-        (${`${prefix}member-disabled`}, ${`${prefix}org-a`}, ${`${prefix}disabled`}, ${"member"}, now())
+        (${`${prefix}member-a1`}, ${`${prefix}cc`}, ${`${prefix}user-a`}, ${"member"}, now()),
+        (${`${prefix}member-a2`}, ${`${prefix}qar`}, ${`${prefix}user-a`}, ${"member"}, now()),
+        (${`${prefix}member-b`}, ${`${prefix}cc`}, ${`${prefix}user-b`}, ${"member"}, now()),
+        (${`${prefix}member-support`}, ${`${prefix}cc`}, ${`${prefix}support`}, ${"member"}, now()),
+        (${`${prefix}member-disabled`}, ${`${prefix}cc`}, ${`${prefix}disabled`}, ${"member"}, now()),
+        (${`${prefix}member-demo`}, ${`${prefix}demo`}, ${`${prefix}demo-user`}, ${"member"}, now())
     `
     await admin`
       insert into membership_profiles (member_id, tenant_id, status, tier_level, created_at, updated_at)
       values
-        (${`${prefix}member-a1`}, ${`${prefix}org-a`}, 'active', 0, now(), now()),
-        (${`${prefix}member-a2`}, ${`${prefix}org-b`}, 'active', 0, now(), now()),
-        (${`${prefix}member-b`}, ${`${prefix}org-a`}, 'active', 0, now(), now()),
-        (${`${prefix}member-support`}, ${`${prefix}org-a`}, 'active', 0, now(), now()),
-        (${`${prefix}member-disabled`}, ${`${prefix}org-a`}, 'disabled', 0, now(), now())
+        (${`${prefix}member-a1`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
+        (${`${prefix}member-a2`}, ${`${prefix}qar`}, 'active', 0, now(), now()),
+        (${`${prefix}member-b`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
+        (${`${prefix}member-support`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
+        (${`${prefix}member-disabled`}, ${`${prefix}cc`}, 'disabled', 0, now(), now()),
+        (${`${prefix}member-demo`}, ${`${prefix}demo`}, 'active', 0, now(), now())
+    `
+    await admin`
+      insert into pending_invites (id, tenant_id, email, normalized_email, expires_at, tier_level, created_at, updated_at)
+      values
+        ('00000000-0000-4000-8000-000000000071', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '1 day', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '2 days', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000073', ${`${prefix}cc`}, ${`${prefix}a@example.com`}, ${`${prefix}a@example.com`}, now() + interval '2 days', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000074', ${`${prefix}qar`}, ${`${prefix}other@example.com`}, ${`${prefix}other@example.com`}, now() + interval '2 days', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000075', ${`${prefix}demo`}, ${`${prefix}demo-invite@example.com`}, ${`${prefix}demo-invite@example.com`}, now() + interval '2 days', 0, now(), now())
     `
     await admin`
       insert into deployment_seat_reservations (
         invitation_id, normalized_email, status, expires_at, released_at, expired_at
       )
       values
-        (${`${prefix}invite-dup-1`}, ${`${prefix}invite@example.com`}, 'reserved', now() + interval '1 day', null, null),
-        (${`${prefix}invite-dup-2`}, ${`${prefix}invite@example.com`}, 'reserved', now() + interval '2 days', null, null),
-        (${`${prefix}invite-active`}, ${`${prefix}a@example.com`}, 'reserved', now() + interval '2 days', null, null),
+        ('00000000-0000-4000-8000-000000000071', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '1 day', null, null),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '2 days', null, null),
+        ('00000000-0000-4000-8000-000000000073', ${`${prefix}a@example.com`}, 'reserved', now() + interval '2 days', null, null),
         (${`${prefix}invite-expired`}, ${`${prefix}expired@example.com`}, 'expired', now(), null, now()),
         (${`${prefix}invite-released`}, ${`${prefix}released@example.com`}, 'released', now() + interval '2 days', now(), null),
-        (${`${prefix}invite-other`}, ${`${prefix}other@example.com`}, 'reserved', now() + interval '2 days', null, null)
+        ('00000000-0000-4000-8000-000000000074', ${`${prefix}other@example.com`}, 'reserved', now() + interval '2 days', null, null),
+        ('00000000-0000-4000-8000-000000000075', ${`${prefix}demo-invite@example.com`}, 'reserved', now() + interval '2 days', null, null)
     `
 
     const [after] = await app`select * from read_deployment_status_rollup()`

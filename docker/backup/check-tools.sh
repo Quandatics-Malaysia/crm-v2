@@ -19,18 +19,18 @@ esac
 
 age_version=$(age --version)
 case "$age_version" in
-  *"1.3.1"*) ;;
+  *"1.2.1"*) ;;
   *)
-    echo "expected age 1.3.1, got: $age_version" >&2
+    echo "expected age 1.2.1, got: $age_version" >&2
     exit 1
     ;;
 esac
 
 rclone_version=$(rclone version | sed -n '1p')
 case "$rclone_version" in
-  *"v1.74.4"*) ;;
+  *"v1.75.0"*) ;;
   *)
-    echo "expected rclone 1.74.4, got: $rclone_version" >&2
+    echo "expected rclone 1.75.0, got: $rclone_version" >&2
     exit 1
     ;;
 esac
@@ -44,6 +44,7 @@ package_version() {
 }
 
 for package_pin in \
+  age=1.2.1-r15 \
   ca-certificates=20260611-r0 \
   libpq=18.4-r0 \
   libncursesw=6.5_p20251123-r0 \

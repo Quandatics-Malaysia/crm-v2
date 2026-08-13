@@ -41,7 +41,7 @@ finance      → projects, salesOrders
 
 ## Operator: enable/disable an existing module
 
-1. Edit [`modules.config.ts`](./modules.config.ts) — set the flag (and any
+1. Edit [`apps/web/modules.config.ts`](./apps/web/modules.config.ts) — set the flag (and any
    dependencies it needs; the app validates this at boot).
 2. **Rebuild + redeploy** (`pnpm run build` + restart, or `docker compose up -d
    --build`). There is no per-tenant flag and no CLI — the config file is the

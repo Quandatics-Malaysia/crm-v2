@@ -27,10 +27,10 @@ Quick reference first; details below.
 | **Enable/disable an optional module** | edit `modules.config.ts`, then rebuild + redeploy |
 | Run tests | `pnpm test` |
 | Typecheck / lint / build | `npx tsc --noEmit` · `pnpm run lint` · `pnpm run build` |
-| Full stack via Docker | `docker compose up -d --build` (migrate runs automatically) |
+| Source-based local/staging stack | `docker compose up -d --build` (never use for production) |
 | Anything inside the container | `docker compose exec web pnpm run <script>` |
 
-**Golden rule:** after every `git pull` that touches `db/migrations/`, run
+**Golden rule:** after every `git pull` that touches `apps/web/db/migrations/`, run
 `pnpm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
@@ -66,12 +66,13 @@ records with release evidence. BuildKit provenance and keyless signatures stay
 attached to the immutable GHCR digest. If any image must be rebuilt, issue a
 new release tag; do not move or reuse an existing release tag.
 
-## Resume the paused Internal-Ops deployment
+## Internal-Ops production deployment
 
-The `crm-v2` and `crm-staging` Compose projects were deliberately stopped on
-2026-08-01. Their containers, images, source checkouts, sample databases,
-uploads, and backups were retained. Do not run `docker compose down -v`, remove
-the checkouts, or prune CRM images if the deployment must remain recoverable.
+Production is the source-free stack under `/home/internalops/quandatics-client`.
+It is deployed only from a signed release through `deploy-production`. The root
+`docker-compose.yaml` is for local development, staging, and recovery rehearsal;
+it is not the production deployment contract. Do not run `docker compose down -v`
+or prune CRM volumes/images during recovery.
 
 Confirm workflow state with `gh workflow list --all`. The self-hosted runner
 must be online before production or staging deployment jobs can start.
@@ -134,45 +135,28 @@ docs/operations/release-log.md
 If the file does not exist, no release has been logged yet in this repository
 snapshot.
 
-### Start production manually
+### Deploy or recover production
 
-1. Connect to the server and enter the retained production checkout:
+Prefer the protected workflow; it downloads and verifies the source-free bundle:
 
-   ```bash
-   ssh internalops@<server>
-   cd ~/crm-v2
-   ```
+```bash
+gh workflow run deploy.yml --repo Super-ERP/crm-v2 -f release_tag=v1.2.25
+gh run list --repo Super-ERP/crm-v2 --workflow deploy.yml --limit 1
+```
 
-2. Confirm the secret file still exists without printing its contents:
+For an audited manual retry, connect as `internalops`, verify that
+`~/quandatics-client/.env` exists with owner-only permissions, then use the
+already-verified manifest and scripts from the bundle:
 
-   ```bash
-   test -s .env && stat -c '%A %U:%G %n' .env
-   ```
+```bash
+cd ~/quandatics-client
+test -s .env && stat -c '%A %U:%G %n' .env
+./apply-release-manifest.sh .env release-manifest.json v1.2.25
+./deploy.sh .env
+```
 
-   It should be owned by `internalops` and readable only by that account. Stop
-   here if `.env` is absent. Recreate it with fresh values from the production
-   variables listed in `README.md`; never copy staging secrets into production.
-
-   Confirm it contains the vendor-issued `DEPLOYMENT_ID`, canonical
-   `AGENT_WEB_SECRET`, `VENDOR_ENTITLEMENT_TRUST_SET`, and immutable
-   `APPLICATION_VERSION` / `MIGRATION_VERSION` for the exact image. Compose
-   refuses to render without them, and production web startup validates the
-   identity, secret, and version formats before serving traffic.
-
-3. Start the existing stack. Compose reuses the retained database and upload
-   volumes, runs pending migrations, then starts the web, proxy, and backup
-   services:
-
-   ```bash
-   docker compose -p crm-v2 -f docker-compose.yaml up -d db migrate web caddy backup
-   ```
-
-4. Verify every service and the local health endpoint:
-
-   ```bash
-   docker compose -p crm-v2 -f docker-compose.yaml ps
-   curl -fsS http://127.0.0.1:8081/api/health
-   ```
+Replace the example tag with the intended immutable release. Do not build or
+start the root source Compose stack as a production substitute.
 
 ### Production demo tenant
 
@@ -207,74 +191,20 @@ subscriptions. An active developer consumes one licensed seat like any other
 active member; set the membership to `disabled` when access ends to release the
 seat without deleting audit/history records.
 
-### Start the Hyphen sample demo manually
-
-The staging demo uses a Cloudflare quick tunnel. Its hostname changes every
-time the tunnel is recreated, so both the application origin and the Hyphen
-demo proxy must be updated before the public URL works again.
-
-1. Start the retained staging stack:
-
-   ```bash
-   cd ~/crm-v2-staging
-   test -s .env.staging
-   docker compose \
-     -p crm-staging \
-     -f docker-compose.yaml \
-     -f docker-compose.staging-tunnel.yaml \
-     --env-file .env.staging \
-     up -d db migrate web caddy tunnel
-   ```
-
-2. Read the newly assigned tunnel URL:
-
-   ```bash
-   docker logs crm-staging-tunnel-1 2>&1 \
-     | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' \
-     | tail -1
-   ```
-
-3. Put that exact URL into `BETTER_AUTH_URL` and `APP_URL` in
-   `~/crm-v2-staging/.env.staging`, then recreate only the web service:
-
-   ```bash
-   docker compose \
-     -p crm-staging \
-     -f docker-compose.yaml \
-     -f docker-compose.staging-tunnel.yaml \
-     --env-file .env.staging \
-     up -d --force-recreate --no-deps web
-   ```
-
-4. From the Hyphen company-site repository, replace the `UPSTREAM` value in
-   `workers/demo-proxy/src/index.ts` with the new tunnel URL and deploy the
-   proxy:
-
-   ```bash
-   pnpm run deploy:demo-proxy
-   ```
-
-5. Verify the tunnel directly and the stable public hostname:
-
-   ```bash
-   curl -fsS https://<new-tunnel>.trycloudflare.com/api/health
-   curl -fsS https://demo.hyphen-solution.com/api/health
-   ```
-
 ### Restore automatic deployments only when wanted
 
 Run these from an authenticated workstation. Enable only the workflows that
 should be allowed to execute on the Internal-Ops runner:
 
 ```bash
-gh workflow enable deploy --repo Super-ERP/crm-v2
-gh workflow enable deploy-staging --repo Super-ERP/crm-v2
+gh workflow enable deploy.yml --repo Super-ERP/crm-v2
+gh workflow enable deploy-staging.yml --repo Super-ERP/crm-v2
 ```
 
 Confirm the final state with `gh workflow list --all`. Leaving these workflows
 disabled does not prevent the manual startup commands above.
 
-### Pause both stacks again without deleting data
+### Pause staging without deleting data
 
 ```bash
 docker compose -p crm-staging \
@@ -282,13 +212,10 @@ docker compose -p crm-staging \
   -f ~/crm-v2-staging/docker-compose.staging-tunnel.yaml \
   --env-file ~/crm-v2-staging/.env.staging stop
 
-docker compose -p crm-v2 \
-  -f ~/crm-v2/docker-compose.yaml stop
 ```
 
 `stop` is intentional. It keeps the containers and named volumes available for
-the next startup. Verify the pause with `docker compose ls` and expect
-`https://demo.hyphen-solution.com` to be unavailable while the tunnel is down.
+the next startup. Production is managed separately by the signed client bundle.
 
 ## Optional modules (plugins)
 
@@ -455,11 +382,11 @@ browsing. Close the SSH shell to drop the tunnel when you're done.
 
 ## Staging environment
 
-A persistent preview environment at **`staging.quandatics.com`** — a second Docker
-stack on the **same box** as prod, fully namespaced (Compose project
-`crm-staging`, host ports **8091/5434**, its own volumes via the project prefix),
-deployed from the **`staging` branch**. It runs the same `docker-compose.yaml`;
-only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` (prod)**.
+A source-built preview stack on the same host, fully namespaced as
+`crm-staging`, deploys from the `staging` branch. Each deployment creates a new
+Cloudflare quick-tunnel URL and writes it to the workflow summary. It is not a
+stable hostname. Flow: **feature → `staging` preview → `main` → signed release →
+production approval**.
 
 **One-time setup (do once):**
 
@@ -476,13 +403,9 @@ only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` 
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
    # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
    ```
-3. **Cloudflare tunnel route** — Zero Trust → your existing tunnel → **Public
-   Hostname** → add `staging.quandatics.com` → `http://localhost:8091`.
-4. **Cloudflare Access (gate it to the team)** — Zero Trust → **Access →
-   Applications** → add an application protecting `staging.quandatics.com` with a
-   policy allowing your team's emails. Staging seeds well-known demo credentials,
-   so this keeps the public out.
-5. The existing self-hosted runner already serves this repo — no new runner needed.
+3. The existing self-hosted runner serves this repository; no second runner is
+   required. Protected staging credentials remain on that host and are never
+   printed in logs or summaries.
 
 **Deploy:** push or merge into `staging`:
 ```bash
@@ -492,8 +415,8 @@ git push origin <feature-branch>:staging     # or merge a PR into staging
 a stable generated deployment UUID/shared secret, pins versions from the
 checked-out package and migration journal, injects the protected public trust
 set, then rebuilds the `crm-staging` stack.
-Review at `https://staging.quandatics.com`, then merge to `main` for prod. The
-staging deploy has its own concurrency group, so it never cancels a prod deploy.
+Open the quick-tunnel URL from the latest workflow summary, then merge to `main`
+only after acceptance. The staging concurrency group never cancels production.
 
 **Reset staging data** (wipe + reseed):
 ```bash
@@ -506,11 +429,34 @@ docker compose -p crm-staging -f ~/crm-v2-staging/docker-compose.yaml \
 and project `crm-staging` — never prod's `8081`/`5433`/`crm-v2`, or the two stacks
 collide on the box.
 
+## Offline grace recovery
+
+`offline grace` means the web runtime is using its last valid signed entitlement
+because the deployment agent has not applied a fresh lease. Application health
+can remain green during grace, but this is degraded state.
+
+1. Confirm the contract is active and its end date is later than the requested
+   lease window.
+2. Confirm the control plane is deployed and its cron completed successfully.
+3. Confirm production uses `deploy/client/compose.yaml`; the root source Compose
+   stack does not run the deployment agent.
+4. On the production host, inspect agent health without printing its state or
+   credentials:
+
+   ```bash
+   cd ~/quandatics-client
+   docker compose --profile deploy exec -T agent /usr/local/bin/agent-health
+   ```
+
+5. Redeploy the latest verified signed release if the agent service is absent.
+   Do not bypass signature, entitlement, or contract checks.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `column "…" does not exist` on startup | Pending migrations | `pnpm run db:migrate` |
+| `offline grace` banner | Agent has not applied a fresh signed lease | Follow **Offline grace recovery** above; verify contract, control-plane cron, and agent |
 | Dev terminal spams `GET /dashboard` + `ChunkLoadError` | A browser tab (any device on your LAN) left open across a dev-server restart; its stale HMR client reload-loops | Close or hard-refresh (Cmd+Shift+R) every tab pointing at the dev server |
 | `pnpm install --frozen-lockfile` fails in Docker: "lockfile is not up to date" | `pnpm-lock.yaml` wasn't committed after a dependency change | Run `pnpm install` locally, commit the updated `pnpm-lock.yaml`, rebuild |
 | Finance pages 404/redirect though flag is on | Master switch off, or user lacks `finance.view` | Check `lib/modules.ts` and the user's role |

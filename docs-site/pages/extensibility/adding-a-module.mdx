@@ -161,7 +161,7 @@ These are enforced by review, not (all) by tooling — breaking one is a
 blocking comment, not a nit.
 
 **1. One migration chain. Never your own.**
-All migrations live in `db/migrations/` and apply in one linear order, in
+All migrations live in `apps/web/db/migrations/` and apply in one linear order, in
 full, on every deployment. Modules do not get their own chains. Cross-module
 foreign keys already exist (`finance` → `projects` + `salesOrders`), so
 independent chains applied in different orders would break outright.

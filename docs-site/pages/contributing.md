@@ -53,7 +53,7 @@ These are invariants. Breaking one is a blocking review comment, not a nit.
 Each has a reason and a way to check.
 
 **1 — One migration chain. Never your own.**
-All migrations live in `db/migrations/` and apply in one order, in full, on
+All migrations live in `apps/web/db/migrations/` and apply in one order, in full, on
 every deployment. Modules do **not** get their own chains. Cross-module foreign
 keys already exist (`finance` → `projects` + `salesOrders`), so independent
 chains applied in different orders would break outright.
@@ -129,7 +129,7 @@ Plus: if you touched a gated module, build once with its flag `false` (rule 3).
 - [ ] `server/services/*` still free of `next/*` (rule 5)
 - [ ] Sample seed rows wrapped in `isModuleEnabled(...)` if I added any
 
-Every PR needs a review. Changes to `lib/`, `db/migrations/`, `modules.config.ts`,
+Every PR needs a review. Changes to `apps/web/lib/`, `apps/web/db/migrations/`, `apps/web/modules.config.ts`,
 Docker, or CI need a **core maintainer**. Migrations and RLS need **two** — they
 are the highest-blast-radius change in the repo.
 
@@ -146,8 +146,8 @@ why we stay in one repo.
 | Area | Owner | You need… |
 |---|---|---|
 | `app/(app)/<module>/` | that module's owner | module owner + core approval |
-| `lib/`, `db/`, `modules.config.ts` | core maintainers | core approval |
-| `db/migrations/`, RLS | core maintainers | **two** core approvals |
+| `apps/web/lib/`, `apps/web/db/`, `apps/web/modules.config.ts` | core maintainers | core approval |
+| `apps/web/db/migrations/`, RLS | core maintainers | **two** core approvals |
 | `ops/`, compose, Dockerfile | ops + core | core approval |
 | `.github/` | core maintainers | core approval |
 
@@ -163,12 +163,12 @@ branch → `staging` → `main` → signed release → production approval**.
 
 What's in place:
 
-- The repo lives in the **`Quandatics-Malaysia`** GitHub org, with `core` and
+- The public repo lives in the **`Super-ERP`** GitHub org, with `core` and
   `ops` teams and `CODEOWNERS` routing reviews to them.
 - **CI runs on every PR** (`quality`: lint · typecheck · test · build) and the
   PR template lists the checklist above.
 
-Repository rules must require green CI and a `@Quandatics-Malaysia/core` review
+Repository rules must require green CI and a `@Super-ERP/core` review
 before merge. Verify the active ruleset in GitHub after changing workflow names.
 
 Not built yet:
@@ -179,15 +179,16 @@ Not built yet:
 
 ## 9. External developer workflow
 
-External integration developers do **not** need CRM source or production-runtime
-access. Repository visibility is separate from production access and support scope.
+External integration developers may read the public source, but never receive
+production-runtime access through repository access. Production access and support
+scope remain separate.
 Use one of these lanes:
 
 ### Lane A — Source contributor
 
-For a developer approved to change CRM code:
+For a developer changing CRM code:
 
-- Add them to the appropriate GitHub team with least-privilege permissions.
+- Fork the public repository, or use a branch when team write access is required.
 - Branch from latest `main` using `feat/<short-feature>`.
 - Never commit secrets (`.env`, cloud keys, certificates, DB passwords).
 - Before PR, run `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and
@@ -195,9 +196,9 @@ For a developer approved to change CRM code:
 - Open a PR, validate in protected staging when needed, and wait for core review.
 - Never use `app.quandatics.com` as a development environment.
 
-### Lane B — No-source integration developer
+### Lane B — API-only integration developer
 
-For a partner who must not see source:
+For a partner integrating only through supported contracts:
 
 - Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers).
 - Receive a tenant-scoped API key from **Settings → API Keys**.
@@ -211,7 +212,7 @@ quotations, or change users. Do not automate the UI to bypass this boundary.
 ### Lane C — Future plugin partner
 
 External plugin packaging is not implemented yet. The `modules/` workspace is
-reserved for a future SDK boundary. Until then, use the API lane or become an
-approved private source contributor.
+reserved for a future SDK boundary. Until then, use the API lane or submit a
+normal source contribution.
 
-All production merges remain routed through `@Quandatics-Malaysia/core`.
+All production merges remain routed through `@Super-ERP/core`.

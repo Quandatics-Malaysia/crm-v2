@@ -43,7 +43,7 @@ finance      → projects, salesOrders
 
 ## Operator: enable/disable an existing module
 
-1. Edit [`modules.config.ts`](https://github.com/Super-ERP/crm-v2/blob/main/modules.config.ts) — set the flag (and any
+1. Edit [`apps/web/modules.config.ts`](https://github.com/Super-ERP/crm-v2/blob/main/apps/web/modules.config.ts) — set the flag (and any
    dependencies it needs; the app validates this at boot).
 2. **Rebuild + redeploy** (`pnpm run build` + restart, or `docker compose up -d
    --build`). There is no per-tenant flag and no CLI — the config file is the

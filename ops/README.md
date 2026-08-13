@@ -1,51 +1,27 @@
-# Ops
+# Operations scripts
 
-Local-server deployment. No cloud services; everything builds and runs on the box.
+This directory supports source-based local development and staging. It is not
+the production deployment contract.
 
-## Deploys
+## Production
 
-Push to `main` → `.github/workflows/deploy.yml`:
+Production uses the pull-only, source-free bundle in `deploy/client/`:
 
-1. `quality` (GitHub-hosted): `npm ci`, lint, typecheck, test, build.
-2. `deploy` (self-hosted runner on the server): `git pull` in the server checkout
-   (default `/opt/crm-v2`, override with `CRM_DIR` in the runner env), then
-   `docker compose up -d --build migrate web` — the `migrate` one-shot applies
-   migrations before `web` restarts.
+1. Create a signed SemVer release with `scripts/release-one-command.sh`.
+2. Run the manual `deploy-production` workflow with that exact tag.
+3. The self-hosted runner verifies the bundle and Cosign identities, applies
+   immutable image digests, migrates once, starts the deployment agent, and
+   verifies application and entitlement health.
 
-One-time runner install: repo → Settings → Actions → Runners → New self-hosted
-runner, then run it as a service. Docs:
-<https://docs.github.com/en/actions/hosting-your-own-runners>
-Add the runner user to the `docker` group.
+See [`deploy/client/README.md`](../deploy/client/README.md) for the deployment
+contract and [`OPERATIONS.md`](../OPERATIONS.md) for release and recovery steps.
+Do not deploy production with the root `docker-compose.yaml`.
 
-## Backups
+## Source stacks
 
-The `backup` service runs `scheduler.sh`:
+The root Compose files and scripts here remain useful for local development,
+staging, backup testing, and recovery rehearsals. They build from source and do
+not replace the signed production bundle.
 
-- Daily 00:00 UTC — `backup.sh`: per-table CSVs, `pg_dump -Fc` → `crm.dump`,
-  `appfiles.tar.gz`, all in the `backups` volume under `/backups/full-data`.
-- Weekly Sun 23:00 UTC — dated snapshot + restore verification.
-
-### Off-box mirror
-
-Set `BACKUP_RSYNC_TARGET` in `.env` (e.g. `user@nas:/backups/crm`). After each
-run, `/backups` is mirrored there with `rsync -az --delete`. Unset → skipped.
-Setup:
-
-1. Put an SSH key (600 perms) + `known_hosts` for the target in `./ops/ssh/`.
-2. Uncomment the `./ops/ssh:/root/.ssh:ro` mount on the `backup` service.
-3. `docker compose up -d backup`.
-
-## Restore
-
-```sh
-docker compose exec backup /ops/restore.sh /backups/full-data/crm.dump --yes
-```
-
-Clean-restores the DB with `pg_restore --clean` and unpacks
-`appfiles.tar.gz` into the uploads volume. Stop `web` first; afterwards
-`docker compose run --rm migrate` if the `crm_app` password needs re-syncing.
-
-## Monitoring
-
-Point uptime monitoring at `https://<domain>/api/health` (same endpoint the
-compose healthcheck uses).
+Never run volume deletion, restore, or pruning commands until the exact Compose
+project and backup have been verified.

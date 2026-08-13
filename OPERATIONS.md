@@ -77,6 +77,66 @@ The GitHub Actions workflows `deploy`, `deploy-staging`, and `pr-preview` were
 also disabled. The repository runner is still installed, but it cannot restart
 these stacks while the deployment workflows remain disabled.
 
+### Self-hosted runner stuck or offline (deploy/pr-preview queued)
+
+When CI shows:
+- `deploy` / `deploy-staging` / `pr-preview` queued for long,
+- and GH runners API shows `Internal-Ops-DB` as `offline` or `busy=false`,
+
+run this from the jumpbox:
+
+1. Connect and check runner process:
+
+   ```bash
+   ssh internalops@<server> "ps -ef | grep -E 'Runner.Listener|actions/runner' | grep -v grep"
+   ```
+
+   Expected: no stale `run.sh`/`Runner.Listener` process if the runner is down.
+
+2. Start or restart the runner in `/home/internalops/actions-runner`:
+
+   ```bash
+   ssh internalops@<server> "cd ~/actions-runner && nohup ./run.sh > /tmp/github-runner.log 2>&1 < /dev/null &"
+   ```
+
+   Notes:
+   - `svc.sh` should manage startup when `sudo` is available on the host.
+   - Some hosts register this directory as a systemd service; if available, use:
+     `ssh internalops@<server> 'cd ~/actions-runner && sudo ./svc.sh start'`
+     (only when it works in your environment).
+
+3. Confirm listener is active and healthy:
+
+   ```bash
+   ssh internalops@<server> "tail -n 40 /tmp/github-runner.log"
+   ```
+
+   Look for:
+   - `Current runner version: ...`
+   - `Listening for Jobs`
+
+4. Confirm GitHub now sees the runner and retry or re-run:
+
+   ```bash
+   gh api repos/Quandatics-Malaysia/crm-v2/actions/runners --jq '.runners[] | {name,status,busy}'
+   gh run rerun <deploy-run-id>
+   ```
+
+   If a PR preview is stuck, rerun that preview workflow from the Actions UI or by
+   running it from the PR checks page.
+
+### Release log location
+
+The signed release history is written to:
+
+```text
+docs/operations/release-log.md
+```
+
+`scripts/release-one-command.sh` appends to this file when a release completes.
+If the file does not exist, no release has been logged yet in this repository
+snapshot.
+
 ### Start production manually
 
 1. Connect to the server and enter the retained production checkout:

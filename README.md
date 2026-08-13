@@ -17,6 +17,7 @@ architecture directory.
 | [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
 | [Contributing](./CONTRIBUTING.md) | Local setup and review rules |
 | [Operations](./OPERATIONS.md) | Private operator runbook |
+| [Release log](./docs/operations/release-log.md) | Signed immutable release record |
 
 ## Module map
 
@@ -102,6 +103,8 @@ How to use it:
 Notes:
 - Preview stacks are for validation only; Microsoft SSO is unavailable on the tunnel URL.
 - If a preview fails, a fresh push to the same PR re-runs the stack.
+- If `deploy`, `deploy-staging`, or `pr-preview` stays queued for long periods, see
+  `OPERATIONS.md` for the “Self-hosted runner stuck or offline” recovery steps.
 
 ## Signed client release images
 
@@ -120,6 +123,12 @@ time. Client deployment values (`WEB_IMAGE`, `MIGRATOR_IMAGE`, and
 `ghcr.io/...@sha256:...` form. Tags are discovery labels, never deployment
 coordinates. The source-free bundle under `deploy/client/` verifies the exact
 workflow identity before pulling any image.
+
+For audits, the authoritative release-history file is maintained in:
+
+```text
+docs/operations/release-log.md
+```
 
 ## Production (Docker, internet-exposed)
 ```bash

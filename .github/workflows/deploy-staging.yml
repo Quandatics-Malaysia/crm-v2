@@ -114,8 +114,8 @@ jobs:
           get_env() {
             sed -n "s/^$1=//p" "$DIR/.env.staging" | tail -1
           }
-          ADMIN_EMAIL="$(get_env DEMO_ADMIN_EMAIL)"
-          ADMIN_PW="$(get_env DEMO_ADMIN_PASSWORD)"
+          ADMIN_EMAIL="$(get_env PLATFORM_MASTER_EMAIL)"
+          ADMIN_PW="$(get_env PLATFORM_MASTER_PASSWORD)"
           HTTP_CODE=$(curl -sS --max-time 12 \
             -o /tmp/crm-staging-auth-response.json \
             -w "%{http_code}" \

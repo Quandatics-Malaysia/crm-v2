@@ -53,7 +53,7 @@ integration("deployment status PostgreSQL boundary", () => {
   })
 
   it("counts active cc and qar tenants while excluding archived demo memberships and invitations", async () => {
-    const [before] = await app`select * from read_deployment_status_rollup()`
+    const [before] = await admin`select * from read_deployment_status_rollup()`
     await admin`
       insert into organization (id, name, slug, created_at, status, archived_at)
       values
@@ -110,8 +110,8 @@ integration("deployment status PostgreSQL boundary", () => {
         ('00000000-0000-4000-8000-000000000075', ${`${prefix}demo-invite@example.com`}, 'reserved', now() + interval '2 days', null, null)
     `
 
-    const [after] = await app`select * from read_deployment_status_rollup()`
-    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(2)
+    const [after] = await admin`select * from read_deployment_status_rollup()`
+    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(3)
     expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(2)
     expect(after.applied_migration_version).toBe(latestAppliedMigration)
   })

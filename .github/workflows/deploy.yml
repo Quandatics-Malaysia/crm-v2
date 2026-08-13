@@ -133,10 +133,32 @@ jobs:
             exit 1
           else
             echo "Using env file: $ENV_FILE"
+            echo "Required env keys present:"
+            for key in POSTGRES_PASSWORD CRM_APP_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD DEPLOYMENT_ID AGENT_WEB_SECRET VENDOR_ENTITLEMENT_TRUST_SET APPLICATION_VERSION MIGRATION_VERSION; do
+              value="$(sed -n "s/^${key}=//p" "$ENV_FILE" | tail -1 | tr -d '\r')"
+              if [ -z "$value" ]; then
+                echo "  - ${key}: missing"
+              else
+                echo "  - ${key}: ${#value} chars"
+              fi
+            done
           fi
 
           echo "CRM_DIR=$CRM_DIR" >> "$GITHUB_ENV"
           echo "DEPLOY_ENV_FILE=$ENV_FILE" >> "$GITHUB_ENV"
       # migrate runs as a one-shot before web starts (web depends_on it).
       - name: Rebuild and restart
-        run: docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web
+        run: |
+          set +e
+          docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web
+          up_exit=$?
+          if [ "$up_exit" -ne 0 ]; then
+            docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" logs --tail=300 migrate || true
+            exit "$up_exit"
+          fi
+          docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" wait migrate
+          migrate_exit=$?
+          if [ "$migrate_exit" -ne 0 ]; then
+            docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" logs --tail=300 migrate || true
+            exit "$migrate_exit"
+          fi

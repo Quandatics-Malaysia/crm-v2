@@ -1,0 +1,53 @@
+---
+title: Collaboration model
+---
+
+# Collaboration model
+
+External developers collaborate through an integration contract. Source-code
+changes use the separate contributor workflow.
+
+## What partner sends
+
+Provide these items in each support or acceptance request:
+
+- Company, technical contact, and intended tenant.
+- Business purpose and records required.
+- Endpoints and permissions requested.
+- Expected request volume and schedule.
+- Sample payloads with personal data removed.
+- Reproduction steps, timestamps, request IDs, and response status.
+- Test evidence from sandbox/staging.
+
+Never send passwords, raw API keys, certificates, database dumps, or production
+logs containing personal data.
+
+## What Quandatics provides
+
+- API contract and examples.
+- Sandbox/staging tenant and test records.
+- Least-privilege API key.
+- Integration acceptance checklist.
+- Review decision and production-readiness feedback.
+
+## Source-code changes
+
+If requested work changes CRM internals, the partner must either:
+
+1. submit a product request with reproduction and acceptance criteria; or
+2. receive explicit contributor approval and follow the source
+   contributor workflow.
+
+An API key never grants source access. A staging login never grants SSH,
+database, Docker, or repository access.
+
+## Acceptance checklist
+
+- [ ] Scope limited to named tenant and resources.
+- [ ] Key uses required permissions only.
+- [ ] No secrets committed or exposed client-side.
+- [ ] Pagination and `401`/`403`/`404` handling tested.
+- [ ] Retry behavior does not duplicate work.
+- [ ] Personal data is minimized and protected.
+- [ ] Sandbox evidence supplied.
+- [ ] Production rollout approved separately.

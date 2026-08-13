@@ -219,8 +219,8 @@ test("provisioned preview environment renders the real production Compose stack"
   const directory = mkdtempSync(join(tmpdir(), "crm-runtime-compose-"))
   const envFile = join(directory, ".env.preview")
   writeFileSync(envFile, [
-    "POSTGRES_PASSWORD=compose-test-postgres",
-    "CRM_APP_PASSWORD=compose-test-app",
+    "POSTGRES_PASSWORD=compose:test@postgres/?#[]",
+    "CRM_APP_PASSWORD=compose:test@app/?#[]",
     "BETTER_AUTH_SECRET=compose-test-auth-secret-with-at-least-32-bytes",
     "PLATFORM_MASTER_EMAIL=owner@example.invalid",
     "PLATFORM_MASTER_PASSWORD=compose-test-owner-password",

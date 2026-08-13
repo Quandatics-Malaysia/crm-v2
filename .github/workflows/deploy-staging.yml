@@ -17,24 +17,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Build shared control protocol
-        run: pnpm --filter @crm/control-protocol run build
-      - run: pnpm run lint
-      - run: pnpm run typecheck
-      - run: pnpm test -- --maxWorkers=1
-      - run: pnpm run test:workflows
-      - run: pnpm run build
+    uses: ./.github/workflows/quality.yml
 
   deploy-staging:
     needs: quality
@@ -46,19 +29,15 @@ jobs:
       # Staging is reachable at 127.0.0.1:8091 through its quick tunnel.
       - name: Bootstrap or upgrade staging checkout + env
         env:
-          GH_TOKEN: ${{ github.token }}
           VENDOR_ENTITLEMENT_TRUST_SET: ${{ secrets.STAGING_VENDOR_ENTITLEMENT_TRUST_SET }}
         run: |
           set -euo pipefail
           DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
-          # Authenticate git over HTTPS with the ephemeral workflow token (the
-          # self-hosted runner has no stored credentials for the private repo).
-          AUTH="https://x-access-token:${GH_TOKEN}@github.com/Quandatics-Malaysia/crm-v2.git"
+          REPOSITORY_URL="https://github.com/Quandatics-Malaysia/crm-v2.git"
           if [ ! -d "$DIR/.git" ]; then
-            git clone "$AUTH" "$DIR"
-            git -C "$DIR" remote set-url origin "https://github.com/Quandatics-Malaysia/crm-v2.git"
+            git clone "$REPOSITORY_URL" "$DIR"
           fi
-          git -C "$DIR" fetch "$AUTH" staging
+          git -C "$DIR" fetch origin staging
           git -C "$DIR" checkout -B staging FETCH_HEAD
           if [ ! -f "$DIR/.env.staging" ]; then
             cd "$DIR"
@@ -154,24 +133,15 @@ jobs:
           get_env() {
             sed -n "s/^$1=//p" "$DIR/.env.staging" | tail -1
           }
-          ADMIN_EMAIL="$(get_env DEMO_ADMIN_EMAIL)"
-          ADMIN_PW="$(get_env DEMO_ADMIN_PASSWORD)"
-          SAMPLE_PW="$(get_env SEED_SAMPLE_PASSWORD)"
           if [ -n "$URL" ]; then
             {
               echo "## Staging"
               echo ""
               echo "**Open:** $URL"
               echo ""
-              echo "### Login"
-              echo ""
               echo "Use **email and password**. Microsoft SSO is intentionally unavailable because the quick-tunnel hostname changes on each redeploy and cannot be pre-registered as an Entra callback URL."
               echo ""
-              echo "- Click **Use email and password** on the sign-in screen."
-              echo "- Demo admin: \`${ADMIN_EMAIL}\` / \`${ADMIN_PW}\`"
-              echo "- Sample users: \`manager@demo.local\`, \`sales1@demo.local\`, \`sales2@demo.local\`, or \`viewer@demo.local\` / \`${SAMPLE_PW}\`"
-              echo ""
-              echo "> This is a private-repository staging credential. The URL and credentials are for testing only."
+              echo "Credentials are stored in the protected staging environment; they are never printed in workflow logs or summaries."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "STAGING_PUBLIC_URL=$URL"
           fi

@@ -163,21 +163,6 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
-  # DB admin UI (pgweb) — LOCALHOST-ONLY, never routed through Caddy. Reach it
-  # via SSH tunnel. Off by default; start with:  docker compose --profile admin up -d
-  admin:
-    image: sosedoff/pgweb:latest
-    profiles: ["admin"]
-    environment:
-      PGWEB_DATABASE_URL: ${PGWEB_DATABASE_URL:?PGWEB_DATABASE_URL must be derived before running Compose}
-    ports:
-      - "127.0.0.1:8082:8081"
-    depends_on:
-      db:
-        condition: service_healthy
-    logging: *default-logging
-    restart: unless-stopped
-
 volumes:
   pgdata:
   appfiles:

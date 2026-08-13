@@ -95,7 +95,7 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   assert.ok(signIndex > scanIndex, "signing must happen only after scan")
   assert.ok(publishIndex > signIndex, "mutable tags must publish only after scan and signing")
   assert.match(buildSteps[publishIndex].run, /env\.TARGET_REF/)
-  assert.match(buildSteps[publishIndex].run, /github\.sha/)
+  assert.match(buildSteps[publishIndex].run, /SOURCE_COMMIT/)
 })
 
 test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
@@ -146,6 +146,7 @@ test("all third-party actions use immutable commit pins", () => {
   const uses = [...source.matchAll(/uses:\s*([^\s#]+)/g)].map((match) => match[1])
   assert.ok(uses.length >= 8)
   for (const action of uses) {
+    if (action.startsWith("./")) continue
     assert.match(action, /^[^@\s]+@[0-9a-f]{40}$/, `action is not SHA-pinned: ${action}`)
   }
 })

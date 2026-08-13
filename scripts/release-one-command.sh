@@ -5,19 +5,18 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/release-one-command.sh --bump <patch|minor|major> [--rc N]
-  scripts/release-one-command.sh --tag <vX.Y.Z[-pre]> [--wait]
+  scripts/release-one-command.sh --bump <patch|minor|major> [--wait]
+  scripts/release-one-command.sh --tag <vX.Y.Z> [--wait]
 
 Options:
   --bump, -b      Next version increment from latest stable tag
   --tag, -t       Explicit tag to create (must be annotated semver)
-  --rc, -r        Create a prerelease tag with this suffix, e.g. --rc 1
   --wait, -w      Wait for release-images workflow completion
   --no-log         Skip appending to docs/operations/release-log.md
   --help, -h      Show this help
 
 Examples:
-  scripts/release-one-command.sh --bump patch --rc 1 --wait
+  scripts/release-one-command.sh --bump patch --wait
   scripts/release-one-command.sh --tag v1.2.15 --wait
 EOF
 }
@@ -28,7 +27,6 @@ LOG_FILE="docs/operations/release-log.md"
 
 BUMP_MODE=""
 TAG=""
-RC_INDEX=""
 WAIT_AFTER_PUSH=0
 SKIP_LOG=0
 
@@ -52,10 +50,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --tag|-t)
       TAG=$2
-      shift 2
-      ;;
-    --rc|-r)
-      RC_INDEX=$2
       shift 2
       ;;
     --wait|-w)
@@ -90,7 +84,7 @@ if [ -n "$BUMP_MODE" ]; then
     exit 1
   fi
 
-  BASE_TAG=$(git tag --list --sort=-v:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n 1 || true)
+  BASE_TAG=$(git tag --list --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
   if [ -z "$BASE_TAG" ]; then
     echo "error: no stable release tag found for bump" >&2
     exit 1
@@ -115,11 +109,7 @@ if [ -n "$BUMP_MODE" ]; then
       ;;
   esac
 
-  if [ -n "$RC_INDEX" ]; then
-    TAG="${NEXT_TAG}-rc.${RC_INDEX}"
-  else
-    TAG="$NEXT_TAG"
-  fi
+  TAG="$NEXT_TAG"
 fi
 
 if [ -z "$TAG" ]; then
@@ -127,9 +117,9 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
-if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "error: invalid tag format: $TAG" >&2
-  echo "expected: v1.2.3 or v1.2.3-rc.1" >&2
+  echo "expected: v1.2.3" >&2
   exit 1
 fi
 
@@ -143,7 +133,16 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-git fetch --tags --quiet
+if [ "$(git branch --show-current)" != "main" ]; then
+  echo "error: releases must run from main" >&2
+  exit 1
+fi
+
+git fetch origin main --tags --quiet
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  echo "error: local main must exactly match origin/main" >&2
+  exit 1
+fi
 
 WORKING_SHA=$(git rev-parse HEAD)
 echo "creating annotated tag $TAG at $WORKING_SHA"
@@ -152,8 +151,11 @@ git tag -a "$TAG" -m "release $TAG"
 echo "pushing $TAG"
 git push origin "$TAG"
 
+echo "starting $RELEASE_WORKFLOW for $TAG"
+gh workflow run "$RELEASE_WORKFLOW" --repo "$REPO" --ref "$TAG" -f "ref=$TAG"
+
 if [ "$WAIT_AFTER_PUSH" -eq 0 ]; then
-  echo "push complete. release-images workflow will start on this tag."
+  echo "release workflow started."
   echo "to wait for the pipeline run: rtk gh run list --workflow $RELEASE_WORKFLOW"
   echo "playground check later: https://app.quandatics.com/api-playground"
   exit 0
@@ -161,9 +163,9 @@ fi
 
 echo "waiting for release-images workflow on $TAG"
 for ATTEMPT in $(seq 1 120); do
-  RUN_JSON=$(gh run list --workflow "$RELEASE_WORKFLOW" --limit 20 --json databaseId,headSha,status,conclusion,createdAt,name 2>/dev/null || echo '[]')
-  RUN_ID=$(printf '%s\n' "$RUN_JSON" | jq -r --arg sha "$WORKING_SHA" '
-    map(select(.name == "release-images" and .headSha == $sha))
+  RUN_JSON=$(gh run list --workflow "$RELEASE_WORKFLOW" --limit 20 --json databaseId,headSha,headBranch,status,conclusion,createdAt,name 2>/dev/null || echo '[]')
+  RUN_ID=$(printf '%s\n' "$RUN_JSON" | jq -r --arg sha "$WORKING_SHA" --arg tag "$TAG" '
+    map(select(.name == "release-images" and .headSha == $sha and .headBranch == $tag))
     | sort_by(.createdAt)
     | last
     | .databaseId
@@ -242,6 +244,9 @@ EOF
     echo "- agent_image: $AGENT_IMAGE"
     echo
   } >> "$LOG_FILE"
+  git add -- "$LOG_FILE"
+  git commit -m "docs: record release $TAG"
+  git push origin main
 fi
 
 echo

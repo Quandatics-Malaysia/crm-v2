@@ -9,7 +9,6 @@ const deploymentEnvironment = {
   DATABASE_ADMIN_URL: "postgres://postgres:compose-test-postgres%3A%40%2F%3F%23%5B%5D@db:5432/crm",
   MIGRATOR_DATABASE_URL: "postgres://postgres:compose-test-postgres%3A%40%2F%3F%23%5B%5D@db:5432/crm",
   APP_DATABASE_URL: "postgres://crm_app:compose-test-app%3A%40%2F%3F%23%5B%5D@db:5432/crm",
-  PGWEB_DATABASE_URL: "postgres://postgres:compose-test-postgres%3A%40%2F%3F%23%5B%5D@db:5432/crm?sslmode=disable",
   BETTER_AUTH_SECRET: "compose-test-auth-secret-with-at-least-32-bytes",
   PLATFORM_MASTER_EMAIL: "owner@example.invalid",
   PLATFORM_MASTER_PASSWORD: "compose-test-owner-password",
@@ -32,8 +31,6 @@ function composeConfig(overrides: Record<string, string | undefined> = {}) {
     "compose",
     "--env-file",
     "/dev/null",
-    "--profile",
-    "admin",
     "config",
     "--format",
     "json",
@@ -59,9 +56,6 @@ describe("production Compose deployment-control environment", () => {
     })
     expect(config.services.backup.environment).toMatchObject({
       DATABASE_ADMIN_URL: deploymentEnvironment.DATABASE_ADMIN_URL,
-    })
-    expect(config.services.admin.environment).toMatchObject({
-      PGWEB_DATABASE_URL: deploymentEnvironment.PGWEB_DATABASE_URL,
     })
   })
 
@@ -97,7 +91,6 @@ describe("production Compose deployment-control environment", () => {
     "DATABASE_ADMIN_URL",
     "MIGRATOR_DATABASE_URL",
     "APP_DATABASE_URL",
-    "PGWEB_DATABASE_URL",
   ])("refuses to render production Compose without derived %s", (key) => {
     expect(() => composeConfig({ [key]: undefined })).toThrow()
   })

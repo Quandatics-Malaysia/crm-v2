@@ -133,9 +133,9 @@ Every PR needs a review. Changes to `lib/`, `db/migrations/`, `modules.config.ts
 Docker, or CI need a **core maintainer**. Migrations and RLS need **two** — they
 are the highest-blast-radius change in the repo.
 
-On opened/updated PRs, `pr-preview` auto-deploys a temporary preview on the
-self-hosted runner and publishes the URL in the workflow run summary and PR
-comment. Validate against that preview before merge.
+Use the protected staging environment for browser validation when the change
+cannot be proved by automated tests alone. Credentials stay in the protected
+environment and must never be pasted into PR comments or workflow summaries.
 
 **Cross-module PRs are normal.** Roughly half our commits touch more than one
 module. One PR, one review, CI proves the whole thing — that is a large part of
@@ -155,9 +155,9 @@ why we stay in one repo.
 
 Deployments are automated. Pushing to `staging` runs the quality gate and
 rebuilds the isolated staging stack; its temporary public URL is published in
-that workflow run's summary. Merging to `main` runs the production quality gate
-and rebuilds the production stack on the self-hosted runner. The normal path is
-**feature branch → `staging` → `main`**. This is why the checks are not optional.
+that workflow run's summary. Production is separate: create a signed release,
+then approve the `deploy-production` workflow. The normal path is **feature
+branch → `staging` → `main` → signed release → production approval**.
 
 ## 8. Status of the setup
 
@@ -168,13 +168,8 @@ What's in place:
 - **CI runs on every PR** (`quality`: lint · typecheck · test · build) and the
   PR template lists the checklist above.
 
-Convention, not yet enforced:
-
-- **Reviews and green CI are expected but not *blocked*.** Branch protection /
-  rulesets need a paid GitHub plan on a private repo (Free can't enforce), so
-  today nothing physically stops an unreviewed or red merge to `main`. Treat the
-  PR checklist and a `@Quandatics-Malaysia/core` review as required anyway.
-  Enabling enforcement = upgrade the org to GitHub Team, then apply a ruleset.
+Repository rules must require green CI and a `@Quandatics-Malaysia/core` review
+before merge. Verify the active ruleset in GitHub after changing workflow names.
 
 Not built yet:
 
@@ -184,22 +179,39 @@ Not built yet:
 
 ## 9. External developer workflow
 
-For external developers, this is the required path:
+External integration developers do **not** need CRM source or production-runtime
+access. Repository visibility is separate from production access and support scope.
+Use one of these lanes:
 
-- Fork the repo (if you are not on the Quandatics org team).
+### Lane A — Source contributor
+
+For a developer approved to change CRM code:
+
+- Add them to the appropriate GitHub team with least-privilege permissions.
 - Branch from latest `main` using `feat/<short-feature>`.
-- Implement changes on that branch only.
 - Never commit secrets (`.env`, cloud keys, certificates, DB passwords).
-- Before PR: run local checks:
-  - `pnpm run lint`
-  - `pnpm run typecheck`
-  - `pnpm test`
-  - `pnpm run build`
-- Open PR with full checklist and wait for PR preview checks.
-- Use PR preview for validation; keep production untouched until PR is approved.
+- Before PR, run `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and
+  `pnpm run build`.
+- Open a PR, validate in protected staging when needed, and wait for core review.
+- Never use `app.quandatics.com` as a development environment.
 
-Operational rule:
+### Lane B — No-source integration developer
 
-- External developers should not have access to any source/runtime on `app.quandatics.com`.
-- All code review and production merges are routed through `@Quandatics-Malaysia/core`.
-- Violations of this workflow are treated as a hard security/ops issue.
+For a partner who must not see source:
+
+- Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers).
+- Receive a tenant-scoped API key from **Settings → API Keys**.
+- Use a staging or sandbox tenant, never production credentials.
+- Use the documented REST API and API playground.
+- Route support and acceptance evidence through Quandatics.
+
+Current API v1 is read-only. It cannot create leads, update funnels, send
+quotations, or change users. Do not automate the UI to bypass this boundary.
+
+### Lane C — Future plugin partner
+
+External plugin packaging is not implemented yet. The `modules/` workspace is
+reserved for a future SDK boundary. Until then, use the API lane or become an
+approved private source contributor.
+
+All production merges remain routed through `@Quandatics-Malaysia/core`.

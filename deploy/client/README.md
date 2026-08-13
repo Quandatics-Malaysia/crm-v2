@@ -33,14 +33,14 @@ Compare `cosign_checksums.txt` with the vendor-provided copy through an independ
 
 ## Pull-only registry access and image trust
 
-Use a dedicated GitHub machine user with a classic PAT limited to `read:packages`. It needs private GHCR package access, never repository source or `write:packages`.
+Use a dedicated GitHub machine user with a classic PAT limited to `read:packages`. It needs GHCR package access, never repository write access or `write:packages`.
 
 ```sh
 printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
 unset GHCR_PULL_TOKEN
 ```
 
-Keep the token in the host secret manager, not `.env`, this bundle, shell history, or an image. Client pull identities do not receive source access to private `Quandatics-Malaysia/crm-v2`.
+Keep the token in the host secret manager, not `.env`, this bundle, shell history, or an image. Client pull identities need package-read access only; repository visibility is not part of the deployment trust boundary.
 
 The four vendor references must use exactly these repositories:
 
@@ -116,8 +116,13 @@ No extra, duplicate, blank, or comment lines are accepted. Deployment copies evi
 
 ## Deploy, locking, and rollback
 
+The vendor `deploy-production` workflow normally verifies the bundle's keyless
+Cosign signature, extracts it, and applies `release-manifest.json` automatically.
+For an audited manual deployment, verify the bundle first, then run:
+
 ```sh
 cd /opt/quandatics-client
+./apply-release-manifest.sh ./.env ./release-manifest.json v1.2.3
 ./deploy.sh ./.env
 ```
 

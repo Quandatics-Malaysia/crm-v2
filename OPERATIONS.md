@@ -36,30 +36,30 @@ errors always mean a pending migration.
 
 ## Publish and verify a signed client release
 
-1. Confirm the release commit is reviewed and create an annotated strict
-   SemVer tag. Lightweight tags are rejected:
+1. From a clean reviewed `main`, run the release helper. It creates the annotated
+   strict SemVer tag, starts `release-images`, waits, and records the manifest:
 
    ```bash
-   git tag -a v1.2.3 -m "CRM v1.2.3"
-   git push origin v1.2.3
+   scripts/release-one-command.sh --bump patch --wait
    ```
 
 2. Watch the `release-images` workflow. It runs only on GitHub-hosted runners
    and uses only the workflow-scoped `GITHUB_TOKEN` plus GitHub OIDC. No
    Cloudflare, registry PAT, or signing private key is accepted by the job.
 
-3. Require all three matrix builds (`web`, `migrator`, `backup`) to pass image
+3. Require all four matrix builds (`web`, `migrator`, `backup`, `agent`) to pass image
    build, Trivy, SPDX SBOM, Cosign signing, and immediate signature
    verification. A failed gate leaves version and commit tags unpublished.
 
 4. Download `release-manifest-v1.2.3`. Confirm its `source_commit` is the tagged
    commit, its `workflow_identity` is exactly
    `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
-   and it lists exactly three `sha256:` digests.
+   and it lists exactly four `sha256:` digests.
 
-5. Copy only those digest references into the client release environment.
-   Run `deploy/client/verify-images.sh` before pull or migration. Never replace
-   a digest with a version tag, commit tag, or `latest`.
+5. Run the protected `deploy-production` workflow with that exact release tag.
+   It downloads the source-free bundle, applies the manifest, and runs
+   `deploy/client/deploy.sh`. Never deploy a version tag, commit tag, or `latest`
+   in place of a manifest digest.
 
 Keep the release manifest, per-image SPDX JSON SBOMs, and Cosign verification
 records with release evidence. BuildKit provenance and keyless signatures stay
@@ -73,14 +73,13 @@ The `crm-v2` and `crm-staging` Compose projects were deliberately stopped on
 uploads, and backups were retained. Do not run `docker compose down -v`, remove
 the checkouts, or prune CRM images if the deployment must remain recoverable.
 
-The GitHub Actions workflows `deploy`, `deploy-staging`, and `pr-preview` were
-also disabled. The repository runner is still installed, but it cannot restart
-these stacks while the deployment workflows remain disabled.
+Confirm workflow state with `gh workflow list --all`. The self-hosted runner
+must be online before production or staging deployment jobs can start.
 
-### Self-hosted runner stuck or offline (deploy/pr-preview queued)
+### Self-hosted runner stuck or offline
 
 When CI shows:
-- `deploy` / `deploy-staging` / `pr-preview` queued for long,
+- `deploy` or `deploy-staging` queued for long,
 - and GH runners API shows `Internal-Ops-DB` as `offline` or `busy=false`,
 
 run this from the jumpbox:
@@ -122,8 +121,6 @@ run this from the jumpbox:
    gh run rerun <deploy-run-id>
    ```
 
-   If a PR preview is stuck, rerun that preview workflow from the Actions UI or by
-   running it from the PR checks page.
 
 ### Release log location
 
@@ -272,7 +269,6 @@ should be allowed to execute on the Internal-Ops runner:
 ```bash
 gh workflow enable deploy --repo Quandatics-Malaysia/crm-v2
 gh workflow enable deploy-staging --repo Quandatics-Malaysia/crm-v2
-gh workflow enable pr-preview --repo Quandatics-Malaysia/crm-v2
 ```
 
 Confirm the final state with `gh workflow list --all`. Leaving these workflows
@@ -293,21 +289,6 @@ docker compose -p crm-v2 \
 `stop` is intentional. It keeps the containers and named volumes available for
 the next startup. Verify the pause with `docker compose ls` and expect
 `https://demo.hyphen-solution.com` to be unavailable while the tunnel is down.
-
-### Cleanup PR previews after merge/close
-
-PR previews auto-clean when the pull request is closed, but you can always force:
-
-```bash
-docker compose -p crm-pr-123 \
-  -f ~/crm-v2/docker-compose.yaml \
-  -f ~/crm-v2/docker-compose.pr-preview.yaml \
-  -f ~/crm-v2/docker-compose.staging-tunnel.yaml \
-  down -v --remove-orphans
-```
-
-Replace `123` with the PR number. This removes the preview DB and app volumes and
-keeps production/staging untouched.
 
 ## Optional modules (plugins)
 

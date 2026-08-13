@@ -39,6 +39,17 @@ never published.
 The build fails if a plugin flag is undocumented, a catalog page or route is
 missing, or a catalog page is absent from navigation.
 
+## External developer access
+
+The public **External developers** section is for partners integrating through
+stable contracts instead of CRM internals. It documents API usage, sandbox expectations, key handling,
+support flow, and the current read-only boundary. Do not publish server access,
+database credentials, restricted contributor instructions, or production secrets.
+
+Private source contributors use the repository's `CONTRIBUTING.md` and require
+explicit GitHub access. They do not use production as their development
+environment.
+
 ## Deploy to Vercel
 
 The `docs-quality` GitHub Actions workflow is the only production deployment

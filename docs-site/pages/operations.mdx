@@ -10,27 +10,26 @@ purpose).
 
 ## Environments
 
-- **Production** — the live app, deployed from the `main` branch.
+- **Production** — the live app, deployed from a signed SemVer release after approval.
 - **Staging** — an isolated stack built from the `staging` branch, so changes
   can be reviewed before they reach production. Its Cloudflare quick-tunnel URL
   changes on each redeploy and is published in the latest workflow summary.
 
-The flow is: **feature branch → `staging` (preview) → `main` (production)**.
+The flow is: **feature branch → `staging` → `main` → signed release → production approval**.
 
 ## How a deploy works
 
-Every push follows the same gate:
+Every release follows the same gate:
 
 1. A **quality gate** runs on a GitHub-hosted runner — lint, typecheck, tests,
    and a production build. A pull request must pass it before merge.
-2. On a merge to `main`, a **self-hosted runner rebuilds the app on the server**
-   (Docker Compose) and restarts it. Staging works the same way from its own
-   branch, in a separate namespaced stack, so a staging deploy never disturbs
-   production. The stack listens locally on port `8091`; the workflow starts a
-   temporary public tunnel for browser review.
+2. Vendor CI builds four immutable images, scans them, emits SBOM evidence, and
+   signs each digest with GitHub OIDC and Cosign.
+3. The protected production workflow downloads only the source-free client
+   bundle, verifies vendor signatures, migrates, checks health, and rolls back
+   if a required gate fails. Production never builds application source.
 
-There is no cloud build step and no image registry — the server builds and runs
-its own containers.
+Staging remains an isolated source build from its own branch and temporary URL.
 
 ## Modules
 

@@ -38,8 +38,8 @@ const config: ZudokuConfig = {
           position: "end",
           links: [
             {
-              label: "Source",
-              href: "https://github.com/Quandatics-Malaysia/crm-v2",
+              label: "External developers",
+              href: "/external-developers",
             },
             {
               label: "Production",
@@ -224,7 +224,17 @@ const config: ZudokuConfig = {
       items: [
         {
           type: "category",
-          label: "Codebase",
+          label: "External developers",
+          icon: "users",
+          items: [
+            { type: "doc", file: "external-developers/overview", label: "Overview" },
+            { type: "doc", file: "external-developers/development-guide", label: "Development guide" },
+            { type: "doc", file: "external-developers/collaboration", label: "Collaboration" },
+          ],
+        },
+        {
+          type: "category",
+          label: "Source contributors",
           icon: "folder-tree",
           items: [
             { type: "doc", file: "codebase/overview", label: "Overview" },

@@ -1,0 +1,46 @@
+---
+title: External developers
+---
+
+# External developers
+
+Quandatics CRM supports partner integrations without requiring CRM source code
+or production runtime access. Use this section when building reports,
+integrations, automation, or a customer-side tool.
+
+## Choose access lane
+
+| Need | Access | Entry point |
+| --- | --- | --- |
+| Change CRM product code | Approved contributor workflow | [Contributing](/contributing) |
+| Read CRM data from another system | Tenant-scoped API key | [REST API guide](/api-guide) |
+| Build against a safe test tenant | Staging/sandbox credentials | [Development guide](/external-developers/development-guide) |
+| Add a packaged CRM plugin | Not available yet | Contact Quandatics before building |
+
+Integration partners should depend on documented API contracts, not CRM
+internals. They collaborate through test data,
+versioned examples, issue/support conversations, and reviewed integration
+acceptance checks.
+
+## Security boundary
+
+- No production shell, database, Docker, SSH, or source access.
+- No shared admin credentials.
+- API keys are tenant-scoped, member-scoped, permission-scoped, and shown once.
+- Use staging or sandbox for development and acceptance testing.
+- Never place an API key in browser code, public repositories, URLs, or logs.
+
+Current API v1 is read-only. Write API endpoints and webhooks are not part of
+the current external contract.
+
+## Collaboration flow
+
+1. Request an integration scope and sandbox tenant from Quandatics.
+2. Receive a named API key for a least-privilege member.
+3. Build and test against the documented endpoints.
+4. Share endpoint list, sample requests, error handling, and test evidence.
+5. Quandatics reviews scope, security, rate behavior, and tenant isolation.
+6. Production access is issued only after acceptance and separate approval.
+
+Continue with the [Development guide](/external-developers/development-guide)
+and [Collaboration guide](/external-developers/collaboration).

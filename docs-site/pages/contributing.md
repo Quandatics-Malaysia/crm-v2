@@ -200,7 +200,7 @@ For a developer changing CRM code:
 
 For a partner integrating only through supported contracts:
 
-- Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers).
+- Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers/overview).
 - Receive a tenant-scoped API key from **Settings → API Keys**.
 - Use a staging or sandbox tenant, never production credentials.
 - Use the documented REST API and API playground.

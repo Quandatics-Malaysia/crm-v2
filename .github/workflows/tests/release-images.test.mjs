@@ -122,7 +122,10 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
   assert.match(signing.run, /cosign sign --yes/)
   assert.match(signing.run, /cosign verify/)
   assert.match(signing.run, /--certificate-identity/)
-  assert.match(signing.env?.WORKFLOW_IDENTITY ?? "", /release-images\.yml@/)
+  assert.match(
+    signing.env?.WORKFLOW_IDENTITY ?? "",
+    /\$\{\{\s*github\.workflow_ref\s*\}\}|release-images\.yml@/,
+  )
   assert.match(signing.run, /https:\/\/token\.actions\.githubusercontent\.com/)
 })
 

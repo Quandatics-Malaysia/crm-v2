@@ -29,7 +29,7 @@ jobs:
           node-version: 22
       # Self-bootstrapping: creates the staging checkout + base env on first run,
       # then upgrades retained deployment-control values on every release.
-      # Staging is reachable at 127.0.0.1:8091 through its quick tunnel.
+      # Staging is reachable at 127.0.0.1:8092 through its quick tunnel.
       - name: Bootstrap or upgrade staging checkout + env
         env:
           VENDOR_ENTITLEMENT_TRUST_SET: ${{ secrets.STAGING_VENDOR_ENTITLEMENT_TRUST_SET }}
@@ -53,10 +53,11 @@ jobs:
             SAMPLE_PW="$(openssl rand -hex 16)"
             sed -i "s|change_me_strong_staging_master|${ADMIN_PW}|" .env.staging
             sed -i "s|change_me_strong_staging_sample|${SAMPLE_PW}|" .env.staging
-            # No public domain: reach staging via SSH tunnel to 127.0.0.1:8091.
-            sed -i "s|staging.quandatics.com|localhost:8091|g" .env.staging
-            sed -i "s|https://localhost:8091|http://localhost:8091|g" .env.staging
+            # No public domain: reach staging via SSH tunnel to 127.0.0.1:8092.
+            sed -i "s|staging.quandatics.com|localhost:8092|g" .env.staging
+            sed -i "s|https://localhost:8092|http://localhost:8092|g" .env.staging
           fi
+          sed -i "s|^CADDY_HOST_PORT=.*|CADDY_HOST_PORT=8092|" "$DIR/.env.staging"
           node "$DIR/.github/workflows/scripts/provision-deployment-runtime.mjs" --mode staging --env-file "$DIR/.env.staging" --repo-root "$DIR"
       # Phase 1: bring the whole stack + tunnel up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel

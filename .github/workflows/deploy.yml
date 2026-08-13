@@ -75,6 +75,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          REGISTRY_AUTH_DIR="$(mktemp -d)"
+          export DOCKER_CONFIG="$REGISTRY_AUTH_DIR"
+          trap 'rm -rf -- "$REGISTRY_AUTH_DIR"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           "$CLIENT_DIR/apply-release-manifest.sh" "$CLIENT_DIR/.env" "$CLIENT_DIR/release-manifest.json" "$RELEASE_TAG"
           "$CLIENT_DIR/deploy.sh" "$CLIENT_DIR/.env"
 

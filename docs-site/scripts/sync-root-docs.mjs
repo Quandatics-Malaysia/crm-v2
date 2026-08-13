@@ -25,7 +25,7 @@ const map = [
   ["MODULES.md", "extensibility/plugin-system.md"],
 ];
 
-const repoUrl = "https://github.com/Quandatics-Malaysia/crm-v2";
+const repoUrl = "https://github.com/Super-ERP/crm-v2";
 
 // Rewrite cross-doc links to site routes and source-file links to GitHub so
 // generated pages still work regardless of how deeply they are nested.

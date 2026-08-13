@@ -13,13 +13,13 @@ architecture directory.
 | --- | --- |
 | **[Documentation](https://docs-site-eight-umber.vercel.app)** | Central platform directory |
 | [Production CRM](https://app.quandatics.com) | Live application |
-| [Latest staging deployment](https://github.com/Quandatics-Malaysia/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
+| [Latest staging deployment](https://github.com/Super-ERP/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
 | [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
 | [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers) | No-source API integration and collaboration path |
 | [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
 | [Contributing](/contributing) | Local setup and review rules |
 | [Operations](/operations) | Private operator runbook |
-| [Release log](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/operations/release-log.md) | Signed immutable release record |
+| [Release log](https://github.com/Super-ERP/crm-v2/blob/main/docs/operations/release-log.md) | Signed immutable release record |
 
 ## Module map
 
@@ -105,7 +105,7 @@ docs/operations/release-log.md
 ## Production
 
 Production uses the pull-only, Cosign-verified bundle in `deploy/client/`.
-Follow [`deploy/client/README.md`](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/deploy/client/README.md); do not build the
+Follow [`deploy/client/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/deploy/client/README.md); do not build the
 source Compose stack on a client production host.
 
 ## Upgrade notes

@@ -743,10 +743,10 @@ printf '%s\n' "$MIGRATION_VERSION" | grep -Eq '^[0-9]{4}$' || fail "MIGRATION_VE
 printf '%s\n' "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
   fail "BACKUP_EVIDENCE_PUBLIC_KEY_SHA256 must be a lowercase sha256 digest"
 
-validate_exact_image WEB_IMAGE "$WEB_IMAGE" ghcr.io/quandatics-malaysia/crm-web
-validate_exact_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE" ghcr.io/quandatics-malaysia/crm-migrator
-validate_exact_image BACKUP_IMAGE "$BACKUP_IMAGE" ghcr.io/quandatics-malaysia/crm-backup
-validate_exact_image AGENT_IMAGE "$AGENT_IMAGE" ghcr.io/quandatics-malaysia/crm-deployment-agent
+validate_exact_image WEB_IMAGE "$WEB_IMAGE" ghcr.io/super-erp/crm-web
+validate_exact_image MIGRATOR_IMAGE "$MIGRATOR_IMAGE" ghcr.io/super-erp/crm-migrator
+validate_exact_image BACKUP_IMAGE "$BACKUP_IMAGE" ghcr.io/super-erp/crm-backup
+validate_exact_image AGENT_IMAGE "$AGENT_IMAGE" ghcr.io/super-erp/crm-deployment-agent
 validate_exact_image POSTGRES_IMAGE "$POSTGRES_IMAGE" docker.io/library/postgres
 validate_exact_image CADDY_IMAGE "$CADDY_IMAGE" docker.io/library/caddy
 
@@ -939,10 +939,10 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   [ "$PREVIOUS_COMPOSE_PROJECT_NAME" = "$COMPOSE_PROJECT_NAME" ] || fail "previous deployment record belongs to another project"
   [ "$PREVIOUS_DB_NAME" = "$DB_NAME" ] || fail "previous deployment record belongs to another database"
   [ "$PREVIOUS_STORAGE_ID" = "$STORAGE_ID" ] || fail "previous deployment record belongs to another storage identity"
-  validate_exact_image PREVIOUS_WEB_IMAGE "$PREVIOUS_WEB_IMAGE" ghcr.io/quandatics-malaysia/crm-web
-  validate_exact_image PREVIOUS_MIGRATOR_IMAGE "$PREVIOUS_MIGRATOR_IMAGE" ghcr.io/quandatics-malaysia/crm-migrator
-  validate_exact_image PREVIOUS_BACKUP_IMAGE "$PREVIOUS_BACKUP_IMAGE" ghcr.io/quandatics-malaysia/crm-backup
-  validate_exact_image PREVIOUS_AGENT_IMAGE "$PREVIOUS_AGENT_IMAGE" ghcr.io/quandatics-malaysia/crm-deployment-agent
+  validate_exact_image PREVIOUS_WEB_IMAGE "$PREVIOUS_WEB_IMAGE" ghcr.io/super-erp/crm-web
+  validate_exact_image PREVIOUS_MIGRATOR_IMAGE "$PREVIOUS_MIGRATOR_IMAGE" ghcr.io/super-erp/crm-migrator
+  validate_exact_image PREVIOUS_BACKUP_IMAGE "$PREVIOUS_BACKUP_IMAGE" ghcr.io/super-erp/crm-backup
+  validate_exact_image PREVIOUS_AGENT_IMAGE "$PREVIOUS_AGENT_IMAGE" ghcr.io/super-erp/crm-deployment-agent
   validate_exact_image PREVIOUS_POSTGRES_IMAGE "$PREVIOUS_POSTGRES_IMAGE" docker.io/library/postgres
   validate_exact_image PREVIOUS_CADDY_IMAGE "$PREVIOUS_CADDY_IMAGE" docker.io/library/caddy
   required PREVIOUS_POSTGRES_PASSWORD "$PREVIOUS_POSTGRES_PASSWORD"

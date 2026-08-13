@@ -127,7 +127,7 @@ const config: ZudokuConfig = {
       },
       {
         label: "Source",
-        to: "https://github.com/Quandatics-Malaysia/crm-v2",
+        to: "https://github.com/Super-ERP/crm-v2",
         icon: "git-branch",
         target: "_blank",
       },

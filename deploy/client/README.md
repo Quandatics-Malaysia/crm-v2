@@ -44,12 +44,12 @@ Keep the token in the host secret manager, not `.env`, this bundle, shell histor
 
 The four vendor references must use exactly these repositories:
 
-- `ghcr.io/quandatics-malaysia/crm-web@sha256:...`
-- `ghcr.io/quandatics-malaysia/crm-migrator@sha256:...`
-- `ghcr.io/quandatics-malaysia/crm-backup@sha256:...`
-- `ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:...`
+- `ghcr.io/super-erp/crm-web@sha256:...`
+- `ghcr.io/super-erp/crm-migrator@sha256:...`
+- `ghcr.io/super-erp/crm-backup@sha256:...`
+- `ghcr.io/super-erp/crm-deployment-agent@sha256:...`
 
-Each signature must resolve to exact workflow identity `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/<RELEASE_TAG>` and issuer `https://token.actions.githubusercontent.com`. Repository/workflow constants are grouped at the top of `verify-images.sh` for an explicit ownership migration.
+Each signature must resolve to exact workflow identity `https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/<RELEASE_TAG>` and issuer `https://token.actions.githubusercontent.com`. Repository/workflow constants are grouped at the top of `verify-images.sh` for an explicit ownership migration.
 
 PostgreSQL and Caddy must use exact `docker.io/library/postgres@sha256:...` and `docker.io/library/caddy@sha256:...` references. A digest alone proves immutability, not publisher trust. Operations must select these upstream digests from the vendor-reviewed release manifest after upstream provenance, vulnerability, and compatibility review; never substitute a client-selected registry mirror or mutable tag.
 
@@ -100,9 +100,9 @@ DB_NAME=<database name>
 STORAGE_ID=<stable volume/storage identity>
 POSTGRES_IMAGE=docker.io/library/postgres@sha256:<64 lowercase hex>
 RELEASE_TAG=v1.2.3
-WEB_IMAGE=ghcr.io/quandatics-malaysia/crm-web@sha256:<64 lowercase hex>
-MIGRATOR_IMAGE=ghcr.io/quandatics-malaysia/crm-migrator@sha256:<64 lowercase hex>
-BACKUP_IMAGE=ghcr.io/quandatics-malaysia/crm-backup@sha256:<64 lowercase hex>
+WEB_IMAGE=ghcr.io/super-erp/crm-web@sha256:<64 lowercase hex>
+MIGRATOR_IMAGE=ghcr.io/super-erp/crm-migrator@sha256:<64 lowercase hex>
+BACKUP_IMAGE=ghcr.io/super-erp/crm-backup@sha256:<64 lowercase hex>
 SOURCE_COMMIT_SHA=<full release source object ID>
 CREATED_AT_EPOCH=<10-digit UTC epoch>
 BACKUP_ARTIFACT_FILE=<absolute ciphertext/archive path>

@@ -3,13 +3,13 @@ set -eu
 
 # Trust boundary. Change these constants together only when repository ownership
 # or release workflow identity is intentionally migrated.
-SIGNING_REPOSITORY=Quandatics-Malaysia/crm-v2
+SIGNING_REPOSITORY=Super-ERP/crm-v2
 SIGNING_WORKFLOW=release-images.yml
 OIDC_ISSUER=https://token.actions.githubusercontent.com
-WEB_REPOSITORY=ghcr.io/quandatics-malaysia/crm-web
-MIGRATOR_REPOSITORY=ghcr.io/quandatics-malaysia/crm-migrator
-BACKUP_REPOSITORY=ghcr.io/quandatics-malaysia/crm-backup
-AGENT_REPOSITORY=ghcr.io/quandatics-malaysia/crm-deployment-agent
+WEB_REPOSITORY=ghcr.io/super-erp/crm-web
+MIGRATOR_REPOSITORY=ghcr.io/super-erp/crm-migrator
+BACKUP_REPOSITORY=ghcr.io/super-erp/crm-backup
+AGENT_REPOSITORY=ghcr.io/super-erp/crm-deployment-agent
 
 fail() {
   echo "verify-images: $*" >&2

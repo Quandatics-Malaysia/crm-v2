@@ -73,7 +73,7 @@ ENV HOME=/var/lib/backup \
 
 LABEL org.opencontainers.image.title="Quandatics encrypted backup runtime" \
   org.opencontainers.image.description="Source-free PostgreSQL backup, age encryption, and R2 upload runtime" \
-  org.opencontainers.image.source="https://github.com/Quandatics-Malaysia/crm-v2" \
+  org.opencontainers.image.source="https://github.com/Super-ERP/crm-v2" \
   com.quandatics.postgresql-client.version="17.10-r0" \
   com.quandatics.age.version="1.3.1" \
   com.quandatics.rclone.version="1.74.4"

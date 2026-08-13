@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
-          REPOSITORY_URL="https://github.com/Quandatics-Malaysia/crm-v2.git"
+          REPOSITORY_URL="https://github.com/Super-ERP/crm-v2.git"
           if [ ! -d "$DIR/.git" ]; then
             git clone "$REPOSITORY_URL" "$DIR"
           fi

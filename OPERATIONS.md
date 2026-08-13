@@ -53,7 +53,7 @@ errors always mean a pending migration.
 
 4. Download `release-manifest-v1.2.3`. Confirm its `source_commit` is the tagged
    commit, its `workflow_identity` is exactly
-   `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
+   `https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
    and it lists exactly four `sha256:` digests.
 
 5. Run the protected `deploy-production` workflow with that exact release tag.
@@ -117,7 +117,7 @@ run this from the jumpbox:
 4. Confirm GitHub now sees the runner and retry or re-run:
 
    ```bash
-   gh api repos/Quandatics-Malaysia/crm-v2/actions/runners --jq '.runners[] | {name,status,busy}'
+   gh api repos/Super-ERP/crm-v2/actions/runners --jq '.runners[] | {name,status,busy}'
    gh run rerun <deploy-run-id>
    ```
 
@@ -267,8 +267,8 @@ Run these from an authenticated workstation. Enable only the workflows that
 should be allowed to execute on the Internal-Ops runner:
 
 ```bash
-gh workflow enable deploy --repo Quandatics-Malaysia/crm-v2
-gh workflow enable deploy-staging --repo Quandatics-Malaysia/crm-v2
+gh workflow enable deploy --repo Super-ERP/crm-v2
+gh workflow enable deploy-staging --repo Super-ERP/crm-v2
 ```
 
 Confirm the final state with `gh workflow list --all`. Leaving these workflows
@@ -470,7 +470,7 @@ only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` 
 2. **Server checkout** — clone a second working tree on the `staging` branch and
    create its env file from the template:
    ```bash
-   git clone https://github.com/Quandatics-Malaysia/crm-v2.git ~/crm-v2-staging
+   git clone https://github.com/Super-ERP/crm-v2.git ~/crm-v2-staging
    cd ~/crm-v2-staging && git checkout staging
    cp .env.staging.example .env.staging
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)

@@ -8,7 +8,7 @@ open while you work.
 > **Note:** the `apps/` workspace restructure has landed — the app now lives
 > under `apps/web/`, with the repo root as a thin pnpm workspace. `packages/`
 > and `modules/` are reserved in `pnpm-workspace.yaml` for later phases — see
-> [the design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
+> [the design spec](https://github.com/Super-ERP/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
 > Only *where files live* changed; the five rules stay identical.
 
 ---
@@ -28,10 +28,10 @@ run your own.
 |---|---|
 | What the product does | [README](/overview) |
 | **The module (plugin) system** — read this before writing anything | [MODULES.md](/extensibility/plugin-system) |
-| Where the repo is heading (monorepo, teams, ownership) | [Design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
+| Where the repo is heading (monorepo, teams, ownership) | [Design spec](https://github.com/Super-ERP/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
 | Running it in production, backups, DB access | [OPERATIONS.md](/operations) |
-| Past security/correctness findings | [AUDIT.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AUDIT.md) |
-| Rules for AI coding agents | [AGENTS.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AGENTS.md) |
+| Past security/correctness findings | [AUDIT.md](https://github.com/Super-ERP/crm-v2/blob/main/AUDIT.md) |
+| Rules for AI coding agents | [AGENTS.md](https://github.com/Super-ERP/crm-v2/blob/main/AGENTS.md) |
 
 Current layout — the repo root is a thin pnpm workspace; the app lives under
 `apps/web/`:

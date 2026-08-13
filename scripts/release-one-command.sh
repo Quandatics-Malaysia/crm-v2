@@ -21,7 +21,7 @@ Examples:
 EOF
 }
 
-REPO="Quandatics-Malaysia/crm-v2"
+REPO="Super-ERP/crm-v2"
 RELEASE_WORKFLOW="release-images.yml"
 LOG_FILE="docs/operations/release-log.md"
 

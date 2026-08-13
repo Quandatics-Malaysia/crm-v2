@@ -24,6 +24,9 @@ jobs:
     runs-on: self-hosted
     environment: staging
     steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
       # Self-bootstrapping: creates the staging checkout + base env on first run,
       # then upgrades retained deployment-control values on every release.
       # Staging is reachable at 127.0.0.1:8091 through its quick tunnel.

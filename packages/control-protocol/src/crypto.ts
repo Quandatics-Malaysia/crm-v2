@@ -1,4 +1,4 @@
-import { canonicalJson } from "./canonical-json.js"
+import { canonicalJson } from "./canonical-json"
 
 export type SigningKey = CryptoKey | JsonWebKey
 

@@ -109,56 +109,40 @@ jobs:
           git -C "$CRM_DIR" checkout -B main origin/main
           git -C "$CRM_DIR" reset --hard origin/main
 
-          ENV_FILE=""
-          candidates=(
-            "$CRM_DIR/.env"
-            "$CRM_DIR/.env.production"
-            "$HOME/actions-runner/.env"
-            "$HOME/quandatics-client/.env"
-          )
+          ENV_FILE="$HOME/quandatics-client/.env"
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "production env file not found: $ENV_FILE" >&2
+            exit 1
+          fi
 
-          for candidate in "${candidates[@]}"; do
-            if [ -f "$candidate" ]; then
-              ppw="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$candidate" | tail -1)"
-              if [ -n "$ppw" ]; then
-                ENV_FILE="$candidate"
-                break
-              fi
-            fi
+          get_env() {
+            sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | tr -d '\r'
+          }
+          for key in POSTGRES_PASSWORD CRM_APP_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD DEPLOYMENT_ID AGENT_WEB_SECRET VENDOR_ENTITLEMENT_TRUST_SET APPLICATION_VERSION MIGRATION_VERSION; do
+            [ -n "$(get_env "$key")" ] || { echo "required production setting missing: $key" >&2; exit 1; }
           done
 
-          if [ -z "$ENV_FILE" ]; then
-            echo "deploy env file not found with POSTGRES_PASSWORD set" >&2
-            echo "Checked candidates: ${candidates[*]}" >&2
-            exit 1
-          else
-            echo "Using env file: $ENV_FILE"
-            echo "Required env keys present:"
-            for key in POSTGRES_PASSWORD CRM_APP_PASSWORD BETTER_AUTH_SECRET BETTER_AUTH_URL PLATFORM_MASTER_EMAIL PLATFORM_MASTER_PASSWORD DEPLOYMENT_ID AGENT_WEB_SECRET VENDOR_ENTITLEMENT_TRUST_SET APPLICATION_VERSION MIGRATION_VERSION; do
-              value="$(sed -n "s/^${key}=//p" "$ENV_FILE" | tail -1 | tr -d '\r')"
-              if [ -z "$value" ]; then
-                echo "  - ${key}: missing"
-              else
-                echo "  - ${key}: ${#value} chars"
-              fi
-            done
-          fi
+          command -v jq >/dev/null 2>&1 || { echo "jq is required to encode database credentials" >&2; exit 1; }
+          encode() { printf '%s' "$1" | jq -sRr '@uri'; }
+          POSTGRES_PASSWORD_ENCODED="$(encode "$(get_env POSTGRES_PASSWORD)")"
+          CRM_APP_PASSWORD_ENCODED="$(encode "$(get_env CRM_APP_PASSWORD)")"
 
           echo "CRM_DIR=$CRM_DIR" >> "$GITHUB_ENV"
           echo "DEPLOY_ENV_FILE=$ENV_FILE" >> "$GITHUB_ENV"
+          echo "DATABASE_ADMIN_URL=postgres://postgres:${POSTGRES_PASSWORD_ENCODED}@db:5432/crm" >> "$GITHUB_ENV"
+          echo "MIGRATOR_DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD_ENCODED}@db:5432/crm" >> "$GITHUB_ENV"
+          echo "APP_DATABASE_URL=postgres://crm_app:${CRM_APP_PASSWORD_ENCODED}@db:5432/crm" >> "$GITHUB_ENV"
+          echo "PGWEB_DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD_ENCODED}@db:5432/crm?sslmode=disable" >> "$GITHUB_ENV"
       # migrate runs as a one-shot before web starts (web depends_on it).
       - name: Rebuild and restart
         run: |
+          set -euo pipefail
+          docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR}/docker-compose.yaml" up -d --build migrate web
           set +e
-          docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web
-          up_exit=$?
-          if [ "$up_exit" -ne 0 ]; then
-            docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" logs --tail=300 migrate || true
-            exit "$up_exit"
-          fi
           docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" wait migrate
           migrate_exit=$?
+          set -e
           if [ "$migrate_exit" -ne 0 ]; then
-            docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" logs --tail=300 migrate || true
+            echo "database migration failed; inspect protected host logs" >&2
             exit "$migrate_exit"
           fi

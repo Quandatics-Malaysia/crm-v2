@@ -163,7 +163,7 @@ describe("operator mutation protection and client administration", () => {
     const styles = await operatorRequest("/operator/styles.css")
     const css = await styles.text()
 
-    expect(css).toMatch(/\.operator-shell :is\(\.operator-navigation a, \.operator-breadcrumbs a, nav\[aria-label\$="pagination"\] a, \.button-link\) \{[^}]*display: inline-flex;[^}]*min-block-size: 2\.75rem;[^}]*\}/)
+    expect(css).toMatch(/\.operator-shell :is\(\.operator-brand, \.operator-navigation a, \.operator-breadcrumbs a, nav\[aria-label\$="pagination"\] a, \.button-link\) \{[^}]*display: inline-flex;[^}]*min-block-size: 2\.75rem;[^}]*\}/)
     expect(css).toMatch(/\.operator-shell label:has\(:is\(input\[type="checkbox"\], input\[type="radio"\]\)\) \{[^}]*min-block-size: 2\.75rem;[^}]*\}/)
     expect(css).toContain('.operator-shell :is(input[type="checkbox"], input[type="radio"])')
   })

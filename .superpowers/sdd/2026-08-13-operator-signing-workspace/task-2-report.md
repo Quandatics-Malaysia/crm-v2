@@ -115,3 +115,40 @@ Output: migration compatibility test passed; `6 passed (6)` Vitest files; `129 p
 - Added a 44px block target only to navigation, breadcrumb, pager, and button-like links. Prose links remain inline and keep their natural width.
 - Sized checkbox/radio visuals normally and made their wrapping labels 44px click targets. Existing module checkboxes already use wrapping labels.
 - Used Hono JSX `useId()` for per-instance field and heading IDs, retaining descriptive name/title prefixes while making repeated server-rendered instances unique.
+
+## Fix round 2/5: brand touch target
+
+### RED evidence
+
+Extended `styles navigational links and selectable-control labels as touch targets` to require `.operator-brand` in the display-capable 44px target selector.
+
+Command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts -t "styles navigational links and selectable-control labels as touch targets"
+```
+
+Output: `1 failed | 30 skipped (31)`. The served CSS selector omitted `.operator-brand`.
+
+### GREEN evidence
+
+Command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts -t "styles navigational links and selectable-control labels as touch targets"
+```
+
+Output: `1 passed | 30 skipped (31)`.
+
+Additional verification:
+
+```sh
+pnpm --dir apps/control-plane typecheck
+git diff --check
+```
+
+Output: `$ tsc --noEmit`; both commands exited 0, with no diff whitespace errors.
+
+### Fix decision
+
+- Added `.operator-brand` to the existing display-capable touch-target selector. The layout remains unchanged and the brand keeps natural inline width while receiving a 44px block target.

@@ -44,7 +44,7 @@ export const OPERATOR_STYLES = `
 .operator-shell-bar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-3) var(--operator-space-6); justify-content: space-between; padding-block: var(--operator-space-3); }
 .operator-brand { color: var(--operator-colour-ink); font-weight: 800; text-decoration: none; }
 .operator-navigation ul, .operator-breadcrumbs ol { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-2); list-style: none; padding: 0; }
-.operator-shell :is(.operator-navigation a, .operator-breadcrumbs a, nav[aria-label$="pagination"] a, .button-link) { align-items: center; display: inline-flex; min-block-size: 2.75rem; padding-inline: var(--operator-space-2); }
+.operator-shell :is(.operator-brand, .operator-navigation a, .operator-breadcrumbs a, nav[aria-label$="pagination"] a, .button-link) { align-items: center; display: inline-flex; min-block-size: 2.75rem; padding-inline: var(--operator-space-2); }
 .operator-navigation a { border-radius: 0.375rem; text-decoration: none; }
 .operator-navigation [aria-current="page"] { background: #e8efff; color: #00359e; font-weight: 700; }
 .operator-identity { color: var(--operator-colour-muted); font-size: 0.875rem; }

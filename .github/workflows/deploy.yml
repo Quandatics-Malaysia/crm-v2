@@ -70,7 +70,7 @@ jobs:
           CRM_APP_PASSWORD: crm_app_test
           BETTER_AUTH_SECRET: ci-test-secret-32-bytes-minimum-value
       - name: Test, requiring PostgreSQL enforcement coverage
-        run: pnpm test
+        run: pnpm test -- --maxWorkers=1
         env:
           REQUIRE_DEPLOYMENT_CONTROL_DB_TESTS: "1"
           TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/crm

@@ -32,7 +32,7 @@ jobs:
         run: pnpm --filter @crm/control-protocol run build
       - run: pnpm run lint
       - run: pnpm run typecheck
-      - run: pnpm test
+      - run: pnpm test -- --maxWorkers=1
       - run: pnpm run test:workflows
       - run: pnpm run build
 

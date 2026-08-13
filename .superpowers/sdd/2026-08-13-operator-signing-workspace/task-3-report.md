@@ -139,3 +139,99 @@ Output: no output. Exit status: `0`.
 
 - No browser visual-regression harness exists for the control-plane package. Verification covers server-rendered semantic HTML, scoped CSS contracts, and responsive CSS rules rather than screenshots.
 - Dashboard attention is intentionally bounded to five records and currently prioritises past-due/suspended contracts and disabled deployments. Additional attention categories need an explicit product rule before inclusion.
+
+## Fix round 1/5: durable child-collection state
+
+### Root cause
+
+`getClientDetail` returned only the requested child-page slice. `ClientPage` inferred whether contracts, deployments, and organisations existed from each slice's `items.length`. A valid later or out-of-range page therefore looked identical to a genuinely empty collection: it rendered a first-time empty state and reset onboarding progress.
+
+### RED evidence
+
+Added route regression test before production edits:
+
+```text
+keeps collection state and onboarding progress on out-of-range child pages
+```
+
+It requests child pages beyond existing records after creating two organisations, one deployment, and one contract. Expected behavior is page-specific empty copy while durable collection state keeps Contract and Deployment complete.
+
+Command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts
+```
+
+Output:
+
+```text
+Test Files  1 failed (1)
+Tests  1 failed | 35 passed (36)
+```
+
+The new test failed at:
+
+```text
+Expected: "No contracts on this page."
+Received: first-time "No contracts yet" empty state
+```
+
+Rendered onboarding also showed Contract as `progress-step-current` and Deployment as `progress-step-upcoming` despite persisted records.
+
+### GREEN evidence
+
+The repository now returns `CollectionResult.hasAny` from separate durable, client-scoped `SELECT 1 ... LIMIT 1` reads for organisations, deployments, and contracts. UI progress and first-time empty states consume `hasAny`; empty later pages show `No … on this page.` instead.
+
+CRUD command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-crud.test.ts
+```
+
+Output:
+
+```text
+Test Files  1 passed (1)
+Tests  36 passed (36)
+```
+
+Authentication command:
+
+```sh
+pnpm --dir apps/control-plane exec vitest run tests/operator-auth.test.ts
+```
+
+Output:
+
+```text
+Test Files  1 passed (1)
+Tests  25 passed (25)
+```
+
+Typecheck command:
+
+```sh
+pnpm --dir apps/control-plane typecheck
+```
+
+Output:
+
+```text
+$ tsc --noEmit
+```
+
+Exit status: `0`.
+
+Full control-plane command, run once:
+
+```sh
+pnpm --dir apps/control-plane test
+```
+
+Output:
+
+```text
+✔ control migrations avoid nested SELECT CASE trigger expressions rejected by remote D1
+Test Files  6 passed (6)
+Tests  134 passed (134)
+```

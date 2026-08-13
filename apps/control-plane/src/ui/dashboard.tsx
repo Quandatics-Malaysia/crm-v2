@@ -159,8 +159,8 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
     deployments: client.deployments,
     contracts: client.contracts,
   }
-  const hasContract = client.contracts.items.length > 0
-  const hasDeployment = client.deployments.items.length > 0
+  const hasContract = client.contracts.hasAny
+  const hasDeployment = client.deployments.hasAny
   return (
     <OperatorLayout title={client.displayName} operatorEmail={props.operatorEmail}>
       <PageHeader
@@ -200,8 +200,10 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
             <div><button type="submit">Add contract</button></div>
           </form>
         </Card>
-        {client.contracts.items.length === 0 ? (
+        {!client.contracts.hasAny ? (
           <EmptyState title="No contracts yet">Add contract terms before creating a deployment.</EmptyState>
+        ) : client.contracts.items.length === 0 ? (
+          <p class="field-hint">No contracts on this page.</p>
         ) : (
           <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Term</th><th scope="col">Seats</th><th scope="col">Status</th></tr></thead><tbody>{client.contracts.items.map((item) => <tr><th scope="row"><a href={`/operator/contracts/${item.id}`}>{item.startsAt} to {item.endsAt}</a></th><td>{item.seatLimit}</td><td><StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
         )}
@@ -219,8 +221,10 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
             <div><button type="submit">Add deployment</button></div>
           </form>
         </Card>
-        {client.deployments.items.length === 0 ? (
+        {!client.deployments.hasAny ? (
           <EmptyState title="No deployments yet">Create a deployment after contract terms are confirmed.</EmptyState>
+        ) : client.deployments.items.length === 0 ? (
+          <p class="field-hint">No deployments on this page.</p>
         ) : (
           <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Deployment</th><th scope="col">Environment</th><th scope="col">Status</th></tr></thead><tbody>{client.deployments.items.map((item) => <tr><th scope="row"><a href={item.href}>{item.deploymentKey}</a></th><td>{item.environment}</td><td><StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
         )}
@@ -238,8 +242,10 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
             <div><button type="submit">Add organisation</button></div>
           </form>
         </Card>
-        {client.organisations.items.length === 0 ? (
+        {!client.organisations.hasAny ? (
           <EmptyState title="No organisations yet">Add these optional records when account structure needs them.</EmptyState>
+        ) : client.organisations.items.length === 0 ? (
+          <p class="field-hint">No organisations on this page.</p>
         ) : (
           <DataList items={client.organisations.items.map((item) => ({ term: item.displayName, details: <code>{item.organisationKey}</code> }))} />
         )}

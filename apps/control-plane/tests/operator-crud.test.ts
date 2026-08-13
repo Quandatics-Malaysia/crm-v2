@@ -448,6 +448,22 @@ describe("contract and invoice administration", () => {
     expect(html).toContain("Optional organisation details")
   })
 
+  it("keeps collection state and onboarding progress on out-of-range child pages", async () => {
+    const page = await operatorRequest(
+      `/operator/clients/${clientId}?organisationsPage=3&organisationsPageSize=1&deploymentsPage=2&deploymentsPageSize=1&contractsPage=2&contractsPageSize=1`,
+    )
+    const html = await page.text()
+
+    expect(html).toContain("No contracts on this page.")
+    expect(html).toContain("No deployments on this page.")
+    expect(html).toContain("No organisations on this page.")
+    expect(html).not.toContain("No contracts yet")
+    expect(html).not.toContain("No deployments yet")
+    expect(html).not.toContain("No organisations yet")
+    expect(html).toContain('<li class="progress-step progress-step-complete"><span>Contract</span></li>')
+    expect(html).toContain('<li class="progress-step progress-step-complete"><span>Deployment</span></li>')
+  })
+
   it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {
     const before = await env.CONTROL_DB.prepare(
       "SELECT entitlement_revision FROM contracts WHERE id = ?",

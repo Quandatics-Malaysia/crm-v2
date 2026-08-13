@@ -88,6 +88,7 @@ jobs:
       # Update the server's persistent checkout, not the runner workdir.
       - name: Pull latest main
         run: |
+          set -euo pipefail
           CRM_DIR="${CRM_DIR:-$HOME/crm-v2}"
           if [ ! -d "$CRM_DIR" ]; then
             if [ -d "$HOME/actions-runner/_work/crm-v2/crm-v2" ]; then
@@ -107,7 +108,21 @@ jobs:
           git -C "$CRM_DIR" fetch origin main
           git -C "$CRM_DIR" checkout -B main origin/main
           git -C "$CRM_DIR" reset --hard origin/main
+
+          if [ -f "$CRM_DIR/.env" ]; then
+            ENV_FILE="$CRM_DIR/.env"
+          elif [ -f "$HOME/actions-runner/.env" ]; then
+            ENV_FILE="$HOME/actions-runner/.env"
+          elif [ -f "$HOME/quandatics-client/.env" ]; then
+            ENV_FILE="$HOME/quandatics-client/.env"
+          else
+            echo "deploy env file not found" >&2
+            echo "Checked: $CRM_DIR/.env, $HOME/actions-runner/.env, $HOME/quandatics-client/.env" >&2
+            exit 1
+          fi
+
           echo "CRM_DIR=$CRM_DIR" >> "$GITHUB_ENV"
+          echo "DEPLOY_ENV_FILE=$ENV_FILE" >> "$GITHUB_ENV"
       # migrate runs as a one-shot before web starts (web depends_on it).
       - name: Rebuild and restart
-        run: docker compose -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web
+        run: docker compose --env-file "${DEPLOY_ENV_FILE}" -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web

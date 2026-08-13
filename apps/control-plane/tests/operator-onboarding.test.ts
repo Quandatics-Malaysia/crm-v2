@@ -1,5 +1,5 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
-import { beforeAll, describe, expect, inject, it } from "vitest"
+import { beforeAll, describe, expect, inject, it, vi } from "vitest"
 
 import { AccessTokenInvalidError, type AccessVerifier } from "../src/auth/access"
 import { OPERATOR_ROLES, type OperatorRole } from "../src/auth/rbac"
@@ -53,7 +53,7 @@ function workspaceRequest(deploymentId: string, token = "token-vendor_owner") {
 
 function issueInstallTokenRequest(
   deploymentId: string,
-  options: { expiresAt?: string; token?: string } = {},
+  options: { expiresAt?: string; requestId?: string; token?: string } = {},
 ) {
   const form = new URLSearchParams({
     expiresAt: options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1_000).toISOString().slice(0, 16),
@@ -66,6 +66,7 @@ function issueInstallTokenRequest(
         "Content-Type": "application/x-www-form-urlencoded",
         Origin: "https://control.invalid",
         "Sec-Fetch-Site": "same-origin",
+        ...(options.requestId === undefined ? {} : { "X-Request-Id": options.requestId }),
       },
       body: form,
     }),
@@ -258,6 +259,18 @@ describe("operator onboarding workspace", () => {
     expect(after?.count).toBe(before?.count)
   })
 
+  it("rejects calendar-invalid install-token expiry values without normalizing them", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2027-02-28T12:00:00.000Z"))
+    try {
+      const input = await fixture()
+
+      expect((await issueInstallTokenRequest(input.deploymentId, { expiresAt: "2027-02-29T11:00" })).status).toBe(400)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("rolls back token persistence when its issuance audit cannot be recorded", async () => {
     const input = await fixture()
 
@@ -291,6 +304,30 @@ describe("operator onboarding workspace", () => {
       expect.objectContaining({ target_id: invalidDeploymentId, outcome: "error", metadata_json: '{"errorCode":"not_found"}' }),
       expect.objectContaining({ target_id: input.deploymentId, outcome: "error", metadata_json: '{"errorCode":"not_found"}' }),
     ]))
+  })
+
+  it("rejects registered deployments and deployments whose client is disabled", async () => {
+    const registered = await fixture()
+    await registerDeployment(registered.deploymentId)
+    expect((await issueInstallTokenRequest(registered.deploymentId)).status).toBe(404)
+
+    const disabledClient = await fixture()
+    await env.CONTROL_DB.prepare("UPDATE clients SET status = 'disabled' WHERE id = ?").bind(disabledClient.clientId).run()
+    expect((await issueInstallTokenRequest(disabledClient.deploymentId)).status).toBe(404)
+  })
+
+  it("preserves the safe failure audit when the request ID is oversized", async () => {
+    const invalidDeploymentId = crypto.randomUUID()
+
+    const response = await issueInstallTokenRequest(invalidDeploymentId, { requestId: "r".repeat(1_025) })
+
+    expect(response.status).toBe(404)
+    await expect(env.CONTROL_DB.prepare(
+      "SELECT outcome, metadata_json FROM operator_audit_log WHERE action = 'install_token.issue' AND target_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(invalidDeploymentId).first<{ outcome: string; metadata_json: string }>()).resolves.toEqual({
+      outcome: "error",
+      metadata_json: '{"errorCode":"not_found"}',
+    })
   })
 
   it("links the install next action to the token-issuance control", async () => {

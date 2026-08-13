@@ -64,7 +64,7 @@ export async function issueInstallToken(
   assertServerSecret(pepper)
   if (!Number.isFinite(Date.parse(expiresAt))) throw new TypeError("Token expiry is invalid")
   const deployment = await database.prepare(
-    "SELECT id FROM deployments WHERE id = ? AND status = 'active'",
+    "SELECT d.id FROM deployments d JOIN clients c ON c.id = d.client_id WHERE d.id = ? AND d.status = 'active' AND c.status = 'active' AND d.registered_at IS NULL",
   ).bind(deploymentId).first<{ id: string }>()
   if (!deployment) throw notFound()
 

@@ -53,7 +53,8 @@ function requestNotice(context: OperatorContext): OperatorNotice | undefined {
 }
 
 function requestId(context: OperatorContext): string {
-  return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
+  const candidate = context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id")
+  return candidate && /^[\x21-\x7e]{1,256}$/.test(candidate) ? candidate : crypto.randomUUID()
 }
 
 function isJson(context: OperatorContext): boolean {
@@ -250,8 +251,16 @@ function installTokenExpiry(value: unknown, now = new Date()): string {
   const utcSecond = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
   if (!utcMinute && !utcSecond) throw badRequest()
   const expiresAt = Date.parse(utcMinute ? `${value}:00.000Z` : value)
+  if (!Number.isFinite(expiresAt)) throw badRequest()
+  const canonical = new Date(expiresAt).toISOString()
+  if (
+    utcMinute && canonical.slice(0, 16) !== value ||
+    utcSecond && canonical !== value && canonical.replace(".000Z", "Z") !== value
+  ) {
+    throw badRequest()
+  }
   const current = now.getTime()
-  if (!Number.isFinite(expiresAt) || expiresAt <= current || expiresAt > current + INSTALL_TOKEN_MAX_LIFETIME_MS) {
+  if (expiresAt <= current || expiresAt > current + INSTALL_TOKEN_MAX_LIFETIME_MS) {
     throw badRequest()
   }
   return new Date(expiresAt).toISOString()

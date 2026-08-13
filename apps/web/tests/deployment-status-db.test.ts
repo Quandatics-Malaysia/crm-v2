@@ -94,7 +94,7 @@ integration("deployment status PostgreSQL boundary", () => {
       insert into pending_invites (id, tenant_id, email, normalized_email, expires_at, tier_level, created_at, updated_at)
       values
         ('00000000-0000-4000-8000-000000000071', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '1 day', 0, now(), now()),
-        ('00000000-0000-4000-8000-000000000072', ${`${prefix}cc`}, ${`${prefix}invite@example.com`}, ${`${prefix}invite@example.com`}, now() + interval '2 days', 0, now(), now()),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}cc`}, ${`${prefix}invite-alt@example.com`}, ${`${prefix}invite-alt@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000073', ${`${prefix}cc`}, ${`${prefix}a@example.com`}, ${`${prefix}a@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000074', ${`${prefix}qar`}, ${`${prefix}other@example.com`}, ${`${prefix}other@example.com`}, now() + interval '2 days', 0, now(), now()),
         ('00000000-0000-4000-8000-000000000075', ${`${prefix}demo`}, ${`${prefix}demo-invite@example.com`}, ${`${prefix}demo-invite@example.com`}, now() + interval '2 days', 0, now(), now())
@@ -105,7 +105,7 @@ integration("deployment status PostgreSQL boundary", () => {
       )
       values
         ('00000000-0000-4000-8000-000000000071', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '1 day', null, null),
-        ('00000000-0000-4000-8000-000000000072', ${`${prefix}invite@example.com`}, 'reserved', now() + interval '2 days', null, null),
+        ('00000000-0000-4000-8000-000000000072', ${`${prefix}invite-alt@example.com`}, 'reserved', now() + interval '2 days', null, null),
         ('00000000-0000-4000-8000-000000000073', ${`${prefix}a@example.com`}, 'reserved', now() + interval '2 days', null, null),
         (${`${prefix}invite-expired`}, ${`${prefix}expired@example.com`}, 'expired', now(), null, now()),
         (${`${prefix}invite-released`}, ${`${prefix}released@example.com`}, 'released', now() + interval '2 days', now(), null),

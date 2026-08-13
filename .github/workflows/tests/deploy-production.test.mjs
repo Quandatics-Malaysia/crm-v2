@@ -9,6 +9,8 @@ test("production deploy uses only a signed source-free release bundle", () => {
   assert.match(workflow, /workflow_dispatch:/)
   assert.match(workflow, /environment: production/)
   assert.match(workflow, /client-deployment-bundle-/)
+  assert.match(workflow, /gh run download/)
+  assert.doesNotMatch(workflow, /\\bunzip\\b/)
   assert.match(workflow, /cosign verify-blob/)
   assert.match(workflow, /release-images\.yml@refs\/tags/)
   assert.match(workflow, /apply-release-manifest\.sh/)

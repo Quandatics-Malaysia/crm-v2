@@ -245,6 +245,15 @@ describe("operator mutation protection and client administration", () => {
     expect(html).toContain("Ada &lt;admin&gt;")
   })
 
+  it("guides an empty client list to its primary creation action", async () => {
+    const page = await operatorRequest("/operator/clients")
+    const html = await page.text()
+
+    expect(html).toContain("No clients yet")
+    expect(html).toContain('href="/operator/clients#new-client"')
+    expect(html).toContain('id="new-client"')
+  })
+
   it("requires same-origin protection and owner authority for client creation", async () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 
@@ -264,6 +273,7 @@ describe("operator mutation protection and client administration", () => {
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)
+    expect(response.headers.get("Location")).toBe("/operator/clients?notice=client_created")
 
     const row = await env.CONTROL_DB.prepare(
       "SELECT id, display_name FROM clients WHERE client_key = ?",
@@ -281,6 +291,18 @@ describe("operator mutation protection and client administration", () => {
     const html = await detail.text()
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
     expect(html).not.toContain("<script>alert(1)</script>")
+  })
+
+  it("renders client rows with readable status and ignores unallowlisted notices", async () => {
+    const page = await operatorRequest("/operator/clients")
+    const html = await page.text()
+
+    expect(html).toContain('<table class="data-table">')
+    expect(html).toContain(`href="/operator/clients/${clientId}"`)
+    expect(html).toContain('class="status-badge status-badge-success">Active</span>')
+
+    const unallowlisted = await operatorRequest("/operator/clients?notice=not-a-notice")
+    expect(await unallowlisted.text()).not.toContain("not-a-notice")
   })
 
   it("returns conflict for duplicate keys and never exposes database details", async () => {
@@ -415,6 +437,17 @@ describe("contract and invoice administration", () => {
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
   })
 
+  it("orders client onboarding as contract then deployment, with optional organisations secondary", async () => {
+    const page = await operatorRequest(`/operator/clients/${clientId}`)
+    const html = await page.text()
+
+    expect(html).toContain('aria-label="Client onboarding"')
+    expect(html).toContain(`href="/operator/deployments/`)
+    expect(html.indexOf("Contracts")).toBeLessThan(html.indexOf("Deployments"))
+    expect(html.indexOf("Deployments")).toBeLessThan(html.indexOf("Organisations"))
+    expect(html).toContain("Optional organisation details")
+  })
+
   it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {
     const before = await env.CONTROL_DB.prepare(
       "SELECT entitlement_revision FROM contracts WHERE id = ?",
@@ -541,6 +574,24 @@ describe("contract and invoice administration", () => {
       "SELECT COUNT(*) AS count, SUM(amount_cents) AS total FROM invoice_collection_milestones WHERE invoice_id = ?",
     ).bind(invoice?.id).first<{ count: number; total: number }>()
     expect(schedule).toEqual({ count: 1_200, total: 100 })
+  })
+
+  it("renders dashboard counts and actionable attention items", async () => {
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("UPDATE contracts SET status = 'past_due' WHERE id = ?").bind(contractId),
+      env.CONTROL_DB.prepare("UPDATE deployments SET status = 'disabled' WHERE client_id = ?").bind(clientId),
+    ])
+
+    const page = await operatorRequest("/operator")
+    const html = await page.text()
+
+    expect(html).toContain("Client portfolio")
+    expect(html).toContain('<p class="summary-value">2</p><p>active client records</p>')
+    expect(html).toContain('<p class="summary-value">1</p><p>deployment</p>')
+    expect(html).toContain("Needs attention")
+    expect(html).toContain("Contract is past due")
+    expect(html).toContain("Deployment is disabled")
+    expect(html).toContain('href="/operator/clients#new-client"')
   })
 
   it("bounds operator list pagination", async () => {

@@ -11,6 +11,7 @@ import {
   createClient,
   createClientOrganisation,
   createDeployment,
+  getDashboardSummary,
   getClientDetail,
   listClients,
   parseClientChildPagination,
@@ -24,11 +25,27 @@ import {
   issueEntitlement,
   updateEntitlementControls,
 } from "../repos/entitlements"
-import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
+import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
 import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
+
+const OPERATOR_NOTICES = {
+  client_created: { tone: "success", title: "Client created", message: "Add contract terms to continue onboarding." },
+  organisation_created: { tone: "success", title: "Organisation added", message: "Organisation details are optional and saved." },
+  deployment_created: { tone: "success", title: "Deployment created", message: "Open deployment signing workspace to continue setup." },
+  contract_created: { tone: "success", title: "Contract created", message: "Create deployment when commercial terms are confirmed." },
+  invoice_created: { tone: "success", title: "Invoice issued", message: "Collection milestones are ready for review." },
+  entitlement_schedule_updated: { tone: "success", title: "Entitlement schedule updated", message: "Configuration changes are ready for the deployment." },
+  changes_saved: { tone: "success", title: "Changes saved", message: "The requested update completed." },
+} as const satisfies Record<string, OperatorNotice>
+
+function requestNotice(context: OperatorContext): OperatorNotice | undefined {
+  const code = new URL(context.req.url).searchParams.get("notice")
+  if (!code || !Object.hasOwn(OPERATOR_NOTICES, code)) return undefined
+  return OPERATOR_NOTICES[code as keyof typeof OPERATOR_NOTICES]
+}
 
 function requestId(context: OperatorContext): string {
   return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
@@ -185,7 +202,30 @@ async function runMutation(
   const data = await mutationData(context)
   const id = await run(data)
   if (isJson(context)) return context.json({ id }, 201)
-  return context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+  return context.redirect(htmlSuccessRedirect(context), 303)
+}
+
+function htmlSuccessRedirect(context: OperatorContext): string {
+  const pathname = new URL(context.req.url).pathname
+  const withNotice = (path: string, notice: keyof typeof OPERATOR_NOTICES) => `${path}?notice=${notice}`
+  if (pathname === "/operator/clients") return withNotice("/operator/clients", "client_created")
+
+  const clientMutation = /^\/operator\/clients\/([^/]+)\/(organisations|deployments|contracts)$/.exec(pathname)
+  if (clientMutation) {
+    const notice = clientMutation[2] === "organisations"
+      ? "organisation_created"
+      : clientMutation[2] === "deployments"
+        ? "deployment_created"
+        : "contract_created"
+    return withNotice(`/operator/clients/${clientMutation[1]}`, notice)
+  }
+
+  const invoiceMutation = /^\/operator\/contracts\/([^/]+)\/invoices$/.exec(pathname)
+  if (invoiceMutation) return withNotice(`/operator/contracts/${invoiceMutation[1]}`, "invoice_created")
+  if (/^\/operator\/deployments\/[^/]+\/entitlements\/schedule$/.test(pathname)) {
+    return withNotice("/operator/clients", "entitlement_schedule_updated")
+  }
+  return withNotice("/operator/clients", "changes_saved")
 }
 
 function actor(context: OperatorContext) {
@@ -211,9 +251,13 @@ export function createOperatorRoutes() {
     "Content-Type": "text/css; charset=UTF-8",
   }))
 
-  routes.get("/", (context) =>
-    context.html(<Dashboard operatorEmail={context.get("operator").email} />),
-  )
+  routes.get("/", async (context) => context.html(
+    <Dashboard
+      operatorEmail={context.get("operator").email}
+      summary={await getDashboardSummary(context.env.CONTROL_DB)}
+      notice={requestNotice(context)}
+    />,
+  ))
   routes.get("/clients", async (context) => {
     const pagination = parsePagination(context.req.url)
     const clients = await listClients(
@@ -227,6 +271,7 @@ export function createOperatorRoutes() {
         page={pagination.page}
         pageSize={pagination.pageSize}
         operatorEmail={context.get("operator").email}
+        notice={requestNotice(context)}
       />,
     )
   })
@@ -236,7 +281,7 @@ export function createOperatorRoutes() {
       context.req.param("clientId"),
       parseClientChildPagination(context.req.url),
     )
-    return context.html(<ClientPage client={client} operatorEmail={context.get("operator").email} />)
+    return context.html(<ClientPage client={client} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
@@ -244,7 +289,7 @@ export function createOperatorRoutes() {
       context.req.param("contractId"),
       parseNamedPagination(context.req.url, "invoices"),
     )
-    return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} />)
+    return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
   })
 
   routes.post(
@@ -321,7 +366,7 @@ export function createOperatorRoutes() {
           ? null
           : String(data.approvedImageDigest),
       }, actor(context))
-      return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(context.req.header("Referer") ?? "/operator/clients", 303)
+      return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(htmlSuccessRedirect(context), 303)
     },
   )
   routes.post(

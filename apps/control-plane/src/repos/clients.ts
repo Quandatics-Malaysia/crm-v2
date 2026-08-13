@@ -55,6 +55,18 @@ export interface ClientDetail extends ClientListItem {
   contracts: PageResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
 }
 
+export interface DashboardSummary {
+  activeClientCount: number
+  deploymentCount: number
+  attentionItems: {
+    href: string
+    title: string
+    description: string
+    status: "Past due" | "Suspended" | "Disabled"
+    tone: "warning" | "error"
+  }[]
+}
+
 function textField(value: unknown, maximum: number): string {
   if (typeof value !== "string") throw badRequest()
   const trimmed = value.trim()
@@ -282,6 +294,42 @@ export async function listClients(
     displayName: row.display_name,
     status: row.status,
   }))
+}
+
+export async function getDashboardSummary(database: D1Database): Promise<DashboardSummary> {
+  const [clients, deployments, contractsNeedingAttention, disabledDeployments] = await Promise.all([
+    database.prepare("SELECT COUNT(*) AS count FROM clients WHERE status = 'active'").first<{ count: number }>(),
+    database.prepare("SELECT COUNT(*) AS count FROM deployments").first<{ count: number }>(),
+    database.prepare(
+      "SELECT id, status FROM contracts WHERE status IN ('past_due', 'suspended') ORDER BY updated_at DESC, id DESC LIMIT 5",
+    ).all<{ id: string; status: "past_due" | "suspended" }>(),
+    database.prepare(
+      "SELECT id FROM deployments WHERE status = 'disabled' ORDER BY updated_at DESC, id DESC LIMIT 5",
+    ).all<{ id: string }>(),
+  ])
+
+  const attentionItems = [
+    ...contractsNeedingAttention.results.map((contract) => ({
+      href: `/operator/contracts/${contract.id}`,
+      title: contract.status === "past_due" ? "Contract is past due" : "Contract is suspended",
+      description: "Review contract terms and entitlement controls.",
+      status: contract.status === "past_due" ? "Past due" as const : "Suspended" as const,
+      tone: contract.status === "past_due" ? "warning" as const : "error" as const,
+    })),
+    ...disabledDeployments.results.map((deployment) => ({
+      href: `/operator/deployments/${deployment.id}`,
+      title: "Deployment is disabled",
+      description: "Open deployment signing workspace to review its status.",
+      status: "Disabled" as const,
+      tone: "error" as const,
+    })),
+  ].slice(0, 5)
+
+  return {
+    activeClientCount: clients?.count ?? 0,
+    deploymentCount: deployments?.count ?? 0,
+    attentionItems,
+  }
 }
 
 export async function getClientDetail(

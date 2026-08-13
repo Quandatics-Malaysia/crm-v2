@@ -1,7 +1,7 @@
 import { z } from "zod"
 
-import { ModuleIdSchema } from "./entitlement.js"
-import { StrictSemverSchema } from "./version.js"
+import { ModuleIdSchema } from "./entitlement"
+import { StrictSemverSchema } from "./version"
 
 const DeploymentIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
 const CanonicalUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)

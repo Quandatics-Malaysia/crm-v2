@@ -48,8 +48,10 @@ jobs:
 
           TEMP_DIR="$(mktemp -d)"
           echo "TEMP_DIR=$TEMP_DIR" >> "$GITHUB_ENV"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$TEMP_DIR/bundle.zip"
-          unzip -q "$TEMP_DIR/bundle.zip" -d "$TEMP_DIR/bundle"
+          gh run download "$RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "client-deployment-bundle-${RELEASE_TAG}" \
+            --dir "$TEMP_DIR/bundle"
 
           command -v cosign >/dev/null 2>&1 || { echo "cosign is required" >&2; exit 1; }
           cosign verify-blob \

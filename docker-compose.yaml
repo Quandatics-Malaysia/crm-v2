@@ -42,8 +42,8 @@ services:
       context: .
       target: migrator
     environment:
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL must be derived before running Compose}
+      DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL must be derived before running Compose}
       CRM_APP_PASSWORD: ${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
@@ -81,8 +81,8 @@ services:
     environment:
       NODE_ENV: production
       # App connects as the RLS-enforced crm_app role.
-      DATABASE_URL: postgres://crm_app:${CRM_APP_PASSWORD:?CRM_APP_PASSWORD must be set}@db:5432/crm
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL must be derived before running Compose}
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL must be derived before running Compose}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set (openssl rand -base64 32)}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost}
       APP_URL: ${APP_URL:-${BETTER_AUTH_URL:-http://localhost}}
@@ -145,7 +145,7 @@ services:
   backup:
     image: postgres:17-alpine
     environment:
-      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?DATABASE_ADMIN_URL must be derived before running Compose}
       # Optional off-box mirror (e.g. user@nas:/backups/crm); unset → skipped.
       BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
     entrypoint: ["/bin/sh", "/ops/scheduler.sh"]
@@ -160,21 +160,6 @@ services:
       db:
         condition: service_healthy
     mem_limit: 256m
-    logging: *default-logging
-    restart: unless-stopped
-
-  # DB admin UI (pgweb) — LOCALHOST-ONLY, never routed through Caddy. Reach it
-  # via SSH tunnel. Off by default; start with:  docker compose --profile admin up -d
-  admin:
-    image: sosedoff/pgweb:latest
-    profiles: ["admin"]
-    environment:
-      PGWEB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/crm?sslmode=disable
-    ports:
-      - "127.0.0.1:8082:8081"
-    depends_on:
-      db:
-        condition: service_healthy
     logging: *default-logging
     restart: unless-stopped
 

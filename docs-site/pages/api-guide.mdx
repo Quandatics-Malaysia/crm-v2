@@ -9,13 +9,15 @@ data into external tools (reporting, integrations, scripts). Everything else
 for that architecture. This page covers the `/api/v1` surface only. You can
 also try every endpoint live in the [API Playground](/api-playground).
 
+For the complete no-source partner workflow, read [External developers →
+Development guide](/external-developers/development-guide).
+
 ## Get an API key
 
 1. Go to **Settings → API Keys** (`/settings/access`).
 2. Create a key and give it a name.
-3. Copy the raw key immediately — it is shown **exactly once**. Only a
-   salted hash is stored server-side, so if you lose it you must issue a new
-   one.
+3. Copy the raw key immediately — it is shown **exactly once**. The server
+   stores its SHA-256 digest, so if you lose the key you must issue a new one.
 
 A key belongs to a specific member and inherits **that member's role
 permissions, and nothing more** — it can never do more than the member could
@@ -41,7 +43,8 @@ There is no separate API-key header or query-string option — only
 /api/v1
 ```
 
-For example, in production: `https://app.quandatics.com/api/v1/leads`.
+During development, use the sandbox URL supplied by Quandatics. For example:
+`https://your-sandbox.example.com/api/v1/leads`.
 
 ## Resources
 
@@ -119,14 +122,14 @@ Errors share one shape:
 ## curl example
 
 ```bash
-curl "https://app.quandatics.com/api/v1/leads?limit=20" \
+curl "https://your-sandbox.example.com/api/v1/leads?limit=20" \
   -H "Authorization: Bearer qdk_xxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
 Fetching a single record:
 
 ```bash
-curl "https://app.quandatics.com/api/v1/accounts/acc_123" \
+curl "https://your-sandbox.example.com/api/v1/accounts/acc_123" \
   -H "Authorization: Bearer qdk_xxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 

@@ -1,5 +1,4 @@
-import { Hono } from "hono"
-import { HTTPException } from "hono/http-exception"
+import { Hono, type Context } from "hono"
 
 import {
   createOperatorAuthMiddleware,
@@ -7,34 +6,49 @@ import {
   type OperatorContext,
 } from "./auth/access"
 import { verifyControlDatabase } from "./db/client"
-import { SafeHttpError } from "./http/errors"
+import { acceptsOperatorHtml, isOperatorRequest, safeErrorResponse } from "./http/errors"
+import { requestId } from "./http/request-id"
 import { createDeploymentRoutes } from "./routes/deployments"
 import { createEntitlementRoutes } from "./routes/entitlements"
 import { createOperatorRoutes } from "./routes/operator"
 import { runEntitlementRenewal } from "./repos/entitlements"
+import { OperatorErrorPage } from "./ui/error"
 
 export interface ControlPlaneEnvironment {
   Bindings: CloudflareBindings
   Variables: {
     operator: OperatorContext
+    requestCorrelationId: string
   }
 }
 
 export interface ControlPlaneDependencies extends OperatorAuthDependencies {}
 
+function safeOperatorError(
+  context: Context<ControlPlaneEnvironment>,
+  response: ReturnType<typeof safeErrorResponse>,
+) {
+  context.header("Cache-Control", "no-store")
+  context.header("X-Content-Type-Options", "nosniff")
+  context.header("Referrer-Policy", "no-referrer")
+
+  if (acceptsOperatorHtml(context.req.raw)) {
+    return context.html(OperatorErrorPage({
+      code: response.code,
+      requestId: requestId(context),
+    }), response.status)
+  }
+
+  return context.json({ error: response.code }, response.status)
+}
+
 export function createApp(dependencies: ControlPlaneDependencies = {}) {
   const app = new Hono<ControlPlaneEnvironment>()
 
-  app.onError((error, context) => {
-    if (error instanceof SafeHttpError) {
-      return context.json({ error: error.code }, error.status)
-    }
-    if (error instanceof HTTPException && error.status === 403) {
-      return context.json({ error: "forbidden" }, 403)
-    }
-
-    return context.json({ error: "internal_error" }, 500)
-  })
+  app.onError((error, context) => safeOperatorError(context, safeErrorResponse(error)))
+  app.notFound((context) => isOperatorRequest(context.req.raw)
+    ? safeOperatorError(context, { code: "not_found", status: 404 })
+    : context.text("404 Not Found", 404))
 
   app.get("/health", async (context) => {
     const databaseReady = await verifyControlDatabase(context.env.CONTROL_DB)

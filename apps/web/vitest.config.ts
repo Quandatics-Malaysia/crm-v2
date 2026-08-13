@@ -13,5 +13,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts", "lib/**/*.test.ts"],
     environment: "node",
+    // PostgreSQL enforcement suites share one CI database.
+    fileParallelism: false,
   },
 })

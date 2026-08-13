@@ -1,93 +1,86 @@
-# CI + deploy.
-#   - On every PR into main: the `quality` gate runs (lint/typecheck/test/build)
-#     on a GitHub-hosted runner. The `deploy` job is skipped.
-#   - On push to main (i.e. a merge): `quality` runs, then `deploy` rebuilds on
-#     the server via a SELF-HOSTED runner (build happens on the box — no
-#     registries, no cloud).
-#
-# One-time setup on the server:
-#   1. Clone the repo somewhere persistent (e.g. /opt/crm-v2) with a .env.
-#   2. Install a self-hosted runner for this repo (Settings → Actions →
-#      Runners → New self-hosted runner) and run it as a service:
-#      https://docs.github.com/en/actions/hosting-your-own-runners
-#   3. Give the runner user access to docker (usermod -aG docker <user>).
-name: deploy
+name: deploy-production
 
 on:
-  push:
-    branches: [main]
-    # Docs-only merges don't change the running app — skip the whole workflow
-    # (and the production rebuild) when nothing outside these paths changed.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "docs-site/**"
-      - ".github/workflows/docs-quality.yml"
-      - "LICENSE"
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Signed strict SemVer release, for example v1.2.20
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
 
 concurrency:
-  group: deploy
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  quality:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: crm
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d crm"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Build shared control protocol
-        run: pnpm --filter @crm/control-protocol run build
-      - run: pnpm run lint
-      - run: pnpm run typecheck
-      - name: Migrate PostgreSQL enforcement test database
-        run: pnpm --filter web run db:migrate
-        env:
-          DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/crm
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/crm
-          CRM_APP_PASSWORD: crm_app_test
-          BETTER_AUTH_SECRET: ci-test-secret-32-bytes-minimum-value
-      - name: Test, requiring PostgreSQL enforcement coverage
-        run: pnpm test
-        env:
-          REQUIRE_DEPLOYMENT_CONTROL_DB_TESTS: "1"
-          TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/crm
-          TEST_DATABASE_URL: postgres://crm_app:crm_app_test@localhost:5432/crm
-      - name: Verify deployment entitlement CI contract
-        run: node --test .github/workflows/tests/deploy-entitlement-db.test.mjs
-      - run: pnpm run build
-
   deploy:
-    needs: quality
-    # Only on a real merge to main — never on pull requests.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
+    environment: production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLIENT_DIR: /home/internalops/quandatics-client
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      # Update the server's persistent checkout, not the runner workdir.
-      - name: Pull latest main
-        run: git -C "${CRM_DIR:-$HOME/crm-v2}" pull --ff-only origin main
-      # migrate runs as a one-shot before web starts (web depends_on it).
-      - name: Rebuild and restart
-        run: docker compose -f "${CRM_DIR:-$HOME/crm-v2}/docker-compose.yaml" up -d --build migrate web
+      - name: Download verified source-free release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid release tag" >&2; exit 1; }
+          [ -f "$CLIENT_DIR/.env" ] || { echo "protected production env is missing" >&2; exit 1; }
+
+          ARTIFACT_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=client-deployment-bundle-${RELEASE_TAG}&per_page=100" \
+            | jq -c '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last')"
+          [ "$ARTIFACT_JSON" != "null" ] || { echo "signed release bundle not found" >&2; exit 1; }
+          ARTIFACT_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.id')"
+          RELEASE_RUN_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.workflow_run.id')"
+          RELEASE_RUN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}")"
+          printf '%s' "$RELEASE_RUN" | jq -e --arg tag "$RELEASE_TAG" '
+            .conclusion == "success" and
+            .event == "workflow_dispatch" and
+            .path == ".github/workflows/release-images.yml" and
+            .head_branch == $tag
+          ' >/dev/null || { echo "release bundle did not come from a successful vendor tag workflow" >&2; exit 1; }
+
+          TEMP_DIR="$(mktemp -d)"
+          echo "TEMP_DIR=$TEMP_DIR" >> "$GITHUB_ENV"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$TEMP_DIR/bundle.zip"
+          unzip -q "$TEMP_DIR/bundle.zip" -d "$TEMP_DIR/bundle"
+
+          command -v cosign >/dev/null 2>&1 || { echo "cosign is required" >&2; exit 1; }
+          cosign verify-blob \
+            --bundle "$TEMP_DIR/bundle/client-deployment-bundle.sigstore.json" \
+            --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/${RELEASE_TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$TEMP_DIR/bundle/client-deployment-bundle.tar.gz"
+          mkdir "$TEMP_DIR/verified"
+          tar -xzf "$TEMP_DIR/bundle/client-deployment-bundle.tar.gz" -C "$TEMP_DIR/verified"
+
+          BUNDLE_DIR="$TEMP_DIR/verified/client"
+          [ -n "$BUNDLE_DIR" ] && [ -f "$BUNDLE_DIR/deploy.sh" ] || { echo "invalid release bundle" >&2; exit 1; }
+
+          install -d -m 0700 "$CLIENT_DIR" "$CLIENT_DIR/ops"
+          install -m 0700 "$BUNDLE_DIR"/*.sh "$CLIENT_DIR/"
+          install -m 0700 "$BUNDLE_DIR"/ops/*.sh "$CLIENT_DIR/ops/"
+          install -m 0644 "$BUNDLE_DIR/compose.yaml" "$BUNDLE_DIR/Caddyfile" "$CLIENT_DIR/"
+          install -m 0600 "$BUNDLE_DIR/release-manifest.json" "$CLIENT_DIR/release-manifest.json"
+
+      - name: Apply manifest and deploy signed digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$CLIENT_DIR/apply-release-manifest.sh" "$CLIENT_DIR/.env" "$CLIENT_DIR/release-manifest.json" "$RELEASE_TAG"
+          "$CLIENT_DIR/deploy.sh" "$CLIENT_DIR/.env"
+
+      - name: Clean temporary bundle
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${TEMP_DIR:-}" ] && [ -d "$TEMP_DIR" ]; then
+            find "$TEMP_DIR" -type f -exec chmod u+w {} + 2>/dev/null || true
+            rm -rf -- "$TEMP_DIR"
+          fi

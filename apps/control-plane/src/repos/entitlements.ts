@@ -28,7 +28,10 @@ interface EntitlementStateRow {
   deployment_id: string
   deployment_status: string
   registered_at: string | null
+  registration_key_fingerprint: string | null
   client_id: string
+  client_status: string
+  has_active_deployment_key: number
   contract_id: string
   contract_client_id: string
   plan_id: string
@@ -60,14 +63,16 @@ interface StoredEntitlementRow {
   signature: string
   envelope_json: string | null
   issuance_key: string | null
+  contract_revision: number | null
+  schedule_revision: number | null
   issued_at: string
 }
 
-class DeploymentUnavailableError extends Error {
+class DeploymentUnavailableError extends SafeHttpError {
   readonly snapshot: EntitlementStateRow
 
   constructor(snapshot: EntitlementStateRow) {
-    super("Deployment is unavailable")
+    super(409, "entitlement_prerequisites_unavailable")
     this.snapshot = snapshot
   }
 }
@@ -155,14 +160,26 @@ export async function assignEntitlementSchedule(
 ): Promise<void> {
   validateScheduleInput(input)
   const row = await database.prepare(
-    "SELECT d.client_id AS deployment_client_id, d.status AS deployment_status, c.client_id AS contract_client_id FROM deployments d JOIN contracts c ON c.id = ? WHERE d.id = ?",
+    "SELECT d.client_id AS deployment_client_id, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint, client.status AS client_status, c.client_id AS contract_client_id, c.status AS contract_status, c.starts_at, c.ends_at, EXISTS (SELECT 1 FROM deployment_keys dk WHERE dk.deployment_id = d.id AND dk.revoked_at IS NULL) AS has_registration_key FROM deployments d JOIN clients client ON client.id = d.client_id JOIN contracts c ON c.id = ? WHERE d.id = ?",
   ).bind(input.contractId, input.deploymentId).first<{
     deployment_client_id: string
     deployment_status: string
+    registered_at: string | null
+    registration_key_fingerprint: string | null
+    client_status: string
     contract_client_id: string
+    contract_status: string
+    starts_at: string
+    ends_at: string
+    has_registration_key: number
   }>()
   if (!row) throw notFound()
-  if (row.deployment_client_id !== row.contract_client_id || row.deployment_status !== "active") throw badRequest()
+  const today = now.toISOString().slice(0, 10)
+  if (row.deployment_client_id !== row.contract_client_id || row.client_status !== "active" ||
+      row.deployment_status !== "active" || row.registered_at === null ||
+      row.registration_key_fingerprint === null || row.has_registration_key !== 1 ||
+      !["active", "past_due"].includes(row.contract_status) ||
+      row.starts_at > today || row.ends_at < today) throw badRequest()
   const at = now.toISOString()
   const audit = await prepareOperatorAuditStatement(database, {
     operatorId: actor.operatorId,
@@ -339,13 +356,18 @@ export async function updateEntitlementControls(
   }
 }
 
-async function loadState(database: D1Database, deploymentId: string, contractId?: string): Promise<EntitlementStateRow> {
+async function loadState(database: D1Database, deploymentId: string, now: Date, contractId?: string): Promise<EntitlementStateRow> {
+  const at = now.toISOString()
   const row = await database.prepare(
-    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.client_id, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, c.entitlement_revision, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version, s.state_revision FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
-  ).bind(deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
+    "SELECT d.id AS deployment_id, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint, d.client_id, client.status AS client_status, EXISTS (SELECT 1 FROM deployment_keys dk WHERE dk.deployment_id = d.id AND dk.algorithm = 'Ed25519' AND dk.revoked_at IS NULL AND dk.replaced_by_key_id IS NULL AND dk.not_before <= ? AND (dk.expires_at IS NULL OR dk.expires_at > ?)) AS has_active_deployment_key, s.contract_id, c.client_id AS contract_client_id, c.plan_id, c.status, c.starts_at, c.ends_at, c.seat_limit, c.renewal_policy, c.suspension_at, c.scheduled_seat_limit, c.seat_limit_effective_at, c.entitlement_revision, s.configuration_version, s.release_channel, s.minimum_supported_app_version, s.approved_image_digest, s.next_check_at, s.latest_version, s.state_revision FROM deployment_entitlement_schedules s JOIN deployments d ON d.id = s.deployment_id JOIN clients client ON client.id = d.client_id JOIN contracts c ON c.id = s.contract_id WHERE s.deployment_id = ? AND (? IS NULL OR s.contract_id = ?)",
+  ).bind(at, at, deploymentId, contractId ?? null, contractId ?? null).first<EntitlementStateRow>()
   if (!row) throw notFound()
   if (row.client_id !== row.contract_client_id) throw badRequest()
-  if (row.deployment_status !== "active" || row.registered_at === null) throw new DeploymentUnavailableError(row)
+  if (row.client_status !== "active" || row.deployment_status !== "active" ||
+      row.registered_at === null || row.registration_key_fingerprint === null ||
+      row.has_active_deployment_key !== 1) {
+    throw new DeploymentUnavailableError(row)
+  }
   return row
 }
 
@@ -361,7 +383,7 @@ async function validatedModules(database: D1Database, contractId: string): Promi
   const rows = await database.prepare(
     "SELECT cm.module_id, mc.active, mc.dependency_ids_json FROM contract_modules cm LEFT JOIN module_catalog mc ON mc.module_id = cm.module_id WHERE cm.contract_id = ? ORDER BY cm.module_id",
   ).bind(contractId).all<{ module_id: string; active: number | null; dependency_ids_json: string | null }>()
-  if (rows.results.length === 0) throw badRequest()
+  if (rows.results.length === 0) return []
   const selected = new Set<ModuleId>()
   const graph = new Map<ModuleId, ModuleId[]>()
   for (const row of rows.results) {
@@ -412,15 +434,26 @@ function effectiveState(row: EntitlementStateRow, now: Date): {
   }
 }
 
+function signingConfigurationUnavailable(): SafeHttpError {
+  return new SafeHttpError(503, "signing_configuration_unavailable")
+}
+
+function signingKeyId(value: string): string {
+  try {
+    return boundedValue(value, 128)
+  } catch {
+    throw signingConfigurationUnavailable()
+  }
+}
+
 function privateSigningJwk(environment: CloudflareBindings): JsonWebKey {
-  const keyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
   let parsed: unknown
-  try { parsed = JSON.parse(environment.ENTITLEMENT_SIGNING_PRIVATE_JWK) } catch { throw new Error("Entitlement signing configuration is unavailable") }
-  if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Entitlement signing configuration is unavailable")
+  try { parsed = JSON.parse(environment.ENTITLEMENT_SIGNING_PRIVATE_JWK) } catch { throw signingConfigurationUnavailable() }
+  if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") throw signingConfigurationUnavailable()
   const key = parsed as Record<string, unknown>
   if (key.kty !== "OKP" || key.crv !== "Ed25519" || typeof key.x !== "string" || typeof key.d !== "string" ||
       !/^[A-Za-z0-9_-]{43}$/.test(key.x) || !/^[A-Za-z0-9_-]{43}$/.test(key.d)) {
-    throw new Error("Entitlement signing configuration is unavailable")
+    throw signingConfigurationUnavailable()
   }
   return { kty: "OKP", crv: "Ed25519", x: key.x, d: key.d, key_ops: ["sign"], ext: true, alg: "EdDSA" }
 }
@@ -527,7 +560,7 @@ function fromStored(row: StoredEntitlementRow): EntitlementRecord {
 export async function getEntitlement(database: D1Database, deploymentId: string, version: number): Promise<EntitlementRecord | null> {
   if (!Number.isSafeInteger(version) || version < 1) return null
   const row = await database.prepare(
-    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? AND version = ?",
+    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE deployment_id = ? AND version = ?",
   ).bind(deploymentId, version).first<StoredEntitlementRow>()
   return row ? fromStored(row) : null
 }
@@ -548,19 +581,33 @@ export async function issueEntitlement(
     actor: EntitlementActor
     now?: Date
     claimToken?: string
+    expectedContractRevision?: number
+    expectedScheduleRevision?: number
   },
 ): Promise<EntitlementRecord> {
   const issuanceKey = boundedValue(input.issuanceKey, 256)
   const existing = await environment.CONTROL_DB.prepare(
-    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? AND issuance_key = ?",
+    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE deployment_id = ? AND issuance_key = ?",
   ).bind(input.deploymentId, issuanceKey).first<StoredEntitlementRow>()
   if (existing) return fromStored(existing)
   const now = input.now ?? new Date()
-  const row = await loadState(environment.CONTROL_DB, input.deploymentId, input.contractId)
-  const keyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
+  const row = await loadState(environment.CONTROL_DB, input.deploymentId, now, input.contractId)
+  if (input.expectedContractRevision !== undefined &&
+      input.expectedContractRevision !== row.entitlement_revision ||
+      input.expectedScheduleRevision !== undefined &&
+      input.expectedScheduleRevision !== row.state_revision) {
+    throw new SafeHttpError(409, "entitlement_state_changed")
+  }
+  const keyId = signingKeyId(environment.ENTITLEMENT_SIGNING_KEY_ID)
   const revision = await allocateEntitlementRevision(environment.CONTROL_DB, input.deploymentId)
   const payload = await desiredLease(environment.CONTROL_DB, row, keyId, revision, now)
-  const envelope = await signEnvelope(payload, keyId, privateSigningJwk(environment))
+  let envelope: SignedEnvelope<EntitlementLease>
+  try {
+    envelope = await signEnvelope(payload, keyId, privateSigningJwk(environment))
+  } catch (error) {
+    if (error instanceof SafeHttpError) throw error
+    throw signingConfigurationUnavailable()
+  }
   const payloadJson = canonicalJson(payload)
   const envelopeJson = canonicalJson(envelope)
   const id = crypto.randomUUID()
@@ -595,16 +642,19 @@ export async function issueEntitlement(
     await environment.CONTROL_DB.batch(statements)
   } catch (error) {
     const raced = await environment.CONTROL_DB.prepare(
-      "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? AND issuance_key = ?",
+      "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE deployment_id = ? AND issuance_key = ?",
     ).bind(input.deploymentId, issuanceKey).first<StoredEntitlementRow>()
     if (raced) return fromStored(raced)
     if (error instanceof Error && error.message.includes("entitlement state changed")) {
       throw new SafeHttpError(409, "entitlement_state_changed")
     }
+    if (error instanceof Error && error.message.includes("entitlement issuance prerequisites unavailable")) {
+      throw new SafeHttpError(409, "entitlement_prerequisites_unavailable")
+    }
     throw error
   }
   const stored = await environment.CONTROL_DB.prepare(
-    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE id = ?",
+    "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE id = ?",
   ).bind(id).first<StoredEntitlementRow>()
   if (!stored) throw new Error("Entitlement issuance did not commit")
   return fromStored(stored)
@@ -696,13 +746,13 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
   failed: number
 }> {
   const now = new Date(clock.getTime())
-  const activeKeyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
+  const activeKeyId = signingKeyId(environment.ENTITLEMENT_SIGNING_KEY_ID)
   const summary = { checked: 0, issued: 0, skipped: 0, failed: 0 }
   let cursor = ""
   let workCount = 0
   while (workCount < RENEWAL_BATCH_SIZE && summary.checked < MAX_RENEWAL_SCANS) {
     const due = await environment.CONTROL_DB.prepare(
-      "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.deployment_id > ? AND (s.next_check_at <= ? OR (e.id IS NOT NULL AND (e.key_id <> ? OR COALESCE(json_extract(e.payload_json, '$.schemaVersion'), 0) <> 2) AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?))))) ORDER BY s.deployment_id LIMIT ?",
+      "SELECT s.deployment_id, s.contract_id FROM deployment_entitlement_schedules s JOIN contracts c ON c.id = s.contract_id LEFT JOIN entitlement_versions e ON e.id = (SELECT current.id FROM entitlement_versions current WHERE current.deployment_id = s.deployment_id ORDER BY current.version DESC LIMIT 1) WHERE s.deployment_id > ? AND (s.next_check_at <= ? OR (e.id IS NOT NULL AND e.contract_id = s.contract_id AND e.contract_revision = c.entitlement_revision AND e.schedule_revision = s.state_revision AND (e.key_id <> ? OR COALESCE(json_extract(e.payload_json, '$.schemaVersion'), 0) <> 2) AND NOT EXISTS (SELECT 1 FROM entitlement_renewal_claims r WHERE r.deployment_id = s.deployment_id AND r.target_key_id = ? AND r.issuance_key LIKE ('auto:' || e.version || ':%') AND ((r.state = 'claimed' AND r.claim_expires_at > ?) OR (r.state = 'failed' AND r.retry_at > ?))))) ORDER BY s.deployment_id LIMIT ?",
     ).bind(cursor, now.toISOString(), activeKeyId, activeKeyId, now.toISOString(), now.toISOString(), RENEWAL_BATCH_SIZE)
       .all<{ deployment_id: string; contract_id: string }>()
     if (due.results.length === 0) break
@@ -714,12 +764,25 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
     let activeClaimToken: string | null = null
     let activeSnapshot: EntitlementStateRow | null = null
     try {
-      const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, schedule.contract_id)
+      const row = await loadState(environment.CONTROL_DB, schedule.deployment_id, now, schedule.contract_id)
       activeSnapshot = row
       const desired = await desiredLease(environment.CONTROL_DB, row, activeKeyId, (row.latest_version ?? 0) + 1, now)
       const latestRow = await environment.CONTROL_DB.prepare(
-        "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT 1",
+        "SELECT id, deployment_id, contract_id, version, key_id, payload_json, signature, envelope_json, issuance_key, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT 1",
       ).bind(schedule.deployment_id).first<StoredEntitlementRow>()
+      if (latestRow === null || latestRow.contract_id !== row.contract_id ||
+          latestRow.contract_revision !== row.entitlement_revision ||
+          latestRow.schedule_revision !== row.state_revision) {
+        await updateScheduleFromSnapshot(
+          environment.CONTROL_DB,
+          row,
+          new Date(now.getTime() + DAY_MS).toISOString(),
+          now.toISOString(),
+        )
+        summary.skipped += 1
+        workCount += 1
+        continue
+      }
       const latest = latestRow ? fromStored(latestRow) : null
       const latestCurrentLease = latest?.envelope.payload.schemaVersion === 2 ? latest.envelope.payload : null
       const materialChange = latestCurrentLease === null ||
@@ -764,6 +827,8 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         contractId: schedule.contract_id,
         issuanceKey,
         claimToken,
+        expectedContractRevision: row.entitlement_revision,
+        expectedScheduleRevision: row.state_revision,
         actor: { operatorId: null, requestId: `scheduled:${schedule.deployment_id}:${now.toISOString()}`, source: "scheduled" },
         now,
       })
@@ -793,8 +858,8 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
       }
       summary.failed += 1
       workCount += 1
-      const signingConfigurationInvalid = error instanceof Error &&
-        error.message === "Entitlement signing configuration is unavailable"
+      const signingConfigurationInvalid = error instanceof SafeHttpError &&
+        error.code === "signing_configuration_unavailable"
       const deterministic = signingConfigurationInvalid || error instanceof SafeHttpError
       let delay = DAY_MS
       if (!deterministic && activeIssuanceKey !== null && activeClaimToken !== null) {

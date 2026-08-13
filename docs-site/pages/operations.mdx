@@ -3,34 +3,118 @@ title: Operations
 category: ""
 ---
 
-How the Quandatics CRM is built and deployed, at a glance. The full operator
-runbook — server access, backups & restore, database admin, and hardening —
-lives in **`OPERATIONS.md` in the repository** (kept out of this public site on
-purpose).
+How the Quandatics CRM is built and deployed, at a glance. The canonical
+operator runbook — release, recovery, backups, database admin, and hardening —
+lives in **`OPERATIONS.md` in the public repository**.
+
+## Quick map
+
+| Need | Open |
+| --- | --- |
+| External API developer | [External developers](/external-developers/overview) |
+| Source contributor | [Contributing](/contributing) |
+| Version + release + failed deploy | [`OPERATIONS.md`](https://github.com/Super-ERP/crm-v2/blob/main/OPERATIONS.md) |
+| New production install | [`deploy/client/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/deploy/client/README.md) |
+| Client, contract, deployment, entitlement | [`apps/control-plane/README.md`](https://github.com/Super-ERP/crm-v2/blob/main/apps/control-plane/README.md) |
+| Signed release history | [Release log](https://github.com/Super-ERP/crm-v2/blob/main/docs/operations/release-log.md) |
 
 ## Environments
 
-- **Production** — the live app, deployed from the `main` branch.
+- **Production** — the live app, deployed from a signed SemVer release after approval.
 - **Staging** — an isolated stack built from the `staging` branch, so changes
   can be reviewed before they reach production. Its Cloudflare quick-tunnel URL
   changes on each redeploy and is published in the latest workflow summary.
 
-The flow is: **feature branch → `staging` (preview) → `main` (production)**.
+The flow is: **feature branch → `staging` → `main` → signed release → production approval**.
 
 ## How a deploy works
 
-Every push follows the same gate:
+Every release follows the same gate:
 
 1. A **quality gate** runs on a GitHub-hosted runner — lint, typecheck, tests,
    and a production build. A pull request must pass it before merge.
-2. On a merge to `main`, a **self-hosted runner rebuilds the app on the server**
-   (Docker Compose) and restarts it. Staging works the same way from its own
-   branch, in a separate namespaced stack, so a staging deploy never disturbs
-   production. The stack listens locally on port `8091`; the workflow starts a
-   temporary public tunnel for browser review.
+2. Vendor CI builds four immutable images, scans them, emits SBOM evidence, and
+   signs each digest with GitHub OIDC and Cosign.
+3. The protected production workflow downloads only the source-free client
+   bundle, verifies vendor signatures, migrates, checks health, and rolls back
+   if a required gate fails. Production never builds application source.
 
-There is no cloud build step and no image registry — the server builds and runs
-its own containers.
+Staging remains an isolated source build from its own branch and temporary URL.
+
+## Versioning and signing
+
+- Release tags use strict `vMAJOR.MINOR.PATCH` SemVer and never move.
+- Use the one-command release helper from clean, reviewed `main`.
+- Four image digests are scanned, given SBOM/provenance, signed through GitHub
+  OIDC + Cosign, then recorded in one signed source-free bundle.
+- Production accepts manifest digests only. Never deploy `latest` or build source
+  on the client host.
+
+## New customer or installation
+
+Two records are different:
+
+- **Vendor client/deployment:** in the protected control plane, create client,
+  organisation metadata, active contract, deployment, and entitlement schedule.
+  Provisioning is complete only after a one-time installation token registers
+  the deployment agent and a signed lease is applied.
+- **CRM customer organisation (tenant):** a superadmin opens the organisation
+  switcher → **Create customer organization**, enters name/code, and optionally
+  adds initial users. Contract seats/modules still come from vendor entitlement.
+
+Do not treat control-plane organisation metadata as a CRM tenant. For a new host,
+follow the signed client bundle guide; do not copy an old deployment identity,
+agent state, storage identity, or install token.
+
+## Operator workspace: onboarding and signing
+
+The protected `/operator` workspace is for vendor operators, not customers or
+integration partners. Open a deployment workspace and use its **Deployment
+signing progress** and **Required action** cards as the workflow.
+
+1. In **Clients**, create the client, organisation metadata, active dated
+   contract (seats/modules), and target deployment.
+2. In **Install registration**, select **Issue install token** for an active,
+   unregistered deployment; choose a UTC expiry within 24 hours. Copy the value
+   from its one-time result page into only the new host's protected `.env` as
+   `INSTALLATION_TOKEN`, then deploy the approved signed bundle. Registration
+   consumes the token; it cannot be recovered or reused.
+3. After registration, save **Entitlement configuration** from a current
+   compatible contract. Review the terms, explicitly confirm, and issue the
+   first immutable signed version.
+4. Confirm **Heartbeat status** is **Online** and **Healthy**. A current healthy
+   heartbeat is no more than 30 minutes old.
+
+For a contract, seats/modules, release channel, supported-version,
+configuration, or approved-image change, update its UI record, review current
+terms, issue a new immutable version, then verify a current healthy heartbeat.
+Cron checks every 15 minutes and renews missing, near-expiry, materially changed,
+or non-current-key leases; operator review remains required for commercial and
+release-control changes.
+
+| State | Diagnose and recover |
+| --- | --- |
+| **Unsigned entitlement** | Complete registration/configuration, then review and issue. |
+| **Stale** or **Never connected** | Restore agent health and control-plane reachability; verify heartbeat. |
+| **Grace period** | Cached signed entitlement remains during seven-day offline grace. Treat as degraded even if app health is green; inspect contract, cron, agent, and heartbeat. |
+| **Read-only licence** | Grace ended or current commercial controls deny writes. Restore valid contract/configuration and signed entitlement; do not bypass write protection. |
+
+Signing keys and signed envelopes stay hidden by design. Do not use direct D1 or
+host-state changes to work around the workspace. Full recovery commands
+remain in [`OPERATIONS.md`](https://github.com/Super-ERP/crm-v2/blob/main/OPERATIONS.md#operator-workspace-client-onboarding-and-signing).
+
+## Failure checks
+
+1. **Release failed:** inspect the first failed gate; issue a new tag after the
+   fix. Never reuse a tag.
+2. **Deploy failed:** running production stays unchanged or rolls back. Check
+   bundle signature, backup evidence, host tools, image pull, migration, web
+   health, then agent entitlement health.
+3. **Offline grace:** use the deployment workspace to verify contract dates,
+   configuration/version history, heartbeat, control-plane cron, and deployment
+   agent. Do not bypass entitlement.
+4. **New tenant blocked:** only superadmin can create; deployment must allow
+   writes and have enough entitled seats for initial active users.
 
 ## Modules
 
@@ -40,6 +124,6 @@ rebuild. See **[Modules](/extensibility/plugin-system)** for the full plugin sys
 
 ## Where the details live
 
-For anything operational — connecting to the database, running migrations,
-backups and restore, or hardening — read `OPERATIONS.md` in the repository. It is
-intentionally not published here.
+For operational commands — releases, entitlement recovery, database access,
+backups, restore, and hardening — read `OPERATIONS.md` in the repository. Never
+copy credentials or host-specific secrets into either documentation surface.

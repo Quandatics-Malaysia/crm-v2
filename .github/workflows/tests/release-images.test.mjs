@@ -3,11 +3,13 @@ import { existsSync, readFileSync } from "node:fs"
 import test from "node:test"
 
 const workflowUrl = new URL("../release-images.yml", import.meta.url)
+const dockerfileUrl = new URL("../../../Dockerfile", import.meta.url)
 
 assert.equal(existsSync(workflowUrl), true, "release-images.yml must exist")
 
 const { parse } = await import("yaml")
 const source = readFileSync(workflowUrl, "utf8")
+const dockerfile = readFileSync(dockerfileUrl, "utf8")
 const workflow = parse(source)
 
 function steps(jobName) {
@@ -87,6 +89,11 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   assert.equal(publish.with?.sbom, true)
   assert.match(publish.with?.outputs ?? "", /push-by-digest=true/)
   assert.match(publish.with?.outputs ?? "", /name-canonical=true/)
+  assert.match(
+    dockerfile,
+    /FROM --platform=\$BUILDPLATFORM node:22-alpine AS migrator-base/,
+    "migrator build must run natively instead of through QEMU",
+  )
 
   const scanIndex = buildSteps.findIndex((step) => /aquasecurity\/trivy-action@/.test(step.uses ?? ""))
   const signIndex = buildSteps.findIndex((step) => /cosign sign/.test(step.run ?? ""))
@@ -95,7 +102,7 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   assert.ok(signIndex > scanIndex, "signing must happen only after scan")
   assert.ok(publishIndex > signIndex, "mutable tags must publish only after scan and signing")
   assert.match(buildSteps[publishIndex].run, /env\.TARGET_REF/)
-  assert.match(buildSteps[publishIndex].run, /github\.sha/)
+  assert.match(buildSteps[publishIndex].run, /SOURCE_COMMIT/)
 })
 
 test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
@@ -124,7 +131,7 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
   assert.match(signing.run, /--certificate-identity/)
   assert.match(
     signing.env?.WORKFLOW_IDENTITY ?? "",
-    /\$\{\{\s*github\.workflow_ref\s*\}\}|release-images\.yml@/,
+    /^https:\/\/github\.com\/\$\{\{\s*github\.workflow_ref\s*\}\}$/,
   )
   assert.match(signing.run, /https:\/\/token\.actions\.githubusercontent\.com/)
 })
@@ -146,6 +153,7 @@ test("all third-party actions use immutable commit pins", () => {
   const uses = [...source.matchAll(/uses:\s*([^\s#]+)/g)].map((match) => match[1])
   assert.ok(uses.length >= 8)
   for (const action of uses) {
+    if (action.startsWith("./")) continue
     assert.match(action, /^[^@\s]+@[0-9a-f]{40}$/, `action is not SHA-pinned: ${action}`)
   }
 })

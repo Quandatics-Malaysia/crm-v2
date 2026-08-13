@@ -1,0 +1,74 @@
+name: quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "docs-site/**"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "docs-site/**"
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit or tag to verify; defaults to the caller commit
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @crm/control-protocol run build
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - name: Migrate PostgreSQL enforcement test database
+        run: pnpm --filter web run db:migrate
+        env:
+          DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/crm
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/crm
+          CRM_APP_PASSWORD: crm_app_test
+          BETTER_AUTH_SECRET: ci-test-secret-32-bytes-minimum-value
+      - name: Test, requiring PostgreSQL enforcement coverage
+        run: pnpm test
+        env:
+          REQUIRE_DEPLOYMENT_CONTROL_DB_TESTS: "1"
+          TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/crm
+          TEST_DATABASE_URL: postgres://crm_app:crm_app_test@localhost:5432/crm
+      - run: pnpm run test:workflows
+      - run: pnpm run build

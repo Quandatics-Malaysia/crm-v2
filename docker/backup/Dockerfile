@@ -3,30 +3,20 @@
 ARG ALPINE_IMAGE=alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
 FROM ${ALPINE_IMAGE} AS tools-amd64
-ADD --checksum=sha256:bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377 \
-  https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz \
-  /tmp/age.tar.gz
-ADD --checksum=sha256:fe435e0c36228e7c2f116a8701f01127bb1f694005fc11d1f27186c8bca4115d \
-  https://downloads.rclone.org/v1.74.4/rclone-v1.74.4-linux-amd64.zip \
+ADD --checksum=sha256:aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa \
+  https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-amd64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
-    && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
-    && install -m 0555 /tmp/age/age /out/age \
-    && install -m 0555 /tmp/rclone-v1.74.4-linux-amd64/rclone /out/rclone
+    && install -m 0555 /tmp/rclone-v1.75.0-linux-amd64/rclone /out/rclone
 
 FROM ${ALPINE_IMAGE} AS tools-arm64
-ADD --checksum=sha256:c6878a324421b69e3e20b00ba17c04bc5c6dab0030cfe55bf8f68fa8d9e9093a \
-  https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-arm64.tar.gz \
-  /tmp/age.tar.gz
-ADD --checksum=sha256:97685285c9ad6a0cf17d5844115d2a67245af6444db672187074bd9c358de419 \
-  https://downloads.rclone.org/v1.74.4/rclone-v1.74.4-linux-arm64.zip \
+ADD --checksum=sha256:d0ad88ba4c8e285b7c9efa591e0ab643280a91741e13c27f3a9c0957ccfa5203 \
+  https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-arm64.zip \
   /tmp/rclone.zip
 RUN mkdir -p /out \
-    && tar -xzf /tmp/age.tar.gz -C /tmp \
     && unzip -q /tmp/rclone.zip -d /tmp \
-    && install -m 0555 /tmp/age/age /out/age \
-    && install -m 0555 /tmp/rclone-v1.74.4-linux-arm64/rclone /out/rclone
+    && install -m 0555 /tmp/rclone-v1.75.0-linux-arm64/rclone /out/rclone
 
 ARG TARGETARCH
 FROM tools-${TARGETARCH} AS tools
@@ -34,6 +24,7 @@ FROM tools-${TARGETARCH} AS tools
 FROM ${ALPINE_IMAGE}
 
 ARG POSTGRESQL_CLIENT_VERSION=17.10-r0
+ARG AGE_VERSION=1.2.1-r15
 ARG CA_CERTIFICATES_VERSION=20260611-r0
 ARG LIBPQ_VERSION=18.4-r0
 ARG LIBNCURSESW_VERSION=6.5_p20251123-r0
@@ -45,6 +36,7 @@ ARG TZDATA_VERSION=2026c-r0
 ARG ZSTD_LIBS_VERSION=1.5.7-r2
 
 RUN apk add --no-cache \
+      "age=${AGE_VERSION}" \
       "ca-certificates=${CA_CERTIFICATES_VERSION}" \
       "libncursesw=${LIBNCURSESW_VERSION}" \
       "libpq=${LIBPQ_VERSION}" \
@@ -64,7 +56,6 @@ RUN apk add --no-cache \
       /var/lib/backup/work \
     && rm -f /sbin/apk
 
-COPY --from=tools /out/age /usr/local/bin/age
 COPY --from=tools /out/rclone /usr/local/bin/rclone
 COPY --chmod=0555 check-tools.sh /opt/backup/check-tools.sh
 
@@ -73,10 +64,10 @@ ENV HOME=/var/lib/backup \
 
 LABEL org.opencontainers.image.title="Quandatics encrypted backup runtime" \
   org.opencontainers.image.description="Source-free PostgreSQL backup, age encryption, and R2 upload runtime" \
-  org.opencontainers.image.source="https://github.com/Quandatics-Malaysia/crm-v2" \
+  org.opencontainers.image.source="https://github.com/Super-ERP/crm-v2" \
   com.quandatics.postgresql-client.version="17.10-r0" \
-  com.quandatics.age.version="1.3.1" \
-  com.quandatics.rclone.version="1.74.4"
+  com.quandatics.age.version="1.2.1-r15" \
+  com.quandatics.rclone.version="1.75.0"
 
 WORKDIR /var/lib/backup/work
 USER 10001:10001

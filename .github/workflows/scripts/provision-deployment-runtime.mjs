@@ -163,6 +163,18 @@ function runtimeSecret(value) {
   return value
 }
 
+function databaseUrls(postgresPassword, appPassword) {
+  if (!postgresPassword || !appPassword) return {}
+  const encode = (value) => encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+  const admin = `postgres://postgres:${encode(postgresPassword)}@db:5432/crm`
+  return {
+    DATABASE_ADMIN_URL: admin,
+    MIGRATOR_DATABASE_URL: admin,
+    APP_DATABASE_URL: `postgres://crm_app:${encode(appPassword)}@db:5432/crm`,
+  }
+}
+
 function runtimeTrustSet(mode, current, protectedTrustSet) {
   if (mode === "staging") return parseTrustSet(protectedTrustSet)
   if (current === undefined || current === "" || current.startsWith("change_me_")) return previewTrustSet()
@@ -181,6 +193,7 @@ export function provisionDeploymentRuntime({ envFile, mode, repoRoot, protectedT
   const source = readFileSync(envFile, "utf8")
   const parsed = parseEnvironment(source)
   const updates = {
+    ...databaseUrls(parsed.values.get("POSTGRES_PASSWORD"), parsed.values.get("CRM_APP_PASSWORD")),
     DEPLOYMENT_ID: runtimeIdentity(parsed.values.get("DEPLOYMENT_ID")),
     AGENT_WEB_SECRET: runtimeSecret(parsed.values.get("AGENT_WEB_SECRET")),
     APPLICATION_VERSION: applicationVersion(repoRoot),

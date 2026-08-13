@@ -8,7 +8,7 @@ open while you work.
 > **Note:** the `apps/` workspace restructure has landed — the app now lives
 > under `apps/web/`, with the repo root as a thin pnpm workspace. `packages/`
 > and `modules/` are reserved in `pnpm-workspace.yaml` for later phases — see
-> [the design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
+> [the design spec](https://github.com/Super-ERP/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md).
 > Only *where files live* changed; the five rules stay identical.
 
 ---
@@ -28,10 +28,10 @@ run your own.
 |---|---|
 | What the product does | [README](/overview) |
 | **The module (plugin) system** — read this before writing anything | [MODULES.md](/extensibility/plugin-system) |
-| Where the repo is heading (monorepo, teams, ownership) | [Design spec](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
+| Where the repo is heading (monorepo, teams, ownership) | [Design spec](https://github.com/Super-ERP/crm-v2/blob/main/docs/superpowers/specs/2026-07-17-monorepo-org-structure-design.md) |
 | Running it in production, backups, DB access | [OPERATIONS.md](/operations) |
-| Past security/correctness findings | [AUDIT.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AUDIT.md) |
-| Rules for AI coding agents | [AGENTS.md](https://github.com/Quandatics-Malaysia/crm-v2/blob/main/AGENTS.md) |
+| Past security/correctness findings | [AUDIT.md](https://github.com/Super-ERP/crm-v2/blob/main/AUDIT.md) |
+| Rules for AI coding agents | [AGENTS.md](https://github.com/Super-ERP/crm-v2/blob/main/AGENTS.md) |
 
 Current layout — the repo root is a thin pnpm workspace; the app lives under
 `apps/web/`:
@@ -53,7 +53,7 @@ These are invariants. Breaking one is a blocking review comment, not a nit.
 Each has a reason and a way to check.
 
 **1 — One migration chain. Never your own.**
-All migrations live in `db/migrations/` and apply in one order, in full, on
+All migrations live in `apps/web/db/migrations/` and apply in one order, in full, on
 every deployment. Modules do **not** get their own chains. Cross-module foreign
 keys already exist (`finance` → `projects` + `salesOrders`), so independent
 chains applied in different orders would break outright.
@@ -129,13 +129,13 @@ Plus: if you touched a gated module, build once with its flag `false` (rule 3).
 - [ ] `server/services/*` still free of `next/*` (rule 5)
 - [ ] Sample seed rows wrapped in `isModuleEnabled(...)` if I added any
 
-Every PR needs a review. Changes to `lib/`, `db/migrations/`, `modules.config.ts`,
+Every PR needs a review. Changes to `apps/web/lib/`, `apps/web/db/migrations/`, `apps/web/modules.config.ts`,
 Docker, or CI need a **core maintainer**. Migrations and RLS need **two** — they
 are the highest-blast-radius change in the repo.
 
-On opened/updated PRs, `pr-preview` auto-deploys a temporary preview on the
-self-hosted runner and publishes the URL in the workflow run summary and PR
-comment. Validate against that preview before merge.
+Use the protected staging environment for browser validation when the change
+cannot be proved by automated tests alone. Credentials stay in the protected
+environment and must never be pasted into PR comments or workflow summaries.
 
 **Cross-module PRs are normal.** Roughly half our commits touch more than one
 module. One PR, one review, CI proves the whole thing — that is a large part of
@@ -146,8 +146,8 @@ why we stay in one repo.
 | Area | Owner | You need… |
 |---|---|---|
 | `app/(app)/<module>/` | that module's owner | module owner + core approval |
-| `lib/`, `db/`, `modules.config.ts` | core maintainers | core approval |
-| `db/migrations/`, RLS | core maintainers | **two** core approvals |
+| `apps/web/lib/`, `apps/web/db/`, `apps/web/modules.config.ts` | core maintainers | core approval |
+| `apps/web/db/migrations/`, RLS | core maintainers | **two** core approvals |
 | `ops/`, compose, Dockerfile | ops + core | core approval |
 | `.github/` | core maintainers | core approval |
 
@@ -155,26 +155,21 @@ why we stay in one repo.
 
 Deployments are automated. Pushing to `staging` runs the quality gate and
 rebuilds the isolated staging stack; its temporary public URL is published in
-that workflow run's summary. Merging to `main` runs the production quality gate
-and rebuilds the production stack on the self-hosted runner. The normal path is
-**feature branch → `staging` → `main`**. This is why the checks are not optional.
+that workflow run's summary. Production is separate: create a signed release,
+then approve the `deploy-production` workflow. The normal path is **feature
+branch → `staging` → `main` → signed release → production approval**.
 
 ## 8. Status of the setup
 
 What's in place:
 
-- The repo lives in the **`Quandatics-Malaysia`** GitHub org, with `core` and
+- The public repo lives in the **`Super-ERP`** GitHub org, with `core` and
   `ops` teams and `CODEOWNERS` routing reviews to them.
 - **CI runs on every PR** (`quality`: lint · typecheck · test · build) and the
   PR template lists the checklist above.
 
-Convention, not yet enforced:
-
-- **Reviews and green CI are expected but not *blocked*.** Branch protection /
-  rulesets need a paid GitHub plan on a private repo (Free can't enforce), so
-  today nothing physically stops an unreviewed or red merge to `main`. Treat the
-  PR checklist and a `@Quandatics-Malaysia/core` review as required anyway.
-  Enabling enforcement = upgrade the org to GitHub Team, then apply a ruleset.
+Repository rules must require green CI and a `@Super-ERP/core` review
+before merge. Verify the active ruleset in GitHub after changing workflow names.
 
 Not built yet:
 
@@ -184,22 +179,40 @@ Not built yet:
 
 ## 9. External developer workflow
 
-For external developers, this is the required path:
+External integration developers may read the public source, but never receive
+production-runtime access through repository access. Production access and support
+scope remain separate.
+Use one of these lanes:
 
-- Fork the repo (if you are not on the Quandatics org team).
+### Lane A — Source contributor
+
+For a developer changing CRM code:
+
+- Fork the public repository, or use a branch when team write access is required.
 - Branch from latest `main` using `feat/<short-feature>`.
-- Implement changes on that branch only.
 - Never commit secrets (`.env`, cloud keys, certificates, DB passwords).
-- Before PR: run local checks:
-  - `pnpm run lint`
-  - `pnpm run typecheck`
-  - `pnpm test`
-  - `pnpm run build`
-- Open PR with full checklist and wait for PR preview checks.
-- Use PR preview for validation; keep production untouched until PR is approved.
+- Before PR, run `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and
+  `pnpm run build`.
+- Open a PR, validate in protected staging when needed, and wait for core review.
+- Never use `app.quandatics.com` as a development environment.
 
-Operational rule:
+### Lane B — API-only integration developer
 
-- External developers should not have access to any source/runtime on `app.quandatics.com`.
-- All code review and production merges are routed through `@Quandatics-Malaysia/core`.
-- Violations of this workflow are treated as a hard security/ops issue.
+For a partner integrating only through supported contracts:
+
+- Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers/overview).
+- Receive a tenant-scoped API key from **Settings → API Keys**.
+- Use a staging or sandbox tenant, never production credentials.
+- Use the documented REST API and API playground.
+- Route support and acceptance evidence through Quandatics.
+
+Current API v1 is read-only. It cannot create leads, update funnels, send
+quotations, or change users. Do not automate the UI to bypass this boundary.
+
+### Lane C — Future plugin partner
+
+External plugin packaging is not implemented yet. The `modules/` workspace is
+reserved for a future SDK boundary. Until then, use the API lane or submit a
+normal source contribution.
+
+All production merges remain routed through `@Super-ERP/core`.

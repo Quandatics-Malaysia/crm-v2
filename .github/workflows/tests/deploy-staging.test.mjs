@@ -32,9 +32,11 @@ assert.ok(
   "credentials must not be limited to the first bootstrap run",
 );
 assert.match(publish, /if: always\(\)?|if: always/);
-assert.match(publish, /get_env DEMO_ADMIN_PASSWORD/);
-assert.match(publish, /get_env SEED_SAMPLE_PASSWORD/);
 assert.match(publish, /Microsoft SSO is intentionally unavailable/);
+assert.doesNotMatch(publish, /get_env DEMO_ADMIN_PASSWORD/);
+assert.doesNotMatch(publish, /get_env SEED_SAMPLE_PASSWORD/);
+assert.doesNotMatch(publish, /Demo admin:/);
+assert.match(publish, /never printed in workflow logs or summaries/);
 assert.match(
   workflow,
   /\$URL\/api\/auth\/sign-in\/email/,

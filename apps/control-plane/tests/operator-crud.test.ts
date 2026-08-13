@@ -1,11 +1,23 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
+import { jsx } from "hono/jsx"
 import { beforeAll, describe, expect, inject, it } from "vitest"
+import { renderToString } from "hono/jsx/dom/server"
 
 import {
   AccessTokenInvalidError,
   type AccessVerifier,
 } from "../src/auth/access"
 import { createApp } from "../src/index"
+import {
+  Card,
+  DataList,
+  EmptyState,
+  Field,
+  Notice,
+  PageHeader,
+  ProgressSteps,
+  StatusBadge,
+} from "../src/ui/components"
 
 const ownerSubject = `owner-${crypto.randomUUID()}`
 const billingSubject = `billing-${crypto.randomUUID()}`
@@ -50,6 +62,7 @@ function operatorRequest(
     json?: Record<string, unknown>
     origin?: string | null
     jsonGuard?: boolean
+    accept?: string
     host?: string
     database?: D1Database
   } = {},
@@ -80,6 +93,9 @@ function operatorRequest(
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
+  }
+  if (options.accept) {
+    headers.set("Accept", options.accept)
   }
 
   return app.fetch(
@@ -128,6 +144,120 @@ beforeAll(async () => {
 })
 
 describe("operator mutation protection and client administration", () => {
+  it("serves an accessible no-store operator shell and local stylesheet", async () => {
+    const page = await operatorRequest("/operator")
+
+    expect(page.status).toBe(200)
+    expect(page.headers.get("Cache-Control")).toBe("no-store")
+    const html = await page.text()
+    expect(html).toContain('<link href="/operator/styles.css" rel="stylesheet"/>')
+    expect(html).toContain('<a href="#operator-content" class="skip-link">Skip to content</a>')
+    expect(html).toContain('aria-current="page"')
+    expect(html).toContain('<p class="operator-identity">owner@example.com</p>')
+    expect(html).toContain('aria-label="Breadcrumb"')
+
+    const styles = await operatorRequest("/operator/styles.css")
+    expect(styles.status).toBe(200)
+    expect(styles.headers.get("Cache-Control")).toBe("no-store")
+    expect(styles.headers.get("Content-Type")).toContain("text/css")
+    expect(await styles.text()).toContain("--operator-space-4")
+  })
+
+  it("styles navigational links and selectable-control labels as touch targets", async () => {
+    const styles = await operatorRequest("/operator/styles.css")
+    const css = await styles.text()
+
+    expect(css).toMatch(/\.operator-shell :is\(\.operator-brand, \.operator-navigation a, \.operator-breadcrumbs a, nav\[aria-label\$="pagination"\] a, \.button-link\) \{[^}]*display: inline-flex;[^}]*min-block-size: 2\.75rem;[^}]*\}/)
+    expect(css).toMatch(/\.operator-shell label:has\(:is\(input\[type="checkbox"\], input\[type="radio"\]\)\) \{[^}]*min-block-size: 2\.75rem;[^}]*\}/)
+    expect(css).toContain('.operator-shell :is(input[type="checkbox"], input[type="radio"])')
+  })
+
+  it("renders escaped semantic headers, status badges, and progress steps", () => {
+    const html = renderToString([
+      PageHeader({ title: "Workspace <admin>", eyebrow: "Signing", description: "Review details" }),
+      StatusBadge({ tone: "success", children: "Active" }),
+      ProgressSteps({
+        label: "Signing progress",
+        steps: [
+          { label: "Client", state: "complete" },
+          { label: "Contract", state: "current" },
+          { label: "Review", state: "upcoming" },
+        ],
+      }),
+    ])
+
+    expect(html).toContain('<header class="page-header">')
+    expect(html).toContain("Workspace &lt;admin&gt;")
+    expect(html).toContain('class="status-badge status-badge-success"')
+    expect(html).toContain('<nav class="progress-steps" aria-label="Signing progress">')
+    expect(html).toContain('aria-current="step"')
+  })
+
+  it("renders labelled fields and cards with an accessible validation error", () => {
+    const html = renderToString(jsx(Card, {
+      title: "Client details",
+      children: jsx(Field, {
+        label: "Client name",
+        name: "displayName",
+        required: true,
+        error: "Enter a client name",
+      }),
+    }))
+
+    const card = /<section class="card" aria-labelledby="([^"]+)">/.exec(html)
+    expect(card?.[1]).toBeTruthy()
+    expect(html).toContain(`<h2 id="${card?.[1]}">Client details</h2>`)
+    const label = /<label for="([^"]+)">Client name/.exec(html)
+    expect(label?.[1]).toBeTruthy()
+    const fieldId = label?.[1] ?? ""
+    expect(html).toContain(`<input id="${fieldId}"`)
+    expect(html).toContain('aria-invalid="true"')
+    expect(html).toContain(`aria-describedby="${fieldId}-error"`)
+    expect(html).toContain(`id="${fieldId}-error" class="field-error" role="alert"`)
+  })
+
+  it("assigns unique IDs when repeated primitives share names and titles", () => {
+    const html = renderToString([
+      jsx(Field, { label: "Client name", name: "displayName" }),
+      jsx(Field, { label: "Client name", name: "displayName" }),
+      jsx(Card, { title: "Client details", children: "First card" }),
+      jsx(Card, { title: "Client details", children: "Second card" }),
+      jsx(Notice, { tone: "info", title: "Saved", children: "First notice" }),
+      jsx(Notice, { tone: "info", title: "Saved", children: "Second notice" }),
+    ])
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1])
+
+    expect(ids).toHaveLength(6)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(html).toMatch(/<label for="([^"]+)">Client name<\/label><input id="\1"/)
+  })
+
+  it("renders empty, notice, error-panel, and data-list states without raw content", () => {
+    const html = renderToString([
+      EmptyState({ title: "No clients", children: "Create first client.", action: { href: "/operator/clients/new", label: "Create client" } }),
+      Notice({ tone: "info", title: "Saved", children: "Changes saved." }),
+      Notice({ tone: "error", title: "Could not save", children: "Try <again>." }),
+      DataList({ items: [{ term: "Owner", details: "Ada <admin>" }] }),
+    ])
+
+    expect(html).toContain('<section class="empty-state">')
+    expect(html).toContain('<a class="button-link" href="/operator/clients/new">Create client</a>')
+    expect(html).toContain('class="notice notice-info" role="status"')
+    expect(html).toContain('class="notice notice-error" role="alert"')
+    expect(html).toContain("Try &lt;again&gt;.")
+    expect(html).toContain('<dl class="data-list">')
+    expect(html).toContain("Ada &lt;admin&gt;")
+  })
+
+  it("guides an empty client list to its primary creation action", async () => {
+    const page = await operatorRequest("/operator/clients")
+    const html = await page.text()
+
+    expect(html).toContain("No clients yet")
+    expect(html).toContain('href="/operator/clients#new-client"')
+    expect(html).toContain('id="new-client"')
+  })
+
   it("requires same-origin protection and owner authority for client creation", async () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 
@@ -147,6 +277,7 @@ describe("operator mutation protection and client administration", () => {
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)
+    expect(response.headers.get("Location")).toBe("/operator/clients?notice=client_created")
 
     const row = await env.CONTROL_DB.prepare(
       "SELECT id, display_name FROM clients WHERE client_key = ?",
@@ -166,6 +297,18 @@ describe("operator mutation protection and client administration", () => {
     expect(html).not.toContain("<script>alert(1)</script>")
   })
 
+  it("renders client rows with readable status and ignores unallowlisted notices", async () => {
+    const page = await operatorRequest("/operator/clients")
+    const html = await page.text()
+
+    expect(html).toContain('<table class="data-table">')
+    expect(html).toContain(`href="/operator/clients/${clientId}"`)
+    expect(html).toContain('class="status-badge status-badge-success">Active</span>')
+
+    const unallowlisted = await operatorRequest("/operator/clients?notice=not-a-notice")
+    expect(await unallowlisted.text()).not.toContain("not-a-notice")
+  })
+
   it("returns conflict for duplicate keys and never exposes database details", async () => {
     const response = await operatorRequest("/operator/clients", {
       method: "POST",
@@ -178,6 +321,126 @@ describe("operator mutation protection and client administration", () => {
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'error'",
     ).first<{ count: number }>()
     expect(failureAudits?.count).toBe(1)
+  })
+
+  it.each([
+    [
+      "invalid request",
+      (accept: string) => operatorRequest(`/operator/clients/${crypto.randomUUID()}/contracts`, {
+        method: "POST",
+        form: { planId: "plan-basic" },
+        accept,
+      }),
+      400,
+      "invalid_request",
+      "Check the submitted values and try again.",
+    ],
+    [
+      "forbidden request",
+      (accept: string) => operatorRequest("/operator/clients", {
+        method: "POST",
+        form: { clientKey: `denied-${crypto.randomUUID()}`, displayName: "Denied" },
+        origin: null,
+        accept,
+      }),
+      403,
+      "forbidden",
+      "You do not have permission to complete this action.",
+    ],
+    [
+      "missing record",
+      (accept: string) => operatorRequest(`/operator/clients/${crypto.randomUUID()}/contracts`, {
+        method: "POST",
+        form: {
+          planId: "plan-basic",
+          status: "active",
+          startsAt: "2026-08-05",
+          endsAt: "2026-09-19",
+          seatLimit: "2",
+          monthlySeatPriceCents: "25000",
+          taxBasisPoints: "0",
+          collectionFrequency: "monthly",
+          moduleIds: ["projects", "salesOrders", "finance"],
+        },
+        accept,
+      }),
+      404,
+      "not_found",
+      "The requested record is unavailable. Return to the dashboard and choose it again.",
+    ],
+    [
+      "conflicting change",
+      async (accept: string) => {
+        const key = `conflict-${crypto.randomUUID()}`
+        const form = { clientKey: key, displayName: "Conflict" }
+        try {
+          await operatorRequest("/operator/clients", { method: "POST", form })
+          return await operatorRequest("/operator/clients", { method: "POST", form, accept })
+        } finally {
+          await env.CONTROL_DB.prepare("DELETE FROM clients WHERE client_key = ?").bind(key).run()
+        }
+      },
+      409,
+      "conflict",
+      "This change conflicts with current data. Refresh the page and try again.",
+    ],
+  ])("negotiates safe %s errors", async (_label, request, status, code, guidance) => {
+    const html = await request("text/html")
+
+    expect(html.status).toBe(status)
+    expect(html.headers.get("Content-Type")).toContain("text/html")
+    expect(html.headers.get("Cache-Control")).toBe("no-store")
+    expect(html.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(html.headers.get("Referrer-Policy")).toBe("no-referrer")
+    const htmlBody = await html.text()
+    expect(htmlBody).toContain(guidance)
+    expect(htmlBody).toMatch(/Request ID: <code>[0-9a-f-]{36}<\/code>/)
+    expect(htmlBody).toContain('href="/operator"')
+    expect(htmlBody).not.toContain("SELECT ")
+    expect(htmlBody).not.toContain("PRIVATE KEY")
+
+    const json = await request("application/json")
+    expect(json.status).toBe(status)
+    expect(json.headers.get("Content-Type")).toContain("application/json")
+    await expect(json.json()).resolves.toEqual({ error: code })
+  })
+
+  it.each([
+    ["JSON by default", undefined, "application/json"],
+    ["HTML for exact text/html", "text/html", "text/html"],
+    ["HTML for preferred text range", "text/*;q=0.8, application/json;q=0.7", "text/html"],
+    ["JSON when exact HTML exclusion overrides text range", "text/*;q=1, text/html;q=0", "application/json"],
+    ["JSON when text range excludes HTML", "text/*;q=0, application/json;q=0.2", "application/json"],
+    ["JSON for equal representation quality", "text/*;q=0.8, application/json;q=0.8", "application/json"],
+  ])("returns safe unknown operator-route 404 as $0", async (_label, accept, contentType) => {
+    const response = await operatorRequest(`/operator/unknown-${crypto.randomUUID()}`, { accept })
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("Content-Type")).toContain(contentType)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer")
+    const body = await response.text()
+    if (contentType === "text/html") {
+      expect(body).toContain("The requested record is unavailable. Return to the dashboard and choose it again.")
+      expect(body).toMatch(/Request ID: <code>[0-9a-f-]{36}<\/code>/)
+    } else {
+      expect(JSON.parse(body)).toEqual({ error: "not_found" })
+    }
+  })
+
+  it("leaves unmatched API routes on their default response", async () => {
+    const response = await app.fetch(
+      new Request(`https://control.invalid/v1/unknown-${crypto.randomUUID()}`, {
+        headers: { Accept: "text/html" },
+      }),
+      bindings(),
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("Content-Type")).toContain("text/plain")
+    expect(response.headers.get("Cache-Control")).toBeNull()
+    expect(await response.text()).toBe("404 Not Found")
   })
 
   it("accepts guarded same-origin JSON but rejects unguarded JSON", async () => {
@@ -296,6 +559,33 @@ describe("contract and invoice administration", () => {
     expect(detail.status).toBe(200)
     expect(detail.headers.get("Cache-Control")).toBe("no-store")
     expect(await detail.text()).toContain(`/operator/contracts/${contractId}/invoices`)
+  })
+
+  it("orders client onboarding as contract then deployment, with optional organisations secondary", async () => {
+    const page = await operatorRequest(`/operator/clients/${clientId}`)
+    const html = await page.text()
+
+    expect(html).toContain('aria-label="Client onboarding"')
+    expect(html).toContain(`href="/operator/deployments/`)
+    expect(html.indexOf("Contracts")).toBeLessThan(html.indexOf("Deployments"))
+    expect(html.indexOf("Deployments")).toBeLessThan(html.indexOf("Organisations"))
+    expect(html).toContain("Optional organisation details")
+  })
+
+  it("keeps collection state and onboarding progress on out-of-range child pages", async () => {
+    const page = await operatorRequest(
+      `/operator/clients/${clientId}?organisationsPage=3&organisationsPageSize=1&deploymentsPage=2&deploymentsPageSize=1&contractsPage=2&contractsPageSize=1`,
+    )
+    const html = await page.text()
+
+    expect(html).toContain("No contracts on this page.")
+    expect(html).toContain("No deployments on this page.")
+    expect(html).toContain("No organisations on this page.")
+    expect(html).not.toContain("No contracts yet")
+    expect(html).not.toContain("No deployments yet")
+    expect(html).not.toContain("No organisations yet")
+    expect(html).toContain('<li class="progress-step progress-step-complete"><span>Contract</span></li>')
+    expect(html).toContain('<li class="progress-step progress-step-complete"><span>Deployment</span></li>')
   })
 
   it("rejects empty and unknown-only entitlement controls without state or success-audit churn", async () => {
@@ -424,6 +714,24 @@ describe("contract and invoice administration", () => {
       "SELECT COUNT(*) AS count, SUM(amount_cents) AS total FROM invoice_collection_milestones WHERE invoice_id = ?",
     ).bind(invoice?.id).first<{ count: number; total: number }>()
     expect(schedule).toEqual({ count: 1_200, total: 100 })
+  })
+
+  it("renders dashboard counts and actionable attention items", async () => {
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("UPDATE contracts SET status = 'past_due' WHERE id = ?").bind(contractId),
+      env.CONTROL_DB.prepare("UPDATE deployments SET status = 'disabled' WHERE client_id = ?").bind(clientId),
+    ])
+
+    const page = await operatorRequest("/operator")
+    const html = await page.text()
+
+    expect(html).toContain("Client portfolio")
+    expect(html).toContain('<p class="summary-value">2</p><p>active client records</p>')
+    expect(html).toContain('<p class="summary-value">1</p><p>deployment</p>')
+    expect(html).toContain("Needs attention")
+    expect(html).toContain("Contract is past due")
+    expect(html).toContain("Deployment is disabled")
+    expect(html).toContain('href="/operator/clients#new-client"')
   })
 
   it("bounds operator list pagination", async () => {

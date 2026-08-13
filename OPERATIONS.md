@@ -27,95 +27,188 @@ Quick reference first; details below.
 | **Enable/disable an optional module** | edit `modules.config.ts`, then rebuild + redeploy |
 | Run tests | `pnpm test` |
 | Typecheck / lint / build | `npx tsc --noEmit` · `pnpm run lint` · `pnpm run build` |
-| Full stack via Docker | `docker compose up -d --build` (migrate runs automatically) |
+| Source-based local/staging stack | `docker compose up -d --build` (never use for production) |
 | Anything inside the container | `docker compose exec web pnpm run <script>` |
 
-**Golden rule:** after every `git pull` that touches `db/migrations/`, run
+**Golden rule:** after every `git pull` that touches `apps/web/db/migrations/`, run
 `pnpm run db:migrate` before starting the app. `column "…" does not exist`
 errors always mean a pending migration.
 
 ## Publish and verify a signed client release
 
-1. Confirm the release commit is reviewed and create an annotated strict
-   SemVer tag. Lightweight tags are rejected:
+1. From a clean reviewed `main`, run the release helper. It creates the annotated
+   strict SemVer tag, starts `release-images`, waits, and records the manifest:
 
    ```bash
-   git tag -a v1.2.3 -m "CRM v1.2.3"
-   git push origin v1.2.3
+   scripts/release-one-command.sh --bump patch --wait
    ```
 
 2. Watch the `release-images` workflow. It runs only on GitHub-hosted runners
    and uses only the workflow-scoped `GITHUB_TOKEN` plus GitHub OIDC. No
    Cloudflare, registry PAT, or signing private key is accepted by the job.
 
-3. Require all three matrix builds (`web`, `migrator`, `backup`) to pass image
+3. Require all four matrix builds (`web`, `migrator`, `backup`, `agent`) to pass image
    build, Trivy, SPDX SBOM, Cosign signing, and immediate signature
    verification. A failed gate leaves version and commit tags unpublished.
 
 4. Download `release-manifest-v1.2.3`. Confirm its `source_commit` is the tagged
    commit, its `workflow_identity` is exactly
-   `https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
-   and it lists exactly three `sha256:` digests.
+   `https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3`,
+   and it lists exactly four `sha256:` digests.
 
-5. Copy only those digest references into the client release environment.
-   Run `deploy/client/verify-images.sh` before pull or migration. Never replace
-   a digest with a version tag, commit tag, or `latest`.
+5. Run the protected `deploy-production` workflow with that exact release tag.
+   It downloads the source-free bundle, applies the manifest, and runs
+   `deploy/client/deploy.sh`. Never deploy a version tag, commit tag, or `latest`
+   in place of a manifest digest.
 
 Keep the release manifest, per-image SPDX JSON SBOMs, and Cosign verification
 records with release evidence. BuildKit provenance and keyless signatures stay
 attached to the immutable GHCR digest. If any image must be rebuilt, issue a
 new release tag; do not move or reuse an existing release tag.
 
-## Resume the paused Internal-Ops deployment
+## Internal-Ops production deployment
 
-The `crm-v2` and `crm-staging` Compose projects were deliberately stopped on
-2026-08-01. Their containers, images, source checkouts, sample databases,
-uploads, and backups were retained. Do not run `docker compose down -v`, remove
-the checkouts, or prune CRM images if the deployment must remain recoverable.
+Production is the source-free stack under `/home/internalops/quandatics-client`.
+It is deployed only from a signed release through `deploy-production`. The root
+`docker-compose.yaml` is for local development, staging, and recovery rehearsal;
+it is not the production deployment contract. Do not run `docker compose down -v`
+or prune CRM volumes/images during recovery.
 
-The GitHub Actions workflows `deploy`, `deploy-staging`, and `pr-preview` were
-also disabled. The repository runner is still installed, but it cannot restart
-these stacks while the deployment workflows remain disabled.
+Confirm workflow state with `gh workflow list --all`. The self-hosted runner
+must be online before production or staging deployment jobs can start.
 
-### Start production manually
+### Self-hosted runner stuck or offline
 
-1. Connect to the server and enter the retained production checkout:
+When CI shows:
+- `deploy` or `deploy-staging` queued for long,
+- and GH runners API shows `Internal-Ops-DB` as `offline` or `busy=false`,
 
-   ```bash
-   ssh internalops@<server>
-   cd ~/crm-v2
-   ```
+run this from the jumpbox:
 
-2. Confirm the secret file still exists without printing its contents:
-
-   ```bash
-   test -s .env && stat -c '%A %U:%G %n' .env
-   ```
-
-   It should be owned by `internalops` and readable only by that account. Stop
-   here if `.env` is absent. Recreate it with fresh values from the production
-   variables listed in `README.md`; never copy staging secrets into production.
-
-   Confirm it contains the vendor-issued `DEPLOYMENT_ID`, canonical
-   `AGENT_WEB_SECRET`, `VENDOR_ENTITLEMENT_TRUST_SET`, and immutable
-   `APPLICATION_VERSION` / `MIGRATION_VERSION` for the exact image. Compose
-   refuses to render without them, and production web startup validates the
-   identity, secret, and version formats before serving traffic.
-
-3. Start the existing stack. Compose reuses the retained database and upload
-   volumes, runs pending migrations, then starts the web, proxy, and backup
-   services:
+1. Connect and check runner process:
 
    ```bash
-   docker compose -p crm-v2 -f docker-compose.yaml up -d db migrate web caddy backup
+   ssh internalops@<server> "ps -ef | grep -E 'Runner.Listener|actions/runner' | grep -v grep"
    ```
 
-4. Verify every service and the local health endpoint:
+   Expected: no stale `run.sh`/`Runner.Listener` process if the runner is down.
+
+2. Start or restart the runner in `/home/internalops/actions-runner`:
 
    ```bash
-   docker compose -p crm-v2 -f docker-compose.yaml ps
-   curl -fsS http://127.0.0.1:8081/api/health
+   ssh internalops@<server> "cd ~/actions-runner && nohup ./run.sh > /tmp/github-runner.log 2>&1 < /dev/null &"
    ```
+
+   Notes:
+   - `svc.sh` should manage startup when `sudo` is available on the host.
+   - Some hosts register this directory as a systemd service; if available, use:
+     `ssh internalops@<server> 'cd ~/actions-runner && sudo ./svc.sh start'`
+     (only when it works in your environment).
+
+3. Confirm listener is active and healthy:
+
+   ```bash
+   ssh internalops@<server> "tail -n 40 /tmp/github-runner.log"
+   ```
+
+   Look for:
+   - `Current runner version: ...`
+   - `Listening for Jobs`
+
+4. Confirm GitHub now sees the runner and retry or re-run:
+
+   ```bash
+   gh api repos/Super-ERP/crm-v2/actions/runners --jq '.runners[] | {name,status,busy}'
+   gh run rerun <deploy-run-id>
+   ```
+
+
+### Release log location
+
+The signed release history is written to:
+
+```text
+docs/operations/release-log.md
+```
+
+`scripts/release-one-command.sh` appends to this file when a release completes.
+If the file does not exist, no release has been logged yet in this repository
+snapshot.
+
+## Operator workspace: client onboarding and signing
+
+Use the protected control-plane UI at `/operator`; it is vendor-operated, not a
+customer or partner self-service surface. Keep the deployment workspace open and
+follow its **Deployment signing progress** and **Required action** cards. They
+are authoritative for the next safe action.
+
+1. In **Clients**, create the vendor client, add organisation metadata, then
+   create a current active contract with the agreed seats and modules. Add the
+   target deployment and open its deployment workspace.
+2. For an active deployment that is not registered, open **Install
+   registration**, select **Issue install token**, and choose a UTC expiry no
+   more than 24 hours ahead. Copy it from the one-time result page into only the
+   new host's protected `.env` as `INSTALLATION_TOKEN`; do not put it in tickets,
+   logs, shell history, or another host. Deploy the approved signed client
+   bundle. Registration consumes the token; it cannot be recovered or reused.
+3. After **Registered** is shown, save **Entitlement configuration** using a
+   current compatible contract, configuration version, channel, minimum app
+   version, and optional approved image digest. Select **Review entitlement
+   terms**, check the explicit confirmation, then issue the first immutable
+   signed version.
+4. Confirm **Heartbeat status** is **Online** and **Healthy**. A current healthy
+   heartbeat is no more than 30 minutes old; also check application health and
+   release identity on the host.
+
+### Signing, renewal, and change control
+
+- Each issued entitlement version is immutable. To re-sign after a contract,
+  seats/modules, configuration, channel, supported-version, or approved-digest
+  change, update the relevant UI record, return to the deployment workspace,
+  review current terms, explicitly issue a new version, then verify a current
+  healthy heartbeat.
+- Control-plane cron checks every 15 minutes and renews leases that are missing,
+  near expiry, materially changed, or signed by any non-current key. It does
+  not replace operator review after a commercial or release-control change.
+- For renewal attention, review contract dates/status first, then deployment
+  configuration and entitlement history. Use **Review entitlement terms** to
+  issue an immediate new version when required; never edit entitlement rows or
+  signing data directly.
+
+### Diagnose entitlement state
+
+| Workspace state | Meaning | Operator action |
+|---|---|---|
+| **Unsigned entitlement** | Registration or ready configuration/signing is incomplete. | Follow **Required action**: register, configure, then review and issue. |
+| **Stale connection** or **Never connected** | No current healthy heartbeat has acknowledged the deployment. | Check agent health on host, control-plane reachability, and deployment identity; restore heartbeat. |
+| **Grace period** | Last valid lease expired; CRM uses cached signed entitlement during its seven-day offline grace period. App health can still be green. | Treat as degraded: inspect contract, cron, agent, and heartbeat; issue/renew only after reviewing current terms. |
+| **Read-only licence** | Grace ended or current commercial controls no longer allow writes. | Restore valid contract/configuration and signed entitlement, then verify heartbeat. Do not bypass write protection. |
+
+The workspace never renders signing keys or signed envelopes. Do not work around
+that boundary with direct D1 or host-state changes.
+
+### Deploy or recover production
+
+Prefer the protected workflow; it downloads and verifies the source-free bundle:
+
+```bash
+gh workflow run deploy.yml --repo Super-ERP/crm-v2 -f release_tag=v1.2.25
+gh run list --repo Super-ERP/crm-v2 --workflow deploy.yml --limit 1
+```
+
+For an audited manual retry, connect as `internalops`, verify that
+`~/quandatics-client/.env` exists with owner-only permissions, then use the
+already-verified manifest and scripts from the bundle:
+
+```bash
+cd ~/quandatics-client
+test -s .env && stat -c '%A %U:%G %n' .env
+./apply-release-manifest.sh .env release-manifest.json v1.2.25
+./deploy.sh .env
+```
+
+Replace the example tag with the intended immutable release. Do not build or
+start the root source Compose stack as a production substitute.
 
 ### Production demo tenant
 
@@ -150,75 +243,20 @@ subscriptions. An active developer consumes one licensed seat like any other
 active member; set the membership to `disabled` when access ends to release the
 seat without deleting audit/history records.
 
-### Start the Hyphen sample demo manually
-
-The staging demo uses a Cloudflare quick tunnel. Its hostname changes every
-time the tunnel is recreated, so both the application origin and the Hyphen
-demo proxy must be updated before the public URL works again.
-
-1. Start the retained staging stack:
-
-   ```bash
-   cd ~/crm-v2-staging
-   test -s .env.staging
-   docker compose \
-     -p crm-staging \
-     -f docker-compose.yaml \
-     -f docker-compose.staging-tunnel.yaml \
-     --env-file .env.staging \
-     up -d db migrate web caddy tunnel
-   ```
-
-2. Read the newly assigned tunnel URL:
-
-   ```bash
-   docker logs crm-staging-tunnel-1 2>&1 \
-     | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' \
-     | tail -1
-   ```
-
-3. Put that exact URL into `BETTER_AUTH_URL` and `APP_URL` in
-   `~/crm-v2-staging/.env.staging`, then recreate only the web service:
-
-   ```bash
-   docker compose \
-     -p crm-staging \
-     -f docker-compose.yaml \
-     -f docker-compose.staging-tunnel.yaml \
-     --env-file .env.staging \
-     up -d --force-recreate --no-deps web
-   ```
-
-4. From the Hyphen company-site repository, replace the `UPSTREAM` value in
-   `workers/demo-proxy/src/index.ts` with the new tunnel URL and deploy the
-   proxy:
-
-   ```bash
-   pnpm run deploy:demo-proxy
-   ```
-
-5. Verify the tunnel directly and the stable public hostname:
-
-   ```bash
-   curl -fsS https://<new-tunnel>.trycloudflare.com/api/health
-   curl -fsS https://demo.hyphen-solution.com/api/health
-   ```
-
 ### Restore automatic deployments only when wanted
 
 Run these from an authenticated workstation. Enable only the workflows that
 should be allowed to execute on the Internal-Ops runner:
 
 ```bash
-gh workflow enable deploy --repo Quandatics-Malaysia/crm-v2
-gh workflow enable deploy-staging --repo Quandatics-Malaysia/crm-v2
-gh workflow enable pr-preview --repo Quandatics-Malaysia/crm-v2
+gh workflow enable deploy.yml --repo Super-ERP/crm-v2
+gh workflow enable deploy-staging.yml --repo Super-ERP/crm-v2
 ```
 
 Confirm the final state with `gh workflow list --all`. Leaving these workflows
 disabled does not prevent the manual startup commands above.
 
-### Pause both stacks again without deleting data
+### Pause staging without deleting data
 
 ```bash
 docker compose -p crm-staging \
@@ -226,28 +264,10 @@ docker compose -p crm-staging \
   -f ~/crm-v2-staging/docker-compose.staging-tunnel.yaml \
   --env-file ~/crm-v2-staging/.env.staging stop
 
-docker compose -p crm-v2 \
-  -f ~/crm-v2/docker-compose.yaml stop
 ```
 
 `stop` is intentional. It keeps the containers and named volumes available for
-the next startup. Verify the pause with `docker compose ls` and expect
-`https://demo.hyphen-solution.com` to be unavailable while the tunnel is down.
-
-### Cleanup PR previews after merge/close
-
-PR previews auto-clean when the pull request is closed, but you can always force:
-
-```bash
-docker compose -p crm-pr-123 \
-  -f ~/crm-v2/docker-compose.yaml \
-  -f ~/crm-v2/docker-compose.pr-preview.yaml \
-  -f ~/crm-v2/docker-compose.staging-tunnel.yaml \
-  down -v --remove-orphans
-```
-
-Replace `123` with the PR number. This removes the preview DB and app volumes and
-keeps production/staging untouched.
+the next startup. Production is managed separately by the signed client bundle.
 
 ## Optional modules (plugins)
 
@@ -414,11 +434,11 @@ browsing. Close the SSH shell to drop the tunnel when you're done.
 
 ## Staging environment
 
-A persistent preview environment at **`staging.quandatics.com`** — a second Docker
-stack on the **same box** as prod, fully namespaced (Compose project
-`crm-staging`, host ports **8091/5434**, its own volumes via the project prefix),
-deployed from the **`staging` branch**. It runs the same `docker-compose.yaml`;
-only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` (prod)**.
+A source-built preview stack on the same host, fully namespaced as
+`crm-staging`, deploys from the `staging` branch. Each deployment creates a new
+Cloudflare quick-tunnel URL and writes it to the workflow summary. It is not a
+stable hostname. Flow: **feature → `staging` preview → `main` → signed release →
+production approval**.
 
 **One-time setup (do once):**
 
@@ -429,19 +449,15 @@ only `.env.staging` differs. Flow: **feature → `staging` (preview) → `main` 
 2. **Server checkout** — clone a second working tree on the `staging` branch and
    create its env file from the template:
    ```bash
-   git clone https://github.com/Quandatics-Malaysia/crm-v2.git ~/crm-v2-staging
+   git clone https://github.com/Super-ERP/crm-v2.git ~/crm-v2-staging
    cd ~/crm-v2-staging && git checkout staging
    cp .env.staging.example .env.staging
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
    # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
    ```
-3. **Cloudflare tunnel route** — Zero Trust → your existing tunnel → **Public
-   Hostname** → add `staging.quandatics.com` → `http://localhost:8091`.
-4. **Cloudflare Access (gate it to the team)** — Zero Trust → **Access →
-   Applications** → add an application protecting `staging.quandatics.com` with a
-   policy allowing your team's emails. Staging seeds well-known demo credentials,
-   so this keeps the public out.
-5. The existing self-hosted runner already serves this repo — no new runner needed.
+3. The existing self-hosted runner serves this repository; no second runner is
+   required. Protected staging credentials remain on that host and are never
+   printed in logs or summaries.
 
 **Deploy:** push or merge into `staging`:
 ```bash
@@ -451,8 +467,8 @@ git push origin <feature-branch>:staging     # or merge a PR into staging
 a stable generated deployment UUID/shared secret, pins versions from the
 checked-out package and migration journal, injects the protected public trust
 set, then rebuilds the `crm-staging` stack.
-Review at `https://staging.quandatics.com`, then merge to `main` for prod. The
-staging deploy has its own concurrency group, so it never cancels a prod deploy.
+Open the quick-tunnel URL from the latest workflow summary, then merge to `main`
+only after acceptance. The staging concurrency group never cancels production.
 
 **Reset staging data** (wipe + reseed):
 ```bash
@@ -465,11 +481,34 @@ docker compose -p crm-staging -f ~/crm-v2-staging/docker-compose.yaml \
 and project `crm-staging` — never prod's `8081`/`5433`/`crm-v2`, or the two stacks
 collide on the box.
 
+## Offline grace recovery
+
+`offline grace` means the web runtime is using its last valid signed entitlement
+because the deployment agent has not applied a fresh lease. Application health
+can remain green during grace, but this is degraded state.
+
+1. Confirm the contract is active and its end date is later than the requested
+   lease window.
+2. Confirm the control plane is deployed and its cron completed successfully.
+3. Confirm production uses `deploy/client/compose.yaml`; the root source Compose
+   stack does not run the deployment agent.
+4. On the production host, inspect agent health without printing its state or
+   credentials:
+
+   ```bash
+   cd ~/quandatics-client
+   docker compose --profile deploy exec -T agent /usr/local/bin/agent-health
+   ```
+
+5. Redeploy the latest verified signed release if the agent service is absent.
+   Do not bypass signature, entitlement, or contract checks.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `column "…" does not exist` on startup | Pending migrations | `pnpm run db:migrate` |
+| `offline grace` banner | Agent has not applied a fresh signed lease | Follow **Offline grace recovery** above; verify contract, control-plane cron, and agent |
 | Dev terminal spams `GET /dashboard` + `ChunkLoadError` | A browser tab (any device on your LAN) left open across a dev-server restart; its stale HMR client reload-loops | Close or hard-refresh (Cmd+Shift+R) every tab pointing at the dev server |
 | `pnpm install --frozen-lockfile` fails in Docker: "lockfile is not up to date" | `pnpm-lock.yaml` wasn't committed after a dependency change | Run `pnpm install` locally, commit the updated `pnpm-lock.yaml`, rebuild |
 | Finance pages 404/redirect though flag is on | Master switch off, or user lacks `finance.view` | Check `lib/modules.ts` and the user's role |

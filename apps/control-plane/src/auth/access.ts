@@ -7,6 +7,7 @@ import {
 import type { Context, MiddlewareHandler } from "hono"
 
 import { prepareOperatorAuditStatement } from "../audit"
+import { requestId } from "../http/request-id"
 import type { ControlPlaneEnvironment } from "../index"
 import { authenticationUnavailable, forbidden, unauthorized } from "../http/errors"
 import { isOperatorRole, type OperatorRole } from "./rbac"
@@ -175,10 +176,6 @@ async function resolveOperator(
     .all<OperatorRow>()
 
   return result.results
-}
-
-function requestId(context: Context<ControlPlaneEnvironment>): string {
-  return context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id") ?? crypto.randomUUID()
 }
 
 async function provisionBootstrapOwner(

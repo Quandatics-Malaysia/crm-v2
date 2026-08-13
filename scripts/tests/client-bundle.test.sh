@@ -270,17 +270,17 @@ agent_digest=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 postgres_digest=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 caddy_digest=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 source_sha=1111111111111111111111111111111111111111
-web_image="ghcr.io/quandatics-malaysia/crm-web@sha256:$web_digest"
-migrator_image="ghcr.io/quandatics-malaysia/crm-migrator@sha256:$migrator_digest"
-backup_image="ghcr.io/quandatics-malaysia/crm-backup@sha256:$backup_digest"
-agent_image="ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:$agent_digest"
+web_image="ghcr.io/super-erp/crm-web@sha256:$web_digest"
+migrator_image="ghcr.io/super-erp/crm-migrator@sha256:$migrator_digest"
+backup_image="ghcr.io/super-erp/crm-backup@sha256:$backup_digest"
+agent_image="ghcr.io/super-erp/crm-deployment-agent@sha256:$agent_digest"
 postgres_image="docker.io/library/postgres@sha256:$postgres_digest"
 caddy_image="docker.io/library/caddy@sha256:$caddy_digest"
 
-old_web_image="ghcr.io/quandatics-malaysia/crm-web@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-old_migrator_image="ghcr.io/quandatics-malaysia/crm-migrator@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-old_backup_image="ghcr.io/quandatics-malaysia/crm-backup@sha256:3333333333333333333333333333333333333333333333333333333333333333"
-old_agent_image="ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+old_web_image="ghcr.io/super-erp/crm-web@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+old_migrator_image="ghcr.io/super-erp/crm-migrator@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+old_backup_image="ghcr.io/super-erp/crm-backup@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+old_agent_image="ghcr.io/super-erp/crm-deployment-agent@sha256:6666666666666666666666666666666666666666666666666666666666666666"
 old_postgres_image="docker.io/library/postgres@sha256:4444444444444444444444444444444444444444444444444444444444444444"
 old_caddy_image="docker.io/library/caddy@sha256:5555555555555555555555555555555555555555555555555555555555555555"
 old_application_version=1.1.0
@@ -623,8 +623,8 @@ expect_deploy_failure "unknown evidence key" "$valid_env" "unsupported backup ev
 
 write_evidence
 wrong_repo_env="$test_root/wrong-repository.env"
-copy_env_with_replacement "$valid_env" WEB_IMAGE "ghcr.io/quandatics-malaysia/crm-web-shadow@sha256:$web_digest" "$wrong_repo_env"
-expect_deploy_failure "wrong vendor repository" "$wrong_repo_env" "WEB_IMAGE must use exact repository ghcr.io/quandatics-malaysia/crm-web"
+copy_env_with_replacement "$valid_env" WEB_IMAGE "ghcr.io/super-erp/crm-web-shadow@sha256:$web_digest" "$wrong_repo_env"
+expect_deploy_failure "wrong vendor repository" "$wrong_repo_env" "WEB_IMAGE must use exact repository ghcr.io/super-erp/crm-web"
 
 wrong_upstream_env="$test_root/wrong-upstream.env"
 copy_env_with_replacement "$valid_env" POSTGRES_IMAGE "registry.example/postgres@sha256:$postgres_digest" "$wrong_upstream_env"
@@ -839,7 +839,7 @@ if ! run_deploy "$valid_env"; then
   record_failure "valid guarded deploy failed: $(cat "$output_log")"
 fi
 
-identity="https://github.com/Quandatics-Malaysia/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3"
+identity="https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/v1.2.3"
 issuer="https://token.actions.githubusercontent.com"
 [ "$(wc -l <"$cosign_log" | tr -d ' ')" -eq 4 ] || record_failure "all four vendor images were not verified exactly once"
 for image in "$web_image" "$migrator_image" "$backup_image" "$agent_image"; do
@@ -871,7 +871,7 @@ else
   jq -e '.services.db.networks | keys == ["backend"]' "$compose_json" >/dev/null || record_failure "database is reachable outside backend"
   jq -e '.services.backup.networks | keys | sort == ["backend", "egress"]' "$compose_json" >/dev/null || record_failure "backup lacks isolated backend plus outbound transport"
   jq -e '.services.migrate.networks | keys == ["backend"]' "$compose_json" >/dev/null || record_failure "migrator is reachable outside backend"
-  jq -e '.services.agent.image | startswith("ghcr.io/quandatics-malaysia/crm-deployment-agent@sha256:")' "$compose_json" >/dev/null || record_failure "agent image is not digest-only"
+  jq -e '.services.agent.image | startswith("ghcr.io/super-erp/crm-deployment-agent@sha256:")' "$compose_json" >/dev/null || record_failure "agent image is not digest-only"
   jq -e '.services.agent.networks | keys | sort == ["agent-egress", "agent-web"]' "$compose_json" >/dev/null || record_failure "agent network boundary is not isolated"
   jq -e '.networks["agent-web"].internal == true' "$compose_json" >/dev/null || record_failure "agent-web network is not internal"
   jq -e '(.services.agent.environment | keys | sort) == ["AGENT_VERSION", "AGENT_WEB_SECRET", "APPLICATION_VERSION", "CONTROL_PLANE_URL", "DEPLOYMENT_ENV", "DEPLOYMENT_ID", "IMAGE_DIGEST", "INSTALLATION_TOKEN", "MIGRATION_VERSION", "WEB_INTERNAL_URL"]' "$compose_json" >/dev/null || record_failure "agent environment exceeds allowlist"

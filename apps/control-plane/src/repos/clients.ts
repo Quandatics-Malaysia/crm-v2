@@ -43,6 +43,10 @@ export interface PageResult<T> {
   hasNext: boolean
 }
 
+export interface CollectionResult<T> extends PageResult<T> {
+  hasAny: boolean
+}
+
 export interface ClientChildPagination {
   organisations: PageRequest
   deployments: PageRequest
@@ -50,9 +54,21 @@ export interface ClientChildPagination {
 }
 
 export interface ClientDetail extends ClientListItem {
-  organisations: PageResult<{ id: string; organisationKey: string; displayName: string }>
-  deployments: PageResult<{ id: string; deploymentKey: string; environment: string; status: string }>
-  contracts: PageResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
+  organisations: CollectionResult<{ id: string; organisationKey: string; displayName: string }>
+  deployments: CollectionResult<{ id: string; deploymentKey: string; environment: string; status: string; href: string }>
+  contracts: CollectionResult<{ id: string; status: string; startsAt: string; endsAt: string; seatLimit: number }>
+}
+
+export interface DashboardSummary {
+  activeClientCount: number
+  deploymentCount: number
+  attentionItems: {
+    href: string
+    title: string
+    description: string
+    status: "Past due" | "Suspended" | "Disabled"
+    tone: "warning" | "error"
+  }[]
 }
 
 function textField(value: unknown, maximum: number): string {
@@ -254,12 +270,13 @@ export function parseClientChildPagination(url: string): ClientChildPagination {
   }
 }
 
-function pageResult<T>(rows: T[], request: PageRequest): PageResult<T> {
+function pageResult<T>(rows: T[], request: PageRequest, hasAny: boolean): CollectionResult<T> {
   return {
     items: rows.slice(0, request.pageSize),
     page: request.page,
     pageSize: request.pageSize,
     hasNext: rows.length > request.pageSize,
+    hasAny,
   }
 }
 
@@ -284,6 +301,42 @@ export async function listClients(
   }))
 }
 
+export async function getDashboardSummary(database: D1Database): Promise<DashboardSummary> {
+  const [clients, deployments, contractsNeedingAttention, disabledDeployments] = await Promise.all([
+    database.prepare("SELECT COUNT(*) AS count FROM clients WHERE status = 'active'").first<{ count: number }>(),
+    database.prepare("SELECT COUNT(*) AS count FROM deployments").first<{ count: number }>(),
+    database.prepare(
+      "SELECT id, status FROM contracts WHERE status IN ('past_due', 'suspended') ORDER BY updated_at DESC, id DESC LIMIT 5",
+    ).all<{ id: string; status: "past_due" | "suspended" }>(),
+    database.prepare(
+      "SELECT id FROM deployments WHERE status = 'disabled' ORDER BY updated_at DESC, id DESC LIMIT 5",
+    ).all<{ id: string }>(),
+  ])
+
+  const attentionItems = [
+    ...contractsNeedingAttention.results.map((contract) => ({
+      href: `/operator/contracts/${contract.id}`,
+      title: contract.status === "past_due" ? "Contract is past due" : "Contract is suspended",
+      description: "Review contract terms and entitlement controls.",
+      status: contract.status === "past_due" ? "Past due" as const : "Suspended" as const,
+      tone: contract.status === "past_due" ? "warning" as const : "error" as const,
+    })),
+    ...disabledDeployments.results.map((deployment) => ({
+      href: `/operator/deployments/${deployment.id}`,
+      title: "Deployment is disabled",
+      description: "Open deployment signing workspace to review its status.",
+      status: "Disabled" as const,
+      tone: "error" as const,
+    })),
+  ].slice(0, 5)
+
+  return {
+    activeClientCount: clients?.count ?? 0,
+    deploymentCount: deployments?.count ?? 0,
+    attentionItems,
+  }
+}
+
 export async function getClientDetail(
   database: D1Database,
   clientId: string,
@@ -299,7 +352,7 @@ export async function getClientDetail(
   }>()
   if (!client) throw notFound()
 
-  const [organisations, deployments, contracts] = await Promise.all([
+  const [organisations, deployments, contracts, hasOrganisation, hasDeployment, hasContract] = await Promise.all([
     database.prepare(
       "SELECT id, organisation_key, display_name FROM client_organisations WHERE client_id = ? ORDER BY organisation_key LIMIT ? OFFSET ?",
     ).bind(
@@ -327,6 +380,9 @@ export async function getClientDetail(
       ends_at: string
       seat_limit: number
     }>(),
+    database.prepare("SELECT 1 FROM client_organisations WHERE client_id = ? LIMIT 1").bind(clientId).first(),
+    database.prepare("SELECT 1 FROM deployments WHERE client_id = ? LIMIT 1").bind(clientId).first(),
+    database.prepare("SELECT 1 FROM contracts WHERE client_id = ? LIMIT 1").bind(clientId).first(),
   ])
 
   return {
@@ -341,6 +397,7 @@ export async function getClientDetail(
         displayName: row.display_name,
       })),
       pagination.organisations,
+      hasOrganisation !== null,
     ),
     deployments: pageResult(
       deployments.results.map((row) => ({
@@ -348,8 +405,10 @@ export async function getClientDetail(
         deploymentKey: row.deployment_key,
         environment: row.environment,
         status: row.status,
+        href: `/operator/deployments/${row.id}`,
       })),
       pagination.deployments,
+      hasDeployment !== null,
     ),
     contracts: pageResult(
       contracts.results.map((row) => ({
@@ -360,6 +419,7 @@ export async function getClientDetail(
         seatLimit: row.seat_limit,
       })),
       pagination.contracts,
+      hasContract !== null,
     ),
   }
 }

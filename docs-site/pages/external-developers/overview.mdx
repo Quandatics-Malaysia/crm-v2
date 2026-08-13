@@ -31,11 +31,9 @@ acceptance checks.
 - Use staging or sandbox for development and acceptance testing.
 - Never place an API key in browser code, public repositories, URLs, or logs.
 
-The protected `/operator` workspace is vendor-only. It creates client deployments,
-issues one-time installation tokens, and reviews or re-issues signed
-entitlements; partners and customer users do not receive this access or handle
-deployment tokens, signing keys, or deployment-agent state. See
-[Operations](/operations) for vendor workflow and recovery boundaries.
+Deployment administration is vendor-only. Production delivery uses source-free,
+signed client bundles; partners and customer users do not handle deployment
+tokens, signing keys, deployment-agent state, or vendor recovery procedures.
 
 Current API v1 is read-only. Write API endpoints and webhooks are not part of
 the current external contract.

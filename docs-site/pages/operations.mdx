@@ -87,9 +87,9 @@ signing progress** and **Required action** cards as the workflow.
 
 For a contract, seats/modules, release channel, supported-version,
 configuration, or approved-image change, update its UI record, review current
-terms, issue a new immutable version, then verify the heartbeat acknowledged it.
+terms, issue a new immutable version, then verify a current healthy heartbeat.
 Cron checks every 15 minutes and renews missing, near-expiry, materially changed,
-or retired-key leases; operator review remains required for commercial and
+or non-current-key leases; operator review remains required for commercial and
 release-control changes.
 
 | State | Diagnose and recover |

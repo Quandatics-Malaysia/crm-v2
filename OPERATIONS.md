@@ -165,10 +165,10 @@ are authoritative for the next safe action.
 - Each issued entitlement version is immutable. To re-sign after a contract,
   seats/modules, configuration, channel, supported-version, or approved-digest
   change, update the relevant UI record, return to the deployment workspace,
-  review current terms, explicitly issue a new version, then confirm a healthy
-  heartbeat acknowledges it.
+  review current terms, explicitly issue a new version, then verify a current
+  healthy heartbeat.
 - Control-plane cron checks every 15 minutes and renews leases that are missing,
-  near expiry, materially changed, or signed by a retired active key. It does
+  near expiry, materially changed, or signed by any non-current key. It does
   not replace operator review after a commercial or release-control change.
 - For renewal attention, review contract dates/status first, then deployment
   configuration and entitlement history. Use **Review entitlement terms** to

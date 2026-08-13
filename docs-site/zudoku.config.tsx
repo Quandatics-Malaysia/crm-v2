@@ -39,7 +39,7 @@ const config: ZudokuConfig = {
           links: [
             {
               label: "External developers",
-              href: "/external-developers",
+              href: "/external-developers/overview",
             },
             {
               label: "Production",

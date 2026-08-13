@@ -240,6 +240,7 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
             { term: "Token used at (UTC)", details: formatUtc(workspace.token?.usedAt ?? null) },
           ]} />
           {canIssueInstallToken ? <form action={`/operator/deployments/${workspace.deployment.id}/install-tokens`} method="post">
+            <input type="hidden" name="idempotencyKey" value={crypto.randomUUID()} />
             <div class="field">
               <label for="install-token-expires-at">Token expiry (UTC)</label>
               <input id="install-token-expires-at" name="expiresAt" type="datetime-local" required />
@@ -425,7 +426,7 @@ export function InstallTokenResultPage(props: {
           <p><code id="install-token-value">{props.token}</code></p>
           <button id="copy-install-token" type="button">Copy install token</button>
           <p class="field-hint">This token cannot be recovered. If copying is unavailable, select the value above and copy it manually.</p>
-          <script dangerouslySetInnerHTML={{ __html: "document.getElementById('copy-install-token')?.addEventListener('click', async () => { const value = document.getElementById('install-token-value')?.textContent; if (value && navigator.clipboard) await navigator.clipboard.writeText(value) })" }} />
+          <script src="/operator/install-token-copy.js" defer></script>
         </Card>
       </section>
       <p><a class="button-link" href={`/operator/deployments/${props.deploymentId}`}>Return to deployment status</a></p>

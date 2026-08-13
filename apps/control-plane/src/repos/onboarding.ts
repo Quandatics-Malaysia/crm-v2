@@ -85,6 +85,8 @@ export interface DeploymentWorkspace {
     healthStatus: string
     applicationVersion: string
     occupiedSeats: number
+    entitlementVersion: string | null
+    configurationVersion: string | null
   } | null
   recentEntitlements: EntitlementSummary[]
   entitlementHistoryCapped: boolean
@@ -116,6 +118,8 @@ export function deriveOnboardingState(input: {
   hasSchedule: boolean
   lease: StoredLease | null
   heartbeat: { observedAt: string; healthStatus: string } | null
+  entitlementIsCurrent: boolean
+  heartbeatAcknowledgesCurrentState: boolean
   now: Date
 }): OnboardingState {
   const licenceState: LicenceState = input.lease === null
@@ -141,10 +145,13 @@ export function deriveOnboardingState(input: {
   if (input.lease === null) {
     return { progress: "sign", nextAction: "issue_entitlement", licenceState, connectivityState }
   }
+  if (!input.entitlementIsCurrent) {
+    return { progress: "sign", nextAction: "issue_new_version", licenceState, connectivityState }
+  }
   if (licenceState === "grace" || licenceState === "read_only") {
     return { progress: "complete", nextAction: "issue_new_version", licenceState, connectivityState }
   }
-  if (connectivityState !== "online") {
+  if (connectivityState !== "online" || !input.heartbeatAcknowledgesCurrentState) {
     return { progress: "verify", nextAction: "verify_heartbeat", licenceState, connectivityState }
   }
   return { progress: "complete", nextAction: "none", licenceState, connectivityState }
@@ -192,8 +199,8 @@ export async function getDeploymentWorkspace(
       display_name: string
     }>(),
     database.prepare(
-      "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1",
-    ).bind(deploymentId).first<{ key_id: string; fingerprint: string }>(),
+      "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND algorithm = 'Ed25519' AND revoked_at IS NULL AND replaced_by_key_id IS NULL AND not_before <= ? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, id DESC LIMIT 1",
+    ).bind(deploymentId, now.toISOString(), now.toISOString()).first<{ key_id: string; fingerprint: string }>(),
     database.prepare(
       "SELECT id, expires_at, used_at, registration_key_fingerprint, created_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
     ).bind(deploymentId).first<{
@@ -217,22 +224,26 @@ export async function getDeploymentWorkspace(
       updated_at: string
     }>(),
     database.prepare(
-      "SELECT id, contract_id, version, key_id, payload_json, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT ?",
+      "SELECT id, contract_id, version, key_id, payload_json, contract_revision, schedule_revision, issued_at FROM entitlement_versions WHERE deployment_id = ? ORDER BY version DESC LIMIT ?",
     ).bind(deploymentId, RECENT_LIMIT + 1).all<{
       id: string
       contract_id: string
       version: number
       key_id: string
       payload_json: string
+      contract_revision: number | null
+      schedule_revision: number | null
       issued_at: string
     }>(),
     database.prepare(
-      "SELECT observed_at, health_status, application_version, occupied_seats FROM heartbeat_rollups WHERE deployment_id = ? ORDER BY observed_at DESC, id DESC LIMIT 1",
+      "SELECT observed_at, health_status, application_version, occupied_seats, entitlement_version, configuration_version FROM heartbeat_rollups WHERE deployment_id = ? ORDER BY observed_at DESC, id DESC LIMIT 1",
     ).bind(deploymentId).first<{
       observed_at: string
       health_status: string
       application_version: string
       occupied_seats: number
+      entitlement_version: string | null
+      configuration_version: string | null
     }>(),
     database.prepare(
       "SELECT id, action, outcome, created_at FROM operator_audit_log WHERE target_type = 'deployment' AND target_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -257,6 +268,8 @@ export async function getDeploymentWorkspace(
         graceUntil: lease?.graceUntil ?? null,
       },
       lease,
+      contractRevision: row.contract_revision,
+      scheduleRevision: row.schedule_revision,
     }
   })
   const latest = entitlements[0] ?? null
@@ -272,7 +285,19 @@ export async function getDeploymentWorkspace(
     healthStatus: heartbeat.health_status,
     applicationVersion: heartbeat.application_version,
     occupiedSeats: heartbeat.occupied_seats,
+    entitlementVersion: heartbeat.entitlement_version,
+    configurationVersion: heartbeat.configuration_version,
   }
+  const scheduledContract = schedule === null
+    ? undefined
+    : compatibleContracts.results.find((contract) => contract.id === schedule.contract_id)
+  const entitlementIsCurrent = latest !== null && schedule !== null && scheduledContract !== undefined &&
+    latest.summary.contractId === schedule.contract_id &&
+    latest.contractRevision !== null && latest.contractRevision === scheduledContract.entitlement_revision &&
+    latest.scheduleRevision !== null && latest.scheduleRevision === schedule.state_revision
+  const heartbeatAcknowledgesCurrentState = latestHeartbeat !== null && latest !== null && schedule !== null &&
+    latestHeartbeat.entitlementVersion === String(latest.summary.version) &&
+    latestHeartbeat.configurationVersion === schedule.configuration_version
 
   return {
     client: {
@@ -336,6 +361,8 @@ export async function getDeploymentWorkspace(
       ),
       lease: latest?.lease ?? null,
       heartbeat: latestHeartbeat,
+      entitlementIsCurrent,
+      heartbeatAcknowledgesCurrentState,
       now,
     }),
   }

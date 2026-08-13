@@ -7,6 +7,10 @@ const OPERATOR_ERROR_GUIDANCE: Record<string, string> = {
   forbidden: "You do not have permission to complete this action.",
   not_found: "The requested record is unavailable. Return to the dashboard and choose it again.",
   conflict: "This change conflicts with current data. Refresh the page and try again.",
+  entitlement_state_changed: "Entitlement state changed. Refresh the deployment, review current terms, and issue again.",
+  entitlement_prerequisites_unavailable: "Signing prerequisites are unavailable. Confirm client, deployment, registration, and deployment key status, then retry.",
+  signing_configuration_unavailable: "Signing configuration is unavailable. Contact platform operations before retrying.",
+  install_token_already_issued: "This install-token request already completed. Return to the deployment and issue a replacement with a new request.",
   authentication_unavailable: "Access verification is temporarily unavailable. Try again shortly.",
   internal_error: "We could not complete this request. Try again. If it persists, contact support.",
 }

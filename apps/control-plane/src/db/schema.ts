@@ -365,12 +365,24 @@ export const installTokens = sqliteTable(
     tokenDigest: text("token_digest").notNull(),
     expiresAt: text("expires_at").notNull(),
     usedAt: text("used_at"),
+    supersededAt: text("superseded_at"),
+    idempotencyKeyDigest: text("idempotency_key_digest"),
     registrationKeyFingerprint: text("registration_key_fingerprint"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("install_tokens_token_digest_idx").on(table.tokenDigest),
+    uniqueIndex("install_tokens_deployment_idempotency_idx").on(
+      table.deploymentId,
+      table.idempotencyKeyDigest,
+    ),
     index("install_tokens_deployment_expiry_idx").on(table.deploymentId, table.expiresAt),
+    index("install_tokens_deployment_active_idx").on(
+      table.deploymentId,
+      table.usedAt,
+      table.supersededAt,
+      table.expiresAt,
+    ),
   ],
 )
 

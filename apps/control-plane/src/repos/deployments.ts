@@ -6,10 +6,11 @@ import {
   importStrictEd25519PublicJwk,
   installTokenDigest,
   publicKeyFingerprint,
+  sha256,
   timingSafeDigestEqual,
   toBase64Url,
 } from "../auth/deployment"
-import { badRequest, notFound, unauthorized } from "../http/errors"
+import { badRequest, notFound, SafeHttpError, unauthorized } from "../http/errors"
 
 export interface InstallTokenActor {
   operatorId: string
@@ -22,6 +23,7 @@ interface InstallTokenRow {
   token_digest: string
   expires_at: string
   used_at: string | null
+  superseded_at: string | null
   registration_key_fingerprint: string | null
   environment: string
   deployment_status: string
@@ -60,9 +62,18 @@ export async function issueInstallToken(
   pepper: string,
   expiresAt: string,
   actor?: InstallTokenActor,
+  idempotencyKey: string = crypto.randomUUID(),
 ): Promise<{ id: string; token: string; expiresAt: string }> {
   assertServerSecret(pepper)
   if (!Number.isFinite(Date.parse(expiresAt))) throw new TypeError("Token expiry is invalid")
+  if (!/^[\x21-\x7e]{1,256}$/.test(idempotencyKey)) throw badRequest()
+  const idempotencyKeyDigest = toBase64Url(await sha256(new TextEncoder().encode(idempotencyKey)))
+  const alreadyIssued = await database.prepare(
+    "SELECT 1 AS present FROM install_tokens WHERE deployment_id = ? AND idempotency_key_digest = ?",
+  ).bind(deploymentId, idempotencyKeyDigest).first<{ present: number }>()
+  if (alreadyIssued?.present === 1) {
+    throw new SafeHttpError(409, "install_token_already_issued")
+  }
   const deployment = await database.prepare(
     "SELECT d.id FROM deployments d JOIN clients c ON c.id = d.client_id WHERE d.id = ? AND d.status = 'active' AND c.status = 'active' AND d.registered_at IS NULL",
   ).bind(deploymentId).first<{ id: string }>()
@@ -75,8 +86,11 @@ export async function issueInstallToken(
   const createdAt = new Date().toISOString()
   const statements: D1PreparedStatement[] = [
     database.prepare(
-      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, registration_key_fingerprint, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?)",
-    ).bind(id, deployment.id, digest, expiresAt, createdAt),
+      "UPDATE install_tokens SET superseded_at = ? WHERE deployment_id = ? AND used_at IS NULL AND superseded_at IS NULL",
+    ).bind(createdAt, deployment.id),
+    database.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, superseded_at, idempotency_key_digest, registration_key_fingerprint, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, ?)",
+    ).bind(id, deployment.id, digest, expiresAt, idempotencyKeyDigest, createdAt),
   ]
   if (actor) {
     const audit = await prepareOperatorAuditStatement(database, {
@@ -91,13 +105,23 @@ export async function issueInstallToken(
     })
     statements.push(audit.statement)
   }
-  await database.batch(statements)
+  try {
+    await database.batch(statements)
+  } catch (error) {
+    const raced = await database.prepare(
+      "SELECT 1 AS present FROM install_tokens WHERE deployment_id = ? AND idempotency_key_digest = ?",
+    ).bind(deployment.id, idempotencyKeyDigest).first<{ present: number }>()
+    if (raced?.present === 1) {
+      throw new SafeHttpError(409, "install_token_already_issued")
+    }
+    throw error
+  }
   return { id, token, expiresAt }
 }
 
 async function tokenRow(database: D1Database, digest: string): Promise<InstallTokenRow | null> {
   return database.prepare(
-    "SELECT t.id, t.deployment_id, t.token_digest, t.expires_at, t.used_at, t.registration_key_fingerprint, d.environment, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint AS deployment_registration_key_fingerprint FROM install_tokens t JOIN deployments d ON d.id = t.deployment_id WHERE t.token_digest = ?",
+    "SELECT t.id, t.deployment_id, t.token_digest, t.expires_at, t.used_at, t.superseded_at, t.registration_key_fingerprint, d.environment, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint AS deployment_registration_key_fingerprint FROM install_tokens t JOIN deployments d ON d.id = t.deployment_id WHERE t.token_digest = ?",
   ).bind(digest).first<InstallTokenRow>()
 }
 
@@ -123,6 +147,7 @@ async function recoverRegisteredKey(
     input.row.deployment_id !== input.registration.deploymentId ||
     input.row.environment !== input.registration.environment ||
     input.row.deployment_status !== "active" ||
+    input.row.superseded_at !== null ||
     input.row.used_at === null ||
     input.row.registered_at === null ||
     input.row.registration_key_fingerprint === null ||
@@ -189,6 +214,7 @@ export async function registerDeployment(
     row.deployment_id !== registration.deploymentId ||
     row.environment !== registration.environment ||
     row.deployment_status !== "active" ||
+    row.superseded_at !== null ||
     !Number.isFinite(Date.parse(row.expires_at))
   ) {
     throw unauthorized()
@@ -234,7 +260,7 @@ export async function registerDeployment(
   try {
     await database.batch([
       database.prepare(
-        "UPDATE install_tokens SET used_at = ?, registration_key_fingerprint = ? WHERE id = ? AND deployment_id = ? AND token_digest = ? AND used_at IS NULL AND registration_key_fingerprint IS NULL AND expires_at >= ?",
+        "UPDATE install_tokens SET used_at = ?, registration_key_fingerprint = ? WHERE id = ? AND deployment_id = ? AND token_digest = ? AND used_at IS NULL AND superseded_at IS NULL AND registration_key_fingerprint IS NULL AND expires_at >= ?",
       ).bind(now, fingerprint, row.id, registration.deploymentId, digest, now),
       database.prepare(
         "INSERT INTO deployment_keys (id, deployment_id, key_id, algorithm, public_jwk_json, fingerprint, not_before, expires_at, revoked_at, replaced_by_key_id, registration_token_id, created_at) VALUES (?, ?, ?, 'Ed25519', ?, ?, ?, NULL, NULL, NULL, ?, ?)",

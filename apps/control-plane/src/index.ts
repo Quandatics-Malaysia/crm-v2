@@ -9,7 +9,7 @@ import { verifyControlDatabase } from "./db/client"
 import { acceptsOperatorHtml, isOperatorRequest, safeErrorResponse } from "./http/errors"
 import { createDeploymentRoutes } from "./routes/deployments"
 import { createEntitlementRoutes } from "./routes/entitlements"
-import { createOperatorRoutes } from "./routes/operator"
+import { createOperatorRoutes, requestId } from "./routes/operator"
 import { runEntitlementRenewal } from "./repos/entitlements"
 import { OperatorErrorPage } from "./ui/error"
 
@@ -33,7 +33,7 @@ function safeOperatorError(
   if (acceptsOperatorHtml(context.req.raw)) {
     return context.html(OperatorErrorPage({
       code: response.code,
-      requestId: crypto.randomUUID(),
+      requestId: requestId(context),
     }), response.status)
   }
 

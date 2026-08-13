@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, inject, it } from "vitest"
 import { publicKeyFingerprint } from "../src/auth/deployment"
 import { createApp } from "../src/index"
 import { issueInstallToken } from "../src/repos/deployments"
+import { getDeploymentWorkspace } from "../src/repos/onboarding"
 import { isSafeOpaqueLegacyKeyId } from "../src/routes/deployments"
 import { createDeploymentClient } from "../../deployment-agent/src/client.js"
 
@@ -19,6 +20,9 @@ const legacySharedKeyId = "legacy-agent-key"
 const legacyValidDeploymentId = "22222222-2222-4222-8222-222222222222"
 const legacyPrivateDeploymentId = "33333333-3333-4333-8333-333333333333"
 const legacyMalformedDeploymentId = "44444444-4444-4444-8444-444444444444"
+const legacyEntitlementClientId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1"
+const legacyEntitlementDeploymentId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2"
+const legacyEntitlementContractId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd3"
 const unsafeLegacyKeys = [
   {
     label: "unsafe punctuation",
@@ -299,10 +303,76 @@ beforeAll(async () => {
     ])
   }
 
+  const legacyEntitlementPayload = {
+    schemaVersion: 2,
+    revision: 1,
+    keyId: "legacy-vendor-key",
+    leaseId: "legacy-entitlement-lease",
+    clientId: legacyEntitlementClientId,
+    deploymentId: legacyEntitlementDeploymentId,
+    issuedAt: "2026-08-10T11:00:00.000Z",
+    leaseExpiresAt: "2026-08-11T11:00:00.000Z",
+    contractStartsAt: "2026-08-01T00:00:00.000Z",
+    contractEndsAt: "2026-09-01T00:00:00.000Z",
+    graceUntil: "2026-08-18T11:00:00.000Z",
+    subscriptionStatus: "active",
+    planId: "legacy-entitlement-plan",
+    maxActiveUsers: 5,
+    moduleIds: [],
+    addonIds: [],
+    configurationVersion: "legacy-configuration",
+    releaseChannel: "stable",
+    minimumSupportedAppVersion: "1.0.0",
+  }
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare(
+      "INSERT INTO plans (id, plan_key, display_name, active, created_at, updated_at) VALUES ('legacy-entitlement-plan', 'legacy-entitlement', 'Legacy entitlement', 1, ?, ?)",
+    ).bind(now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO clients (id, client_key, display_name, status, created_at, updated_at) VALUES (?, 'legacy-entitlement-client', 'Legacy entitlement client', 'active', ?, ?)",
+    ).bind(legacyEntitlementClientId, now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO deployments (id, client_id, deployment_key, environment, status, created_at, updated_at) VALUES (?, ?, 'legacy-entitlement-deployment', 'production', 'active', ?, ?)",
+    ).bind(legacyEntitlementDeploymentId, legacyEntitlementClientId, now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO deployment_keys (id, deployment_id, key_id, public_jwk_json, revoked_at, created_at) VALUES (?, ?, 'legacy-entitlement-agent-key', ?, NULL, ?)",
+    ).bind(crypto.randomUUID(), legacyEntitlementDeploymentId, JSON.stringify(validPublicJwk), now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO contracts (id, client_id, plan_id, status, starts_at, ends_at, seat_limit, created_at, updated_at) VALUES (?, ?, 'legacy-entitlement-plan', 'active', '2026-08-01', '2026-08-31', 5, ?, ?)",
+    ).bind(legacyEntitlementContractId, legacyEntitlementClientId, now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at) VALUES (?, ?, ?, 1, 'legacy-vendor-key', ?, 'legacy-signature', ?, ?)",
+    ).bind(crypto.randomUUID(), legacyEntitlementDeploymentId, legacyEntitlementContractId, JSON.stringify(legacyEntitlementPayload), legacyEntitlementPayload.issuedAt, legacyEntitlementPayload.issuedAt),
+  ])
+
   await applyD1Migrations(env.CONTROL_DB, migrations)
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare(
+      "INSERT INTO deployment_entitlement_schedules (deployment_id, contract_id, next_check_at, latest_version, configuration_version, release_channel, minimum_supported_app_version, approved_image_digest, state_revision, updated_at) VALUES (?, ?, '2099-01-01T00:00:00.000Z', 1, 'legacy-configuration', 'stable', '1.0.0', NULL, 1, ?)",
+    ).bind(legacyEntitlementDeploymentId, legacyEntitlementContractId, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO heartbeat_rollups (id, deployment_id, observed_at, occupied_seats, application_version, health_status, entitlement_version, configuration_version, created_at) VALUES (?, ?, '2026-08-10T11:59:59.000Z', 1, '1.0.0', 'healthy', '1', 'legacy-configuration', '2026-08-10T11:59:59.000Z')",
+    ).bind(crypto.randomUUID(), legacyEntitlementDeploymentId),
+  ])
 })
 
 describe("deployment protocol migration upgrade", () => {
+  it("routes a migrated entitlement with missing revision stamps to manual signing", async () => {
+    await expect(getDeploymentWorkspace(
+      env.CONTROL_DB,
+      legacyEntitlementDeploymentId,
+      new Date("2026-08-10T12:00:00.000Z"),
+    )).resolves.toMatchObject({
+      latestEntitlement: { version: 1 },
+      onboarding: {
+        progress: "sign",
+        nextAction: "issue_new_version",
+        licenceState: "active",
+        connectivityState: "online",
+      },
+    })
+  })
+
   it("preserves duplicate legacy key IDs and backfills explicit lifecycle state", async () => {
     const rows = await env.CONTROL_DB.prepare(
       "SELECT k.deployment_id, k.algorithm, k.fingerprint, k.not_before, d.registered_at, d.registration_key_fingerprint FROM deployment_keys k JOIN deployments d ON d.id = k.deployment_id WHERE k.key_id = ? ORDER BY k.deployment_id",
@@ -420,6 +490,78 @@ describe("deployment registration", () => {
     expect(row?.token_digest).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(row?.token_digest).not.toBe(issued.token)
     expect(JSON.stringify(row)).not.toContain(issued.token)
+  })
+
+  it("atomically supersedes the prior unused token so only the replacement can register", async () => {
+    const deploymentId = await createDeployment()
+    const first = await issueInstallToken(
+      env.CONTROL_DB,
+      deploymentId,
+      pepper,
+      new Date(Date.now() + 60_000).toISOString(),
+      undefined,
+      crypto.randomUUID(),
+    )
+    const replacement = await issueInstallToken(
+      env.CONTROL_DB,
+      deploymentId,
+      pepper,
+      new Date(Date.now() + 60_000).toISOString(),
+      undefined,
+      crypto.randomUUID(),
+    )
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+    const exported = await crypto.subtle.exportKey("jwk", pair.publicKey)
+    const register = (installationToken: string, keyId: string) => createApp().fetch(
+      new Request("https://control.invalid/v1/deployments/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installationToken,
+          deploymentId,
+          environment: "production",
+          keyId,
+          publicKey: { kty: "OKP", crv: "Ed25519", x: exported.x },
+          agentVersion: "1.2.3",
+        }),
+      }),
+      bindings(),
+    )
+
+    expect((await register(first.token, crypto.randomUUID())).status).toBe(401)
+    expect((await register(replacement.token, crypto.randomUUID())).status).toBe(201)
+    const rows = await env.CONTROL_DB.prepare(
+      "SELECT id, superseded_at, idempotency_key_digest FROM install_tokens WHERE deployment_id = ? ORDER BY created_at, id",
+    ).bind(deploymentId).all<{ id: string; superseded_at: string | null; idempotency_key_digest: string }>()
+    expect(rows.results).toHaveLength(2)
+    expect(rows.results.find((row) => row.id === first.id)?.superseded_at).not.toBeNull()
+    expect(rows.results.find((row) => row.id === replacement.id)?.superseded_at).toBeNull()
+    expect(rows.results.every((row) => /^[A-Za-z0-9_-]{43}$/.test(row.idempotency_key_digest))).toBe(true)
+    expect(JSON.stringify(rows.results)).not.toContain(first.token)
+    expect(JSON.stringify(rows.results)).not.toContain(replacement.token)
+  })
+
+  it("creates at most one token for concurrent reuse of an idempotency key", async () => {
+    const deploymentId = await createDeployment()
+    const idempotencyKey = crypto.randomUUID()
+    const issueOnce = () => issueInstallToken(
+      env.CONTROL_DB,
+      deploymentId,
+      pepper,
+      new Date(Date.now() + 60_000).toISOString(),
+      undefined,
+      idempotencyKey,
+    )
+
+    const results = await Promise.allSettled([issueOnce(), issueOnce()])
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1)
+    expect((results.find((result) => result.status === "rejected") as PromiseRejectedResult).reason)
+      .toMatchObject({ status: 409, code: "install_token_already_issued" })
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM install_tokens WHERE deployment_id = ?",
+    ).bind(deploymentId).first<{ count: number }>()).toEqual({ count: 1 })
   })
 
   it("atomically consumes a deployment-bound token and stores the client-precommitted key ID", async () => {

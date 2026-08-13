@@ -64,7 +64,7 @@ function requestNotice(context: OperatorContext): OperatorNotice | undefined {
   return OPERATOR_NOTICES[code as keyof typeof OPERATOR_NOTICES]
 }
 
-function requestId(context: OperatorContext): string {
+export function requestId(context: Pick<OperatorContext, "req">): string {
   const candidate = context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id")
   return candidate && /^[\x21-\x7e]{1,256}$/.test(candidate) ? candidate : crypto.randomUUID()
 }
@@ -142,10 +142,18 @@ function mutationDescriptor(pathname: string): {
     return { action: "invoice.create", targetType: "invoice", targetId: "request-target" }
   }
   if (/^\/operator\/deployments\/[^/]+\/entitlements\/schedule$/.test(pathname)) {
-    return { action: "entitlement.schedule.assign", targetType: "deployment", targetId: "request-target" }
+    return {
+      action: "entitlement.schedule.assign",
+      targetType: "deployment",
+      targetId: pathname.split("/")[3]!,
+    }
   }
   if (/^\/operator\/deployments\/[^/]+\/entitlements\/issue$/.test(pathname)) {
-    return { action: "entitlement.issue", targetType: "deployment", targetId: "request-target" }
+    return {
+      action: "entitlement.issue",
+      targetType: "deployment",
+      targetId: pathname.split("/")[3]!,
+    }
   }
   const installToken = /^\/operator\/deployments\/([^/]+)\/install-tokens$/.exec(pathname)
   if (installToken) {
@@ -301,6 +309,11 @@ export function createOperatorRoutes() {
   routes.get("/styles.css", (context) => context.body(OPERATOR_STYLES, 200, {
     "Content-Type": "text/css; charset=UTF-8",
   }))
+  routes.get("/install-token-copy.js", (context) => context.body(
+    "document.getElementById('copy-install-token')?.addEventListener('click', async () => { const value = document.getElementById('install-token-value')?.textContent; if (value && navigator.clipboard) await navigator.clipboard.writeText(value) })",
+    200,
+    { "Content-Type": "text/javascript; charset=UTF-8" },
+  ))
 
   routes.get("/", async (context) => context.html(
     <Dashboard
@@ -452,6 +465,7 @@ export function createOperatorRoutes() {
         context.env.INSTALL_TOKEN_PEPPER,
         installTokenExpiry(data.expiresAt),
         actor(context),
+        typeof data.idempotencyKey === "string" ? data.idempotencyKey : "",
       )
       return context.html(<InstallTokenResultPage deploymentId={context.req.param("deploymentId")} token={issued.token} expiresAt={issued.expiresAt} operatorEmail={context.get("operator").email} />)
     },

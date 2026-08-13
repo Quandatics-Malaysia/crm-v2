@@ -49,27 +49,40 @@ export function safeErrorResponse(error: unknown): { code: string; status: SafeH
 }
 
 function preference(accept: string, mediaType: string): number {
+  const [wantedType, wantedSubtype] = mediaType.split("/")
+  let specificity = -1
   let result = 0
   for (const value of accept.split(",")) {
-    const [type, ...parameters] = value.trim().toLowerCase().split(";")
-    if (type !== mediaType) continue
+    const [range, ...parameters] = value.trim().toLowerCase().split(";")
+    const [type, subtype, extra] = range.trim().split("/")
+    if (!type || !subtype || extra || type === "*" && subtype !== "*") continue
+    if (type !== "*" && type !== wantedType || subtype !== "*" && subtype !== wantedSubtype) continue
     const quality = parameters.find((parameter) => parameter.trim().startsWith("q="))
     const parsed = quality === undefined ? 1 : Number(quality.trim().slice(2))
-    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
-      result = Math.max(result, parsed)
+    const candidate = Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0
+    const candidateSpecificity = type === "*" ? 0 : subtype === "*" ? 1 : 2
+    if (candidateSpecificity > specificity) {
+      specificity = candidateSpecificity
+      result = candidate
+    } else if (candidateSpecificity === specificity) {
+      result = Math.min(result, candidate)
     }
   }
   return result
 }
 
-export function acceptsOperatorHtml(request: Request): boolean {
+export function isOperatorRequest(request: Request): boolean {
   let pathname: string
   try {
     pathname = new URL(request.url).pathname
   } catch {
     return false
   }
-  if (pathname !== "/operator" && !pathname.startsWith("/operator/")) return false
+  return pathname === "/operator" || pathname.startsWith("/operator/")
+}
+
+export function acceptsOperatorHtml(request: Request): boolean {
+  if (!isOperatorRequest(request)) return false
 
   const accept = request.headers.get("Accept")
   if (!accept) return false

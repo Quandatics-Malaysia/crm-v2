@@ -405,6 +405,44 @@ describe("operator mutation protection and client administration", () => {
     await expect(json.json()).resolves.toEqual({ error: code })
   })
 
+  it.each([
+    ["JSON by default", undefined, "application/json"],
+    ["HTML for exact text/html", "text/html", "text/html"],
+    ["HTML for preferred text range", "text/*;q=0.8, application/json;q=0.7", "text/html"],
+    ["JSON when exact HTML exclusion overrides text range", "text/*;q=1, text/html;q=0", "application/json"],
+    ["JSON when text range excludes HTML", "text/*;q=0, application/json;q=0.2", "application/json"],
+    ["JSON for equal representation quality", "text/*;q=0.8, application/json;q=0.8", "application/json"],
+  ])("returns safe unknown operator-route 404 as $0", async (_label, accept, contentType) => {
+    const response = await operatorRequest(`/operator/unknown-${crypto.randomUUID()}`, { accept })
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("Content-Type")).toContain(contentType)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer")
+    const body = await response.text()
+    if (contentType === "text/html") {
+      expect(body).toContain("The requested record is unavailable. Return to the dashboard and choose it again.")
+      expect(body).toMatch(/Request ID: <code>[0-9a-f-]{36}<\/code>/)
+    } else {
+      expect(JSON.parse(body)).toEqual({ error: "not_found" })
+    }
+  })
+
+  it("leaves unmatched API routes on their default response", async () => {
+    const response = await app.fetch(
+      new Request(`https://control.invalid/v1/unknown-${crypto.randomUUID()}`, {
+        headers: { Accept: "text/html" },
+      }),
+      bindings(),
+    )
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("Content-Type")).toContain("text/plain")
+    expect(response.headers.get("Cache-Control")).toBeNull()
+    expect(await response.text()).toBe("404 Not Found")
+  })
+
   it("accepts guarded same-origin JSON but rejects unguarded JSON", async () => {
     const unguarded = await operatorRequest("/operator/clients", {
       method: "POST",

@@ -20,6 +20,7 @@ import {
 } from "../repos/clients"
 import { createContract, getContractDetail } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
+import { issueInstallToken } from "../repos/deployments"
 import { getDeploymentWorkspace } from "../repos/onboarding"
 import {
   assignEntitlementSchedule,
@@ -27,11 +28,13 @@ import {
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
-import { DeploymentPage } from "../ui/deployment"
+import { DeploymentPage, InstallTokenResultPage } from "../ui/deployment"
 import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
+
+const INSTALL_TOKEN_MAX_LIFETIME_MS = 24 * 60 * 60 * 1_000
 
 const OPERATOR_NOTICES = {
   client_created: { tone: "success", title: "Client created", message: "Add contract terms to continue onboarding." },
@@ -130,6 +133,10 @@ function mutationDescriptor(pathname: string): {
   }
   if (/^\/operator\/deployments\/[^/]+\/entitlements\/issue$/.test(pathname)) {
     return { action: "entitlement.issue", targetType: "deployment", targetId: "request-target" }
+  }
+  const installToken = /^\/operator\/deployments\/([^/]+)\/install-tokens$/.exec(pathname)
+  if (installToken) {
+    return { action: "install_token.issue", targetType: "deployment", targetId: installToken[1]! }
   }
   if (/^\/operator\/contracts\/[^/]+\/entitlement-controls$/.test(pathname)) {
     return { action: "entitlement.controls.update", targetType: "contract", targetId: "request-target" }
@@ -235,6 +242,19 @@ function actor(context: OperatorContext) {
     operatorId: context.get("operator").operatorId,
     requestId: requestId(context),
   }
+}
+
+function installTokenExpiry(value: unknown, now = new Date()): string {
+  if (typeof value !== "string") throw badRequest()
+  const utcMinute = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+  const utcSecond = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+  if (!utcMinute && !utcSecond) throw badRequest()
+  const expiresAt = Date.parse(utcMinute ? `${value}:00.000Z` : value)
+  const current = now.getTime()
+  if (!Number.isFinite(expiresAt) || expiresAt <= current || expiresAt > current + INSTALL_TOKEN_MAX_LIFETIME_MS) {
+    throw badRequest()
+  }
+  return new Date(expiresAt).toISOString()
 }
 
 export function createOperatorRoutes() {
@@ -377,6 +397,22 @@ export function createOperatorRoutes() {
           : String(data.approvedImageDigest),
       }, actor(context))
       return isJson(context) ? context.json({ id: deploymentId }, 201) : context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/install-tokens",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const data = await mutationData(context)
+      const issued = await issueInstallToken(
+        context.env.CONTROL_DB,
+        context.req.param("deploymentId"),
+        context.env.INSTALL_TOKEN_PEPPER,
+        installTokenExpiry(data.expiresAt),
+        actor(context),
+      )
+      return context.html(<InstallTokenResultPage deploymentId={context.req.param("deploymentId")} token={issued.token} expiresAt={issued.expiresAt} operatorEmail={context.get("operator").email} />)
     },
   )
   routes.post(

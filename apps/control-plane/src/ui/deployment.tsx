@@ -73,7 +73,7 @@ function actionFor(action: OnboardingNextAction, workspace: DeploymentWorkspace)
         title: "Issue install token",
         description: "Deployment is not registered. Issue an install token, then complete registration from the deployment.",
         href: "#install-token",
-        linkLabel: "Review install registration",
+        linkLabel: "Issue install token",
       }
     case "configure_entitlement":
       return {
@@ -143,6 +143,8 @@ function progressSteps(workspace: DeploymentWorkspace) {
 export function DeploymentPage(props: { workspace: DeploymentWorkspace; operatorEmail: string }) {
   const { workspace } = props
   const nextAction = actionFor(workspace.onboarding.nextAction, workspace)
+  const canIssueInstallToken = workspace.client.status === "active" &&
+    workspace.deployment.status === "active" && workspace.registration === null
   const tokenStatus = workspace.token === null
     ? "No install token issued"
     : workspace.token.usedAt !== null
@@ -212,7 +214,14 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
             { term: "Token expires at (UTC)", details: formatUtc(workspace.token?.expiresAt ?? null) },
             { term: "Token used at (UTC)", details: formatUtc(workspace.token?.usedAt ?? null) },
           ]} />
-          <p class="field-hint">This read-only workspace does not issue or reveal install tokens. Token issuance appears here in the next workflow section.</p>
+          {canIssueInstallToken ? <form action={`/operator/deployments/${workspace.deployment.id}/install-tokens`} method="post">
+            <div class="field">
+              <label for="install-token-expires-at">Token expiry (UTC)</label>
+              <input id="install-token-expires-at" name="expiresAt" type="datetime-local" required />
+              <p class="field-hint">Choose an expiry within the next 24 hours. The token is shown once and cannot be recovered.</p>
+            </div>
+            <button type="submit">Issue install token</button>
+          </form> : <p class="field-hint">Install tokens can be issued only for an active deployment that has not yet registered.</p>}
         </Card>
       </section>
 
@@ -253,6 +262,41 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
         <h2 id="audit-timeline-heading">Audit timeline</h2>
         {workspace.recentAuditEvents.length === 0 ? <EmptyState title="No deployment audit events">Deployment activity will appear here as it is recorded.</EmptyState> : <ol class="attention-list">{workspace.recentAuditEvents.map((event) => <li class="attention-item"><StatusBadge tone={statusTone(event.outcome === "success" ? "active" : event.outcome === "denied" ? "disabled" : "stale")}>{titleCase(event.outcome)}</StatusBadge><div><h3>{titleCase(event.action)}</h3><p>Created at (UTC): {formatUtc(event.createdAt)}</p></div></li>)}</ol>}
       </section>
+    </OperatorLayout>
+  )
+}
+
+export function InstallTokenResultPage(props: {
+  deploymentId: string
+  token: string
+  expiresAt: string
+  operatorEmail: string
+}) {
+  return (
+    <OperatorLayout
+      title="Install token issued"
+      operatorEmail={props.operatorEmail}
+      breadcrumbs={[
+        { label: "Dashboard", href: "/operator" },
+        { label: "Deployment", href: `/operator/deployments/${props.deploymentId}` },
+        { label: "Install token issued" },
+      ]}
+    >
+      <PageHeader
+        eyebrow="Deployment installation"
+        title="Install token issued"
+        description="Store this value in the deployment's protected environment now."
+      />
+      <section class="workspace-section" aria-label="Install token result">
+        <Card title="One-time install token">
+          <p>Expires at (UTC): {formatUtc(props.expiresAt)}</p>
+          <p><code id="install-token-value">{props.token}</code></p>
+          <button id="copy-install-token" type="button">Copy install token</button>
+          <p class="field-hint">This token cannot be recovered. If copying is unavailable, select the value above and copy it manually.</p>
+          <script dangerouslySetInnerHTML={{ __html: "document.getElementById('copy-install-token')?.addEventListener('click', async () => { const value = document.getElementById('install-token-value')?.textContent; if (value && navigator.clipboard) await navigator.clipboard.writeText(value) })" }} />
+        </Card>
+      </section>
+      <p><a class="button-link" href={`/operator/deployments/${props.deploymentId}`}>Return to deployment status</a></p>
     </OperatorLayout>
   )
 }

@@ -33,8 +33,8 @@ generated production config explicitly keeps the `*.workers.dev` endpoint enable
    deployment for the target environment.
 3. Assign the deployment entitlement schedule and issue its first signed lease.
 4. Issue a short-lived, one-time installation token through approved vendor
-   provisioning, place it only in the new host's protected `.env`, then deploy
-   the signed client bundle.
+   provisioning, with an expiry no more than 24 hours ahead. Place it only in
+   the new host's protected `.env`, then deploy the signed client bundle.
 5. Confirm agent registration, heartbeat, signed entitlement, application health,
    and matching release identity. Delete the plaintext token after registration.
 

@@ -9,7 +9,12 @@ import {
   timingSafeDigestEqual,
   toBase64Url,
 } from "../auth/deployment"
-import { badRequest, unauthorized } from "../http/errors"
+import { badRequest, notFound, unauthorized } from "../http/errors"
+
+export interface InstallTokenActor {
+  operatorId: string
+  requestId: string
+}
 
 interface InstallTokenRow {
   id: string
@@ -54,22 +59,39 @@ export async function issueInstallToken(
   deploymentId: string,
   pepper: string,
   expiresAt: string,
+  actor?: InstallTokenActor,
 ): Promise<{ id: string; token: string; expiresAt: string }> {
   assertServerSecret(pepper)
   if (!Number.isFinite(Date.parse(expiresAt))) throw new TypeError("Token expiry is invalid")
+  const deployment = await database.prepare(
+    "SELECT id FROM deployments WHERE id = ? AND status = 'active'",
+  ).bind(deploymentId).first<{ id: string }>()
+  if (!deployment) throw notFound()
+
   const rawBytes = crypto.getRandomValues(new Uint8Array(32))
   const token = toBase64Url(rawBytes)
   const digest = toBase64Url(await installTokenDigest(token, pepper))
   const id = crypto.randomUUID()
   const createdAt = new Date().toISOString()
-  await database.prepare(
-    "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, registration_key_fingerprint, created_at) SELECT ?, id, ?, ?, NULL, NULL, ? FROM deployments WHERE id = ?",
-  ).bind(id, digest, expiresAt, createdAt, deploymentId).run()
-
-  const inserted = await database.prepare(
-    "SELECT id FROM install_tokens WHERE id = ?",
-  ).bind(id).first<{ id: string }>()
-  if (!inserted) throw new TypeError("Deployment is invalid")
+  const statements: D1PreparedStatement[] = [
+    database.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, registration_key_fingerprint, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?)",
+    ).bind(id, deployment.id, digest, expiresAt, createdAt),
+  ]
+  if (actor) {
+    const audit = await prepareOperatorAuditStatement(database, {
+      operatorId: actor.operatorId,
+      action: "install_token.issue",
+      targetType: "deployment",
+      targetId: deployment.id,
+      outcome: "success",
+      requestId: actor.requestId,
+      metadata: { expiresAt },
+      createdAt,
+    })
+    statements.push(audit.statement)
+  }
+  await database.batch(statements)
   return { id, token, expiresAt }
 }
 

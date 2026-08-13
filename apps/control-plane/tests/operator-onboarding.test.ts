@@ -5,6 +5,7 @@ import { AccessTokenInvalidError, type AccessVerifier } from "../src/auth/access
 import { OPERATOR_ROLES, type OperatorRole } from "../src/auth/rbac"
 import { createApp } from "../src/index"
 import { getClientDetail, parseClientChildPagination } from "../src/repos/clients"
+import { issueInstallToken } from "../src/repos/deployments"
 import { getDeploymentWorkspace } from "../src/repos/onboarding"
 
 const NOW = new Date("2026-08-10T12:00:00.000Z")
@@ -45,6 +46,28 @@ function workspaceRequest(deploymentId: string, token = "token-vendor_owner") {
   return app.fetch(
     new Request(`https://control.invalid/operator/deployments/${deploymentId}`, {
       headers: token ? { "Cf-Access-Jwt-Assertion": token } : undefined,
+    }),
+    bindings(),
+  )
+}
+
+function issueInstallTokenRequest(
+  deploymentId: string,
+  options: { expiresAt?: string; token?: string } = {},
+) {
+  const form = new URLSearchParams({
+    expiresAt: options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1_000).toISOString().slice(0, 16),
+  })
+  return app.fetch(
+    new Request(`https://control.invalid/operator/deployments/${deploymentId}/install-tokens`, {
+      method: "POST",
+      headers: {
+        "Cf-Access-Jwt-Assertion": options.token ?? "token-vendor_owner",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Origin: "https://control.invalid",
+        "Sec-Fetch-Site": "same-origin",
+      },
+      body: form,
     }),
     bindings(),
   )
@@ -180,6 +203,105 @@ beforeAll(async () => {
 })
 
 describe("operator onboarding workspace", () => {
+  it("issues a bounded token only to the vendor owner and reveals it once", async () => {
+    const input = await fixture()
+
+    const denied = await issueInstallTokenRequest(input.deploymentId, { token: "token-vendor_support" })
+    expect(denied.status).toBe(403)
+
+    const response = await issueInstallTokenRequest(input.deploymentId)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    const html = await response.text()
+    const token = html.match(/[A-Za-z0-9_-]{43}/)?.[0]
+    expect(token).toBeDefined()
+    expect(html.split(token!).length - 1).toBe(1)
+    expect(html).toContain("Copy install token")
+    expect(html).toContain("cannot be recovered")
+
+    const workspace = await workspaceRequest(input.deploymentId)
+    expect((await workspace.text())).not.toContain(token!)
+
+    const persisted = await env.CONTROL_DB.prepare(
+      "SELECT token_digest FROM install_tokens WHERE deployment_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(input.deploymentId).first<{ token_digest: string }>()
+    const audit = await env.CONTROL_DB.prepare(
+      "SELECT action, target_type, target_id, outcome, metadata_json FROM operator_audit_log WHERE action = 'install_token.issue' AND target_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(input.deploymentId).first<{ action: string; target_type: string; target_id: string; outcome: string; metadata_json: string }>()
+    expect(persisted?.token_digest).not.toBe(token)
+    expect(audit).toMatchObject({
+      action: "install_token.issue",
+      target_type: "deployment",
+      target_id: input.deploymentId,
+      outcome: "success",
+    })
+    expect(audit?.metadata_json).not.toContain(token!)
+  })
+
+  it("rejects malformed, past, and overlong install-token expiries without persisting a token", async () => {
+    const input = await fixture()
+    const before = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM install_tokens WHERE deployment_id = ?",
+    ).bind(input.deploymentId).first<{ count: number }>()
+
+    for (const expiresAt of [
+      "not-a-date",
+      new Date(Date.now() - 1_000).toISOString().slice(0, 16),
+      new Date(Date.now() + 24 * 60 * 60 * 1_000 + 60_000).toISOString().slice(0, 16),
+    ]) {
+      expect((await issueInstallTokenRequest(input.deploymentId, { expiresAt })).status).toBe(400)
+    }
+
+    const after = await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM install_tokens WHERE deployment_id = ?",
+    ).bind(input.deploymentId).first<{ count: number }>()
+    expect(after?.count).toBe(before?.count)
+  })
+
+  it("rolls back token persistence when its issuance audit cannot be recorded", async () => {
+    const input = await fixture()
+
+    await expect(issueInstallToken(
+      env.CONTROL_DB,
+      input.deploymentId,
+      bindings().INSTALL_TOKEN_PEPPER,
+      new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+      { operatorId: crypto.randomUUID(), requestId: "atomic-audit-test" },
+    )).rejects.toThrow()
+
+    const token = await env.CONTROL_DB.prepare(
+      "SELECT id FROM install_tokens WHERE deployment_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(input.deploymentId).first<{ id: string }>()
+    expect(token).toBeNull()
+  })
+
+  it("rejects invalid and disabled deployments and records only safe failure metadata", async () => {
+    const input = await fixture()
+    const invalidDeploymentId = crypto.randomUUID()
+    expect((await issueInstallTokenRequest(invalidDeploymentId)).status).toBe(404)
+
+    await env.CONTROL_DB.prepare("UPDATE deployments SET status = 'disabled' WHERE id = ?").bind(input.deploymentId).run()
+    expect((await issueInstallTokenRequest(input.deploymentId)).status).toBe(404)
+
+    const audits = await env.CONTROL_DB.prepare(
+      "SELECT target_id, outcome, metadata_json FROM operator_audit_log WHERE action = 'install_token.issue' AND outcome = 'error' AND target_id IN (?, ?) ORDER BY created_at ASC",
+    ).bind(invalidDeploymentId, input.deploymentId).all<{ target_id: string; outcome: string; metadata_json: string }>()
+    expect(audits.results).toHaveLength(2)
+    expect(audits.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ target_id: invalidDeploymentId, outcome: "error", metadata_json: '{"errorCode":"not_found"}' }),
+      expect.objectContaining({ target_id: input.deploymentId, outcome: "error", metadata_json: '{"errorCode":"not_found"}' }),
+    ]))
+  })
+
+  it("links the install next action to the token-issuance control", async () => {
+    const input = await fixture()
+
+    const html = await (await workspaceRequest(input.deploymentId)).text()
+
+    expect(html).toContain(`href="#install-token"`)
+    expect(html).toContain(`<form action="/operator/deployments/${input.deploymentId}/install-tokens" method="post">`)
+  })
+
   it("requires a compatible contract before installation", async () => {
     const input = await fixture()
     await env.CONTROL_DB.prepare("DELETE FROM contracts WHERE id = ?").bind(input.contractId).run()

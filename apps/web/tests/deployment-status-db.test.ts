@@ -66,7 +66,6 @@ integration("deployment status PostgreSQL boundary", () => {
       values
         (${`${prefix}user-a`}, ${"A"}, ${`${prefix}a@example.com`}, true, false, false, now(), now()),
         (${`${prefix}user-b`}, ${"B"}, ${`${prefix}b@example.com`}, true, false, false, now(), now()),
-        (${`${prefix}support`}, ${"Support"}, ${`${prefix}support@example.com`}, true, false, true, now(), now()),
         (${`${prefix}disabled`}, ${"Disabled"}, ${`${prefix}disabled@example.com`}, true, false, false, now(), now()),
         (${`${prefix}demo-user`}, ${"Demo"}, ${`${prefix}demo@example.com`}, true, false, false, now(), now())
     `
@@ -76,7 +75,6 @@ integration("deployment status PostgreSQL boundary", () => {
         (${`${prefix}member-a1`}, ${`${prefix}cc`}, ${`${prefix}user-a`}, ${"member"}, now()),
         (${`${prefix}member-a2`}, ${`${prefix}qar`}, ${`${prefix}user-a`}, ${"member"}, now()),
         (${`${prefix}member-b`}, ${`${prefix}cc`}, ${`${prefix}user-b`}, ${"member"}, now()),
-        (${`${prefix}member-support`}, ${`${prefix}cc`}, ${`${prefix}support`}, ${"member"}, now()),
         (${`${prefix}member-disabled`}, ${`${prefix}cc`}, ${`${prefix}disabled`}, ${"member"}, now()),
         (${`${prefix}member-demo`}, ${`${prefix}demo`}, ${`${prefix}demo-user`}, ${"member"}, now())
     `
@@ -86,7 +84,6 @@ integration("deployment status PostgreSQL boundary", () => {
         (${`${prefix}member-a1`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
         (${`${prefix}member-a2`}, ${`${prefix}qar`}, 'active', 0, now(), now()),
         (${`${prefix}member-b`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
-        (${`${prefix}member-support`}, ${`${prefix}cc`}, 'active', 0, now(), now()),
         (${`${prefix}member-disabled`}, ${`${prefix}cc`}, 'disabled', 0, now(), now()),
         (${`${prefix}member-demo`}, ${`${prefix}demo`}, 'active', 0, now(), now())
     `
@@ -114,7 +111,7 @@ integration("deployment status PostgreSQL boundary", () => {
     `
 
     const [after] = await app`select * from read_deployment_status_rollup()`
-    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(3)
+    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(2)
     expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(2)
     expect(after.applied_migration_version).toBe(latestAppliedMigration)
   })

@@ -1,4 +1,4 @@
-export { canonicalJson } from "./canonical-json"
+export { canonicalJson } from "./canonical-json.js"
 export {
   addCalendarMonths,
   buildCollectionMilestones,
@@ -8,8 +8,8 @@ export {
   type CollectionFrequency,
   type CollectionMilestone,
   type MonthlyBillingPeriod,
-} from "./billing"
-export { signEnvelope, verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto"
+} from "./billing.js"
+export { signEnvelope, verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 export {
   EntitlementLeaseSchema,
   LegacyEntitlementLeaseSchema,
@@ -20,13 +20,13 @@ export {
   type LegacyEntitlementLease,
   type LeaseAccess,
   type LeaseClock,
-} from "./entitlement"
+} from "./entitlement.js"
 export {
   DeploymentHeartbeatSchema,
   DeploymentRegistrationSchema,
   type DeploymentHeartbeat,
   type DeploymentRegistration,
-} from "./heartbeat"
+} from "./heartbeat.js"
 export {
   DEPLOYMENT_REQUEST_MAX_SKEW_MS,
   deploymentNonceDigest,
@@ -40,5 +40,5 @@ export {
   publicKeyFingerprint,
   sha256,
   toBase64Url as toDeploymentBase64Url,
-} from "./deployment-auth"
-export { isStrictSemver, STRICT_SEMVER_PATTERN, StrictSemverSchema } from "./version"
+} from "./deployment-auth.js"
+export { isStrictSemver, STRICT_SEMVER_PATTERN, StrictSemverSchema } from "./version.js"

@@ -9,7 +9,7 @@
       "development": "./src/index.ts",
       "browser": "./src/index.ts",
       "worker": "./src/index.ts",
-      "node": "./src/index.ts",
+      "node": "./dist/index.js",
       "default": "./src/index.ts"
     },
     "./billing": {
@@ -17,7 +17,7 @@
       "development": "./src/billing.ts",
       "browser": "./src/billing.ts",
       "worker": "./src/billing.ts",
-      "node": "./src/billing.ts",
+      "node": "./dist/billing.js",
       "default": "./src/billing.ts"
     },
     "./heartbeat": {
@@ -25,7 +25,7 @@
       "development": "./src/heartbeat.ts",
       "browser": "./src/heartbeat.ts",
       "worker": "./src/heartbeat.ts",
-      "node": "./src/heartbeat.ts",
+      "node": "./dist/heartbeat.js",
       "default": "./src/heartbeat.ts"
     },
     "./deployment-auth": {
@@ -33,7 +33,7 @@
       "development": "./src/deployment-auth.ts",
       "browser": "./src/deployment-auth.ts",
       "worker": "./src/deployment-auth.ts",
-      "node": "./src/deployment-auth.ts",
+      "node": "./dist/deployment-auth.js",
       "default": "./src/deployment-auth.ts"
     }
   },

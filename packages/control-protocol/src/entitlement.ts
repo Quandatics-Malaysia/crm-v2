@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto"
+import { verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 
 /** Literal runtime module IDs from apps/web/modules.config.ts. */
 export const ModuleIdSchema = z.enum([

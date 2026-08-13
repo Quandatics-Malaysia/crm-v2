@@ -632,6 +632,69 @@ describe("scheduler and retrieval", () => {
     expect(await count("operator_audit_log", "WHERE action = 'entitlement.renew' AND target_id = ?", [fixture.deploymentId])).toBe(1)
   })
 
+  it.each(["schedule", "contract"] as const)(
+    "rejects automatic issuance when the reviewed %s revision changes after the renewal claim",
+    async (changedRevision) => {
+      await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
+      const fixture = await seed()
+      await issue(fixture)
+      const renewalAt = new Date(now.getTime() + 18 * 60 * 60 * 1_000)
+      let interleaved = false
+      const database = new Proxy(env.CONTROL_DB, {
+        get(target, property) {
+          if (property === "prepare") {
+            return (sql: string) => {
+              const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
+                get(prepared, statementProperty) {
+                  if (statementProperty === "bind") return (...values: unknown[]) => wrap(prepared.bind(...values))
+                  if (statementProperty === "first" && sql.includes("WHERE deployment_id = ? AND issuance_key = ?")) {
+                    return async () => {
+                      const row = await prepared.first()
+                      if (!interleaved) {
+                        interleaved = true
+                        if (changedRevision === "schedule") {
+                          await target.prepare(
+                            "UPDATE deployment_entitlement_schedules SET configuration_version = 'interleaved-config', state_revision = state_revision + 1 WHERE deployment_id = ?",
+                          ).bind(fixture.deploymentId).run()
+                        } else {
+                          await target.prepare(
+                            "UPDATE contracts SET seat_limit = seat_limit + 1, entitlement_revision = entitlement_revision + 1 WHERE id = ?",
+                          ).bind(fixture.contractId).run()
+                        }
+                      }
+                      return row
+                    }
+                  }
+                  const value = Reflect.get(prepared, statementProperty, prepared)
+                  return typeof value === "function" ? value.bind(prepared) : value
+                },
+              })
+              return wrap(target.prepare(sql))
+            }
+          }
+          const value = Reflect.get(target, property, target)
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      })
+
+      await expect(runEntitlementRenewal(bindings(database), renewalAt)).resolves.toMatchObject({
+        issued: 0,
+        failed: 1,
+      })
+      expect(interleaved).toBe(true)
+      expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(1)
+      await expect(env.CONTROL_DB.prepare(
+        "SELECT state, last_error_code FROM entitlement_renewal_claims WHERE deployment_id = ? ORDER BY created_at DESC LIMIT 1",
+      ).bind(fixture.deploymentId).first()).resolves.toEqual({
+        state: "failed",
+        last_error_code: "entitlement_state_changed",
+      })
+      await env.CONTROL_DB.prepare(
+        "UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?",
+      ).bind(fixture.deploymentId).run()
+    },
+  )
+
   it("reclaims expired claims without duplicate issuance", async () => {
     await env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z'").run()
     const fixture = await seed()

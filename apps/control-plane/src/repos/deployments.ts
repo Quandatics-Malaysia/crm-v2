@@ -114,6 +114,9 @@ export async function issueInstallToken(
     if (raced?.present === 1) {
       throw new SafeHttpError(409, "install_token_already_issued")
     }
+    if (error instanceof Error && error.message.includes("install token issuance prerequisites unavailable")) {
+      throw notFound()
+    }
     throw error
   }
   return { id, token, expiresAt }

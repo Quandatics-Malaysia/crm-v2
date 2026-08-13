@@ -827,6 +827,8 @@ export async function runEntitlementRenewal(environment: CloudflareBindings, clo
         contractId: schedule.contract_id,
         issuanceKey,
         claimToken,
+        expectedContractRevision: row.entitlement_revision,
+        expectedScheduleRevision: row.state_revision,
         actor: { operatorId: null, requestId: `scheduled:${schedule.deployment_id}:${now.toISOString()}`, source: "scheduled" },
         now,
       })

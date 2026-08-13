@@ -58,7 +58,7 @@ function workspaceRequest(deploymentId: string, token = "token-vendor_owner") {
 
 function issueInstallTokenRequest(
   deploymentId: string,
-  options: { accept?: string; expiresAt?: string; idempotencyKey?: string; pepper?: string; requestId?: string; token?: string } = {},
+  options: { accept?: string; cfRay?: string; expiresAt?: string; idempotencyKey?: string; pepper?: string; requestId?: string; token?: string } = {},
 ) {
   const form = new URLSearchParams({
     expiresAt: options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1_000).toISOString().slice(0, 16),
@@ -73,6 +73,7 @@ function issueInstallTokenRequest(
         Origin: "https://control.invalid",
         "Sec-Fetch-Site": "same-origin",
         ...(options.accept === undefined ? {} : { Accept: options.accept }),
+        ...(options.cfRay === undefined ? {} : { "Cf-Ray": options.cfRay }),
         ...(options.requestId === undefined ? {} : { "X-Request-Id": options.requestId }),
       },
       body: form,
@@ -445,6 +446,48 @@ describe("operator onboarding workspace", () => {
     expect((await issueInstallTokenRequest(disabledClient.deploymentId)).status).toBe(404)
   })
 
+  it("atomically rejects install-token issuance when registration wins after prerequisite review", async () => {
+    const input = await fixture()
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1_000).toISOString()
+    const original = await issueInstallToken(
+      env.CONTROL_DB,
+      input.deploymentId,
+      bindings().INSTALL_TOKEN_PEPPER,
+      expiresAt,
+    )
+    let interleaved = false
+    const database = new Proxy(env.CONTROL_DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!interleaved) {
+              interleaved = true
+              await target.prepare(
+                "UPDATE deployments SET registered_at = ?, registration_key_fingerprint = ? WHERE id = ?",
+              ).bind(NOW.toISOString(), REGISTRATION_FINGERPRINT, input.deploymentId).run()
+            }
+            return target.batch(statements)
+          }
+        }
+        const value = Reflect.get(target, property, target)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
+
+    await expect(issueInstallToken(
+      database,
+      input.deploymentId,
+      bindings().INSTALL_TOKEN_PEPPER,
+      expiresAt,
+    )).rejects.toMatchObject({ status: 404, code: "not_found" })
+    expect(interleaved).toBe(true)
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT id, superseded_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at",
+    ).bind(input.deploymentId).all()).toEqual(expect.objectContaining({
+      results: [{ id: original.id, superseded_at: null }],
+    }))
+  })
+
   it("preserves the safe failure audit when the request ID is oversized", async () => {
     const invalidDeploymentId = crypto.randomUUID()
 
@@ -465,6 +508,39 @@ describe("operator onboarding workspace", () => {
 
     const response = await issueInstallTokenRequest(invalidDeploymentId, {
       accept: "text/html",
+      requestId: correlationId,
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.text()).toContain(`Request ID: <code>${correlationId}</code>`)
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT request_id_hash FROM operator_audit_log WHERE action = 'install_token.issue' AND target_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(invalidDeploymentId).first<{ request_id_hash: string }>()).toEqual({
+      request_id_hash: await hashAuditRequestId(correlationId),
+    })
+  })
+
+  it("reuses one generated request correlation across the failure audit and HTML error", async () => {
+    const invalidDeploymentId = crypto.randomUUID()
+    const response = await issueInstallTokenRequest(invalidDeploymentId, { accept: "text/html" })
+
+    expect(response.status).toBe(404)
+    const html = await response.text()
+    const displayedRequestId = html.match(/Request ID: <code>([0-9a-f-]{36})<\/code>/)?.[1]
+    expect(displayedRequestId).toBeDefined()
+    expect(await env.CONTROL_DB.prepare(
+      "SELECT request_id_hash FROM operator_audit_log WHERE action = 'install_token.issue' AND target_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(invalidDeploymentId).first<{ request_id_hash: string }>()).toEqual({
+      request_id_hash: await hashAuditRequestId(displayedRequestId!),
+    })
+  })
+
+  it("falls through an invalid Cf-Ray to a valid X-Request-Id for audit and HTML error", async () => {
+    const invalidDeploymentId = crypto.randomUUID()
+    const correlationId = `fallback-${crypto.randomUUID()}`
+    const response = await issueInstallTokenRequest(invalidDeploymentId, {
+      accept: "text/html",
+      cfRay: "invalid ray",
       requestId: correlationId,
     })
 
@@ -987,20 +1063,21 @@ describe("operator onboarding workspace", () => {
 
   it("returns workspace records without crossing client boundaries", async () => {
     const input = await fixture()
+    const createdAt = NOW.toISOString()
+    await env.CONTROL_DB.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, registration_key_fingerprint, created_at) VALUES (?, ?, 'digest', ?, NULL, NULL, ?)",
+    ).bind(crypto.randomUUID(), input.deploymentId, "2026-08-11T12:00:00.000Z", createdAt).run()
     await registerDeployment(input.deploymentId)
     await assignSchedule(input)
     await issueEntitlement(input)
     await heartbeat(input.deploymentId, new Date(NOW.getTime() - 1))
     const otherClientId = crypto.randomUUID()
     const otherContractId = crypto.randomUUID()
-    const createdAt = NOW.toISOString()
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare("INSERT INTO clients (id, client_key, display_name, status, created_at, updated_at) VALUES (?, ?, 'Other', 'active', ?, ?)")
         .bind(otherClientId, `client-${otherClientId}`, createdAt, createdAt),
       env.CONTROL_DB.prepare("INSERT INTO contracts (id, client_id, plan_id, status, starts_at, ends_at, seat_limit, monthly_seat_price_cents, tax_basis_points, collection_frequency, total_cents, renewal_policy, created_at, updated_at) VALUES (?, ?, 'onboarding-plan', 'active', '2026-08-01', '2026-08-31', 25, 0, 0, 'upfront', 0, 'auto_renew', ?, ?)")
         .bind(otherContractId, otherClientId, createdAt, createdAt),
-      env.CONTROL_DB.prepare("INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, registration_key_fingerprint, created_at) VALUES (?, ?, 'digest', ?, NULL, NULL, ?)")
-        .bind(crypto.randomUUID(), input.deploymentId, "2026-08-11T12:00:00.000Z", createdAt),
       env.CONTROL_DB.prepare("INSERT INTO operator_audit_log (id, operator_id, action, target_type, target_id, outcome, request_id_hash, metadata_json, created_at) VALUES (?, NULL, 'deployment.heartbeat', 'deployment', ?, 'success', 'request', '{}', ?)")
         .bind(crypto.randomUUID(), input.deploymentId, createdAt),
     ])

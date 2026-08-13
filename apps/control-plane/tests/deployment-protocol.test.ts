@@ -23,6 +23,13 @@ const legacyMalformedDeploymentId = "44444444-4444-4444-8444-444444444444"
 const legacyEntitlementClientId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1"
 const legacyEntitlementDeploymentId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2"
 const legacyEntitlementContractId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd3"
+const legacyInstallTokenClientId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1"
+const legacyInstallTokenDeploymentId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2"
+const legacyUnusedInstallTokenIds = [
+  "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3",
+  "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4",
+] as const
+const legacyUsedInstallTokenId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5"
 const unsafeLegacyKeys = [
   {
     label: "unsafe punctuation",
@@ -343,6 +350,21 @@ beforeAll(async () => {
     env.CONTROL_DB.prepare(
       "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at) VALUES (?, ?, ?, 1, 'legacy-vendor-key', ?, 'legacy-signature', ?, ?)",
     ).bind(crypto.randomUUID(), legacyEntitlementDeploymentId, legacyEntitlementContractId, JSON.stringify(legacyEntitlementPayload), legacyEntitlementPayload.issuedAt, legacyEntitlementPayload.issuedAt),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO clients (id, client_key, display_name, status, created_at, updated_at) VALUES (?, 'legacy-install-token-client', 'Legacy install token client', 'active', ?, ?)",
+    ).bind(legacyInstallTokenClientId, now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO deployments (id, client_id, deployment_key, environment, status, created_at, updated_at) VALUES (?, ?, 'legacy-install-token-deployment', 'production', 'active', ?, ?)",
+    ).bind(legacyInstallTokenDeploymentId, legacyInstallTokenClientId, now, now),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, created_at) VALUES (?, ?, 'legacy-unused-token-one', '2099-01-01T00:00:00.000Z', NULL, '2026-08-01T00:01:00.000Z')",
+    ).bind(legacyUnusedInstallTokenIds[0], legacyInstallTokenDeploymentId),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, created_at) VALUES (?, ?, 'legacy-unused-token-two', '2099-01-01T00:00:00.000Z', NULL, '2026-08-01T00:02:00.000Z')",
+    ).bind(legacyUnusedInstallTokenIds[1], legacyInstallTokenDeploymentId),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, created_at) VALUES (?, ?, 'legacy-used-token', '2099-01-01T00:00:00.000Z', '2026-08-01T00:03:00.000Z', '2026-08-01T00:03:00.000Z')",
+    ).bind(legacyUsedInstallTokenId, legacyInstallTokenDeploymentId),
   ])
 
   await applyD1Migrations(env.CONTROL_DB, migrations)
@@ -357,6 +379,22 @@ beforeAll(async () => {
 })
 
 describe("deployment protocol migration upgrade", () => {
+  it("invalidates every unused install token that predates replacement tracking", async () => {
+    const rows = await env.CONTROL_DB.prepare(
+      "SELECT id, used_at, superseded_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at",
+    ).bind(legacyInstallTokenDeploymentId).all<{
+      id: string
+      used_at: string | null
+      superseded_at: string | null
+    }>()
+
+    expect(rows.results).toEqual([
+      { id: legacyUnusedInstallTokenIds[0], used_at: null, superseded_at: "2026-08-01T00:01:00.000Z" },
+      { id: legacyUnusedInstallTokenIds[1], used_at: null, superseded_at: "2026-08-01T00:02:00.000Z" },
+      { id: legacyUsedInstallTokenId, used_at: "2026-08-01T00:03:00.000Z", superseded_at: null },
+    ])
+  })
+
   it("routes a migrated entitlement with missing revision stamps to manual signing", async () => {
     await expect(getDeploymentWorkspace(
       env.CONTROL_DB,

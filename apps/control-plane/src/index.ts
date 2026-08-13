@@ -7,9 +7,10 @@ import {
 } from "./auth/access"
 import { verifyControlDatabase } from "./db/client"
 import { acceptsOperatorHtml, isOperatorRequest, safeErrorResponse } from "./http/errors"
+import { requestId } from "./http/request-id"
 import { createDeploymentRoutes } from "./routes/deployments"
 import { createEntitlementRoutes } from "./routes/entitlements"
-import { createOperatorRoutes, requestId } from "./routes/operator"
+import { createOperatorRoutes } from "./routes/operator"
 import { runEntitlementRenewal } from "./repos/entitlements"
 import { OperatorErrorPage } from "./ui/error"
 
@@ -17,6 +18,7 @@ export interface ControlPlaneEnvironment {
   Bindings: CloudflareBindings
   Variables: {
     operator: OperatorContext
+    requestCorrelationId: string
   }
 }
 

@@ -7,6 +7,7 @@ import { prepareOperatorAuditStatement } from "../audit"
 import { requireOperatorRole } from "../auth/rbac"
 import type { ControlPlaneEnvironment } from "../index"
 import { badRequest, forbidden, SafeHttpError } from "../http/errors"
+import { requestId } from "../http/request-id"
 import {
   createClient,
   createClientOrganisation,
@@ -62,11 +63,6 @@ function requestNotice(context: OperatorContext): OperatorNotice | undefined {
   }
   if (!code || !Object.hasOwn(OPERATOR_NOTICES, code)) return undefined
   return OPERATOR_NOTICES[code as keyof typeof OPERATOR_NOTICES]
-}
-
-export function requestId(context: Pick<OperatorContext, "req">): string {
-  const candidate = context.req.header("Cf-Ray") ?? context.req.header("X-Request-Id")
-  return candidate && /^[\x21-\x7e]{1,256}$/.test(candidate) ? candidate : crypto.randomUUID()
 }
 
 function isJson(context: OperatorContext): boolean {

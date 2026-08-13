@@ -25,6 +25,7 @@ import {
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard } from "../ui/dashboard"
+import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
 type MutationData = Record<string, unknown>
@@ -206,6 +207,10 @@ export function createOperatorRoutes() {
   routes.use("*", auditMutationFailures)
   routes.use("*", csrf())
 
+  routes.get("/styles.css", (context) => context.body(OPERATOR_STYLES, 200, {
+    "Content-Type": "text/css; charset=UTF-8",
+  }))
+
   routes.get("/", (context) =>
     context.html(<Dashboard operatorEmail={context.get("operator").email} />),
   )
@@ -217,7 +222,12 @@ export function createOperatorRoutes() {
       pagination.offset,
     )
     return context.html(
-      <ClientList clients={clients} page={pagination.page} pageSize={pagination.pageSize} />,
+      <ClientList
+        clients={clients}
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        operatorEmail={context.get("operator").email}
+      />,
     )
   })
   routes.get("/clients/:clientId", async (context) => {
@@ -226,7 +236,7 @@ export function createOperatorRoutes() {
       context.req.param("clientId"),
       parseClientChildPagination(context.req.url),
     )
-    return context.html(<ClientPage client={client} />)
+    return context.html(<ClientPage client={client} operatorEmail={context.get("operator").email} />)
   })
   routes.get("/contracts/:contractId", async (context) => {
     const contract = await getContractDetail(
@@ -234,7 +244,7 @@ export function createOperatorRoutes() {
       context.req.param("contractId"),
       parseNamedPagination(context.req.url, "invoices"),
     )
-    return context.html(<ContractPage contract={contract} />)
+    return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} />)
   })
 
   routes.post(

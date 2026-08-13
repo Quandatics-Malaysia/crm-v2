@@ -1,11 +1,22 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
 import { beforeAll, describe, expect, inject, it } from "vitest"
+import { renderToString } from "hono/jsx/dom/server"
 
 import {
   AccessTokenInvalidError,
   type AccessVerifier,
 } from "../src/auth/access"
 import { createApp } from "../src/index"
+import {
+  Card,
+  DataList,
+  EmptyState,
+  Field,
+  Notice,
+  PageHeader,
+  ProgressSteps,
+  StatusBadge,
+} from "../src/ui/components"
 
 const ownerSubject = `owner-${crypto.randomUUID()}`
 const billingSubject = `billing-${crypto.randomUUID()}`
@@ -128,6 +139,84 @@ beforeAll(async () => {
 })
 
 describe("operator mutation protection and client administration", () => {
+  it("serves an accessible no-store operator shell and local stylesheet", async () => {
+    const page = await operatorRequest("/operator")
+
+    expect(page.status).toBe(200)
+    expect(page.headers.get("Cache-Control")).toBe("no-store")
+    const html = await page.text()
+    expect(html).toContain('<link href="/operator/styles.css" rel="stylesheet"/>')
+    expect(html).toContain('<a href="#operator-content" class="skip-link">Skip to content</a>')
+    expect(html).toContain('aria-current="page"')
+    expect(html).toContain('<p class="operator-identity">owner@example.com</p>')
+    expect(html).toContain('aria-label="Breadcrumb"')
+
+    const styles = await operatorRequest("/operator/styles.css")
+    expect(styles.status).toBe(200)
+    expect(styles.headers.get("Cache-Control")).toBe("no-store")
+    expect(styles.headers.get("Content-Type")).toContain("text/css")
+    expect(await styles.text()).toContain("--operator-space-4")
+  })
+
+  it("renders escaped semantic headers, status badges, and progress steps", () => {
+    const html = renderToString([
+      PageHeader({ title: "Workspace <admin>", eyebrow: "Signing", description: "Review details" }),
+      StatusBadge({ tone: "success", children: "Active" }),
+      ProgressSteps({
+        label: "Signing progress",
+        steps: [
+          { label: "Client", state: "complete" },
+          { label: "Contract", state: "current" },
+          { label: "Review", state: "upcoming" },
+        ],
+      }),
+    ])
+
+    expect(html).toContain('<header class="page-header">')
+    expect(html).toContain("Workspace &lt;admin&gt;")
+    expect(html).toContain('class="status-badge status-badge-success"')
+    expect(html).toContain('<nav class="progress-steps" aria-label="Signing progress">')
+    expect(html).toContain('aria-current="step"')
+  })
+
+  it("renders labelled fields and cards with an accessible validation error", () => {
+    const html = renderToString(Card({
+      title: "Client details",
+      children: Field({
+        label: "Client name",
+        name: "displayName",
+        required: true,
+        error: "Enter a client name",
+      }),
+    }))
+
+    expect(html).toContain('<section class="card" aria-labelledby="card-client-details">')
+    const label = /<label for="([^"]+)">Client name/.exec(html)
+    expect(label?.[1]).toBeTruthy()
+    const fieldId = label?.[1] ?? ""
+    expect(html).toContain(`<input id="${fieldId}"`)
+    expect(html).toContain('aria-invalid="true"')
+    expect(html).toContain(`aria-describedby="${fieldId}-error"`)
+    expect(html).toContain(`id="${fieldId}-error" class="field-error" role="alert"`)
+  })
+
+  it("renders empty, notice, error-panel, and data-list states without raw content", () => {
+    const html = renderToString([
+      EmptyState({ title: "No clients", children: "Create first client.", action: { href: "/operator/clients/new", label: "Create client" } }),
+      Notice({ tone: "info", title: "Saved", children: "Changes saved." }),
+      Notice({ tone: "error", title: "Could not save", children: "Try <again>." }),
+      DataList({ items: [{ term: "Owner", details: "Ada <admin>" }] }),
+    ])
+
+    expect(html).toContain('<section class="empty-state">')
+    expect(html).toContain('<a class="button-link" href="/operator/clients/new">Create client</a>')
+    expect(html).toContain('class="notice notice-info" role="status"')
+    expect(html).toContain('class="notice notice-error" role="alert"')
+    expect(html).toContain("Try &lt;again&gt;.")
+    expect(html).toContain('<dl class="data-list">')
+    expect(html).toContain("Ada &lt;admin&gt;")
+  })
+
   it("requires same-origin protection and owner authority for client creation", async () => {
     const form = { clientKey, displayName: "<script>alert(1)</script>" }
 

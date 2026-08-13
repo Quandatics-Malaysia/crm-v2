@@ -5,7 +5,7 @@ import { OperatorLayout } from "./layout"
 
 export function Dashboard(props: { operatorEmail: string }) {
   return (
-    <OperatorLayout title="Dashboard">
+    <OperatorLayout title="Dashboard" operatorEmail={props.operatorEmail}>
       <h1>Control plane</h1>
       <p>Signed in as {props.operatorEmail}</p>
       <p><a href="/operator/clients">Manage clients</a></p>
@@ -13,9 +13,9 @@ export function Dashboard(props: { operatorEmail: string }) {
   )
 }
 
-export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number }) {
+export function ClientList(props: { clients: ClientListItem[]; page: number; pageSize: number; operatorEmail: string }) {
   return (
-    <OperatorLayout title="Clients">
+    <OperatorLayout title="Clients" operatorEmail={props.operatorEmail}>
       <h1>Clients</h1>
       <form method="post" action="/operator/clients">
         <label>Stable key <input name="clientKey" required maxLength={64} /></label>
@@ -58,7 +58,7 @@ function CollectionPager(props: {
   )
 }
 
-export function ClientPage(props: { client: ClientDetail }) {
+export function ClientPage(props: { client: ClientDetail; operatorEmail: string }) {
   const client = props.client
   const childPagination = {
     organisations: client.organisations,
@@ -66,7 +66,7 @@ export function ClientPage(props: { client: ClientDetail }) {
     contracts: client.contracts,
   }
   return (
-    <OperatorLayout title={client.displayName}>
+    <OperatorLayout title={client.displayName} operatorEmail={props.operatorEmail}>
       <h1>{client.displayName}</h1>
       <p>Stable key: {client.clientKey}</p>
 
@@ -120,10 +120,10 @@ export function ClientPage(props: { client: ClientDetail }) {
   )
 }
 
-export function ContractPage(props: { contract: ContractDetail }) {
+export function ContractPage(props: { contract: ContractDetail; operatorEmail: string }) {
   const contract = props.contract
   return (
-    <OperatorLayout title="Contract">
+    <OperatorLayout title="Contract" operatorEmail={props.operatorEmail}>
       <h1>Contract</h1>
       <p>{contract.startsAt}–{contract.endsAt}; {contract.seatLimit} seats; {contract.totalCents} cents.</p>
       <h2>Invoices</h2>

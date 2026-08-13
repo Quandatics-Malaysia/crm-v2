@@ -163,7 +163,7 @@ jobs:
         shell: bash
         env:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
-          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
+          WORKFLOW_IDENTITY: https://github.com/${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           cosign sign --yes "$IMAGE_REF"
@@ -189,7 +189,7 @@ jobs:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
           IMAGE_NAME: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.repository }}
           DIGEST: ${{ steps.build-push.outputs.digest }}
-          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
+          WORKFLOW_IDENTITY: https://github.com/${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           jq -n \
@@ -236,7 +236,7 @@ jobs:
       - name: Compose release manifest
         shell: bash
         env:
-          WORKFLOW_IDENTITY: ${{ github.workflow_ref }}
+          WORKFLOW_IDENTITY: https://github.com/${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           RELEASE_VERSION="${TARGET_REF#v}"

@@ -137,6 +137,27 @@ describe("operator onboarding workspace", () => {
     })
   })
 
+  it("requires reconfiguration when the schedule contract is no longer compatible", async () => {
+    const input = await fixture()
+    const staleContractId = crypto.randomUUID()
+    const createdAt = NOW.toISOString()
+    await registerDeployment(input.deploymentId)
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        "INSERT INTO contracts (id, client_id, plan_id, status, starts_at, ends_at, seat_limit, monthly_seat_price_cents, tax_basis_points, collection_frequency, total_cents, renewal_policy, created_at, updated_at) VALUES (?, ?, 'onboarding-plan', 'cancelled', '2026-08-01', '2026-08-31', 25, 0, 0, 'upfront', 0, 'auto_renew', ?, ?)",
+      ).bind(staleContractId, input.clientId, createdAt, createdAt),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO deployment_entitlement_schedules (deployment_id, contract_id, next_check_at, latest_version, configuration_version, release_channel, minimum_supported_app_version, approved_image_digest, state_revision, updated_at) VALUES (?, ?, ?, NULL, 'configuration-1', 'stable', '1.0.0', NULL, 1, ?)",
+      ).bind(input.deploymentId, staleContractId, createdAt, createdAt),
+    ])
+
+    await expect(getDeploymentWorkspace(env.CONTROL_DB, input.deploymentId, NOW)).resolves.toMatchObject({
+      schedule: { contractId: staleContractId },
+      compatibleContracts: [{ id: input.contractId }],
+      onboarding: { progress: "configure", nextAction: "configure_entitlement" },
+    })
+  })
+
   it.each([
     ["missing", undefined, "never_connected"],
     ["stale", new Date(NOW.getTime() - 30 * 60 * 1_000 - 1), "stale"],
@@ -224,6 +245,24 @@ describe("operator onboarding workspace", () => {
     })
     const workspace = await getDeploymentWorkspace(env.CONTROL_DB, input.deploymentId, NOW)
     expect(workspace.compatibleContracts.map((contract) => contract.id)).toEqual([input.contractId])
+  })
+
+  it("returns only allowlisted audit fields from deployment activity", async () => {
+    const input = await fixture()
+    const createdAt = NOW.toISOString()
+    const auditId = crypto.randomUUID()
+    await env.CONTROL_DB.prepare(
+      "INSERT INTO operator_audit_log (id, operator_id, action, target_type, target_id, outcome, request_id_hash, metadata_json, created_at) VALUES (?, NULL, 'deployment.heartbeat', 'deployment', ?, 'success', 'request', ?, ?)",
+    ).bind(auditId, input.deploymentId, JSON.stringify({ activeUserCount: 17, futureSensitiveField: "do-not-expose" }), createdAt).run()
+
+    const workspace = await getDeploymentWorkspace(env.CONTROL_DB, input.deploymentId, NOW)
+
+    expect(workspace.recentAuditEvents).toEqual([{
+      id: auditId,
+      action: "deployment.heartbeat",
+      outcome: "success",
+      createdAt,
+    }])
   })
 
   it("exposes client deployment links to the signing workspace", async () => {

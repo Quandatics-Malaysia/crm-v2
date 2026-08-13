@@ -88,7 +88,6 @@ export interface DeploymentWorkspace {
     id: string
     action: string
     outcome: "success" | "denied" | "error"
-    metadataJson: string
     createdAt: string
   }>
   onboarding: OnboardingState
@@ -223,12 +222,11 @@ export async function getDeploymentWorkspace(
       occupied_seats: number
     }>(),
     database.prepare(
-      "SELECT id, action, outcome, metadata_json, created_at FROM operator_audit_log WHERE target_type = 'deployment' AND target_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+      "SELECT id, action, outcome, created_at FROM operator_audit_log WHERE target_type = 'deployment' AND target_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
     ).bind(deploymentId, RECENT_LIMIT).all<{
       id: string
       action: string
       outcome: "success" | "denied" | "error"
-      metadata_json: string
       created_at: string
     }>(),
   ])
@@ -309,13 +307,14 @@ export async function getDeploymentWorkspace(
       id: audit.id,
       action: audit.action,
       outcome: audit.outcome,
-      metadataJson: audit.metadata_json,
       createdAt: audit.created_at,
     })),
     onboarding: deriveOnboardingState({
       hasCompatibleContract: compatibleContracts.results.length > 0,
       isRegistered: registration !== null,
-      hasSchedule: schedule !== null,
+      hasSchedule: schedule !== null && compatibleContracts.results.some(
+        (contract) => contract.id === schedule.contract_id,
+      ),
       lease: latest?.lease ?? null,
       heartbeat: latestHeartbeat,
       now,

@@ -58,6 +58,11 @@ const unsafeLegacyKeys = [
 ] as const
 let legacyValidPrivateKey: CryptoKey
 let legacyPrivatePrivateKey: CryptoKey
+let legacyInstallTokensAfter0007: Array<{
+  id: string
+  used_at: string | null
+  superseded_at: string | null
+}>
 
 function bindings(database: D1Database = env.CONTROL_DB): CloudflareBindings {
   return {
@@ -367,6 +372,14 @@ beforeAll(async () => {
     ).bind(legacyUsedInstallTokenId, legacyInstallTokenDeploymentId),
   ])
 
+  await applyD1Migrations(env.CONTROL_DB, migrations.slice(0, 7))
+  legacyInstallTokensAfter0007 = (await env.CONTROL_DB.prepare(
+    "SELECT id, used_at, superseded_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at",
+  ).bind(legacyInstallTokenDeploymentId).all<{
+    id: string
+    used_at: string | null
+    superseded_at: string | null
+  }>()).results
   await applyD1Migrations(env.CONTROL_DB, migrations)
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
@@ -379,7 +392,13 @@ beforeAll(async () => {
 })
 
 describe("deployment protocol migration upgrade", () => {
-  it("invalidates every unused install token that predates replacement tracking", async () => {
+  it("leaves historical tokens untouched through recorded 0007 then supersedes them in pending migrations", async () => {
+    expect(legacyInstallTokensAfter0007).toEqual([
+      { id: legacyUnusedInstallTokenIds[0], used_at: null, superseded_at: null },
+      { id: legacyUnusedInstallTokenIds[1], used_at: null, superseded_at: null },
+      { id: legacyUsedInstallTokenId, used_at: "2026-08-01T00:03:00.000Z", superseded_at: null },
+    ])
+
     const rows = await env.CONTROL_DB.prepare(
       "SELECT id, used_at, superseded_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at",
     ).bind(legacyInstallTokenDeploymentId).all<{

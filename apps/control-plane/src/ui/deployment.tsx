@@ -170,9 +170,11 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
     ? "No install token issued"
     : workspace.token.usedAt !== null
       ? "Install token used"
-      : Date.parse(workspace.token.expiresAt) <= Date.now()
-        ? "Install token expired"
-        : "Install token awaiting use"
+      : workspace.token.supersededAt !== null
+        ? "Install token superseded"
+        : Date.parse(workspace.token.expiresAt) <= Date.now()
+          ? "Install token expired"
+          : "Install token awaiting use"
   const registrationStatus = workspace.registration === null ? "Not registered" : "Registered"
   const heartbeatStatus = workspace.latestHeartbeat === null ? "No heartbeat received" : titleCase(workspace.latestHeartbeat.healthStatus)
   const canConfigureSchedule = workspace.client.status === "active" && workspace.deployment.status === "active" &&
@@ -238,6 +240,7 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
             { term: "Registered at (UTC)", details: formatUtc(workspace.registration?.registeredAt ?? null) },
             { term: "Token expires at (UTC)", details: formatUtc(workspace.token?.expiresAt ?? null) },
             { term: "Token used at (UTC)", details: formatUtc(workspace.token?.usedAt ?? null) },
+            { term: "Token superseded at (UTC)", details: formatUtc(workspace.token?.supersededAt ?? null) },
           ]} />
           {canIssueInstallToken ? <form action={`/operator/deployments/${workspace.deployment.id}/install-tokens`} method="post">
             <input type="hidden" name="idempotencyKey" value={crypto.randomUUID()} />

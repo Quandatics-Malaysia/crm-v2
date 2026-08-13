@@ -562,6 +562,37 @@ describe("operator onboarding workspace", () => {
     expect(html).toContain(`<form action="/operator/deployments/${input.deploymentId}/install-tokens" method="post">`)
   })
 
+  it.each([
+    {
+      label: "superseded",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      supersededAt: "2026-08-10T11:30:00.000Z",
+      status: "Install token superseded",
+    },
+    {
+      label: "expired",
+      expiresAt: "2026-08-09T00:00:00.000Z",
+      supersededAt: null,
+      status: "Install token expired",
+    },
+  ])("shows a $label install token truthfully instead of awaiting use", async ({ expiresAt, supersededAt, status }) => {
+    const input = await fixture()
+    await env.CONTROL_DB.prepare(
+      "INSERT INTO install_tokens (id, deployment_id, token_digest, expires_at, used_at, superseded_at, registration_key_fingerprint, created_at) VALUES (?, ?, ?, ?, NULL, ?, NULL, ?)",
+    ).bind(crypto.randomUUID(), input.deploymentId, crypto.randomUUID(), expiresAt, supersededAt, NOW.toISOString()).run()
+
+    await expect(getDeploymentWorkspace(env.CONTROL_DB, input.deploymentId, NOW)).resolves.toMatchObject({
+      token: { expiresAt, supersededAt },
+    })
+    const html = await (await workspaceRequest(input.deploymentId)).text()
+    expect(html).toContain(status)
+    expect(html).not.toContain("Install token awaiting use")
+    if (supersededAt !== null) {
+      expect(html).toContain("Token superseded at (UTC)")
+      expect(html).toContain(supersededAt)
+    }
+  })
+
   it("places entitlement configuration in the workspace and redirects back after saving", async () => {
     const input = await fixture()
     await registerDeployment(input.deploymentId)

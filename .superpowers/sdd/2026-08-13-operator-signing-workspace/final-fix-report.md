@@ -338,3 +338,114 @@ exit 0
 ## Round-2 remaining concern
 
 No known code or control-suite blocker remains. The actual D1 upgrade-state and new trigger execute successfully in the Workers D1 test pool, and the migration source passes the remote-D1 compatibility checks. A remote/staging D1 apply remains outside this local hardening scope.
+
+---
+
+# Final hardening fix round 3
+
+## Resolution
+
+1. Applied migration immutability
+   - `0007_install_token_replacement.sql` is restored byte-for-byte to commit `7c0eac1cfdf898c0b78c4ed7765562a791cb9712`.
+   - New migration `0009_install_token_historical_backfill.sql` performs the idempotent backfill only where `used_at IS NULL AND superseded_at IS NULL`.
+   - `0008_install_token_issuance_guard.sql` remains unchanged and active.
+
+2. True staged upgrade coverage
+   - The upgrade fixture first applies `0001`-`0003`, seeds historical duplicate unused tokens, then applies through and records `0007`.
+   - It captures that `0007` leaves those rows untouched, then applies only pending `0008`-`0009` and verifies both unused rows are superseded while used history remains unchanged.
+
+3. Truthful workspace token state
+   - Workspace token selection now includes `superseded_at` and exposes `supersededAt` in the internal workspace model.
+   - The deployment workspace renders used, superseded, expired, and awaiting states in that precedence order, and displays the superseded timestamp.
+
+## Strict TDD evidence
+
+### Recorded 0007 followed by pending 0008-0009
+
+RED:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/deployment-protocol.test.ts -t 'recorded 0007'
+Test Files  1 failed (1)
+Tests  1 failed | 36 skipped (37)
+
+After applying through 0007, both historical unused rows already had superseded_at=created_at.
+Expected both to remain null until pending migrations applied.
+```
+
+GREEN:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/deployment-protocol.test.ts -t 'recorded 0007'
+Test Files  1 passed (1)
+Tests  1 passed | 36 skipped (37)
+```
+
+### Workspace selection and token-state rendering
+
+Initial RED:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/operator-onboarding.test.ts -t 'install token truthfully'
+Test Files  1 failed (1)
+Tests  2 failed | 66 skipped (68)
+
+Both superseded and expired fixtures were missing token.supersededAt from the workspace result.
+```
+
+Independent UI mutation RED after workspace selection was fixed:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/operator-onboarding.test.ts -t 'install token truthfully'
+Test Files  1 failed (1)
+Tests  1 failed | 1 passed | 66 skipped (68)
+
+Superseded token expected "Install token superseded" but rendered "Install token awaiting use".
+The expired case remained green.
+```
+
+GREEN:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/operator-onboarding.test.ts -t 'install token truthfully'
+Test Files  1 passed (1)
+Tests  2 passed | 66 skipped (68)
+```
+
+## Round-3 verification
+
+Focused behavioral suites:
+
+```text
+$ rtk pnpm --filter control-plane exec vitest run tests/deployment-protocol.test.ts tests/operator-onboarding.test.ts
+Test Files  2 passed (2)
+Tests  105 passed (105)
+```
+
+Full control suite:
+
+```text
+$ rtk pnpm --filter control-plane test
+Node migration compatibility: 2 passed, 0 failed
+Vitest: 6 files passed; 217 tests passed
+Combined: 219 passed, 0 failed
+```
+
+Type, migration-history, and diff gates:
+
+```text
+$ (apps/control-plane) rtk pnpm typecheck
+TypeScript: No errors found
+exit 0
+
+$ rtk git diff 7c0eac1cfdf898c0b78c4ed7765562a791cb9712 -- apps/control-plane/migrations/0007_install_token_replacement.sql
+no output; 0007 identical
+exit 0
+
+$ rtk git diff --check
+exit 0
+```
+
+## Round-3 remaining concern
+
+No known code or control-suite blocker remains. The staged Workers D1 test proves the recorded-`0007` upgrade path through `0008` and `0009`; a remote/staging D1 apply remains outside this local hardening scope.

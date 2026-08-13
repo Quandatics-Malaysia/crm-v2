@@ -65,6 +65,7 @@ export interface DeploymentWorkspace {
     id: string
     expiresAt: string
     usedAt: string | null
+    supersededAt: string | null
     registrationKeyFingerprint: string | null
     createdAt: string
   } | null
@@ -202,11 +203,12 @@ export async function getDeploymentWorkspace(
       "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND algorithm = 'Ed25519' AND revoked_at IS NULL AND replaced_by_key_id IS NULL AND not_before <= ? AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC, id DESC LIMIT 1",
     ).bind(deploymentId, now.toISOString(), now.toISOString()).first<{ key_id: string; fingerprint: string }>(),
     database.prepare(
-      "SELECT id, expires_at, used_at, registration_key_fingerprint, created_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+      "SELECT id, expires_at, used_at, superseded_at, registration_key_fingerprint, created_at FROM install_tokens WHERE deployment_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
     ).bind(deploymentId).first<{
       id: string
       expires_at: string
       used_at: string | null
+      superseded_at: string | null
       registration_key_fingerprint: string | null
       created_at: string
     }>(),
@@ -329,6 +331,7 @@ export async function getDeploymentWorkspace(
       id: token.id,
       expiresAt: token.expires_at,
       usedAt: token.used_at,
+      supersededAt: token.superseded_at,
       registrationKeyFingerprint: token.registration_key_fingerprint,
       createdAt: token.created_at,
     },

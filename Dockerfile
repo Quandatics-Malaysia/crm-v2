@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+ARG BUILDPLATFORM
+
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat
 # Pin pnpm globally. We use `npm i -g` rather than corepack: corepack is being
@@ -31,10 +33,23 @@ RUN pnpm --filter @crm/control-protocol run build
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter web run build
 
-# ---- compile the privileged migrate/seed job without application source ----
-FROM base AS migrator-build
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+# ---- compile architecture-neutral migrate/seed assets on the native runner ----
+FROM --platform=$BUILDPLATFORM node:22-alpine AS migrator-base
+RUN apk add --no-cache libc6-compat \
+    && npm install -g pnpm@11.6.0
+WORKDIR /app
+
+FROM migrator-base AS migrator-deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/deployment-agent/package.json ./apps/deployment-agent/package.json
+COPY apps/control-plane/package.json ./apps/control-plane/package.json
+COPY packages/control-protocol/package.json ./packages/control-protocol/package.json
+RUN pnpm install --frozen-lockfile
+
+FROM migrator-base AS migrator-build
+COPY --from=migrator-deps /app/node_modules ./node_modules
+COPY --from=migrator-deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 RUN pnpm --filter @crm/control-protocol run build
 RUN pnpm --filter web run build:migrator

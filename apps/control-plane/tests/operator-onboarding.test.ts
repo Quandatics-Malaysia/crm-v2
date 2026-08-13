@@ -33,7 +33,7 @@ interface Fixture {
   contractId: string
 }
 
-function bindings(): CloudflareBindings {
+function bindings(overrides: Partial<CloudflareBindings> = {}): CloudflareBindings {
   return {
     ...env,
     CONTROL_DB: env.CONTROL_DB,
@@ -42,6 +42,7 @@ function bindings(): CloudflareBindings {
     OPERATOR_ORIGIN: "https://control.invalid",
     ENTITLEMENT_SIGNING_KEY_ID: "vendor-key-route-test",
     ENTITLEMENT_SIGNING_PRIVATE_JWK: JSON.stringify(signingPrivateJwk),
+    ...overrides,
   } as unknown as CloudflareBindings
 }
 
@@ -56,7 +57,7 @@ function workspaceRequest(deploymentId: string, token = "token-vendor_owner") {
 
 function issueInstallTokenRequest(
   deploymentId: string,
-  options: { expiresAt?: string; requestId?: string; token?: string } = {},
+  options: { accept?: string; expiresAt?: string; pepper?: string; requestId?: string; token?: string } = {},
 ) {
   const form = new URLSearchParams({
     expiresAt: options.expiresAt ?? new Date(Date.now() + 60 * 60 * 1_000).toISOString().slice(0, 16),
@@ -69,11 +70,12 @@ function issueInstallTokenRequest(
         "Content-Type": "application/x-www-form-urlencoded",
         Origin: "https://control.invalid",
         "Sec-Fetch-Site": "same-origin",
+        ...(options.accept === undefined ? {} : { Accept: options.accept }),
         ...(options.requestId === undefined ? {} : { "X-Request-Id": options.requestId }),
       },
       body: form,
     }),
-    bindings(),
+    bindings(options.pepper === undefined ? {} : { INSTALL_TOKEN_PEPPER: options.pepper }),
   )
 }
 
@@ -288,6 +290,33 @@ describe("operator onboarding workspace", () => {
       outcome: "success",
     })
     expect(audit?.metadata_json).not.toContain(token!)
+  })
+
+  it.each([
+    ["text/html", "text/html", "We could not complete this request. Try again. If it persists, contact support."],
+    ["application/json", "application/json", null],
+  ])("keeps internal errors safe for $0", async (accept, contentType, guidance) => {
+    const input = await fixture()
+    const response = await issueInstallTokenRequest(input.deploymentId, {
+      accept,
+      pepper: "too-short",
+    })
+
+    expect(response.status).toBe(500)
+    expect(response.headers.get("Content-Type")).toContain(contentType)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer")
+    const body = await response.text()
+    expect(body).not.toContain("Install token pepper")
+    expect(body).not.toContain("too-short")
+    if (guidance) {
+      expect(body).toContain(guidance)
+      expect(body).toMatch(/Request ID: <code>[0-9a-f-]{36}<\/code>/)
+      expect(body).toContain('href="/operator"')
+    } else {
+      expect(JSON.parse(body)).toEqual({ error: "internal_error" })
+    }
   })
 
   it("rejects malformed, past, and overlong install-token expiries without persisting a token", async () => {

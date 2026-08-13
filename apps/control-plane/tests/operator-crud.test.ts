@@ -62,6 +62,7 @@ function operatorRequest(
     json?: Record<string, unknown>
     origin?: string | null
     jsonGuard?: boolean
+    accept?: string
     host?: string
     database?: D1Database
   } = {},
@@ -92,6 +93,9 @@ function operatorRequest(
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
+  }
+  if (options.accept) {
+    headers.set("Accept", options.accept)
   }
 
   return app.fetch(
@@ -317,6 +321,88 @@ describe("operator mutation protection and client administration", () => {
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'error'",
     ).first<{ count: number }>()
     expect(failureAudits?.count).toBe(1)
+  })
+
+  it.each([
+    [
+      "invalid request",
+      (accept: string) => operatorRequest(`/operator/clients/${crypto.randomUUID()}/contracts`, {
+        method: "POST",
+        form: { planId: "plan-basic" },
+        accept,
+      }),
+      400,
+      "invalid_request",
+      "Check the submitted values and try again.",
+    ],
+    [
+      "forbidden request",
+      (accept: string) => operatorRequest("/operator/clients", {
+        method: "POST",
+        form: { clientKey: `denied-${crypto.randomUUID()}`, displayName: "Denied" },
+        origin: null,
+        accept,
+      }),
+      403,
+      "forbidden",
+      "You do not have permission to complete this action.",
+    ],
+    [
+      "missing record",
+      (accept: string) => operatorRequest(`/operator/clients/${crypto.randomUUID()}/contracts`, {
+        method: "POST",
+        form: {
+          planId: "plan-basic",
+          status: "active",
+          startsAt: "2026-08-05",
+          endsAt: "2026-09-19",
+          seatLimit: "2",
+          monthlySeatPriceCents: "25000",
+          taxBasisPoints: "0",
+          collectionFrequency: "monthly",
+          moduleIds: ["projects", "salesOrders", "finance"],
+        },
+        accept,
+      }),
+      404,
+      "not_found",
+      "The requested record is unavailable. Return to the dashboard and choose it again.",
+    ],
+    [
+      "conflicting change",
+      async (accept: string) => {
+        const key = `conflict-${crypto.randomUUID()}`
+        const form = { clientKey: key, displayName: "Conflict" }
+        try {
+          await operatorRequest("/operator/clients", { method: "POST", form })
+          return await operatorRequest("/operator/clients", { method: "POST", form, accept })
+        } finally {
+          await env.CONTROL_DB.prepare("DELETE FROM clients WHERE client_key = ?").bind(key).run()
+        }
+      },
+      409,
+      "conflict",
+      "This change conflicts with current data. Refresh the page and try again.",
+    ],
+  ])("negotiates safe %s errors", async (_label, request, status, code, guidance) => {
+    const html = await request("text/html")
+
+    expect(html.status).toBe(status)
+    expect(html.headers.get("Content-Type")).toContain("text/html")
+    expect(html.headers.get("Cache-Control")).toBe("no-store")
+    expect(html.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(html.headers.get("Referrer-Policy")).toBe("no-referrer")
+    const htmlBody = await html.text()
+    expect(htmlBody).toContain(guidance)
+    expect(htmlBody).toMatch(/Request ID: <code>[0-9a-f-]{36}<\/code>/)
+    expect(htmlBody).toContain('href="/operator"')
+    expect(htmlBody).not.toContain("SELECT ")
+    expect(htmlBody).not.toContain("PRIVATE KEY")
+
+    const json = await request("application/json")
+    expect(json.status).toBe(status)
+    expect(json.headers.get("Content-Type")).toContain("application/json")
+    await expect(json.json()).resolves.toEqual({ error: code })
   })
 
   it("accepts guarded same-origin JSON but rejects unguarded JSON", async () => {

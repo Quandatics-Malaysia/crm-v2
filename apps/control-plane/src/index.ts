@@ -1,5 +1,4 @@
 import { Hono } from "hono"
-import { HTTPException } from "hono/http-exception"
 
 import {
   createOperatorAuthMiddleware,
@@ -7,11 +6,12 @@ import {
   type OperatorContext,
 } from "./auth/access"
 import { verifyControlDatabase } from "./db/client"
-import { SafeHttpError } from "./http/errors"
+import { acceptsOperatorHtml, safeErrorResponse } from "./http/errors"
 import { createDeploymentRoutes } from "./routes/deployments"
 import { createEntitlementRoutes } from "./routes/entitlements"
 import { createOperatorRoutes } from "./routes/operator"
 import { runEntitlementRenewal } from "./repos/entitlements"
+import { OperatorErrorPage } from "./ui/error"
 
 export interface ControlPlaneEnvironment {
   Bindings: CloudflareBindings
@@ -26,14 +26,19 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
   const app = new Hono<ControlPlaneEnvironment>()
 
   app.onError((error, context) => {
-    if (error instanceof SafeHttpError) {
-      return context.json({ error: error.code }, error.status)
-    }
-    if (error instanceof HTTPException && error.status === 403) {
-      return context.json({ error: "forbidden" }, 403)
+    context.header("Cache-Control", "no-store")
+    context.header("X-Content-Type-Options", "nosniff")
+    context.header("Referrer-Policy", "no-referrer")
+
+    const response = safeErrorResponse(error)
+    if (acceptsOperatorHtml(context.req.raw)) {
+      return context.html(OperatorErrorPage({
+        code: response.code,
+        requestId: crypto.randomUUID(),
+      }), response.status)
     }
 
-    return context.json({ error: "internal_error" }, 500)
+    return context.json({ error: response.code }, response.status)
   })
 
   app.get("/health", async (context) => {

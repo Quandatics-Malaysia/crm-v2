@@ -124,4 +124,3 @@ Acceptance requires:
 - Operators can distinguish offline, grace, and read-only states
 - The interface works without client JavaScript except the optional copy enhancement
 - Control-plane tests, typecheck, repository tests, and production build pass
-

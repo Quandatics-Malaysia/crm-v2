@@ -144,4 +144,3 @@
 ## Delivery sequence
 
 Implement Tasks 1–3 first as a safe visual/read-only slice. Tasks 4–6 complete onboarding and signing. Task 7 hardens recovery. Task 8 updates operator and external-developer guidance. Deploy to staging, complete one synthetic onboarding, then deploy production and verify one existing deployment without issuing a replacement entitlement unless explicitly intended.
-

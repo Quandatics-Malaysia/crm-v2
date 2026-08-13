@@ -52,10 +52,13 @@ export interface DeploymentWorkspace {
   }
   compatibleContracts: Array<{
     id: string
+    planId: string
     status: string
     startsAt: string
     endsAt: string
     seatLimit: number
+    entitlementRevision: number
+    modules: Array<{ id: string; displayName: string }>
   }>
   registration: { registeredAt: string; keyFingerprint: string; keyId: string } | null
   token: {
@@ -168,15 +171,24 @@ export async function getDeploymentWorkspace(
   if (!deployment) throw notFound()
 
   const today = now.toISOString().slice(0, 10)
-  const [compatibleContracts, registrationKey, token, schedule, entitlementRows, heartbeat, auditEvents] = await Promise.all([
+  const [compatibleContracts, contractModules, registrationKey, token, schedule, entitlementRows, heartbeat, auditEvents] = await Promise.all([
     database.prepare(
-      "SELECT id, status, starts_at, ends_at, seat_limit FROM contracts WHERE client_id = ? AND status IN ('active', 'past_due') AND starts_at <= ? AND ends_at >= ? ORDER BY starts_at DESC, id DESC",
+      "SELECT id, plan_id, status, starts_at, ends_at, seat_limit, entitlement_revision FROM contracts WHERE client_id = ? AND status IN ('active', 'past_due') AND starts_at <= ? AND ends_at >= ? ORDER BY starts_at DESC, id DESC",
     ).bind(deployment.client_id, today, today).all<{
       id: string
+      plan_id: string
       status: string
       starts_at: string
       ends_at: string
       seat_limit: number
+      entitlement_revision: number
+    }>(),
+    database.prepare(
+      "SELECT cm.contract_id, cm.module_id, mc.display_name FROM contracts c JOIN contract_modules cm ON cm.contract_id = c.id JOIN module_catalog mc ON mc.module_id = cm.module_id WHERE c.client_id = ? AND c.status IN ('active', 'past_due') AND c.starts_at <= ? AND c.ends_at >= ? ORDER BY cm.contract_id, mc.display_name, cm.module_id",
+    ).bind(deployment.client_id, today, today).all<{
+      contract_id: string
+      module_id: string
+      display_name: string
     }>(),
     database.prepare(
       "SELECT key_id, fingerprint FROM deployment_keys WHERE deployment_id = ? AND revoked_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -276,10 +288,15 @@ export async function getDeploymentWorkspace(
     },
     compatibleContracts: compatibleContracts.results.map((contract) => ({
       id: contract.id,
+      planId: contract.plan_id,
       status: contract.status,
       startsAt: contract.starts_at,
       endsAt: contract.ends_at,
       seatLimit: contract.seat_limit,
+      entitlementRevision: contract.entitlement_revision,
+      modules: contractModules.results
+        .filter((module) => module.contract_id === contract.id)
+        .map((module) => ({ id: module.module_id, displayName: module.display_name })),
     })),
     registration,
     token: token === null ? null : {

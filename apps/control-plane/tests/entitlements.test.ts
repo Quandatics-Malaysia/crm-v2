@@ -49,6 +49,8 @@ async function seed(options: {
       .bind(clientId, `client-${clientId}`, createdAt, createdAt),
     env.CONTROL_DB.prepare("INSERT INTO deployments (id, client_id, deployment_key, environment, status, registered_at, registration_key_fingerprint, created_at, updated_at) VALUES (?, ?, ?, 'production', ?, ?, ?, ?, ?)")
       .bind(deploymentId, clientId, `deployment-${deploymentId}`, options.deploymentStatus ?? "active", createdAt, "registered", createdAt, createdAt),
+    env.CONTROL_DB.prepare("INSERT INTO deployment_keys (id, deployment_id, key_id, algorithm, public_jwk_json, fingerprint, not_before, expires_at, revoked_at, replaced_by_key_id, registration_token_id, created_at) VALUES (?, ?, ?, 'Ed25519', '{}', ?, ?, NULL, NULL, NULL, NULL, ?)")
+      .bind(crypto.randomUUID(), deploymentId, crypto.randomUUID(), "r".repeat(43), createdAt, createdAt),
     env.CONTROL_DB.prepare("INSERT OR IGNORE INTO plans (id, plan_key, display_name, active, created_at, updated_at) VALUES ('plan-pro', 'pro', 'Pro', 1, ?, ?)")
       .bind(createdAt, createdAt),
     env.CONTROL_DB.prepare("INSERT INTO contracts (id, client_id, plan_id, status, starts_at, ends_at, seat_limit, monthly_seat_price_cents, tax_basis_points, collection_frequency, total_cents, renewal_policy, created_at, updated_at) VALUES (?, ?, 'plan-pro', ?, ?, ?, ?, 0, 0, 'upfront', 0, 'auto_renew', ?, ?)")
@@ -98,6 +100,72 @@ beforeAll(async () => {
 })
 
 describe("entitlement issuance", () => {
+  it("requires registration and a currently compatible contract before scheduling", async () => {
+    const unregistered = await seed()
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("DELETE FROM deployment_entitlement_schedules WHERE deployment_id = ?").bind(unregistered.deploymentId),
+      env.CONTROL_DB.prepare("UPDATE deployments SET registered_at = NULL, registration_key_fingerprint = NULL WHERE id = ?").bind(unregistered.deploymentId),
+      env.CONTROL_DB.prepare("UPDATE deployment_keys SET revoked_at = ? WHERE deployment_id = ?").bind(now.toISOString(), unregistered.deploymentId),
+    ])
+    await expect(assignEntitlementSchedule(env.CONTROL_DB, {
+      deploymentId: unregistered.deploymentId,
+      contractId: unregistered.contractId,
+      configurationVersion: "config-unregistered",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+    }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)).rejects.toMatchObject({ status: 400 })
+
+    const incompatible = await seed()
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("DELETE FROM deployment_entitlement_schedules WHERE deployment_id = ?").bind(incompatible.deploymentId),
+      env.CONTROL_DB.prepare("UPDATE contracts SET status = 'cancelled' WHERE id = ?").bind(incompatible.contractId),
+    ])
+    await expect(assignEntitlementSchedule(env.CONTROL_DB, {
+      deploymentId: incompatible.deploymentId,
+      contractId: incompatible.contractId,
+      configurationVersion: "config-cancelled",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "1.0.0",
+    }, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)).rejects.toMatchObject({ status: 400 })
+  })
+
+  it("rejects malformed schedule release controls", async () => {
+    const fixture = await seed()
+    for (const invalid of [
+      { configurationVersion: "", releaseChannel: "stable", minimumSupportedAppVersion: "1.0.0", approvedImageDigest: null },
+      { configurationVersion: "config", releaseChannel: "nightly", minimumSupportedAppVersion: "1.0.0", approvedImageDigest: null },
+      { configurationVersion: "config", releaseChannel: "stable", minimumSupportedAppVersion: "", approvedImageDigest: null },
+      { configurationVersion: "config", releaseChannel: "stable", minimumSupportedAppVersion: "1.0.0", approvedImageDigest: "sha256:ABC" },
+    ]) {
+      await expect(assignEntitlementSchedule(env.CONTROL_DB, {
+        deploymentId: fixture.deploymentId,
+        contractId: fixture.contractId,
+        ...invalid,
+      } as never, { operatorId: ownerId, requestId: crypto.randomUUID() }, now)).rejects.toMatchObject({ status: 400 })
+    }
+    await env.CONTROL_DB.prepare(
+      "UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).run()
+  })
+
+  it("rejects an already stale reviewed state before signing", async () => {
+    const fixture = await seed()
+
+    await expect(issueEntitlement(bindings(), {
+      deploymentId: fixture.deploymentId,
+      contractId: fixture.contractId,
+      issuanceKey: `manual:${crypto.randomUUID()}`,
+      expectedContractRevision: 1,
+      expectedScheduleRevision: 2,
+      actor: { operatorId: ownerId, requestId: crypto.randomUUID(), source: "operator" },
+      now,
+    })).rejects.toMatchObject({ status: 409, code: "entitlement_state_changed" })
+    expect(await count("entitlement_versions", "WHERE deployment_id = ?", [fixture.deploymentId])).toBe(0)
+    await env.CONTROL_DB.prepare(
+      "UPDATE deployment_entitlement_schedules SET next_check_at = '2099-01-01T00:00:00.000Z' WHERE deployment_id = ?",
+    ).bind(fixture.deploymentId).run()
+  })
+
   it("issues core CRM entitlement with no optional modules", async () => {
     const fixture = await seed({ modules: [] })
 

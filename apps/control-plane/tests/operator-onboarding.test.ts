@@ -11,6 +11,7 @@ import { getDeploymentWorkspace } from "../src/repos/onboarding"
 const NOW = new Date("2026-08-10T12:00:00.000Z")
 const HOUR_MS = 60 * 60 * 1_000
 const REGISTRATION_FINGERPRINT = "f".repeat(43)
+let signingPrivateJwk: JsonWebKey
 const roleSubjects = new Map<string, { email: string; role: OperatorRole }>()
 for (const role of OPERATOR_ROLES) {
   const subject = `${role}-${crypto.randomUUID()}`
@@ -39,6 +40,8 @@ function bindings(): CloudflareBindings {
     ENVIRONMENT: "test",
     BOOTSTRAP_OWNER_EMAIL: "owner@example.com",
     OPERATOR_ORIGIN: "https://control.invalid",
+    ENTITLEMENT_SIGNING_KEY_ID: "vendor-key-route-test",
+    ENTITLEMENT_SIGNING_PRIVATE_JWK: JSON.stringify(signingPrivateJwk),
   } as unknown as CloudflareBindings
 }
 
@@ -72,6 +75,52 @@ function issueInstallTokenRequest(
     }),
     bindings(),
   )
+}
+
+function scheduleRequest(deploymentId: string, contractId: string, overrides: Record<string, string> = {}) {
+  const form = new URLSearchParams({
+    contractId,
+    configurationVersion: "configuration-route-1",
+    releaseChannel: "stable",
+    minimumSupportedAppVersion: "2.3.0",
+    approvedImageDigest: `sha256:${"a".repeat(64)}`,
+    ...overrides,
+  })
+  return app.fetch(new Request(`https://control.invalid/operator/deployments/${deploymentId}/entitlements/schedule`, {
+    method: "POST",
+    headers: {
+      "Cf-Access-Jwt-Assertion": "token-vendor_owner",
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: "https://control.invalid",
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: form,
+  }), bindings())
+}
+
+function reviewRequest(deploymentId: string) {
+  return app.fetch(new Request(`https://control.invalid/operator/deployments/${deploymentId}/entitlements/review`, {
+    headers: { "Cf-Access-Jwt-Assertion": "token-vendor_owner" },
+  }), bindings())
+}
+
+function signingRequest(
+  deploymentId: string,
+  data: Record<string, string>,
+  format: "html" | "json" = "html",
+) {
+  const json = format === "json"
+  return app.fetch(new Request(`https://control.invalid/operator/deployments/${deploymentId}/entitlements/issue`, {
+    method: "POST",
+    headers: {
+      "Cf-Access-Jwt-Assertion": "token-vendor_owner",
+      "Content-Type": json ? "application/json" : "application/x-www-form-urlencoded",
+      Origin: "https://control.invalid",
+      "Sec-Fetch-Site": "same-origin",
+      ...(json ? { "X-Control-Request": "same-origin" } : {}),
+    },
+    body: json ? JSON.stringify(data) : new URLSearchParams(data),
+  }), bindings())
 }
 
 async function fixture(): Promise<Fixture> {
@@ -187,6 +236,8 @@ async function issueCurrentEntitlement(input: Fixture, leaseMode: "active" | "gr
 
 beforeAll(async () => {
   await applyD1Migrations(env.CONTROL_DB, inject("migrations") as D1Migration[])
+  const signingKeyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])
+  signingPrivateJwk = await crypto.subtle.exportKey("jwk", signingKeyPair.privateKey)
   const now = new Date().toISOString()
   await env.CONTROL_DB.batch([...new Map(roleSubjects.entries())]
     .filter(([token]) => token.startsWith("token-"))
@@ -337,6 +388,165 @@ describe("operator onboarding workspace", () => {
 
     expect(html).toContain(`href="#install-token"`)
     expect(html).toContain(`<form action="/operator/deployments/${input.deploymentId}/install-tokens" method="post">`)
+  })
+
+  it("places entitlement configuration in the workspace and redirects back after saving", async () => {
+    const input = await fixture()
+    await registerDeployment(input.deploymentId)
+
+    const before = await (await workspaceRequest(input.deploymentId)).text()
+    expect(before).toContain('href="#entitlement-configuration"')
+    expect(before).toContain(`<form class="form-grid" method="post" action="/operator/deployments/${input.deploymentId}/entitlements/schedule">`)
+    expect(before).toContain("Configuration version")
+    expect(before).toContain("Channel")
+    expect(before).toContain("Minimum app version")
+    expect(before).toContain("Optional SHA-256 image digest")
+
+    const response = await scheduleRequest(input.deploymentId, input.contractId)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("Location")).toBe(
+      `/operator/deployments/${input.deploymentId}?notice=entitlement_schedule_updated`,
+    )
+    const after = await (await workspaceRequest(input.deploymentId)).text()
+    expect(after).toContain("configuration-route-1")
+    expect(after).toContain("2.3.0")
+  })
+
+  it("reviews authoritative contract, seat, module, release, and lease terms without exposing signing material", async () => {
+    const input = await fixture()
+    await registerDeployment(input.deploymentId)
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        "INSERT OR IGNORE INTO module_catalog (module_id, display_name, dependency_ids_json, active, created_at, updated_at) VALUES ('projects', 'Projects', '[]', 1, ?, ?)",
+      ).bind(NOW.toISOString(), NOW.toISOString()),
+      env.CONTROL_DB.prepare(
+        "INSERT INTO contract_modules (contract_id, module_id, created_at) VALUES (?, 'projects', ?)",
+      ).bind(input.contractId, NOW.toISOString()),
+    ])
+    await assignSchedule(input)
+
+    const response = await reviewRequest(input.deploymentId)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain(input.contractId)
+    expect(html).toContain("25 seats")
+    expect(html).toContain("Projects")
+    expect(html).toContain("Configuration version")
+    expect(html).toContain("Stable")
+    expect(html).toContain("1.0.0")
+    expect(html).toContain("24 hours")
+    expect(html).toContain("7 days after lease expiry")
+    expect(html).toContain(`action="/operator/deployments/${input.deploymentId}/entitlements/issue"`)
+    expect(html).toContain('name="confirmation" value="issue_entitlement"')
+    expect(html).not.toContain("vendor-key-route-test")
+    expect(html).not.toContain(signingPrivateJwk.d!)
+    expect(html).not.toContain('"signature"')
+  })
+
+  it("requires explicit HTML confirmation while preserving protected JSON signing", async () => {
+    const htmlInput = await fixture()
+    await registerDeployment(htmlInput.deploymentId)
+    await assignSchedule(htmlInput)
+
+    const rejected = await signingRequest(htmlInput.deploymentId, {
+      contractId: htmlInput.contractId,
+      expectedContractRevision: "1",
+      expectedScheduleRevision: "1",
+      idempotencyKey: crypto.randomUUID(),
+    })
+    expect(rejected.status).toBe(400)
+
+    const jsonInput = await fixture()
+    await registerDeployment(jsonInput.deploymentId)
+    await assignSchedule(jsonInput)
+    const compatible = await signingRequest(jsonInput.deploymentId, {
+      contractId: jsonInput.contractId,
+      idempotencyKey: crypto.randomUUID(),
+    }, "json")
+    expect(compatible.status).toBe(201)
+    await expect(compatible.json()).resolves.toMatchObject({ version: 1 })
+  })
+
+  it("rejects a stale HTML review and redirects successful issuance using PRG", async () => {
+    const stale = await fixture()
+    await registerDeployment(stale.deploymentId)
+    await assignSchedule(stale)
+    await env.CONTROL_DB.prepare(
+      "UPDATE deployment_entitlement_schedules SET configuration_version = 'changed-after-review', state_revision = 2 WHERE deployment_id = ?",
+    ).bind(stale.deploymentId).run()
+
+    const conflict = await signingRequest(stale.deploymentId, {
+      confirmation: "issue_entitlement",
+      contractId: stale.contractId,
+      expectedContractRevision: "1",
+      expectedScheduleRevision: "1",
+      idempotencyKey: crypto.randomUUID(),
+    })
+    expect(conflict.status).toBe(409)
+    expect((await env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM entitlement_versions WHERE deployment_id = ?",
+    ).bind(stale.deploymentId).first<{ count: number }>())?.count).toBe(0)
+
+    const input = await fixture()
+    await registerDeployment(input.deploymentId)
+    await assignSchedule(input)
+    const first = await signingRequest(input.deploymentId, {
+      confirmation: "issue_entitlement",
+      contractId: input.contractId,
+      expectedContractRevision: "1",
+      expectedScheduleRevision: "1",
+      idempotencyKey: crypto.randomUUID(),
+    })
+    expect(first.status).toBe(303)
+    expect(first.headers.get("Location")).toBe(
+      `/operator/deployments/${input.deploymentId}?notice=entitlement_issued&version=1`,
+    )
+    expect(await first.text()).not.toContain("signature")
+
+    const second = await signingRequest(input.deploymentId, {
+      confirmation: "issue_entitlement",
+      contractId: input.contractId,
+      expectedContractRevision: "1",
+      expectedScheduleRevision: "1",
+      idempotencyKey: crypto.randomUUID(),
+    })
+    expect(second.status).toBe(303)
+    expect(second.headers.get("Location")).toContain("version=2")
+
+    const workspace = await app.fetch(new Request(
+      `https://control.invalid${first.headers.get("Location")}`,
+      { headers: { "Cf-Access-Jwt-Assertion": "token-vendor_owner" } },
+    ), bindings())
+    const html = await workspace.text()
+    expect(html).toContain("Entitlement version 1 issued")
+    expect(html).toContain("Version 2")
+    expect(html).toContain("Version 1")
+
+    const review = await (await reviewRequest(input.deploymentId)).text()
+    expect(review).toContain("Issue new version")
+    expect(review).toContain("Prior immutable versions")
+    expect(review).toContain("Version 2")
+    expect(review).toContain("Version 1")
+    expect(review).not.toContain("vendor-key-route-test")
+    expect(review).not.toContain('"signature"')
+  })
+
+  it("links configure, sign, and renewal next actions to real controls", async () => {
+    const input = await fixture()
+    await registerDeployment(input.deploymentId)
+    let html = await (await workspaceRequest(input.deploymentId)).text()
+    expect(html).toContain('href="#entitlement-configuration"')
+    expect(html).toContain(`/operator/deployments/${input.deploymentId}/entitlements/schedule`)
+
+    await assignSchedule(input)
+    html = await (await workspaceRequest(input.deploymentId)).text()
+    expect(html).toContain(`href="/operator/deployments/${input.deploymentId}/entitlements/review"`)
+
+    await issueCurrentEntitlement(input, "grace")
+    await heartbeat(input.deploymentId, new Date())
+    html = await (await workspaceRequest(input.deploymentId)).text()
+    expect(html).toContain(">Issue new version</h2>")
+    expect(html).toContain(`href="/operator/deployments/${input.deploymentId}/entitlements/review"`)
   })
 
   it("requires a compatible contract before installation", async () => {
@@ -567,7 +777,7 @@ describe("operator onboarding workspace", () => {
     }
   })
 
-  it("explains disabled client and deployment states without offering mutations", async () => {
+  it("gives truthful disabled-state guidance without claiming nonexistent reactivation controls", async () => {
     const input = await fixture()
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare("UPDATE clients SET status = 'disabled' WHERE id = ?").bind(input.clientId),
@@ -577,8 +787,11 @@ describe("operator onboarding workspace", () => {
     const response = await workspaceRequest(input.deploymentId)
     const html = await response.text()
 
-    expect(html).toContain("Client is disabled. Reactivate the client before signing can continue.")
-    expect(html).toContain("Deployment is disabled. Reactivate the deployment before signing can continue.")
+    expect(html).toContain("Client is disabled. Reactivation is not available in this workspace.")
+    expect(html).toContain("Deployment is disabled. Reactivation is not available in this workspace.")
+    expect(html).toContain(`href="/operator/clients/${input.clientId}"`)
+    expect(html).not.toContain("Reactivate client")
+    expect(html).not.toContain("Reactivate deployment")
     expect(html).toContain("progress-step-blocked")
     expect(html).not.toContain('<form')
   })

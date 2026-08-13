@@ -155,14 +155,26 @@ export async function assignEntitlementSchedule(
 ): Promise<void> {
   validateScheduleInput(input)
   const row = await database.prepare(
-    "SELECT d.client_id AS deployment_client_id, d.status AS deployment_status, c.client_id AS contract_client_id FROM deployments d JOIN contracts c ON c.id = ? WHERE d.id = ?",
+    "SELECT d.client_id AS deployment_client_id, d.status AS deployment_status, d.registered_at, d.registration_key_fingerprint, client.status AS client_status, c.client_id AS contract_client_id, c.status AS contract_status, c.starts_at, c.ends_at, EXISTS (SELECT 1 FROM deployment_keys dk WHERE dk.deployment_id = d.id AND dk.revoked_at IS NULL) AS has_registration_key FROM deployments d JOIN clients client ON client.id = d.client_id JOIN contracts c ON c.id = ? WHERE d.id = ?",
   ).bind(input.contractId, input.deploymentId).first<{
     deployment_client_id: string
     deployment_status: string
+    registered_at: string | null
+    registration_key_fingerprint: string | null
+    client_status: string
     contract_client_id: string
+    contract_status: string
+    starts_at: string
+    ends_at: string
+    has_registration_key: number
   }>()
   if (!row) throw notFound()
-  if (row.deployment_client_id !== row.contract_client_id || row.deployment_status !== "active") throw badRequest()
+  const today = now.toISOString().slice(0, 10)
+  if (row.deployment_client_id !== row.contract_client_id || row.client_status !== "active" ||
+      row.deployment_status !== "active" || row.registered_at === null ||
+      row.registration_key_fingerprint === null || row.has_registration_key !== 1 ||
+      !["active", "past_due"].includes(row.contract_status) ||
+      row.starts_at > today || row.ends_at < today) throw badRequest()
   const at = now.toISOString()
   const audit = await prepareOperatorAuditStatement(database, {
     operatorId: actor.operatorId,
@@ -548,6 +560,8 @@ export async function issueEntitlement(
     actor: EntitlementActor
     now?: Date
     claimToken?: string
+    expectedContractRevision?: number
+    expectedScheduleRevision?: number
   },
 ): Promise<EntitlementRecord> {
   const issuanceKey = boundedValue(input.issuanceKey, 256)
@@ -557,6 +571,12 @@ export async function issueEntitlement(
   if (existing) return fromStored(existing)
   const now = input.now ?? new Date()
   const row = await loadState(environment.CONTROL_DB, input.deploymentId, input.contractId)
+  if (input.expectedContractRevision !== undefined &&
+      input.expectedContractRevision !== row.entitlement_revision ||
+      input.expectedScheduleRevision !== undefined &&
+      input.expectedScheduleRevision !== row.state_revision) {
+    throw new SafeHttpError(409, "entitlement_state_changed")
+  }
   const keyId = boundedValue(environment.ENTITLEMENT_SIGNING_KEY_ID, 128)
   const revision = await allocateEntitlementRevision(environment.CONTROL_DB, input.deploymentId)
   const payload = await desiredLease(environment.CONTROL_DB, row, keyId, revision, now)

@@ -28,7 +28,7 @@ import {
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
-import { DeploymentPage, InstallTokenResultPage } from "../ui/deployment"
+import { DeploymentPage, EntitlementReviewPage, InstallTokenResultPage } from "../ui/deployment"
 import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
@@ -47,7 +47,19 @@ const OPERATOR_NOTICES = {
 } as const satisfies Record<string, OperatorNotice>
 
 function requestNotice(context: OperatorContext): OperatorNotice | undefined {
-  const code = new URL(context.req.url).searchParams.get("notice")
+  const parameters = new URL(context.req.url).searchParams
+  const code = parameters.get("notice")
+  if (code === "entitlement_issued") {
+    const version = parameters.get("version")
+    if (version !== null && /^[1-9]\d*$/.test(version)) {
+      return {
+        tone: "success",
+        title: `Entitlement version ${version} issued`,
+        message: "Immutable history now includes the issued version.",
+      }
+    }
+    return undefined
+  }
   if (!code || !Object.hasOwn(OPERATOR_NOTICES, code)) return undefined
   return OPERATOR_NOTICES[code as keyof typeof OPERATOR_NOTICES]
 }
@@ -232,8 +244,9 @@ function htmlSuccessRedirect(context: OperatorContext): string {
 
   const invoiceMutation = /^\/operator\/contracts\/([^/]+)\/invoices$/.exec(pathname)
   if (invoiceMutation) return withNotice(`/operator/contracts/${invoiceMutation[1]}`, "invoice_created")
-  if (/^\/operator\/deployments\/[^/]+\/entitlements\/schedule$/.test(pathname)) {
-    return withNotice("/operator/clients", "entitlement_schedule_updated")
+  const scheduleMutation = /^\/operator\/deployments\/([^/]+)\/entitlements\/schedule$/.exec(pathname)
+  if (scheduleMutation) {
+    return withNotice(`/operator/deployments/${scheduleMutation[1]}`, "entitlement_schedule_updated")
   }
   return withNotice("/operator/clients", "changes_saved")
 }
@@ -264,6 +277,13 @@ function installTokenExpiry(value: unknown, now = new Date()): string {
     throw badRequest()
   }
   return new Date(expiresAt).toISOString()
+}
+
+function positiveRevision(value: unknown): number {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) throw badRequest()
+  const revision = Number(value)
+  if (!Number.isSafeInteger(revision)) throw badRequest()
+  return revision
 }
 
 export function createOperatorRoutes() {
@@ -328,7 +348,19 @@ export function createOperatorRoutes() {
       context.req.param("deploymentId"),
       new Date(),
     )
-    return context.html(<DeploymentPage workspace={workspace} operatorEmail={context.get("operator").email} />)
+    return context.html(<DeploymentPage workspace={workspace} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
+  })
+  routes.get("/deployments/:deploymentId/entitlements/review", async (context) => {
+    const workspace = await getDeploymentWorkspace(
+      context.env.CONTROL_DB,
+      context.req.param("deploymentId"),
+      new Date(),
+    )
+    return context.html(<EntitlementReviewPage
+      workspace={workspace}
+      operatorEmail={context.get("operator").email}
+      idempotencyKey={crypto.randomUUID()}
+    />)
   })
 
   routes.post(
@@ -431,13 +463,28 @@ export function createOperatorRoutes() {
     async (context) => {
       const deploymentId = context.req.param("deploymentId")
       const data = await mutationData(context)
+      const json = isJson(context)
+      const contractId = typeof data.contractId === "string" && data.contractId.length > 0
+        ? data.contractId
+        : undefined
+      if (!json && (data.confirmation !== "issue_entitlement" || contractId === undefined)) {
+        throw badRequest()
+      }
       const issued = await issueEntitlement(context.env, {
         deploymentId,
-        contractId: typeof data.contractId === "string" ? data.contractId : undefined,
+        contractId,
         issuanceKey: typeof data.idempotencyKey === "string" ? `manual:${data.idempotencyKey}` : `manual:${crypto.randomUUID()}`,
         actor: { ...actor(context), source: "operator" },
+        ...json ? {} : {
+          expectedContractRevision: positiveRevision(data.expectedContractRevision),
+          expectedScheduleRevision: positiveRevision(data.expectedScheduleRevision),
+        },
       })
-      return context.json({ id: issued.id, version: issued.version }, 201)
+      if (json) return context.json({ id: issued.id, version: issued.version }, 201)
+      return context.redirect(
+        `/operator/deployments/${deploymentId}?notice=entitlement_issued&version=${issued.version}`,
+        303,
+      )
     },
   )
   routes.post(

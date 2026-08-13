@@ -71,6 +71,8 @@ export const OPERATOR_STYLES = `
 .progress-step-complete::before { background: #dcfae6; color: var(--operator-colour-positive); content: "✓"; }
 .progress-step-current { color: var(--operator-colour-accent); font-weight: 800; }
 .progress-step-current::before { background: var(--operator-colour-accent); color: #fff; }
+.progress-step-blocked { color: var(--operator-colour-danger); font-weight: 800; }
+.progress-step-blocked::before { background: #fee4e2; color: var(--operator-colour-danger); content: "!"; }
 .field { display: grid; gap: var(--operator-space-2); }
 .field label { font-weight: 700; }
 .field-error { color: var(--operator-colour-danger); font-size: 0.875rem; }

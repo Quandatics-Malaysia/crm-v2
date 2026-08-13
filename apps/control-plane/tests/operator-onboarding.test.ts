@@ -1,17 +1,53 @@
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test"
 import { beforeAll, describe, expect, inject, it } from "vitest"
 
+import { AccessTokenInvalidError, type AccessVerifier } from "../src/auth/access"
+import { OPERATOR_ROLES, type OperatorRole } from "../src/auth/rbac"
+import { createApp } from "../src/index"
 import { getClientDetail, parseClientChildPagination } from "../src/repos/clients"
 import { getDeploymentWorkspace } from "../src/repos/onboarding"
 
 const NOW = new Date("2026-08-10T12:00:00.000Z")
 const HOUR_MS = 60 * 60 * 1_000
 const REGISTRATION_FINGERPRINT = "f".repeat(43)
+const roleSubjects = new Map<string, { email: string; role: OperatorRole }>()
+for (const role of OPERATOR_ROLES) {
+  const subject = `${role}-${crypto.randomUUID()}`
+  roleSubjects.set(`token-${role}`, { email: `${role}@example.com`, role })
+  roleSubjects.set(subject, { email: `${role}@example.com`, role })
+}
+
+const accessVerifier: AccessVerifier = async (token) => {
+  const identity = roleSubjects.get(token)
+  if (!identity) throw new AccessTokenInvalidError()
+  return { subject: token, email: identity.email }
+}
+
+const app = createApp({ accessVerifier })
 
 interface Fixture {
   clientId: string
   deploymentId: string
   contractId: string
+}
+
+function bindings(): CloudflareBindings {
+  return {
+    ...env,
+    CONTROL_DB: env.CONTROL_DB,
+    ENVIRONMENT: "test",
+    BOOTSTRAP_OWNER_EMAIL: "owner@example.com",
+    OPERATOR_ORIGIN: "https://control.invalid",
+  } as unknown as CloudflareBindings
+}
+
+function workspaceRequest(deploymentId: string, token = "token-vendor_owner") {
+  return app.fetch(
+    new Request(`https://control.invalid/operator/deployments/${deploymentId}`, {
+      headers: token ? { "Cf-Access-Jwt-Assertion": token } : undefined,
+    }),
+    bindings(),
+  )
 }
 
 async function fixture(): Promise<Fixture> {
@@ -91,8 +127,56 @@ async function heartbeat(deploymentId: string, observedAt: Date, health = "healt
   ).bind(crypto.randomUUID(), deploymentId, observedAt.toISOString(), health, observedAt.toISOString()).run()
 }
 
+async function issueCurrentEntitlement(input: Fixture, leaseMode: "active" | "grace" = "active") {
+  const now = new Date()
+  const issuedAt = new Date(now.getTime() - (leaseMode === "grace" ? 25 * HOUR_MS : 60_000)).toISOString()
+  const leaseExpiresAt = new Date(Date.parse(issuedAt) + 24 * 60 * 60 * 1_000).toISOString()
+  const payload = {
+    schemaVersion: 2,
+    revision: 1,
+    keyId: "vendor-key",
+    leaseId: `lease-${input.deploymentId}`,
+    clientId: input.clientId,
+    deploymentId: input.deploymentId,
+    issuedAt,
+    leaseExpiresAt,
+    contractStartsAt: "2020-01-01T00:00:00.000Z",
+    contractEndsAt: "2100-01-01T00:00:00.000Z",
+    graceUntil: new Date(Date.parse(leaseExpiresAt) + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+    subscriptionStatus: "active",
+    planId: "onboarding-plan",
+    maxActiveUsers: 25,
+    moduleIds: [],
+    addonIds: [],
+    configurationVersion: "configuration-1",
+    releaseChannel: "stable",
+    minimumSupportedAppVersion: "1.0.0",
+  }
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare("UPDATE contracts SET starts_at = '2020-01-01', ends_at = '2100-01-01' WHERE id = ?").bind(input.contractId),
+    env.CONTROL_DB.prepare(
+      "INSERT INTO entitlement_versions (id, deployment_id, contract_id, version, key_id, payload_json, signature, issued_at, created_at, issuance_key, envelope_json, contract_revision, schedule_revision, renewal_claim_token) VALUES (?, ?, ?, 1, 'vendor-key', ?, 'signature', ?, ?, ?, NULL, 1, 1, NULL)",
+    ).bind(crypto.randomUUID(), input.deploymentId, input.contractId, JSON.stringify(payload), issuedAt, issuedAt, `route:${input.deploymentId}`),
+    env.CONTROL_DB.prepare("UPDATE deployment_entitlement_schedules SET latest_version = 1 WHERE deployment_id = ?").bind(input.deploymentId),
+  ])
+}
+
 beforeAll(async () => {
   await applyD1Migrations(env.CONTROL_DB, inject("migrations") as D1Migration[])
+  const now = new Date().toISOString()
+  await env.CONTROL_DB.batch([...new Map(roleSubjects.entries())]
+    .filter(([token]) => token.startsWith("token-"))
+    .flatMap(([token, identity]) => {
+      const operatorId = crypto.randomUUID()
+      return [
+        env.CONTROL_DB.prepare(
+          "INSERT INTO operator_users (id, email, status, access_subject, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)",
+        ).bind(operatorId, identity.email, token, now, now),
+        env.CONTROL_DB.prepare(
+          "INSERT INTO operator_roles (operator_id, role, created_at) VALUES (?, ?, ?)",
+        ).bind(operatorId, identity.role, now),
+      ]
+    }))
 })
 
 describe("operator onboarding workspace", () => {
@@ -276,5 +360,81 @@ describe("operator onboarding workspace", () => {
     expect(client.deployments.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: input.deploymentId, href: `/operator/deployments/${input.deploymentId}` }),
     ]))
+  })
+
+  it.each([
+    ["a compatible contract is missing", "Create contract", async (input: Fixture) => {
+      await env.CONTROL_DB.prepare("DELETE FROM contracts WHERE id = ?").bind(input.contractId).run()
+    }],
+    ["registration is required", "Issue install token", async () => {}],
+    ["configuration is required", "Configure entitlement", async (input: Fixture) => {
+      await registerDeployment(input.deploymentId)
+    }],
+    ["signing is required", "Issue signed entitlement", async (input: Fixture) => {
+      await registerDeployment(input.deploymentId)
+      await assignSchedule(input)
+    }],
+    ["heartbeat verification is required", "Verify heartbeat", async (input: Fixture) => {
+      await registerDeployment(input.deploymentId)
+      await assignSchedule(input)
+      await issueCurrentEntitlement(input)
+    }],
+    ["lease needs renewal", "Issue new version", async (input: Fixture) => {
+      await registerDeployment(input.deploymentId)
+      await assignSchedule(input)
+      await issueCurrentEntitlement(input, "grace")
+      await heartbeat(input.deploymentId, new Date())
+    }],
+    ["onboarding is complete", "Onboarding complete", async (input: Fixture) => {
+      await registerDeployment(input.deploymentId)
+      await assignSchedule(input)
+      await issueCurrentEntitlement(input)
+      await heartbeat(input.deploymentId, new Date())
+    }],
+  ])("renders required action when %s", async (_label, expectedAction, arrange) => {
+    const input = await fixture()
+    await arrange(input)
+
+    const response = await workspaceRequest(input.deploymentId)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+    const html = await response.text()
+    expect(html).toContain(`>${expectedAction}</h2>`)
+    expect(html).toContain('aria-label="Deployment signing progress"')
+    expect(html).toContain("UTC")
+    if (expectedAction === "Issue new version") {
+      expect(html).toContain(`class="progress-step progress-step-complete"><a href="/operator/clients/${input.clientId}#contracts-heading"`)
+    }
+  })
+
+  it("explains disabled client and deployment states without offering mutations", async () => {
+    const input = await fixture()
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare("UPDATE clients SET status = 'disabled' WHERE id = ?").bind(input.clientId),
+      env.CONTROL_DB.prepare("UPDATE deployments SET status = 'disabled' WHERE id = ?").bind(input.deploymentId),
+    ])
+
+    const response = await workspaceRequest(input.deploymentId)
+    const html = await response.text()
+
+    expect(html).toContain("Client is disabled. Reactivate the client before signing can continue.")
+    expect(html).toContain("Deployment is disabled. Reactivate the deployment before signing can continue.")
+    expect(html).toContain("progress-step-blocked")
+    expect(html).not.toContain('<form')
+  })
+
+  it.each(OPERATOR_ROLES)("allows %s to read the deployment workspace", async (role) => {
+    const input = await fixture()
+
+    const response = await workspaceRequest(input.deploymentId, `token-${role}`)
+
+    expect(response.status).toBe(200)
+  })
+
+  it("keeps deployment workspace behind Cloudflare Access", async () => {
+    const input = await fixture()
+
+    expect((await workspaceRequest(input.deploymentId, "")).status).toBe(401)
   })
 })

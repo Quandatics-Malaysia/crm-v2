@@ -34,7 +34,7 @@ export function StatusBadge(props: { tone: StatusTone; children: Child }) {
 
 export function ProgressSteps(props: {
   label: string
-  steps: readonly { label: string; state: "complete" | "current" | "upcoming"; href?: string }[]
+  steps: readonly { label: string; state: "blocked" | "complete" | "current" | "upcoming"; href?: string }[]
 }) {
   return (
     <nav class="progress-steps" aria-label={props.label}>
@@ -42,9 +42,9 @@ export function ProgressSteps(props: {
         {props.steps.map((step) => (
           <li class={`progress-step progress-step-${step.state}`}>
             {step.href ? (
-              <a href={step.href} aria-current={step.state === "current" ? "step" : undefined}>{step.label}</a>
+              <a href={step.href} aria-current={step.state === "current" || step.state === "blocked" ? "step" : undefined}>{step.label}</a>
             ) : (
-              <span aria-current={step.state === "current" ? "step" : undefined}>{step.label}</span>
+              <span aria-current={step.state === "current" || step.state === "blocked" ? "step" : undefined}>{step.label}</span>
             )}
           </li>
         ))}

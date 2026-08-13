@@ -20,12 +20,14 @@ import {
 } from "../repos/clients"
 import { createContract, getContractDetail } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
+import { getDeploymentWorkspace } from "../repos/onboarding"
 import {
   assignEntitlementSchedule,
   issueEntitlement,
   updateEntitlementControls,
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
+import { DeploymentPage } from "../ui/deployment"
 import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
@@ -290,6 +292,14 @@ export function createOperatorRoutes() {
       parseNamedPagination(context.req.url, "invoices"),
     )
     return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
+  })
+  routes.get("/deployments/:deploymentId", async (context) => {
+    const workspace = await getDeploymentWorkspace(
+      context.env.CONTROL_DB,
+      context.req.param("deploymentId"),
+      new Date(),
+    )
+    return context.html(<DeploymentPage workspace={workspace} operatorEmail={context.get("operator").email} />)
   })
 
   routes.post(

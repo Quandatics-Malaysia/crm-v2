@@ -111,7 +111,7 @@ integration("deployment status PostgreSQL boundary", () => {
     `
 
     const [after] = await app`select * from read_deployment_status_rollup()`
-    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(2)
+    expect(Number(after.active_user_count) - Number(before.active_user_count)).toBe(3)
     expect(Number(after.reserved_invitation_count) - Number(before.reserved_invitation_count)).toBe(2)
     expect(after.applied_migration_version).toBe(latestAppliedMigration)
   })

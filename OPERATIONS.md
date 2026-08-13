@@ -453,7 +453,7 @@ production approval**.
    cd ~/crm-v2-staging && git checkout staging
    cp .env.staging.example .env.staging
    # then edit .env.staging: fresh BETTER_AUTH_SECRET (openssl rand -base64 32)
-   # and strong, non-default passwords. Keep CADDY_HOST_PORT=8091 / DB_HOST_PORT=5434.
+   # and strong, non-default passwords. Keep CADDY_HOST_PORT=8092 / DB_HOST_PORT=5434.
    ```
 3. The existing self-hosted runner serves this repository; no second runner is
    required. Protected staging credentials remain on that host and are never
@@ -477,7 +477,7 @@ docker compose -p crm-staging -f ~/crm-v2-staging/docker-compose.yaml \
 # next push to staging (or a manual `up -d --build`) reseeds it
 ```
 
-**Guardrail:** staging must always keep `CADDY_HOST_PORT=8091` / `DB_HOST_PORT=5434`
+**Guardrail:** staging must always keep `CADDY_HOST_PORT=8092` / `DB_HOST_PORT=5434`
 and project `crm-staging` — never prod's `8081`/`5433`/`crm-v2`, or the two stacks
 collide on the box.
 

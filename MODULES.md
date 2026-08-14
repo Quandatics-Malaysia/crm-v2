@@ -27,7 +27,7 @@ roles + permission-matrix editor + seniority tiers), `documentation`.
 | [`apps/web/lib/actions.ts`](./apps/web/lib/actions.ts) | **Action guard.** `withModule(id, permission, fn)` = `assertModuleEnabled` then the normal tenant/RLS-scoped `withTenant`. |
 | [`apps/web/instrumentation.ts`](./apps/web/instrumentation.ts) | **Boot check.** Runs `validateModuleConfig()` on startup and **refuses to boot** if a plugin is on but a dependency is off (in every environment, not just prod). |
 | Nav + permissions | [`apps/web/components/app-sidebar.tsx`](./apps/web/components/app-sidebar.tsx), [`apps/web/components/command-palette.tsx`](./apps/web/components/command-palette.tsx) tag items with `module?: ModuleId`; [`apps/web/lib/permissions.ts`](./apps/web/lib/permissions.ts) tags each roles-matrix group. All are filtered by `isModuleEnabled`. |
-| Product docs | [`docs-site/catalog/modules.json`](./docs-site/catalog/modules.json) registers every user-facing capability; its canonical page lives under `docs-site/pages/product/<domain>/`. |
+| Product docs | [`catalog/modules.json`](https://github.com/Super-ERP/docs/tree/main/catalog/modules.json) registers every user-facing capability; its canonical pages live under `pages/product/<domain>/` in `Super-ERP/docs`. |
 
 The dependency graph is code, not config, so operators can't misconfigure it:
 
@@ -112,9 +112,10 @@ The "ingestion" recipe — every step is a small, local edit:
    the flag only gates *access*, never *data*.
 
 10. **Document and register the capability.** Add it to
-    `docs-site/catalog/modules.json`, create its canonical page under
-    `docs-site/pages/product/<domain>/<capability>.mdx`, and add that page to
-    `docs-site/zudoku.config.tsx`. The page must explain business purpose,
+    [`catalog/modules.json`](https://github.com/Super-ERP/docs/tree/main/catalog/modules.json),
+    create its canonical page under `pages/product/<domain>/<capability>.mdx` in
+    `Super-ERP/docs`, and add that page to
+    [`zudoku.config.tsx`](https://github.com/Super-ERP/docs/tree/main/zudoku.config.tsx). The page must explain business purpose,
     workflow, records, permissions, dependencies, routes, source locations,
     tests, and operational behavior.
 
@@ -145,8 +146,8 @@ First decide whether the change is a **capability** or a **plugin**.
 | Plugin switch and dependencies | `apps/web/modules.config.ts`, `apps/web/lib/modules.ts` |
 | Navigation | `apps/web/components/app-sidebar.tsx`, `command-palette.tsx` |
 | Tests | `apps/web/tests/<capability>.test.ts` |
-| Product documentation | `docs-site/pages/product/<domain>/<capability>.mdx` |
-| Documentation registry | `docs-site/catalog/modules.json` and `zudoku.config.tsx` |
+| Product documentation | `pages/product/<domain>/<capability>.mdx` in `Super-ERP/docs` |
+| Documentation registry | `catalog/modules.json` in `Super-ERP/docs` and `zudoku.config.tsx` |
 
 The planned `modules/<name>/` workspace packages are not implemented yet.
 Until that restructure lands, new code follows the current `apps/web` layout.

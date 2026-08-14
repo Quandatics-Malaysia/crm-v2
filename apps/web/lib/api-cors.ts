@@ -11,11 +11,11 @@ import "server-only"
  * attaches credentials automatically for this scheme.
  *
  * `API_CORS_ORIGINS` is a comma-separated allowlist of exact origins (e.g.
- * `https://docs-site-eight-umber.vercel.app,https://app.quandatics.com`). If
+ * `https://docs.quandatics.com,https://app.quandatics.com`). If
  * unset, we default to allowing just the docs playground's origin so the
  * "Send" button works out of the box in every environment.
  */
-const DEFAULT_ALLOWED_ORIGIN = "https://docs-site-eight-umber.vercel.app"
+const DEFAULT_ALLOWED_ORIGIN = "https://docs.quandatics.com"
 
 function allowedOrigins(): string[] {
   const raw = process.env.API_CORS_ORIGINS

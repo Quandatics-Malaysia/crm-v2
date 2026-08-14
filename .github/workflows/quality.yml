@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  quality:
     runs-on: ubuntu-24.04
     services:
       postgres:

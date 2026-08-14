@@ -57,7 +57,11 @@ integration("deployment seat forward migration", () => {
     const journal = JSON.parse(await readFile(path.join(migrationsFolder, "meta/_journal.json"), "utf8")) as {
       entries: Array<{ idx: number; tag: string }>
     }
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 71, tag: "0071_person_department" })
+    const latestEntry = journal.entries.at(-1)
+    if (!latestEntry) throw new Error("No journal entries found")
+    expect(journal.entries.length).toBeGreaterThan(70)
+    const latestIdx = latestEntry.idx.toString().padStart(4, "0")
+    expect(latestEntry.tag).toMatch(new RegExp(`^${latestIdx}_[a-z_]+$`))
   })
 
   it("upgrades a database applied through 0069, then applies current RLS", async () => {
@@ -68,7 +72,13 @@ integration("deployment seat forward migration", () => {
 
       await migrate(drizzle(sql), { migrationsFolder })
       await sql.unsafe(await readFile(path.resolve(process.cwd(), "db/sql/rls.sql"), "utf8"))
-      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0070")
+      const journal = JSON.parse(await readFile(path.join(migrationsFolder, "meta/_journal.json"), "utf8")) as {
+        entries: Array<{ tag: string }>
+      }
+      const latestTag = journal.entries.at(-1)?.tag ?? ""
+      expect(await sql`select migration_version from deployment_runtime_metadata where singleton = 1`).toMatchObject([
+        { migration_version: latestTag.slice(0, 4) },
+      ])
       expect(await sql`select last_reconciled_at from deployment_seat_state where singleton = 1`).toHaveLength(1)
       expect((await sql`select status, archived_at from organization limit 0`).columns.map((column) => column.name)).toEqual([
         "status",

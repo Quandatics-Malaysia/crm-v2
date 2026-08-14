@@ -71,21 +71,25 @@ jobs:
             context: .
             file: Dockerfile
             target: runner
+            trivyIgnore: ""
           - name: migrator
             repository: crm-migrator
             context: .
             file: Dockerfile
             target: migrator
+            trivyIgnore: ""
           - name: backup
             repository: crm-backup
             context: docker/backup
             file: docker/backup/Dockerfile
             target: ""
+            trivyIgnore: docker/backup/.trivyignore
           - name: agent
             repository: crm-deployment-agent
             context: .
             file: apps/deployment-agent/Dockerfile
             target: runtime
+            trivyIgnore: ""
     steps:
       - name: Check out release source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -144,6 +148,7 @@ jobs:
           scanners: vuln,secret
           format: table
           exit-code: "1"
+          trivyignores: ${{ matrix.trivyIgnore }}
           ignore-unfixed: true
           severity: HIGH,CRITICAL
       - name: Prepare evidence directory

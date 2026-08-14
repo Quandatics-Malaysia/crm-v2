@@ -2,19 +2,19 @@
 
 Quandatics' multitenant CRM for the full lead-to-cash lifecycle.
 
-## [Open the documentation →](https://docs-site-eight-umber.vercel.app)
+## [Open the documentation →](https://github.com/Super-ERP/docs)
 
 The documentation portal is the canonical product, module, workflow, API, and
 architecture directory.
 
 | Go to | Purpose |
 | --- | --- |
-| **[Documentation](https://docs-site-eight-umber.vercel.app)** | Central platform directory |
+| **[Documentation](https://github.com/Super-ERP/docs)** | Central platform directory |
 | [Production CRM](https://app.quandatics.com) | Live application |
 | [Latest staging deployment](https://github.com/Super-ERP/crm-v2/actions/workflows/deploy-staging.yml) | Preview URL in the latest run summary |
-| [Module directory](https://docs-site-eight-umber.vercel.app/product/module-directory) | Every capability and its code map |
-| [External developer guide](https://docs-site-eight-umber.vercel.app/external-developers/overview) | API integration and public contribution path |
-| [Add a module](https://docs-site-eight-umber.vercel.app/extensibility/adding-a-module) | Placement and integration checklist |
+| [Module directory](https://github.com/Super-ERP/docs/tree/main/pages/product/module-directory.mdx) | Every capability and its code map |
+| [External developer guide](https://github.com/Super-ERP/docs/tree/main/pages/external-developers/overview.mdx) | API integration and public contribution path |
+| [Add a module](https://github.com/Super-ERP/docs/tree/main/pages/extensibility/adding-a-module.mdx) | Placement and integration checklist |
 | [Contributing](./CONTRIBUTING.md) | Local setup and review rules |
 | [Operations](./OPERATIONS.md) | Canonical operator runbook; never store secrets in it |
 | [Release log](./docs/operations/release-log.md) | Signed immutable release record |
@@ -35,7 +35,7 @@ architecture directory.
 crm-v2/
 ├── apps/
 │   └── web/                 Next.js application, routes, services, and database
-├── docs-site/               Zudoku product and engineering documentation
+├── docs/                   Canonical docs moved to Super-ERP/docs (Zudoku app)
 ├── docs/
 │   └── superpowers/         Architecture specs and implementation plans
 ├── ops/                     Operational scripts and operator notes

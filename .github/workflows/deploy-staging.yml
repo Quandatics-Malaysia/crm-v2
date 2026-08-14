@@ -1,15 +1,21 @@
-# Deploy the STAGING stack on push to the `staging` branch. Mirrors deploy.yml
+# Deploy the STAGING stack on push to `main`. Mirrors deploy.yml
 # but targets a separate server checkout (~/crm-v2-staging) and Compose project
 # (crm-staging), in its own concurrency group so it never fights the prod deploy.
 #
 # One-time server setup (see OPERATIONS.md → "Staging environment"):
-#   git clone <repo> ~/crm-v2-staging && cd ~/crm-v2-staging && git checkout staging
+#   git clone <repo> ~/crm-v2-staging && cd ~/crm-v2-staging && git checkout <sha>
 #   cp .env.staging.example .env.staging   # then fill in fresh secrets
 name: deploy-staging
 
 on:
   push:
-    branches: [staging]
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "MODULES.md"
+      - "OPERATIONS.md"
 
 concurrency:
   group: deploy-staging
@@ -40,8 +46,8 @@ jobs:
           if [ ! -d "$DIR/.git" ]; then
             git clone "$REPOSITORY_URL" "$DIR"
           fi
-          git -C "$DIR" fetch origin staging
-          git -C "$DIR" checkout -B staging FETCH_HEAD
+          git -C "$DIR" fetch origin main "${GITHUB_SHA}"
+          git -C "$DIR" checkout -f "${GITHUB_SHA}"
           if [ ! -f "$DIR/.env.staging" ]; then
             cd "$DIR"
             cp .env.staging.example .env.staging

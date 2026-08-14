@@ -24,12 +24,11 @@ describe("resolveQuotationPdfTemplate", () => {
     ).toBe("cc")
   })
 
-  it("uses entity identity instead of customer account code", () => {
+  it("uses entity identity when no explicit template is configured", () => {
     expect(
       resolveQuotationPdfTemplate({
         entitySlug: "q-armour",
         entityName: "Q Armour Sdn Bhd",
-        legacyKey: "CC",
       })
     ).toBe("qar")
   })
@@ -41,5 +40,25 @@ describe("resolveQuotationPdfTemplate", () => {
         entityName: "New Company Sdn Bhd",
       })
     ).toBe("default")
+  })
+
+  it("uses explicit template code before entity identity", () => {
+    expect(
+      resolveQuotationPdfTemplate({
+        rawTemplateCode: "cc",
+        entityCode: "QAR",
+        entitySlug: "q-armour",
+        entityName: "Q Armour Sdn Bhd",
+      })
+    ).toBe("cc")
+  })
+
+  it("falls back from bad explicit code to entity identity", () => {
+    expect(
+      resolveQuotationPdfTemplate({
+        rawTemplateCode: "acme",
+        entityCode: "CC",
+      })
+    ).toBe("cc")
   })
 })

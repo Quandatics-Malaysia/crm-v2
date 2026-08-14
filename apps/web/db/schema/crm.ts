@@ -40,6 +40,8 @@ export const accounts = pgTable(
     ),
     /** "client" (end user) or "reseller" (channel). */
     accountType: text("account_type"),
+    /** Explicit quotation template override for this account. */
+    quotationTemplateCode: text("quotation_template_code"),
     /**
      * Customer lifecycle (Salesforce "Prospect → Customer"): false = prospect,
      * flipped true automatically when a funnel on this account reaches Closed Won.

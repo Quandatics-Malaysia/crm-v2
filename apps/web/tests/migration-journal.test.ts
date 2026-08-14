@@ -9,8 +9,8 @@ describe("migration journal", () => {
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 71,
-      tag: "0071_person_department",
+      idx: 73,
+      tag: "0073_quotation_template_registry",
     })
   })
 })

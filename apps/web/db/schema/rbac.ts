@@ -204,6 +204,8 @@ export const tenantSettings = pgTable("tenant_settings", {
   soPadWidth: integer("so_pad_width").notNull().default(4),
   /** Short code for this entity, used in project codes ({YYYY}-{Entity}-{Account}-{ProjectNature}-{n}). */
   entityCode: text("entity_code"),
+  /** Tenant-level quotation template key; if unset use "default". */
+  quotationTemplateCode: text("quotation_template_code"),
   /**
    * DEPRECATED for projects: the per-year running number now lives in
    * `project_counters` (keyed by tenant + year). Kept to avoid a destructive
@@ -214,6 +216,32 @@ export const tenantSettings = pgTable("tenant_settings", {
   projectPadWidth: integer("project_pad_width").notNull().default(3),
   ...timestamps,
 })
+
+export const quotationTemplates = pgTable("quotation_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  /** Tenant-scoped template code used in account/settings selection. */
+  code: text("code").notNull(),
+  /** Label shown in admin UI. */
+  label: text("label").notNull(),
+  /** Notes for operators/admins; optional. */
+  notes: text("notes"),
+  /**
+   * Built-in renderer binding. Set to `default`, `qar`, `cc` for existing
+   * React components, or another value when a custom HTML template is used.
+   */
+  legacyTemplateCode: text("legacy_template_code"),
+  /** Render strategy for this template (`builtin` or `html`). */
+  renderMode: text("render_mode").notNull().default("builtin"),
+  /** Raw HTML template body for custom renderer mode. */
+  htmlTemplate: text("html_template"),
+  /** Custom CSS scoped to this template for renderer mode `html`. */
+  cssTemplate: text("css_template"),
+  isActive: boolean("is_active").notNull().default(true),
+  ...timestamps,
+}, (t) => [unique("quotation_templates_org_code_uq").on(t.organizationId, t.code)])
 
 /** Tenant-scoped named roles, each with a baseline seniority tier. */
 export const roles = pgTable(

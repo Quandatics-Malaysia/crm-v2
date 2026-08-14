@@ -12,6 +12,7 @@ import {
   accessControlPage,
   changelogPage,
   operationsPage,
+  apiIntegrationsPage,
   schemaReferencePage,
   settingsReferencePage,
 } from "./content-reference"
@@ -39,6 +40,7 @@ export const DOC_GROUPS: DocGroup[] = [
     pages: [
       accessControlPage,
       settingsReferencePage,
+      apiIntegrationsPage,
       schemaReferencePage,
       operationsPage,
       changelogPage,

@@ -70,6 +70,7 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
     context: "docker/backup",
     file: "docker/backup/Dockerfile",
     target: "",
+    trivyIgnore: "docker/backup/.trivyignore",
   })
   assert.deepEqual(byName.agent, {
     name: "agent",

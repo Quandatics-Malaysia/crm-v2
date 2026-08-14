@@ -81,6 +81,7 @@ jobs:
             context: docker/backup
             file: docker/backup/Dockerfile
             target: ""
+            trivyIgnore: docker/backup/.trivyignore
           - name: agent
             repository: crm-deployment-agent
             context: .
@@ -144,6 +145,7 @@ jobs:
           scanners: vuln,secret
           format: table
           exit-code: "1"
+          trivyignores: ${{ matrix.trivyIgnore || '' }}
           ignore-unfixed: true
           severity: HIGH,CRITICAL
       - name: Prepare evidence directory

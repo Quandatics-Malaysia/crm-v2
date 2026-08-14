@@ -151,18 +151,18 @@ why we stay in one repo.
 
 ## 7. Deploying
 
-Deployments are automated. Pushing to `staging` runs the quality gate and
+Deployments are automated. Pushing to `main` runs the quality gate and
 rebuilds the isolated staging stack; its temporary public URL is published in
 that workflow run's summary. Production is separate: create a signed release,
 then approve the `deploy-production` workflow. The normal path is **feature
-branch → `staging` → `main` → signed release → production approval**.
+branch → `main` → signed release → production approval**.
 
 ## 8. Status of the setup
 
 What's in place:
 
 - The public repo lives in the **`Super-ERP`** GitHub org, with `core` and
-  `ops` teams and `CODEOWNERS` routing reviews to them.
+  `ops` teams and `CODEOWNERS` routing reviews to them where assigned.
 - **CI runs on every PR** (`quality`: lint · typecheck · test · build) and the
   PR template lists the checklist above.
 
@@ -198,7 +198,7 @@ For a developer changing CRM code:
 
 For a partner integrating only through supported contracts:
 
-- Use the public [external developer guide](https://docs-site-eight-umber.vercel.app/external-developers/overview).
+- Use the public [external developer guide](https://github.com/Super-ERP/docs/tree/main/pages/external-developers/overview.mdx).
 - Receive a tenant-scoped API key from **Settings → API Keys**.
 - Use a staging or sandbox tenant, never production credentials.
 - Use the documented REST API and API playground.

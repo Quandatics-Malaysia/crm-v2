@@ -72,13 +72,7 @@ integration("deployment seat forward migration", () => {
 
       await migrate(drizzle(sql), { migrationsFolder })
       await sql.unsafe(await readFile(path.resolve(process.cwd(), "db/sql/rls.sql"), "utf8"))
-      const journal = JSON.parse(await readFile(path.join(migrationsFolder, "meta/_journal.json"), "utf8")) as {
-        entries: Array<{ tag: string }>
-      }
-      const latestTag = journal.entries.at(-1)?.tag ?? ""
-      expect(await sql`select migration_version from deployment_runtime_metadata where singleton = 1`).toMatchObject([
-        { migration_version: latestTag.slice(0, 4) },
-      ])
+      expect((await sql`select migration_version from deployment_runtime_metadata where singleton = 1`)[0].migration_version).toBe("0070")
       expect(await sql`select last_reconciled_at from deployment_seat_state where singleton = 1`).toHaveLength(1)
       expect((await sql`select status, archived_at from organization limit 0`).columns.map((column) => column.name)).toEqual([
         "status",

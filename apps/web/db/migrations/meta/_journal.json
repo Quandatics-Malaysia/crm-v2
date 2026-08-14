@@ -505,6 +505,20 @@
 			"when": 1786726800000,
 			"tag": "0071_person_department",
 			"breakpoints": true
+		},
+		{
+			"idx": 72,
+			"version": "7",
+			"when": 1786730400000,
+			"tag": "0072_quote_template_columns",
+			"breakpoints": true
+		},
+		{
+			"idx": 73,
+			"version": "7",
+			"when": 1786730401000,
+			"tag": "0073_quotation_template_registry",
+			"breakpoints": true
 		}
 	]
 }

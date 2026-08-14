@@ -374,6 +374,123 @@ docker compose up -d --build   # full stack; migrate runs automatically`}</Pre>
   ),
 }
 
+export const apiIntegrationsPage: DocPage = {
+  slug: "api-integrations",
+  title: "API integrations",
+  description:
+    "API-only workflow for external developers: add templates, assign per account, and verify.",
+  body: (
+    <>
+      <Lead>
+        External developers do not need source access for quotation-template updates.
+        Use the CRM API only. The public path is{" "}
+        <Code>/api/v1</Code> behind bearer API keys.
+      </Lead>
+
+      <H2>Auth + base</H2>
+      <DocTable
+        head={["Item", "Value"]}
+        rows={[
+          ["Auth", <Code key="auth">{`Authorization: Bearer qdk_...`}</Code>],
+          ["Base URL", <Code key="base">{`https://{tenant-domain}/api/v1`}</Code>],
+          ["Tenant isolation", "All writes are tenant-scoped from API key"],
+          ["Error shape", <Code key="error">{`{ error: { code, message } }`}</Code>],
+        ]}
+      />
+      <Pre>{`curl -H "Authorization: Bearer qdk_xxx" \
+  https://app.quandatics.com/api/v1/quotation-templates`}</Pre>
+
+      <H2>Create template</H2>
+      <P>
+        Template registration is API-only for partners. Keep one template per company
+        pattern. Set <Code>renderMode: &quot;html&quot;</Code> only when you provide
+        <Code> htmlTemplate</Code>.
+      </P>
+      <DocTable
+        head={["Method", "Path", "Permission", "Body / note"]}
+        rows={[
+          [
+            <Code key="create-method">POST</Code>,
+            <Code key="create-path">/api/v1/quotation-templates</Code>,
+            <Code key="create-perm">tenant.settings</Code>,
+            "Create template with code,label,render mode, legacy mapping, css/html/body."
+          ],
+          [
+            <Code key="list-method">GET</Code>,
+            <Code key="list-path">/api/v1/quotation-templates</Code>,
+            <Code key="list-perm">tenant.settings</Code>,
+            "List templates for the tenant (active + inactive)."
+          ],
+          [
+            <Code key="update-method">PATCH</Code>,
+            <Code key="update-path">/api/v1/quotation-templates/{`{code}`}</Code>,
+            <Code key="update-perm">tenant.settings</Code>,
+            "Update label, mode, template code mapping, active flag, markup/CSS."
+          ],
+          [
+            <Code key="delete-method">DELETE</Code>,
+            <Code key="delete-path">/api/v1/quotation-templates/{`{code}`}</Code>,
+            <Code key="delete-perm">tenant.settings</Code>,
+            "Soft-disable template (sets isActive = false).",
+          ],
+        ]}
+      />
+
+      <H2>Assign to account</H2>
+      <DocTable
+        head={["Method", "Path", "Permission", "Body / note"]}
+        rows={[
+          [
+            <Code key="acct-get-method">GET</Code>,
+            <Code key="acct-get-path">/api/v1/accounts/{`{id}`}/quotation-template-code</Code>,
+            <Code key="acct-get-perm">account.update</Code>,
+            "Read assigned template code for one account.",
+          ],
+          [
+            <Code key="acct-patch-method">PATCH</Code>,
+            <Code key="acct-patch-path">/api/v1/accounts/{`{id}`}/quotation-template-code</Code>,
+            <Code key="acct-patch-perm">account.update</Code>,
+            "{`{ \"quotationTemplateCode\": \"qar\" }`}",
+          ],
+        ]}
+      />
+      <Pre>{`curl -X PATCH \
+  -H "Authorization: Bearer qdk_xxx" -H "content-type: application/json" \
+  -d '{ "quotationTemplateCode": "cc" }' \
+  https://app.quandatics.com/api/v1/accounts/acc-123/quotation-template-code`}</Pre>
+
+      <H2>Resolution flow (what system uses)</H2>
+      <DocTable
+        head={["Order", "Selector"]}
+        rows={[
+          ["1st", "Account override: accounts.quotation_template_code"],
+          ["2nd", "Tenant fallback: tenant_settings.quotation_template_code"],
+          ["3rd", "Entity code map (legacy) and default fallback"]
+        ]}
+      />
+
+      <H2>Failure checks</H2>
+      <Ul>
+        <Li><Code>401</Code>: bad/missing key.</Li>
+        <Li><Code>403</Code>: key lacks permission.</Li>
+        <Li><Code>404</Code>: unknown tenant resource or account not visible for key scope.</Li>
+        <Li><Code>400</Code>: validation error, e.g. HTML mode without htmlTemplate.</Li>
+      </Ul>
+      <Callout>
+        If a change fails, keep the same flow: validate with GET LIST + GET ACCOUNT,
+        then POST/PATCH, then confirm again with GET ACCOUNT.
+      </Callout>
+
+      <H2>Versioning and release notes</H2>
+      <Ul>
+        <Li>Any template workflow change belongs to a migration + docs update in same PR.</Li>
+        <Li>Mirror behavior in <Link className="link" href="/documentation/changelog">changelog</Link> before merge.</Li>
+        <Li>On staging, run health + the route smoke list from the API key.</Li>
+      </Ul>
+    </>
+  ),
+}
+
 export const changelogPage: DocPage = {
   slug: "changelog",
   title: "Versioning & changelog",
@@ -388,6 +505,27 @@ export const changelogPage: DocPage = {
         backfill). Each functional version below states its schema, settings,
         permission and behavior changes so an upgrade is auditable end to end.
       </Lead>
+
+      <H2>vX.Y — API-driven quotation template customizations</H2>
+      <Ul>
+        <Li>
+          <B>Schema:</B> <Code>quotation_templates</Code> seeded support for
+          html/css custom rendering, plus account-level <Code>quotation_template_code</Code>
+          persistence and tenant-wide registry listing.
+        </Li>
+        <Li>
+          <B>Permissions:</B> API routes use <Code>tenant.settings</Code> for
+          template registry management and <Code>account.update</Code> for account overrides.
+        </Li>
+        <Li>
+          <B>Behavior:</B> API now owns create/update/delete for quotation templates
+          and account assignments; external integrations can onboard new entities without source.
+        </Li>
+        <Li>
+          <B>Docs:</B> added API integration guide and endpoint behavior for third-party
+          implementations.
+        </Li>
+      </Ul>
 
       <H2>v1 — Core CRM (migrations 0001–0021)</H2>
       <Ul>

@@ -817,89 +817,6 @@ derive_healthcheck_url
 
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required"
 compose config --quiet || fail "Compose configuration is invalid"
-verify_images || fail "image signature verification failed; running containers were not changed"
-
-assert_secure_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" "backup evidence public key file"
-[ "$(sha256_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE")" = "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256" ] ||
-  fail "backup evidence public key does not match pinned sha256"
-openssl pkey -pubin -in "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" -noout >/dev/null 2>&1 ||
-  fail "backup evidence public key is invalid"
-
-assert_secure_file "$BACKUP_EVIDENCE_FILE" "backup evidence file"
-assert_secure_file "$BACKUP_EVIDENCE_SIGNATURE_FILE" "backup evidence signature file"
-cp "$BACKUP_EVIDENCE_FILE" "$temp_dir/backup-evidence.env" || fail "could not read backup evidence"
-if ! openssl dgst -sha256 \
-  -verify "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" \
-  -signature "$BACKUP_EVIDENCE_SIGNATURE_FILE" \
-  "$temp_dir/backup-evidence.env" >/dev/null 2>&1; then
-  fail "backup evidence detached signature verification failed"
-fi
-
-EVIDENCE_VERSION= EVIDENCE_DEPLOYMENT_ID= EVIDENCE_COMPOSE_PROJECT_NAME=
-EVIDENCE_DB_NAME= EVIDENCE_STORAGE_ID= EVIDENCE_POSTGRES_IMAGE=
-EVIDENCE_RELEASE_TAG= EVIDENCE_WEB_IMAGE= EVIDENCE_MIGRATOR_IMAGE= EVIDENCE_BACKUP_IMAGE=
-EVIDENCE_SOURCE_COMMIT_SHA= EVIDENCE_CREATED_AT_EPOCH=
-EVIDENCE_BACKUP_ARTIFACT_FILE= EVIDENCE_BACKUP_ARTIFACT_SHA256=
-EVIDENCE_CHECKSUM_VERIFIED= EVIDENCE_RESTORE_VERIFIED= EVIDENCE_UPLOAD_VERIFIED=
-parse_evidence "$temp_dir/backup-evidence.env"
-
-assert_evidence_equal EVIDENCE_VERSION "$EVIDENCE_VERSION" 1
-assert_evidence_equal DEPLOYMENT_ID "$EVIDENCE_DEPLOYMENT_ID" "$DEPLOYMENT_ID"
-assert_evidence_equal COMPOSE_PROJECT_NAME "$EVIDENCE_COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME"
-assert_evidence_equal DB_NAME "$EVIDENCE_DB_NAME" "$DB_NAME"
-assert_evidence_equal STORAGE_ID "$EVIDENCE_STORAGE_ID" "$STORAGE_ID"
-assert_evidence_equal POSTGRES_IMAGE "$EVIDENCE_POSTGRES_IMAGE" "$POSTGRES_IMAGE"
-assert_evidence_equal RELEASE_TAG "$EVIDENCE_RELEASE_TAG" "$RELEASE_TAG"
-assert_evidence_equal WEB_IMAGE "$EVIDENCE_WEB_IMAGE" "$WEB_IMAGE"
-assert_evidence_equal MIGRATOR_IMAGE "$EVIDENCE_MIGRATOR_IMAGE" "$MIGRATOR_IMAGE"
-assert_evidence_equal BACKUP_IMAGE "$EVIDENCE_BACKUP_IMAGE" "$BACKUP_IMAGE"
-[ "$EVIDENCE_SOURCE_COMMIT_SHA" = "$SOURCE_COMMIT_SHA" ] ||
-  fail "backup evidence SOURCE_COMMIT_SHA does not match intended release"
-assert_evidence_equal CHECKSUM_VERIFIED "$EVIDENCE_CHECKSUM_VERIFIED" true
-assert_evidence_equal RESTORE_VERIFIED "$EVIDENCE_RESTORE_VERIFIED" true
-assert_evidence_equal UPLOAD_VERIFIED "$EVIDENCE_UPLOAD_VERIFIED" true
-
-printf '%s\n' "$EVIDENCE_CREATED_AT_EPOCH" | grep -Eq '^[0-9]{10}$' ||
-  fail "backup evidence CREATED_AT_EPOCH is missing or invalid"
-printf '%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
-  fail "backup evidence BACKUP_ARTIFACT_SHA256 is missing or invalid"
-case "$EVIDENCE_BACKUP_ARTIFACT_FILE" in /*) ;; *) fail "backup evidence artifact path must be absolute" ;; esac
-assert_secure_file "$EVIDENCE_BACKUP_ARTIFACT_FILE" "backup artifact file"
-[ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" = "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ] ||
-  fail "backup artifact checksum does not match signed evidence"
-
-now=$(date +%s)
-backup_age=$((now - EVIDENCE_CREATED_AT_EPOCH))
-[ "$backup_age" -ge 0 ] || fail "backup evidence timestamp is in the future"
-[ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence is stale"
-
-reverify_backup_before_migration() {
-  final_backup_failure=
-  if [ -L "$EVIDENCE_BACKUP_ARTIFACT_FILE" ] || [ ! -f "$EVIDENCE_BACKUP_ARTIFACT_FILE" ]; then
-    final_backup_failure="backup artifact security changed before migration"
-    return 1
-  fi
-  if [ "$(stat_uid "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$(id -u)" ] ||
-    [ "$(stat_mode "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != 600 ]; then
-    final_backup_failure="backup artifact security changed before migration"
-    return 1
-  fi
-  if [ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ]; then
-    final_backup_failure="backup artifact checksum changed before migration"
-    return 1
-  fi
-  recheck_now=$(date +%s)
-  recheck_age=$((recheck_now - EVIDENCE_CREATED_AT_EPOCH))
-  if [ "$recheck_age" -lt 0 ]; then
-    final_backup_failure="backup evidence timestamp moved into the future before migration"
-    return 1
-  fi
-  if [ "$recheck_age" -gt "$BACKUP_MAX_AGE_SECONDS" ]; then
-    final_backup_failure="backup evidence became stale before migration"
-    return 1
-  fi
-  return 0
-}
 
 previous_available=0
 if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
@@ -986,6 +903,104 @@ if [ -e "$DEPLOYMENT_RECORD_FILE" ] || [ -L "$DEPLOYMENT_RECORD_FILE" ]; then
   validate_non_negative_integer PREVIOUS_DB_HEALTH_INTERVAL_SECONDS "$PREVIOUS_DB_HEALTH_INTERVAL_SECONDS"
   previous_available=1
 fi
+
+verify_images || fail "image signature verification failed; running containers were not changed"
+
+assert_secure_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" "backup evidence public key file"
+[ "$(sha256_file "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE")" = "$BACKUP_EVIDENCE_PUBLIC_KEY_SHA256" ] ||
+  fail "backup evidence public key does not match pinned sha256"
+openssl pkey -pubin -in "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" -noout >/dev/null 2>&1 ||
+  fail "backup evidence public key is invalid"
+
+assert_secure_file "$BACKUP_EVIDENCE_FILE" "backup evidence file"
+assert_secure_file "$BACKUP_EVIDENCE_SIGNATURE_FILE" "backup evidence signature file"
+cp "$BACKUP_EVIDENCE_FILE" "$temp_dir/backup-evidence.env" || fail "could not read backup evidence"
+if ! openssl dgst -sha256 \
+  -verify "$BACKUP_EVIDENCE_PUBLIC_KEY_FILE" \
+  -signature "$BACKUP_EVIDENCE_SIGNATURE_FILE" \
+  "$temp_dir/backup-evidence.env" >/dev/null 2>&1; then
+  fail "backup evidence detached signature verification failed"
+fi
+
+EVIDENCE_VERSION= EVIDENCE_DEPLOYMENT_ID= EVIDENCE_COMPOSE_PROJECT_NAME=
+EVIDENCE_DB_NAME= EVIDENCE_STORAGE_ID= EVIDENCE_POSTGRES_IMAGE=
+EVIDENCE_RELEASE_TAG= EVIDENCE_WEB_IMAGE= EVIDENCE_MIGRATOR_IMAGE= EVIDENCE_BACKUP_IMAGE=
+EVIDENCE_SOURCE_COMMIT_SHA= EVIDENCE_CREATED_AT_EPOCH=
+EVIDENCE_BACKUP_ARTIFACT_FILE= EVIDENCE_BACKUP_ARTIFACT_SHA256=
+EVIDENCE_CHECKSUM_VERIFIED= EVIDENCE_RESTORE_VERIFIED= EVIDENCE_UPLOAD_VERIFIED=
+parse_evidence "$temp_dir/backup-evidence.env"
+
+assert_evidence_equal EVIDENCE_VERSION "$EVIDENCE_VERSION" 1
+assert_evidence_equal DEPLOYMENT_ID "$EVIDENCE_DEPLOYMENT_ID" "$DEPLOYMENT_ID"
+assert_evidence_equal COMPOSE_PROJECT_NAME "$EVIDENCE_COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME"
+assert_evidence_equal DB_NAME "$EVIDENCE_DB_NAME" "$DB_NAME"
+assert_evidence_equal STORAGE_ID "$EVIDENCE_STORAGE_ID" "$STORAGE_ID"
+expected_evidence_postgres=$POSTGRES_IMAGE
+expected_evidence_release=$RELEASE_TAG
+expected_evidence_web=$WEB_IMAGE
+expected_evidence_migrator=$MIGRATOR_IMAGE
+expected_evidence_backup=$BACKUP_IMAGE
+expected_evidence_source=$SOURCE_COMMIT_SHA
+if [ "$previous_available" -eq 1 ] && [ "$EVIDENCE_RELEASE_TAG" = "$PREVIOUS_RELEASE_TAG" ]; then
+  expected_evidence_postgres=$PREVIOUS_POSTGRES_IMAGE
+  expected_evidence_release=$PREVIOUS_RELEASE_TAG
+  expected_evidence_web=$PREVIOUS_WEB_IMAGE
+  expected_evidence_migrator=$PREVIOUS_MIGRATOR_IMAGE
+  expected_evidence_backup=$PREVIOUS_BACKUP_IMAGE
+  expected_evidence_source=$PREVIOUS_SOURCE_COMMIT_SHA
+fi
+assert_evidence_equal POSTGRES_IMAGE "$EVIDENCE_POSTGRES_IMAGE" "$expected_evidence_postgres"
+assert_evidence_equal RELEASE_TAG "$EVIDENCE_RELEASE_TAG" "$expected_evidence_release"
+assert_evidence_equal WEB_IMAGE "$EVIDENCE_WEB_IMAGE" "$expected_evidence_web"
+assert_evidence_equal MIGRATOR_IMAGE "$EVIDENCE_MIGRATOR_IMAGE" "$expected_evidence_migrator"
+assert_evidence_equal BACKUP_IMAGE "$EVIDENCE_BACKUP_IMAGE" "$expected_evidence_backup"
+[ "$EVIDENCE_SOURCE_COMMIT_SHA" = "$expected_evidence_source" ] ||
+  fail "backup evidence SOURCE_COMMIT_SHA does not match intended release"
+assert_evidence_equal CHECKSUM_VERIFIED "$EVIDENCE_CHECKSUM_VERIFIED" true
+assert_evidence_equal RESTORE_VERIFIED "$EVIDENCE_RESTORE_VERIFIED" true
+assert_evidence_equal UPLOAD_VERIFIED "$EVIDENCE_UPLOAD_VERIFIED" true
+
+printf '%s\n' "$EVIDENCE_CREATED_AT_EPOCH" | grep -Eq '^[0-9]{10}$' ||
+  fail "backup evidence CREATED_AT_EPOCH is missing or invalid"
+printf '%s\n' "$EVIDENCE_BACKUP_ARTIFACT_SHA256" | grep -Eq '^[0-9a-f]{64}$' ||
+  fail "backup evidence BACKUP_ARTIFACT_SHA256 is missing or invalid"
+case "$EVIDENCE_BACKUP_ARTIFACT_FILE" in /*) ;; *) fail "backup evidence artifact path must be absolute" ;; esac
+assert_secure_file "$EVIDENCE_BACKUP_ARTIFACT_FILE" "backup artifact file"
+[ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" = "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ] ||
+  fail "backup artifact checksum does not match signed evidence"
+
+now=$(date +%s)
+backup_age=$((now - EVIDENCE_CREATED_AT_EPOCH))
+[ "$backup_age" -ge 0 ] || fail "backup evidence timestamp is in the future"
+[ "$backup_age" -le "$BACKUP_MAX_AGE_SECONDS" ] || fail "backup evidence is stale"
+
+reverify_backup_before_migration() {
+  final_backup_failure=
+  if [ -L "$EVIDENCE_BACKUP_ARTIFACT_FILE" ] || [ ! -f "$EVIDENCE_BACKUP_ARTIFACT_FILE" ]; then
+    final_backup_failure="backup artifact security changed before migration"
+    return 1
+  fi
+  if [ "$(stat_uid "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$(id -u)" ] ||
+    [ "$(stat_mode "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != 600 ]; then
+    final_backup_failure="backup artifact security changed before migration"
+    return 1
+  fi
+  if [ "$(sha256_file "$EVIDENCE_BACKUP_ARTIFACT_FILE")" != "$EVIDENCE_BACKUP_ARTIFACT_SHA256" ]; then
+    final_backup_failure="backup artifact checksum changed before migration"
+    return 1
+  fi
+  recheck_now=$(date +%s)
+  recheck_age=$((recheck_now - EVIDENCE_CREATED_AT_EPOCH))
+  if [ "$recheck_age" -lt 0 ]; then
+    final_backup_failure="backup evidence timestamp moved into the future before migration"
+    return 1
+  fi
+  if [ "$recheck_age" -gt "$BACKUP_MAX_AGE_SECONDS" ]; then
+    final_backup_failure="backup evidence became stale before migration"
+    return 1
+  fi
+  return 0
+}
 
 TARGET_WEB_IMAGE=$WEB_IMAGE
 TARGET_BACKUP_IMAGE=$BACKUP_IMAGE

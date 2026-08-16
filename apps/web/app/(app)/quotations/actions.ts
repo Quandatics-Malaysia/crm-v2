@@ -39,6 +39,12 @@ import { writeAudit } from "@/server/audit"
 import { seedDefaultFunnelMilestone } from "@/app/(app)/payment-milestones/actions"
 import { toDateString } from "@/lib/dates"
 import { getEntitledModuleMap } from "@/lib/modules.server"
+import {
+  getActiveQuotationTemplateByCode,
+  listActiveQuotationTemplateCodes,
+  type QuotationTemplateSpec,
+} from "@/lib/quotation-template-registry"
+import { resolveQuotationPdfTemplate } from "@/lib/quotation-pdf-template"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -106,6 +112,10 @@ export type QuotationDocument = {
   pdfTemplateKey: string | null
   /** Optional account-level template override, resolved before entity identity. */
   accountQuotationTemplateCode: string | null
+  /** Final active template selected for this quotation. */
+  resolvedTemplateCode: string
+  /** Registry entry used by the external HTML renderer, when configured. */
+  quotationTemplate: QuotationTemplateSpec | null
   /** Company profile from Settings — the sender block, bank details, footer. */
   company: {
     address: string | null
@@ -251,10 +261,27 @@ export async function getQuotationDocument(
         quoteFooter: tenantSettings.quoteFooter,
         logoStorageKey: tenantSettings.logoStorageKey,
         entityCode: tenantSettings.entityCode,
+        quotationTemplateCode: tenantSettings.quotationTemplateCode,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
       .limit(1)
+
+    const activeTemplateCodes = await listActiveQuotationTemplateCodes(tx, ctx.tenantId)
+    const resolvedTemplateCode = resolveQuotationPdfTemplate({
+      accountTemplateCode: accountQuotationTemplateCode,
+      rawTemplateCode: profile?.quotationTemplateCode ?? null,
+      legacyKey: profile?.entityCode ?? org?.slug ?? null,
+      entityCode: profile?.entityCode ?? null,
+      entitySlug: org?.slug ?? null,
+      entityName: org?.name ?? null,
+      allowedCodes: activeTemplateCodes,
+    })
+    const quotationTemplate = await getActiveQuotationTemplateByCode(
+      tx,
+      ctx.tenantId,
+      resolvedTemplateCode
+    )
 
     return {
       quotation: row.q,
@@ -269,6 +296,8 @@ export async function getQuotationDocument(
           : null,
       pdfTemplateKey: profile?.entityCode ?? org?.slug ?? null,
       accountQuotationTemplateCode,
+      resolvedTemplateCode,
+      quotationTemplate,
       company: {
         address: profile?.address ?? null,
         registrationNo: profile?.registrationNo ?? null,

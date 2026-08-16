@@ -469,6 +469,24 @@ export const apiIntegrationsPage: DocPage = {
         ]}
       />
 
+      <H2>External template contract</H2>
+      <P>
+        Use the separate <Code>external-platform-customizations</Code> repository for
+        company-owned HTML/CSS packs. The CRM keeps built-in <Code>cc</Code> and{" "}
+        <Code>qar</Code> renderers as the fallback, while active API templates with{" "}
+        <Code>renderMode: &quot;html&quot;</Code> are rendered at preview/print time.
+      </P>
+      <Pre>{`{{#each lines}}
+  <span>{{@index}}</span><span>{{description}}</span>
+  <span>{{quantity}}</span><span>{{lineTotal}}</span>
+{{/each}}`}</Pre>
+      <Ul>
+        <Li>Values are HTML-escaped before insertion.</Li>
+        <Li>JavaScript, event handlers, external CSS imports, CSS URLs, and unsafe CSS behaviors are removed.</Li>
+        <Li>Keep CSS scoped under the template root class and assign the code per account through the API.</Li>
+        <Li>Templates are capped at 200,000 characters per HTML/CSS field.</Li>
+      </Ul>
+
       <H2>Failure checks</H2>
       <Ul>
         <Li><Code>401</Code>: bad/missing key.</Li>

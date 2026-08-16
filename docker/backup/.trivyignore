@@ -1,2 +1,11 @@
 CVE-2026-39821
 CVE-2026-46600
+# rclone v1.75.0 is the current upstream release. These Go stdlib findings
+# require Go 1.26.6, which is not released yet; keep the exception narrow to
+# this backup-only image and revisit when rclone ships a patched toolchain.
+CVE-2026-33818
+CVE-2026-56853
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862

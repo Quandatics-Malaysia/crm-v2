@@ -4,6 +4,7 @@ import { corsHeaders, preflight } from "@/lib/api-cors"
 import { getApiContext, withApiTenant } from "@/lib/api-auth"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
+  clearTenantQuotationTemplateCode,
   getQuotationTemplateByCode,
   quotationTemplatePatchSchema,
   toNormalizedTemplateCode,
@@ -120,6 +121,10 @@ export async function PATCH(
         )
         .returning()
 
+      if (updated && values.isActive === false) {
+        await clearTenantQuotationTemplateCode(tx, ctx.tenantId, normalized)
+      }
+
       return updated
     })
 
@@ -165,6 +170,9 @@ export async function DELETE(
           )
         )
         .returning()
+      if (row) {
+        await clearTenantQuotationTemplateCode(tx, ctx.tenantId, normalized)
+      }
       return row ?? null
     })
 

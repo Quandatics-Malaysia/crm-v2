@@ -35,6 +35,7 @@ vi.mock("@/lib/quotation-template-api", async () => {
 
 import { GET as getTemplates, POST as createTemplate } from "@/app/api/v1/quotation-templates/route"
 import {
+  DELETE as deleteTemplate,
   GET as getTemplateByCode,
   PATCH as patchTemplate,
 } from "@/app/api/v1/quotation-templates/[code]/route"
@@ -183,6 +184,65 @@ describe("quotation template API routes", () => {
     )
 
     expect(response.status).toBe(404)
+  })
+
+  it("creates missing tenant settings when assigning a default", async () => {
+    const updateReturning = vi.fn(async () => [])
+    const insertReturning = vi.fn(async () => [{ quotationTemplateCode: "cc" }])
+    const onConflictDoUpdate = vi.fn(() => ({ returning: insertReturning }))
+    const values = vi.fn(() => ({ onConflictDoUpdate }))
+    const tx = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning: updateReturning })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values })),
+    }
+    const { updateTenantQuotationTemplateCode } = await vi.importActual<
+      typeof import("@/lib/quotation-template-api")
+    >("@/lib/quotation-template-api")
+
+    await expect(updateTenantQuotationTemplateCode(tx as never, "tenant-1", "cc")).resolves.toBe("cc")
+    expect(tx.insert).toHaveBeenCalledTimes(1)
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: "tenant-1", quotationTemplateCode: "cc" })
+    )
+    expect(onConflictDoUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears matching tenant default when a template is deactivated", async () => {
+    const tx = makeTx()
+    apiAuthMocks.withApiTenant.mockImplementation(async (_ctx, _permission, fn) => {
+      return fn(tx as never, _ctx as never)
+    })
+
+    const response = await patchTemplate(
+      new Request("http://localhost/api/v1/quotation-templates/cc", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+      }),
+      { params: Promise.resolve({ code: "cc" }) }
+    )
+
+    expect(response.status).toBe(200)
+    expect(tx.update).toHaveBeenCalledTimes(2)
+  })
+
+  it("clears matching tenant default when a template is deleted", async () => {
+    const tx = makeTx()
+    apiAuthMocks.withApiTenant.mockImplementation(async (_ctx, _permission, fn) => {
+      return fn(tx as never, _ctx as never)
+    })
+
+    const response = await deleteTemplate(
+      new Request("http://localhost/api/v1/quotation-templates/cc", { method: "DELETE" }),
+      { params: Promise.resolve({ code: "cc" }) }
+    )
+
+    expect(response.status).toBe(200)
+    expect(tx.update).toHaveBeenCalledTimes(2)
   })
 })
 

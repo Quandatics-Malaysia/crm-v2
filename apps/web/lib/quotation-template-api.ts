@@ -127,12 +127,31 @@ export async function updateTenantQuotationTemplateCode(
   quotationTemplateCode: string | null
 ): Promise<string | null> {
   const [settings] = await tx
-    .update(tenantSettings)
-    .set({ quotationTemplateCode, updatedAt: new Date() })
-    .where(eq(tenantSettings.organizationId, tenantId))
+    .insert(tenantSettings)
+    .values({ organizationId: tenantId, quotationTemplateCode })
+    .onConflictDoUpdate({
+      target: tenantSettings.organizationId,
+      set: { quotationTemplateCode, updatedAt: new Date() },
+    })
     .returning({ quotationTemplateCode: tenantSettings.quotationTemplateCode })
 
   return settings?.quotationTemplateCode ?? null
+}
+
+export async function clearTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string,
+  quotationTemplateCode: string
+) {
+  await tx
+    .update(tenantSettings)
+    .set({ quotationTemplateCode: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(tenantSettings.organizationId, tenantId),
+        eq(tenantSettings.quotationTemplateCode, quotationTemplateCode)
+      )
+    )
 }
 
 export async function upsertTemplateCodeOnAccount(

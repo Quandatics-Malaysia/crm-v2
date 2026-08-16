@@ -30,3 +30,12 @@ Status: complete
 
 - Full suite, lint, and build remain Task 3 scope.
 - The repository-local checklist required by the optional `review` workflow is absent; manual review completed instead.
+
+## Fix round 1
+
+- Root cause: tenant-default writes used `UPDATE`, which silently affected zero rows when `tenant_settings` was absent. Template deactivation paths did not clear a matching tenant default.
+- Changed tenant-default write to tenant-scoped `INSERT ... ON CONFLICT DO UPDATE`.
+- Clear the matching tenant default inside the same tenant transaction after template PATCH deactivation or DELETE.
+- RED: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 3 expected failures: missing settings returned `null`; PATCH/DELETE each performed one update.
+- GREEN: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 17 passed.
+- `rtk pnpm --dir apps/web run typecheck` — passed.

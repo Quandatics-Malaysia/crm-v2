@@ -112,7 +112,7 @@ RESTORE_VERIFIED=true
 UPLOAD_VERIFIED=true
 ```
 
-No extra, duplicate, blank, or comment lines are accepted. Deployment copies evidence once, verifies its detached signature against the pinned key, parses only that snapshot, binds every identity/provenance field to the intended release, checks freshness, then hashes the referenced artifact itself. Timestamp-only or self-asserted marker files are not accepted.
+No extra, duplicate, blank, or comment lines are accepted. Deployment copies evidence once, verifies its detached signature against the pinned key, parses only that snapshot, checks freshness, then hashes the referenced artifact itself. On an existing installation, the evidence must contain one complete identity tuple: either the currently deployed release (the normal pre-upgrade backup) or the target release (when the backup was prepared from the target image). Mixed old/new identity fields are rejected. Timestamp-only or self-asserted marker files are not accepted.
 
 ## Deploy, locking, and rollback
 
@@ -126,7 +126,7 @@ cd /opt/quandatics-client
 ./deploy.sh ./.env
 ```
 
-Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; verify all vendor image signatures; authenticate and bind backup evidence; load the protected previous record; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; immediately recheck the signed evidence timestamp and referenced artifact checksum; run the migrator once; recreate web/backup/gateway/agent; verify exact `/api/health`, wait for the agent to apply a valid entitlement, and verify release/agent identity; atomically replace the deployment record; release the lock. If that final evidence check fails after the target database swap, deployment first recreates the previous PostgreSQL configuration and verifies old readiness, while the old web/backup/gateway/agent services remain unchanged.
+Order is fixed: validate protected data and exact references; derive encoded DB URLs; validate Compose; load and validate the protected previous record; verify all vendor image signatures; authenticate and bind backup evidence; acquire an atomic project-scoped lock; pull every image; start/wait for PostgreSQL; immediately recheck the signed evidence timestamp and referenced artifact checksum; run the migrator once; recreate web/backup/gateway/agent; verify exact `/api/health`, wait for the agent to apply a valid entitlement, and verify release/agent identity; atomically replace the deployment record; release the lock. If that final evidence check fails after the target database swap, deployment first recreates the previous PostgreSQL configuration and verifies old readiness, while the old web/backup/gateway/agent services remain unchanged.
 
 The lock remains held from before the first pull through record replacement, so concurrent releases cannot migrate or overwrite each other's record. A failed signature, evidence check, or pull leaves running containers unchanged. If the target PostgreSQL image cannot start or pass readiness before migration, the script recreates the previous PostgreSQL digest and verifies database health. On partial recreation, web or agent health/identity failure, or record-write failure, it recreates web/backup/gateway/agent with the complete previous release configuration and then requires old health and exact release/agent identity to pass. Migrations are expand-only; schema/data and volumes are never deleted or rolled back.
 

@@ -371,6 +371,10 @@ write_evidence() {
   evidence_project=${1:-quandatics-client-test}
   evidence_source=${2:-$source_sha}
   evidence_web=${3:-$web_image}
+  evidence_release=${4:-v1.2.3}
+  evidence_migrator=${5:-$migrator_image}
+  evidence_backup=${6:-$backup_image}
+  evidence_postgres=${7:-$postgres_image}
   printf 'encrypted backup bytes\n' >"$artifact_file"
   chmod 0600 "$artifact_file"
   artifact_sha256=$(sha256_file "$artifact_file")
@@ -381,11 +385,11 @@ DEPLOYMENT_ID=$deployment_id
 COMPOSE_PROJECT_NAME=$evidence_project
 DB_NAME=crm
 STORAGE_ID=storage-test
-POSTGRES_IMAGE=$postgres_image
-RELEASE_TAG=v1.2.3
+POSTGRES_IMAGE=$evidence_postgres
+RELEASE_TAG=$evidence_release
 WEB_IMAGE=$evidence_web
-MIGRATOR_IMAGE=$migrator_image
-BACKUP_IMAGE=$backup_image
+MIGRATOR_IMAGE=$evidence_migrator
+BACKUP_IMAGE=$evidence_backup
 SOURCE_COMMIT_SHA=$evidence_source
 CREATED_AT_EPOCH=$now
 BACKUP_ARTIFACT_FILE=$artifact_file
@@ -637,6 +641,15 @@ copy_env_with_replacement "$record_file" DB_MEMORY_LIMIT not-a-memory-limit "$ma
 mv "$malformed_record" "$record_file"
 expect_deploy_failure "malformed prior Compose memory" "$valid_env" "PREVIOUS_DB_MEMORY_LIMIT must be a valid Compose memory limit"
 assert_no_runtime_mutation "malformed prior Compose memory"
+
+write_previous_record
+write_evidence quandatics-client-test 0000000000000000000000000000000000000000 "$old_web_image" \
+  v1.1.0 "$old_migrator_image" "$old_backup_image" "$old_postgres_image"
+reset_logs
+if ! run_deploy "$valid_env"; then
+  record_failure "previous-release backup evidence deploy failed: $(cat "$output_log")"
+fi
+assert_contains "$record_file" 'RELEASE_TAG=v1.2.3' "previous-release backup evidence records target"
 
 write_evidence
 rm -f "$record_file"

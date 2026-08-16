@@ -31,6 +31,8 @@
 
 Observed v1.2.30 run usage: 50m06s across the failed attempt and rerun. Web builds used 33m46s (67.4%), migrator 5m02s (8.0%), agent 4m12s (8.4%), backup 2m44s (5.5%), quality 5m02s (10.0%), validation 12s (0.4%), and manifest 9s (0.3%). The successful rerun's critical path was about 21m11s, with the 18m26s web job controlling about 87% of wall-clock time.
 
+Within the successful web job, Docker Buildx build/push took 17m06s of 18m26s (92.8%); Trivy took 15s, SPDX generation 16s, Cosign 7s, and tagging 4s. The QEMU setup itself took 6s, so the evidence points to the multi-platform image build, not Cosign or scanner overhead.
+
 ### Task 2: Skip duplicate release-only application build
 
 **Files:**

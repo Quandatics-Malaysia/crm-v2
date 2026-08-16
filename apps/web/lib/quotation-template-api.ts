@@ -5,6 +5,7 @@ import { normalizeQuotationPdfTemplateCode } from "@/lib/quotation-pdf-template"
 import {
   accounts,
   quotationTemplates,
+  tenantSettings,
 } from "@/db/schema"
 
 const MAX_LABEL_LENGTH = 160
@@ -66,6 +67,10 @@ export const quotationTemplateAssignInputSchema = z.object({
   quotationTemplateCode: z.string().trim().nullable(),
 })
 
+export const quotationTemplateDefaultInputSchema = z.object({
+  quotationTemplateCode: z.string().trim().nullable(),
+})
+
 export const toNormalizedTemplateCode = (value: string | null | undefined): string | null => {
   return normalizeQuotationPdfTemplateCode(value)
 }
@@ -101,6 +106,33 @@ export async function listQuotationTemplates(
     .from(quotationTemplates)
     .where(eq(quotationTemplates.organizationId, tenantId))
     .orderBy(asc(quotationTemplates.label))
+}
+
+export async function getTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string
+): Promise<string | null> {
+  const [settings] = await tx
+    .select({ quotationTemplateCode: tenantSettings.quotationTemplateCode })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .limit(1)
+
+  return settings?.quotationTemplateCode ?? null
+}
+
+export async function updateTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string,
+  quotationTemplateCode: string | null
+): Promise<string | null> {
+  const [settings] = await tx
+    .update(tenantSettings)
+    .set({ quotationTemplateCode, updatedAt: new Date() })
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .returning({ quotationTemplateCode: tenantSettings.quotationTemplateCode })
+
+  return settings?.quotationTemplateCode ?? null
 }
 
 export async function upsertTemplateCodeOnAccount(

@@ -3,14 +3,18 @@ import { existsSync, readFileSync } from "node:fs"
 import test from "node:test"
 
 const workflowUrl = new URL("../release-images.yml", import.meta.url)
+const qualityWorkflowUrl = new URL("../quality.yml", import.meta.url)
 const dockerfileUrl = new URL("../../../Dockerfile", import.meta.url)
 
 assert.equal(existsSync(workflowUrl), true, "release-images.yml must exist")
+assert.equal(existsSync(qualityWorkflowUrl), true, "quality.yml must exist")
 
 const { parse } = await import("yaml")
 const source = readFileSync(workflowUrl, "utf8")
+const qualitySource = readFileSync(qualityWorkflowUrl, "utf8")
 const dockerfile = readFileSync(dockerfileUrl, "utf8")
 const workflow = parse(source)
+const qualityWorkflow = parse(qualitySource)
 
 function steps(jobName) {
   const job = workflow.jobs?.[jobName]
@@ -41,6 +45,34 @@ test("release runs only for version tags with least-privilege publishing permiss
 
   const allowedSecrets = source.match(/secrets\.[A-Z0-9_]+/g) ?? []
   assert.deepEqual([...new Set(allowedSecrets)], ["secrets.GITHUB_TOKEN"])
+})
+
+test("release quality skips only the duplicate application build", () => {
+  const qualityInput = qualityWorkflow.on?.workflow_call?.inputs?.run_build
+  assert.deepEqual(qualityInput, {
+    description: "Run the standalone application build",
+    required: false,
+    type: "boolean",
+    default: true,
+  })
+
+  const qualityBuild = (qualityWorkflow.jobs?.quality?.steps ?? []).find((step) => step.run === "pnpm run build")
+  assert.ok(qualityBuild, "quality workflow must retain the application build step")
+  assert.match(
+    qualityBuild.if ?? "",
+    /github\.event_name\s*!=\s*['"]workflow_call['"]\s*\|\|\s*inputs\.run_build/,
+    "standalone build must remain enabled for pushes and pull requests",
+  )
+
+  const releaseQuality = workflow.jobs?.quality
+  assert.equal(releaseQuality?.with?.run_build, false)
+})
+
+test("release jobs have bounded execution time", () => {
+  assert.equal(qualityWorkflow.jobs?.quality?.["timeout-minutes"], 15)
+  assert.equal(workflow.jobs?.["validate-tag"]?.["timeout-minutes"], 10)
+  assert.equal(workflow.jobs?.build?.["timeout-minutes"], 45)
+  assert.equal(workflow.jobs?.manifest?.["timeout-minutes"], 10)
 })
 
 test("build matrix publishes web, migrator, backup, and agent for amd64 and arm64", () => {

@@ -24,10 +24,12 @@ jobs:
     uses: ./.github/workflows/quality.yml
     with:
       ref: ${{ github.event.inputs.ref }}
+      run_build: false
 
   validate-tag:
     needs: quality
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       source_commit: ${{ steps.tag.outputs.source_commit }}
     steps:
@@ -56,6 +58,7 @@ jobs:
   build:
     needs: validate-tag
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -218,6 +221,7 @@ jobs:
   manifest:
     needs: [build, validate-tag]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read

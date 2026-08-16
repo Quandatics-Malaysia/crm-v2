@@ -186,6 +186,11 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
 test("Docker web and migrator builds install only the web dependency closure", () => {
   const filteredInstalls = dockerfile.match(/RUN pnpm install --filter web\.\.\. --frozen-lockfile/g) ?? []
   assert.equal(filteredInstalls.length, 2, "both Docker dependency stages must use the web dependency closure")
+  assert.match(
+    dockerfile,
+    /COPY --from=migrator-deps \/app\/packages\/control-protocol\/node_modules \.\/packages\/control-protocol\/node_modules/,
+    "migrator build must receive the protocol workspace's TypeScript dependencies",
+  )
   assert.doesNotMatch(
     dockerfile,
     /COPY --from=deps \/app\/apps\/(deployment-agent|control-plane)\/node_modules/,

@@ -50,6 +50,7 @@ RUN pnpm install --filter web... --frozen-lockfile
 FROM migrator-base AS migrator-build
 COPY --from=migrator-deps /app/node_modules ./node_modules
 COPY --from=migrator-deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=migrator-deps /app/packages/control-protocol/node_modules ./packages/control-protocol/node_modules
 COPY . .
 RUN pnpm --filter @crm/control-protocol run build
 RUN pnpm --filter web run build:migrator

@@ -154,14 +154,23 @@ export function AppSidebar({
     ...s,
     items: s.items.filter(
       (i) =>
-        (!i.permission || perms.has(i.permission)) &&
+        (!i.permission || isSuperadmin || perms.has(i.permission)) &&
         (!i.module || modules[i.module])
     ),
   })).filter((s) => s.items.length > 0)
 
   async function switchTenant(id: string) {
     if (id === activeTenant?.id) return
-    await authClient.organization.setActive({ organizationId: id })
+    if (isSuperadmin) {
+      const response = await fetch("/api/superadmin/active-organization", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ organizationId: id }),
+      })
+      if (!response.ok) throw new Error("Unable to switch organization")
+    } else {
+      await authClient.organization.setActive({ organizationId: id })
+    }
     // Land on the dashboard rather than refreshing the current URL: a record
     // deep-link (e.g. /projects/<id>) belongs to the previous tenant and would
     // 404 under the newly-active one. push() re-renders the layout with the new

@@ -1,6 +1,6 @@
 import "server-only"
-import { headers } from "next/headers"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { cookies, headers } from "next/headers"
+import { asc, eq, inArray } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db, runInTenant } from "@/db"
 import {
@@ -11,10 +11,15 @@ import {
   roles,
   rolePermissions,
   permissions as permissionsTable,
+  organization,
   tenantSettings,
 } from "@/db/schema"
 import type { PermissionKey } from "@/lib/permissions"
 import { isSubscriptionEntitlementActive, type SubscriptionStatus } from "@/lib/subscription-licensing"
+import {
+  resolveTenantId,
+  SUPERADMIN_TENANT_COOKIE,
+} from "@/lib/superadmin-tenant-access"
 
 export type ServerContext = {
   userId: string
@@ -59,28 +64,6 @@ export async function getServerContext(): Promise<ServerContext | null> {
   const sessionUser = session.user
   const activeOrgId = session.session.activeOrganizationId ?? null
 
-  // Resolve the member row for the active tenant (or fall back to the user's
-  // oldest membership — a STABLE key, so a multi-org user always lands in the
-  // same tenant rather than an arbitrary `.limit(1)` pick).
-  const memberRow = activeOrgId
-    ? (
-        await db
-          .select()
-          .from(member)
-          .where(
-            and(eq(member.userId, sessionUser.id), eq(member.organizationId, activeOrgId))
-          )
-          .limit(1)
-      )[0]
-    : (
-        await db
-          .select()
-          .from(member)
-          .where(eq(member.userId, sessionUser.id))
-          .orderBy(asc(member.createdAt), asc(member.id))
-          .limit(1)
-      )[0]
-
   // is_superadmin lives on our user table extension.
   const [u] = await db
     .select({
@@ -91,6 +74,37 @@ export async function getServerContext(): Promise<ServerContext | null> {
     .where(eq(userTable.id, sessionUser.id))
     .limit(1)
   const isSuperadmin = u?.isSuperadmin ?? false
+
+  const memberRows = await db
+    .select()
+    .from(member)
+    .where(eq(member.userId, sessionUser.id))
+    .orderBy(asc(member.createdAt), asc(member.id))
+
+  // A platform superadmin can select any organisation without being copied
+  // into every tenant's member roster. The selector is only a hint; the
+  // organisation is revalidated on every request below.
+  const requestedTenantId = isSuperadmin
+    ? (await cookies()).get(SUPERADMIN_TENANT_COOKIE)?.value ?? activeOrgId
+    : activeOrgId
+  const organizationRows = isSuperadmin
+    ? await db
+        .select({ id: organization.id })
+        .from(organization)
+        .where(eq(organization.status, "active"))
+    : []
+  const tenantId = resolveTenantId({
+    isSuperadmin,
+    requestedTenantId,
+    sessionTenantId: activeOrgId,
+    memberTenantIds: memberRows.map((row) => row.organizationId),
+    organizationIds: isSuperadmin
+      ? organizationRows.map((row) => row.id)
+      : memberRows.map((row) => row.organizationId),
+  })
+  const memberRow = tenantId
+    ? memberRows.find((row) => row.organizationId === tenantId)
+    : undefined
 
   // Support identities are operational principals, never tenant principals.
   // Even a stale legacy member row must not grant standing CRM access.
@@ -112,7 +126,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
     }
   }
 
-  if (!memberRow) {
+  if (!tenantId) {
     return {
       userId: sessionUser.id,
       userName: sessionUser.name,
@@ -130,13 +144,11 @@ export async function getServerContext(): Promise<ServerContext | null> {
     }
   }
 
-  const tenantId = memberRow.organizationId
-
   // First resolve with no active org yet: persist the deterministic choice so
   // subsequent requests are stable. Best-effort — setting the session cookie is
   // only possible in a request that can write cookies (actions/route handlers),
   // so we swallow failures during pure Server Component renders.
-  if (!activeOrgId) {
+  if (!activeOrgId && memberRow) {
     try {
       await auth.api.setActiveOrganization({
         body: { organizationId: tenantId },
@@ -148,11 +160,13 @@ export async function getServerContext(): Promise<ServerContext | null> {
   }
 
   const resolved = await runInTenant(tenantId, async (tx) => {
-    const [profile] = await tx
-      .select()
-      .from(membershipProfiles)
-      .where(eq(membershipProfiles.memberId, memberRow.id))
-      .limit(1)
+    const [profile] = memberRow
+      ? await tx
+          .select()
+          .from(membershipProfiles)
+          .where(eq(membershipProfiles.memberId, memberRow.id))
+          .limit(1)
+      : []
 
     // Tenant lifecycle: `tenant_settings.status = 'suspended'` locks the
     // whole entity (previously a dead flag — it was never consulted).
@@ -176,12 +190,14 @@ export async function getServerContext(): Promise<ServerContext | null> {
     // A member can hold MANY roles; effective permissions = the UNION of every
     // assigned role's grants (member_roles). Fall back to the legacy single
     // membership_profiles.role_id if no member_roles rows exist yet.
-    const roleRows = await tx
-      .select({ id: memberRoles.roleId, name: roles.name })
-      .from(memberRoles)
-      .innerJoin(roles, eq(roles.id, memberRoles.roleId))
-      .where(eq(memberRoles.memberId, memberRow.id))
-      .orderBy(asc(roles.name))
+    const roleRows = memberRow
+      ? await tx
+          .select({ id: memberRoles.roleId, name: roles.name })
+          .from(memberRoles)
+          .innerJoin(roles, eq(roles.id, memberRoles.roleId))
+          .where(eq(memberRoles.memberId, memberRow.id))
+          .orderBy(asc(roles.name))
+      : []
     let roleIds = roleRows.map((r) => r.id)
     let roleNames = roleRows.map((r) => r.name)
     if (roleIds.length === 0 && profile?.roleId) {
@@ -230,7 +246,7 @@ export async function getServerContext(): Promise<ServerContext | null> {
     userEmail: sessionUser.email,
     isSuperadmin,
     tenantId,
-    memberId: memberRow.id,
+    memberId: memberRow?.id ?? null,
     tierLevel: resolved.tierLevel,
     roleName: resolved.roleName,
     status: resolved.status,

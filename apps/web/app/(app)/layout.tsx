@@ -21,7 +21,13 @@ export default async function AppLayout({
   const ctx = await getServerContext()
   if (!ctx) redirect("/sign-in")
 
-  async function loadTenants(userId: string) {
+  async function loadTenants(userId: string, isPlatformSuperadmin: boolean) {
+    if (isPlatformSuperadmin) {
+      return db
+        .select({ id: organization.id, name: organization.name })
+        .from(organization)
+        .where(eq(organization.status, "active"))
+    }
     return db
       .select({ id: organization.id, name: organization.name })
       .from(member)
@@ -29,11 +35,11 @@ export default async function AppLayout({
       .where(eq(member.userId, userId))
   }
 
-  let tenants = await loadTenants(ctx.userId)
+  let tenants = await loadTenants(ctx.userId, ctx.isSuperadmin)
   if (tenants.length === 0) {
     try {
       const provisioned = await ensureBootstrap(ctx.userId, ctx.userEmail)
-      if (provisioned) tenants = await loadTenants(ctx.userId)
+      if (provisioned) tenants = await loadTenants(ctx.userId, ctx.isSuperadmin)
     } catch (error) {
       if (!(error instanceof LicenseReadOnlyError)) throw error
     }

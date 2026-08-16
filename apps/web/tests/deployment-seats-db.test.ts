@@ -153,6 +153,7 @@ integration("deployment seat PostgreSQL boundary", () => {
       (${ordinaryId}, 'Ordinary', ${`${prefix}ordinary@example.com`}, true, false, false, now(), now()),
       (${vendorSupportId}, 'Vendor support', ${`${prefix}vendor-support@example.com`}, true, true, true, now(), now()),
       (${`${prefix}superadmin-target`}, 'Superadmin target', ${`${prefix}superadmin-target@example.com`}, true, false, false, now(), now()),
+      (${`${prefix}superadmin-forged-member-target`}, 'Forged member target', ${`${prefix}superadmin-forged-member-target@example.com`}, true, false, false, now(), now()),
       (${`${prefix}ordinary-target`}, 'Ordinary target', ${`${prefix}ordinary-target@example.com`}, true, false, false, now(), now()),
       (${`${prefix}vendor-support-target`}, 'Vendor support target', ${`${prefix}vendor-support-target@example.com`}, true, false, false, now(), now())`
 
@@ -160,6 +161,10 @@ integration("deployment seat PostgreSQL boundary", () => {
       ${`${prefix}org`}, ${`${prefix}superadmin-target`}, ${`${prefix}superadmin-member`}, null, 0,
       null, ${superadminId}, null, false, '2026-08-11'
     )`)[0].allowed).toBe(true)
+    await expect(app`select * from activate_deployment_membership(
+      ${`${prefix}org`}, ${`${prefix}superadmin-forged-member-target`}, ${`${prefix}superadmin-forged-member`}, null, 0,
+      null, ${superadminId}, ${defaultActor.memberId}, false, '2026-08-11'
+    )`).rejects.toThrow(/authenticated active Owner or Admin/)
     await expect(app`select * from activate_deployment_membership(
       ${`${prefix}org`}, ${`${prefix}ordinary-target`}, ${`${prefix}ordinary-member`}, null, 0,
       null, ${ordinaryId}, null, false, '2026-08-11'

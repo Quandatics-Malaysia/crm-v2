@@ -11,7 +11,7 @@ SET search_path = ''
 AS $$
 BEGIN
   PERFORM public.require_active_organization(p_tenant_id);
-  IF p_actor_user_id IS NOT NULL AND EXISTS (
+  IF p_actor_user_id IS NOT NULL AND p_actor_member_id IS NULL AND EXISTS (
     SELECT 1
     FROM public."user" actor
     WHERE actor.id = p_actor_user_id

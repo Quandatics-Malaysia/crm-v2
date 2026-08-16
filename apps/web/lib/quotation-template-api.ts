@@ -5,6 +5,7 @@ import { normalizeQuotationPdfTemplateCode } from "@/lib/quotation-pdf-template"
 import {
   accounts,
   quotationTemplates,
+  tenantSettings,
 } from "@/db/schema"
 
 const MAX_LABEL_LENGTH = 160
@@ -66,6 +67,10 @@ export const quotationTemplateAssignInputSchema = z.object({
   quotationTemplateCode: z.string().trim().nullable(),
 })
 
+export const quotationTemplateDefaultInputSchema = z.object({
+  quotationTemplateCode: z.string().trim().nullable(),
+})
+
 export const toNormalizedTemplateCode = (value: string | null | undefined): string | null => {
   return normalizeQuotationPdfTemplateCode(value)
 }
@@ -92,6 +97,29 @@ export async function getQuotationTemplateByCode(
   return template ?? null
 }
 
+export async function getQuotationTemplateByCodeForUpdate(
+  tx: Tx,
+  tenantId: string,
+  rawCode: string | null
+): Promise<QuotationTemplateRow | null> {
+  const code = toNormalizedTemplateCode(rawCode)
+  if (!code) return null
+
+  const [template] = await tx
+    .select()
+    .from(quotationTemplates)
+    .where(
+      and(
+        eq(quotationTemplates.organizationId, tenantId),
+        eq(quotationTemplates.code, code)
+      )
+    )
+    .limit(1)
+    .for("update")
+
+  return template ?? null
+}
+
 export async function listQuotationTemplates(
   tx: Tx,
   tenantId: string
@@ -101,6 +129,52 @@ export async function listQuotationTemplates(
     .from(quotationTemplates)
     .where(eq(quotationTemplates.organizationId, tenantId))
     .orderBy(asc(quotationTemplates.label))
+}
+
+export async function getTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string
+): Promise<string | null> {
+  const [settings] = await tx
+    .select({ quotationTemplateCode: tenantSettings.quotationTemplateCode })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .limit(1)
+
+  return settings?.quotationTemplateCode ?? null
+}
+
+export async function updateTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string,
+  quotationTemplateCode: string | null
+): Promise<string | null> {
+  const [settings] = await tx
+    .insert(tenantSettings)
+    .values({ organizationId: tenantId, quotationTemplateCode })
+    .onConflictDoUpdate({
+      target: tenantSettings.organizationId,
+      set: { quotationTemplateCode, updatedAt: new Date() },
+    })
+    .returning({ quotationTemplateCode: tenantSettings.quotationTemplateCode })
+
+  return settings?.quotationTemplateCode ?? null
+}
+
+export async function clearTenantQuotationTemplateCode(
+  tx: Tx,
+  tenantId: string,
+  quotationTemplateCode: string
+) {
+  await tx
+    .update(tenantSettings)
+    .set({ quotationTemplateCode: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(tenantSettings.organizationId, tenantId),
+        eq(tenantSettings.quotationTemplateCode, quotationTemplateCode)
+      )
+    )
 }
 
 export async function upsertTemplateCodeOnAccount(

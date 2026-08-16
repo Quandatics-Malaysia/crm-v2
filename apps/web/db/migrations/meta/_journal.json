@@ -526,6 +526,13 @@
 			"when": 1786845600000,
 			"tag": "0074_repair_person_department",
 			"breakpoints": true
+		},
+		{
+			"idx": 75,
+			"version": "7",
+			"when": 1786882257000,
+			"tag": "0075_superadmin_deployment_seat_actor",
+			"breakpoints": true
 		}
 	]
 }

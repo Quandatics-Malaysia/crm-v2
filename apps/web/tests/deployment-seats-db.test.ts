@@ -143,15 +143,12 @@ integration("deployment seat PostgreSQL boundary", () => {
 
   it("allows verified non-support superadmins without a membership but rejects other null-member actors", async () => {
     await admin`update deployment_control_state set seat_limit = 5 where singleton = 1`
-    const superadminId = `${prefix}superadmin-actor`
+    const superadminId = defaultActor.userId
     const ordinaryId = `${prefix}ordinary-actor`
-    const vendorSupportId = `${prefix}vendor-support-actor`
     await admin`insert into "user" (
       id, name, email, email_verified, is_superadmin, is_vendor_support, created_at, updated_at
     ) values
-      (${superadminId}, 'Superadmin', ${`${prefix}superadmin@example.com`}, true, true, false, now(), now()),
       (${ordinaryId}, 'Ordinary', ${`${prefix}ordinary@example.com`}, true, false, false, now(), now()),
-      (${vendorSupportId}, 'Vendor support', ${`${prefix}vendor-support@example.com`}, true, true, true, now(), now()),
       (${`${prefix}superadmin-target`}, 'Superadmin target', ${`${prefix}superadmin-target@example.com`}, true, false, false, now(), now()),
       (${`${prefix}superadmin-forged-member-target`}, 'Forged member target', ${`${prefix}superadmin-forged-member-target@example.com`}, true, false, false, now(), now()),
       (${`${prefix}ordinary-target`}, 'Ordinary target', ${`${prefix}ordinary-target@example.com`}, true, false, false, now(), now()),
@@ -169,9 +166,10 @@ integration("deployment seat PostgreSQL boundary", () => {
       ${`${prefix}org`}, ${`${prefix}ordinary-target`}, ${`${prefix}ordinary-member`}, null, 0,
       null, ${ordinaryId}, null, false, '2026-08-11'
     )`).rejects.toThrow(/authenticated active Owner or Admin/)
+    await admin`update "user" set is_vendor_support = true where id = ${superadminId}`
     await expect(app`select * from activate_deployment_membership(
       ${`${prefix}org`}, ${`${prefix}vendor-support-target`}, ${`${prefix}vendor-support-member`}, null, 0,
-      null, ${vendorSupportId}, null, false, '2026-08-11'
+      null, ${superadminId}, null, false, '2026-08-11'
     )`).rejects.toThrow(/authenticated active Owner or Admin/)
   })
 

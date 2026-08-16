@@ -3,7 +3,7 @@ import { corsHeaders, preflight } from "@/lib/api-cors"
 import { getApiContext, withApiTenant } from "@/lib/api-auth"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
-  getQuotationTemplateByCode,
+  getQuotationTemplateByCodeForUpdate,
   getTenantQuotationTemplateCode,
   quotationTemplateDefaultInputSchema,
   toNormalizedTemplateCode,
@@ -56,7 +56,11 @@ export async function PATCH(req: Request) {
   try {
     const result = await withApiTenant(ctx, PERMISSIONS.TENANT_SETTINGS, async (tx) => {
       if (quotationTemplateCode) {
-        const template = await getQuotationTemplateByCode(tx, ctx.tenantId, quotationTemplateCode)
+        const template = await getQuotationTemplateByCodeForUpdate(
+          tx,
+          ctx.tenantId,
+          quotationTemplateCode
+        )
         if (!template || !template.isActive) return { ok: false as const }
       }
 

@@ -39,3 +39,11 @@ Status: complete
 - RED: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 3 expected failures: missing settings returned `null`; PATCH/DELETE each performed one update.
 - GREEN: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 17 passed.
 - `rtk pnpm --dir apps/web run typecheck` — passed.
+
+## Fix round 2
+
+- Root cause: default PATCH validated an active template without a row lock, allowing concurrent template deactivation to clear the default before a stale PATCH upsert restored the inactive code.
+- Added tenant-scoped `SELECT ... FOR UPDATE` revalidation before the default upsert. Template deactivation/delete updates already lock the same template row, so both operations now serialize in one tenant transaction.
+- RED: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 2 expected failures: locked helper missing; stale revalidation returned 200.
+- GREEN: `rtk pnpm --dir apps/web exec vitest run tests/quotation-template-api.routes.test.ts` — 19 passed.
+- `rtk pnpm --dir apps/web run typecheck` — passed.

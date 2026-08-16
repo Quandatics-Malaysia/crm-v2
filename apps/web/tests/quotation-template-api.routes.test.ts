@@ -13,6 +13,7 @@ const accessScopeMocks = vi.hoisted(() => ({
 
 const templateApiMocks = vi.hoisted(() => ({
   getQuotationTemplateByCode: vi.fn(),
+  getQuotationTemplateByCodeForUpdate: vi.fn(),
   getTenantQuotationTemplateCode: vi.fn(),
   listQuotationTemplates: vi.fn(),
   updateTenantQuotationTemplateCode: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@/lib/quotation-template-api", async () => {
   return {
     ...actual,
     getQuotationTemplateByCode: templateApiMocks.getQuotationTemplateByCode,
+    getQuotationTemplateByCodeForUpdate: templateApiMocks.getQuotationTemplateByCodeForUpdate,
     getTenantQuotationTemplateCode: templateApiMocks.getTenantQuotationTemplateCode,
     listQuotationTemplates: templateApiMocks.listQuotationTemplates,
     updateTenantQuotationTemplateCode: templateApiMocks.updateTenantQuotationTemplateCode,
@@ -211,6 +213,27 @@ describe("quotation template API routes", () => {
     expect(onConflictDoUpdate).toHaveBeenCalledTimes(1)
   })
 
+  it("locks the tenant template while revalidating a default candidate", async () => {
+    const lock = vi.fn(async () => [{ code: "cc", isActive: true }])
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({ for: lock })),
+          })),
+        })),
+      })),
+    }
+    const { getQuotationTemplateByCodeForUpdate } = await vi.importActual<
+      typeof import("@/lib/quotation-template-api")
+    >("@/lib/quotation-template-api")
+
+    await expect(
+      getQuotationTemplateByCodeForUpdate(tx as never, "tenant-1", "cc")
+    ).resolves.toMatchObject({ code: "cc", isActive: true })
+    expect(lock).toHaveBeenCalledWith("update")
+  })
+
   it("clears matching tenant default when a template is deactivated", async () => {
     const tx = makeTx()
     apiAuthMocks.withApiTenant.mockImplementation(async (_ctx, _permission, fn) => {
@@ -318,6 +341,10 @@ describe("tenant quotation template default API route", () => {
       async (_tx, _tenantId, code) => code
     )
     templateApiMocks.getQuotationTemplateByCode.mockResolvedValue({ code: "cc", isActive: true })
+    templateApiMocks.getQuotationTemplateByCodeForUpdate.mockResolvedValue({
+      code: "cc",
+      isActive: true,
+    })
   })
 
   it("reads the tenant quotation template default", async () => {
@@ -344,6 +371,24 @@ describe("tenant quotation template default API route", () => {
     await expect(response.json()).resolves.toEqual({ data: { quotationTemplateCode: "cc" } })
   })
 
+  it("rejects default assignment when locked revalidation sees a concurrent deactivation", async () => {
+    templateApiMocks.getQuotationTemplateByCodeForUpdate.mockResolvedValue({
+      code: "cc",
+      isActive: false,
+    })
+
+    const response = await patchTenantDefault(
+      new Request("http://localhost/api/v1/quotation-templates/default", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ quotationTemplateCode: "cc" }),
+      })
+    )
+
+    expect(response.status).toBe(400)
+    expect(templateApiMocks.updateTenantQuotationTemplateCode).not.toHaveBeenCalled()
+  })
+
   it("clears the tenant template default", async () => {
     const response = await patchTenantDefault(
       new Request("http://localhost/api/v1/quotation-templates/default", {
@@ -362,7 +407,7 @@ describe("tenant quotation template default API route", () => {
     ["unknown", null],
     ["inactive", { code: "cc", isActive: false }],
   ])("rejects an %s tenant template default", async (_kind, template) => {
-    templateApiMocks.getQuotationTemplateByCode.mockResolvedValue(template)
+    templateApiMocks.getQuotationTemplateByCodeForUpdate.mockResolvedValue(template)
 
     const response = await patchTenantDefault(
       new Request("http://localhost/api/v1/quotation-templates/default", {

@@ -97,6 +97,29 @@ export async function getQuotationTemplateByCode(
   return template ?? null
 }
 
+export async function getQuotationTemplateByCodeForUpdate(
+  tx: Tx,
+  tenantId: string,
+  rawCode: string | null
+): Promise<QuotationTemplateRow | null> {
+  const code = toNormalizedTemplateCode(rawCode)
+  if (!code) return null
+
+  const [template] = await tx
+    .select()
+    .from(quotationTemplates)
+    .where(
+      and(
+        eq(quotationTemplates.organizationId, tenantId),
+        eq(quotationTemplates.code, code)
+      )
+    )
+    .limit(1)
+    .for("update")
+
+  return template ?? null
+}
+
 export async function listQuotationTemplates(
   tx: Tx,
   tenantId: string

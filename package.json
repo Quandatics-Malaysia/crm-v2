@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter web run build",
+    "build": "pnpm --filter @crm/control-protocol run build && pnpm --filter web run build",
     "dev": "pnpm --filter web run dev",
     "lint": "pnpm --filter web run lint",
     "typecheck": "pnpm --filter web run typecheck",

@@ -43,6 +43,14 @@ function quoteValidityDays(doc: QuotationDocument): string {
   return `${days} days`
 }
 
+function taxLabel(doc: QuotationDocument): string {
+  const rate = Number(doc.quotation.taxRateSnapshot)
+  if (!Number.isFinite(rate) || rate <= 0) return "SST"
+  return `SST @ ${new Intl.NumberFormat("en-MY", {
+    maximumFractionDigits: 3,
+  }).format(rate)}%`
+}
+
 function CompanyHeader({ doc }: { doc: QuotationDocument }) {
   return (
     <header className="grid grid-cols-[29%_1fr] items-start gap-6 pb-3">
@@ -147,7 +155,7 @@ function Totals({ doc, template }: { doc: QuotationDocument; template: EntityTem
   const currency = template === "qar" && doc.quotation.currency === "MYR" ? "RM" : doc.quotation.currency
   const labels = template === "qar"
     ? [[`Total (${currency})`, doc.quotation.subtotal], [`SST (${currency})`, doc.quotation.taxTotal], [`Total with SST (${currency})`, doc.quotation.total]]
-    : [["Total (excl. of SST)", doc.quotation.subtotal], ["SST", doc.quotation.taxTotal], ["Total (Inclusive of SST)", doc.quotation.total]]
+    : [["Total (excl. of SST)", doc.quotation.subtotal], [taxLabel(doc), doc.quotation.taxTotal], ["Total (Inclusive of SST)", doc.quotation.total]]
   return <div className="ml-auto w-[42%] border-t border-black text-[10px]">{labels.map(([label, value]) => <div key={String(label)} className="grid h-9 grid-cols-[1fr_32mm] items-center border-b border-black"><div className="px-2 text-right">{label}</div><div className="px-2 text-right">{plainMoney(value, doc.quotation.currency)}</div></div>)}</div>
 }
 

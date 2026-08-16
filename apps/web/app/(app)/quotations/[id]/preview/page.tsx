@@ -77,6 +77,7 @@ export default async function QuotationPreviewPage({
     entityName,
     company,
     pdfTemplateKey,
+    accountQuotationTemplateCode,
   } = doc
   const currency = q.currency
   const subtotal = Number(q.subtotal)
@@ -84,6 +85,7 @@ export default async function QuotationPreviewPage({
   const taxTotal = Number(q.taxTotal)
   const total = Number(q.total)
   const entityTemplate = resolveQuotationPdfTemplate({
+    accountTemplateCode: accountQuotationTemplateCode,
     entityCode: doc.entityCode,
     entitySlug: doc.entitySlug,
     entityName,

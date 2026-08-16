@@ -104,6 +104,8 @@ export type QuotationDocument = {
   preparedBy: { name: string; email: string | null } | null
   /** Seller-entity identifier retained for preview compatibility. */
   pdfTemplateKey: string | null
+  /** Optional account-level template override, resolved before entity identity. */
+  accountQuotationTemplateCode: string | null
   /** Company profile from Settings — the sender block, bank details, footer. */
   company: {
     address: string | null
@@ -172,6 +174,7 @@ export async function getQuotationDocument(
 
     let account: QuotationDocument["account"] = null
     let contact: QuotationDocument["contact"] = null
+    let accountQuotationTemplateCode: string | null = null
     if (row.accountId) {
       const [accountWithType] = await tx
         .select({
@@ -181,6 +184,7 @@ export async function getQuotationDocument(
           billingAddress: accounts.billingAddress,
           accountType: accounts.accountType,
           endUserAccountId: accounts.endUserAccountId,
+          quotationTemplateCode: accounts.quotationTemplateCode,
         })
         .from(accounts)
         .where(eq(accounts.id, row.accountId))
@@ -193,6 +197,7 @@ export async function getQuotationDocument(
           : row.accountId
 
       if (accountWithType) {
+        accountQuotationTemplateCode = accountWithType.quotationTemplateCode
         account = {
           name: accountWithType.name,
           code: accountWithType.code,
@@ -263,6 +268,7 @@ export async function getQuotationDocument(
           ? { name: row.preparedByName ?? "", email: row.preparedByEmail }
           : null,
       pdfTemplateKey: profile?.entityCode ?? org?.slug ?? null,
+      accountQuotationTemplateCode,
       company: {
         address: profile?.address ?? null,
         registrationNo: profile?.registrationNo ?? null,

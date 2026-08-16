@@ -53,6 +53,18 @@ describe("resolveQuotationPdfTemplate", () => {
     ).toBe("cc")
   })
 
+  it("uses the account template code before tenant identity", () => {
+    expect(
+      resolveQuotationPdfTemplate({
+        accountTemplateCode: "cc",
+        legacyKey: "QAR",
+        entityCode: "QAR",
+        entitySlug: "q-armour",
+        entityName: "Q Armour Sdn Bhd",
+      })
+    ).toBe("cc")
+  })
+
   it("falls back from bad explicit code to entity identity", () => {
     expect(
       resolveQuotationPdfTemplate({

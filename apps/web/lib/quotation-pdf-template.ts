@@ -17,6 +17,8 @@ export type QuotationPdfTemplateSpec = {
 }
 
 type ResolveQuotationPdfTemplateInputBase = {
+  /** Explicit account-level template code; highest precedence. */
+  accountTemplateCode?: string | null
   /** Explicit tenant/account-level template code from settings. */
   rawTemplateCode?: string | null
   /** Backward-compatible identity matching from entity fields. */
@@ -98,6 +100,7 @@ export function resolveQuotationPdfTemplate(
   input: ResolveQuotationPdfTemplateInput
 ): string
 export function resolveQuotationPdfTemplate({
+  accountTemplateCode,
   rawTemplateCode,
   legacyKey,
   entityCode,
@@ -105,7 +108,9 @@ export function resolveQuotationPdfTemplate({
   entityName,
   allowedCodes,
 }: ResolveQuotationPdfTemplateLegacyInput): string {
-  if (legacyKey !== undefined && !rawTemplateCode) {
+  const configuredTemplateCode = accountTemplateCode ?? rawTemplateCode
+
+  if (legacyKey !== undefined && !configuredTemplateCode) {
     const explicitLegacy = normalizeQuotationPdfTemplateCode(legacyKey)
     if (explicitLegacy && isBuiltinQuotationPdfTemplateCode(explicitLegacy)) return explicitLegacy
 
@@ -113,7 +118,7 @@ export function resolveQuotationPdfTemplate({
     if (legacyAlias) return legacyAlias
   }
 
-  const explicit = normalizeQuotationPdfTemplateCode(rawTemplateCode)
+  const explicit = normalizeQuotationPdfTemplateCode(configuredTemplateCode)
   if (explicit) {
     if (isTemplateAllowed(explicit, allowedCodes)) return explicit
 

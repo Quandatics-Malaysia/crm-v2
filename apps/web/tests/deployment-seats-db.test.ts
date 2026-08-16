@@ -160,7 +160,7 @@ integration("deployment seat PostgreSQL boundary", () => {
     )`)[0].allowed).toBe(true)
     await expect(app`select * from activate_deployment_membership(
       ${`${prefix}org`}, ${`${prefix}superadmin-forged-member-target`}, ${`${prefix}superadmin-forged-member`}, null, 0,
-      null, ${superadminId}, ${defaultActor.memberId}, false, '2026-08-11'
+      null, ${superadminId}, ${`${prefix}nonexistent-actor-member`}, false, '2026-08-11'
     )`).rejects.toThrow(/authenticated active Owner or Admin/)
     await expect(app`select * from activate_deployment_membership(
       ${`${prefix}org`}, ${`${prefix}ordinary-target`}, ${`${prefix}ordinary-member`}, null, 0,

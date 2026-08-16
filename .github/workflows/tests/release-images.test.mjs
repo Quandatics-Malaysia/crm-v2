@@ -75,7 +75,7 @@ test("release jobs have bounded execution time", () => {
   assert.equal(workflow.jobs?.manifest?.["timeout-minutes"], 10)
 })
 
-test("build matrix publishes web, migrator, backup, and agent for amd64 and arm64", () => {
+test("build matrix publishes web, migrator, backup, and agent for amd64", () => {
   const build = workflow.jobs?.build
   const include = build?.strategy?.matrix?.include
   assert.equal(Array.isArray(include), true)
@@ -113,11 +113,15 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   })
 
   const buildSteps = steps("build")
-  findStep(buildSteps, (step) => /docker\/setup-qemu-action@/.test(step.uses ?? ""), "missing QEMU setup")
+  assert.equal(
+    buildSteps.some((step) => /docker\/setup-qemu-action@/.test(step.uses ?? "")),
+    false,
+    "QEMU must not be needed for the AMD64-only release build",
+  )
   findStep(buildSteps, (step) => /docker\/setup-buildx-action@/.test(step.uses ?? ""), "missing Buildx setup")
   const publish = findStep(buildSteps, (step) => /docker\/build-push-action@/.test(step.uses ?? ""), "missing image build/push")
   assert.equal(publish.id, "build-push")
-  assert.equal(publish.with?.platforms, "linux/amd64,linux/arm64")
+  assert.equal(publish.with?.platforms, "linux/amd64")
   assert.equal(publish.with?.provenance, "mode=max")
   assert.equal(publish.with?.sbom, true)
   assert.match(publish.with?.outputs ?? "", /push-by-digest=true/)

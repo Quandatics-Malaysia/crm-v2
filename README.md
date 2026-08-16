@@ -80,7 +80,7 @@ The sample seed is idempotent and **dev-only** — don't run it on an internet-e
 ## Signed client release images
 
 Client releases come from annotated strict SemVer tags such as `v1.2.3`.
-`.github/workflows/release-images.yml` builds Linux AMD64 and ARM64 images for
+`.github/workflows/release-images.yml` builds Linux AMD64 images for
 the web runtime, migrator, encrypted-backup runtime, and deployment agent on GitHub-hosted
 runners. It pushes each build by immutable digest first, blocks on High or
 Critical Trivy findings, creates an SPDX JSON SBOM and maximum-mode BuildKit

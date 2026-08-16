@@ -12,7 +12,7 @@
 
 - Keep Cosign signing and verification mandatory.
 - Keep BuildKit provenance and vulnerability scanning mandatory unless a later audit decision explicitly changes this.
-- Do not remove AMD64 or ARM64 support until the production host architecture is verified.
+- AMD64-only release output is approved for the current optimization; production deployment remains blocked until host architecture is verified.
 - Keep pull requests and normal `main` pushes running the full application build.
 - Each optimization must have a workflow regression test and local YAML/test verification.
 
@@ -64,17 +64,17 @@ Within the successful web job, Docker Buildx build/push took 17m06s of 18m26s (9
 - [x] Run workflow tests and verify no release permissions or signing steps changed.
 - [x] Commit the timeout-only change.
 
-### Task 4: Verify production architecture before changing platforms
+### Task 4: Verify production architecture after changing platforms
 
 **Files:**
 - Read: `deploy/client/compose.yaml`
 - Read: `deploy/client/README.md`
 - Read: `OPERATIONS.md`
 
-- [ ] Inspect the production host architecture through the approved internal-ops path. Current local SSH config has no `internalops` alias, so this remains pending.
-- [ ] If production is AMD64-only, prepare a separate change to build only AMD64.
-- [ ] If ARM64 is required, keep both platforms and evaluate a native ARM64 builder instead of QEMU.
-- [ ] Do not change platform coverage in this task until evidence is recorded.
+- [ ] Inspect the production host architecture through the approved internal-ops path. Current local SSH config has no `internalops` alias, and `internalops@10.1.10.26` timed out.
+- [x] Change release output to AMD64-only after the user explicitly approved removing the highest-cost ARM64 build.
+- [ ] If ARM64 clients are required, restore ARM64 through a native ARM64 builder instead of QEMU.
+- [ ] Do not deploy the AMD64-only release until the production host architecture is confirmed.
 
 ### Task 5: Reduce repeated Docker dependency work
 

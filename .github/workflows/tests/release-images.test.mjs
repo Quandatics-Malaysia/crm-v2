@@ -173,6 +173,16 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
   assert.match(signing.run, /https:\/\/token\.actions\.githubusercontent\.com/)
 })
 
+test("Docker web and migrator builds install only the web dependency closure", () => {
+  const filteredInstalls = dockerfile.match(/RUN pnpm install --filter web\.\.\. --frozen-lockfile/g) ?? []
+  assert.equal(filteredInstalls.length, 2, "both Docker dependency stages must use the web dependency closure")
+  assert.doesNotMatch(
+    dockerfile,
+    /COPY --from=deps \/app\/apps\/(deployment-agent|control-plane)\/node_modules/,
+    "web image must not copy unused workspace dependency trees",
+  )
+})
+
 test("release manifest records immutable provenance for all images", () => {
   const manifestSteps = steps("manifest")
   const compose = findStep(manifestSteps, (step) => /release-manifest\.json/.test(step.run ?? ""), "missing release manifest composition")

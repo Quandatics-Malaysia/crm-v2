@@ -47,7 +47,10 @@ services:
       DEMO_CURRENCY: ${DEMO_CURRENCY:-USD}
       DEMO_TAX_NAME: ${DEMO_TAX_NAME:-VAT 5%}
       DEMO_TAX_RATE: ${DEMO_TAX_RATE:-5.000}
-      SEED_SAMPLE_DATA: "false"
+      # Keep the production Demo Entity available for platform verification.
+      # Operators can explicitly set SEED_SAMPLE_DATA=false in .env when the
+      # demo must be suspended.
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-true}
     depends_on:
       db:
         condition: service_healthy

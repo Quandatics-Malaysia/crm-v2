@@ -124,6 +124,16 @@ test("build matrix publishes web, migrator, backup, and agent for amd64", () => 
   assert.equal(publish.with?.platforms, "linux/amd64")
   assert.equal(publish.with?.provenance, "mode=max")
   assert.equal(publish.with?.sbom, true)
+  assert.match(
+    publish.with?.["cache-from"] ?? "",
+    /type=gha,scope=\$\{\{ matrix\.name \}\},ghtoken=\$\{\{ secrets\.GITHUB_TOKEN \}\},repository=\$\{\{ github\.repository \}\}/,
+    "cache imports must use the GitHub token to avoid cache API lookup throttling",
+  )
+  assert.match(
+    publish.with?.["cache-to"] ?? "",
+    /type=gha,mode=max,scope=\$\{\{ matrix\.name \}\},timeout=20m,ignore-error=true/,
+    "cache exports must be bounded and must not block an otherwise valid release",
+  )
   assert.match(publish.with?.outputs ?? "", /push-by-digest=true/)
   assert.match(publish.with?.outputs ?? "", /name-canonical=true/)
   assert.match(

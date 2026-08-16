@@ -122,8 +122,12 @@ jobs:
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # Keep independent scopes so concurrent matrix jobs do not overwrite
+          # one another. The GitHub token makes cache lookup use the API path
+          # instead of the cache service's slower lookup path.
+          cache-from: type=gha,scope=${{ matrix.name }},ghtoken=${{ secrets.GITHUB_TOKEN }},repository=${{ github.repository }}
+          # A cache outage must not fail an otherwise valid signed release.
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }},timeout=20m,ignore-error=true
       - name: Validate immutable image reference
         id: image
         shell: bash

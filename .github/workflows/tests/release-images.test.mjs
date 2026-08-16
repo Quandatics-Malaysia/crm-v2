@@ -3,14 +3,18 @@ import { existsSync, readFileSync } from "node:fs"
 import test from "node:test"
 
 const workflowUrl = new URL("../release-images.yml", import.meta.url)
+const qualityWorkflowUrl = new URL("../quality.yml", import.meta.url)
 const dockerfileUrl = new URL("../../../Dockerfile", import.meta.url)
 
 assert.equal(existsSync(workflowUrl), true, "release-images.yml must exist")
+assert.equal(existsSync(qualityWorkflowUrl), true, "quality.yml must exist")
 
 const { parse } = await import("yaml")
 const source = readFileSync(workflowUrl, "utf8")
+const qualitySource = readFileSync(qualityWorkflowUrl, "utf8")
 const dockerfile = readFileSync(dockerfileUrl, "utf8")
 const workflow = parse(source)
+const qualityWorkflow = parse(qualitySource)
 
 function steps(jobName) {
   const job = workflow.jobs?.[jobName]
@@ -43,7 +47,35 @@ test("release runs only for version tags with least-privilege publishing permiss
   assert.deepEqual([...new Set(allowedSecrets)], ["secrets.GITHUB_TOKEN"])
 })
 
-test("build matrix publishes web, migrator, backup, and agent for amd64 and arm64", () => {
+test("release quality skips only the duplicate application build", () => {
+  const qualityInput = qualityWorkflow.on?.workflow_call?.inputs?.run_build
+  assert.deepEqual(qualityInput, {
+    description: "Run the standalone application build",
+    required: false,
+    type: "boolean",
+    default: true,
+  })
+
+  const qualityBuild = (qualityWorkflow.jobs?.quality?.steps ?? []).find((step) => step.run === "pnpm run build")
+  assert.ok(qualityBuild, "quality workflow must retain the application build step")
+  assert.match(
+    qualityBuild.if ?? "",
+    /github\.event_name\s*!=\s*['"]workflow_call['"]\s*\|\|\s*inputs\.run_build/,
+    "standalone build must remain enabled for pushes and pull requests",
+  )
+
+  const releaseQuality = workflow.jobs?.quality
+  assert.equal(releaseQuality?.with?.run_build, false)
+})
+
+test("release jobs have bounded execution time", () => {
+  assert.equal(qualityWorkflow.jobs?.quality?.["timeout-minutes"], 15)
+  assert.equal(workflow.jobs?.["validate-tag"]?.["timeout-minutes"], 10)
+  assert.equal(workflow.jobs?.build?.["timeout-minutes"], 45)
+  assert.equal(workflow.jobs?.manifest?.["timeout-minutes"], 10)
+})
+
+test("build matrix publishes web, migrator, backup, and agent for amd64", () => {
   const build = workflow.jobs?.build
   const include = build?.strategy?.matrix?.include
   assert.equal(Array.isArray(include), true)
@@ -81,13 +113,27 @@ test("build matrix publishes web, migrator, backup, and agent for amd64 and arm6
   })
 
   const buildSteps = steps("build")
-  findStep(buildSteps, (step) => /docker\/setup-qemu-action@/.test(step.uses ?? ""), "missing QEMU setup")
+  assert.equal(
+    buildSteps.some((step) => /docker\/setup-qemu-action@/.test(step.uses ?? "")),
+    false,
+    "QEMU must not be needed for the AMD64-only release build",
+  )
   findStep(buildSteps, (step) => /docker\/setup-buildx-action@/.test(step.uses ?? ""), "missing Buildx setup")
   const publish = findStep(buildSteps, (step) => /docker\/build-push-action@/.test(step.uses ?? ""), "missing image build/push")
   assert.equal(publish.id, "build-push")
-  assert.equal(publish.with?.platforms, "linux/amd64,linux/arm64")
+  assert.equal(publish.with?.platforms, "linux/amd64")
   assert.equal(publish.with?.provenance, "mode=max")
   assert.equal(publish.with?.sbom, true)
+  assert.match(
+    publish.with?.["cache-from"] ?? "",
+    /type=gha,scope=\$\{\{ matrix\.name \}\},ghtoken=\$\{\{ secrets\.GITHUB_TOKEN \}\},repository=\$\{\{ github\.repository \}\}/,
+    "cache imports must use the GitHub token to avoid cache API lookup throttling",
+  )
+  assert.match(
+    publish.with?.["cache-to"] ?? "",
+    /type=gha,mode=max,scope=\$\{\{ matrix\.name \}\},timeout=20m,ignore-error=true/,
+    "cache exports must be bounded and must not block an otherwise valid release",
+  )
   assert.match(publish.with?.outputs ?? "", /push-by-digest=true/)
   assert.match(publish.with?.outputs ?? "", /name-canonical=true/)
   assert.match(
@@ -135,6 +181,16 @@ test("each immutable digest is scanned, SBOMed, signed, and verified", () => {
     /^https:\/\/github\.com\/\$\{\{\s*github\.workflow_ref\s*\}\}$/,
   )
   assert.match(signing.run, /https:\/\/token\.actions\.githubusercontent\.com/)
+})
+
+test("Docker web and migrator builds install only the web dependency closure", () => {
+  const filteredInstalls = dockerfile.match(/RUN pnpm install --filter web\.\.\. --frozen-lockfile/g) ?? []
+  assert.equal(filteredInstalls.length, 2, "both Docker dependency stages must use the web dependency closure")
+  assert.doesNotMatch(
+    dockerfile,
+    /COPY --from=deps \/app\/apps\/(deployment-agent|control-plane)\/node_modules/,
+    "web image must not copy unused workspace dependency trees",
+  )
 })
 
 test("release manifest records immutable provenance for all images", () => {

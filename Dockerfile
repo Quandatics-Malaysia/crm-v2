@@ -11,22 +11,22 @@ RUN npm install -g pnpm@11.6.0
 WORKDIR /app
 
 # ---- dependencies (incl. dev, for build + migrate) ----
-# Install the whole pnpm workspace. Copy the root manifests + lockfile and the
-# app manifest so the frozen install resolves the `web` workspace package.
+# Install only the web workspace and its dependency closure. The production
+# web and migrator images do not need the control-plane or deployment-agent
+# dependency trees. Keep the other workspace manifests available so pnpm can
+# validate the frozen lockfile and workspace graph.
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
 COPY apps/deployment-agent/package.json ./apps/deployment-agent/package.json
 COPY apps/control-plane/package.json ./apps/control-plane/package.json
 COPY packages/control-protocol/package.json ./packages/control-protocol/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --filter web... --frozen-lockfile
 
 # ---- build the standalone Next.js server ----
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /app/apps/deployment-agent/node_modules ./apps/deployment-agent/node_modules
-COPY --from=deps /app/apps/control-plane/node_modules ./apps/control-plane/node_modules
 COPY --from=deps /app/packages/control-protocol/node_modules ./packages/control-protocol/node_modules
 COPY . .
 RUN pnpm --filter @crm/control-protocol run build
@@ -45,7 +45,7 @@ COPY apps/web/package.json ./apps/web/package.json
 COPY apps/deployment-agent/package.json ./apps/deployment-agent/package.json
 COPY apps/control-plane/package.json ./apps/control-plane/package.json
 COPY packages/control-protocol/package.json ./packages/control-protocol/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --filter web... --frozen-lockfile
 
 FROM migrator-base AS migrator-build
 COPY --from=migrator-deps /app/node_modules ./node_modules

@@ -9,6 +9,7 @@ import {
 
 const MAX_LABEL_LENGTH = 160
 const MAX_TEXT_LENGTH = 2000
+const MAX_TEMPLATE_LENGTH = 200_000
 
 export type QuotationTemplateRenderMode = "builtin" | "html"
 
@@ -20,8 +21,8 @@ export const quotationTemplateCreateSchema = z
     label: z.string().trim().min(1).max(MAX_LABEL_LENGTH),
     legacyTemplateCode: z.string().trim().min(1).max(80).nullable().optional(),
     renderMode: z.enum(["builtin", "html"]).default("builtin"),
-    htmlTemplate: z.string().nullable().optional(),
-    cssTemplate: z.string().nullable().optional(),
+    htmlTemplate: z.string().max(MAX_TEMPLATE_LENGTH).nullable().optional(),
+    cssTemplate: z.string().max(MAX_TEMPLATE_LENGTH).nullable().optional(),
     notes: z.string().trim().max(MAX_TEXT_LENGTH).nullable().optional(),
     isActive: z.boolean().default(true),
   })
@@ -46,8 +47,8 @@ export const quotationTemplatePatchSchema = z
       .nullable()
       .optional(),
     renderMode: z.enum(["builtin", "html"]).optional(),
-    htmlTemplate: z.string().nullable().optional(),
-    cssTemplate: z.string().nullable().optional(),
+    htmlTemplate: z.string().max(MAX_TEMPLATE_LENGTH).nullable().optional(),
+    cssTemplate: z.string().max(MAX_TEMPLATE_LENGTH).nullable().optional(),
     notes: z.string().trim().max(MAX_TEXT_LENGTH).nullable().optional(),
     isActive: z.boolean().optional(),
   })

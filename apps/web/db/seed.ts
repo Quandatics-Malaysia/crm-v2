@@ -311,22 +311,31 @@ async function main() {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    try {
-      const ctx = await auth.$context
-      const hashed = await ctx.password.hash(password)
-      await db.insert(account).values({
-        id: randomUUID(),
-        accountId: uid,
-        providerId: "credential",
-        userId: uid,
-        password: hashed,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-    } catch (e) {
-      console.warn("⚠ could not set demo password:", (e as Error).message)
-    }
     ;[u] = await db.select().from(user).where(eq(user.id, uid)).limit(1)
+  }
+
+  const authContext = await auth.$context
+  const hashedPassword = await authContext.password.hash(password)
+  const [credential] = await db
+    .select({ id: account.id })
+    .from(account)
+    .where(and(eq(account.userId, u.id), eq(account.providerId, "credential")))
+    .limit(1)
+  if (credential) {
+    await db
+      .update(account)
+      .set({ password: hashedPassword, updatedAt: new Date() })
+      .where(eq(account.id, credential.id))
+  } else {
+    await db.insert(account).values({
+      id: randomUUID(),
+      accountId: u.id,
+      providerId: "credential",
+      userId: u.id,
+      password: hashedPassword,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
   }
 
   // 8. demo admin → Owner membership

@@ -459,13 +459,43 @@ export const apiIntegrationsPage: DocPage = {
   -d '{ "quotationTemplateCode": "cc" }' \
   https://app.quandatics.com/api/v1/accounts/acc-123/quotation-template-code`}</Pre>
 
+      <H2>Tenant default</H2>
+      <P>
+        Set one active template as the tenant fallback. Send <Code>null</Code> to
+        clear it and restore legacy resolution.
+      </P>
+      <DocTable
+        head={["Method", "Path", "Permission", "Body / note"]}
+        rows={[
+          [
+            <Code key="tenant-default-get-method">GET</Code>,
+            <Code key="tenant-default-get-path">/api/v1/quotation-templates/default</Code>,
+            <Code key="tenant-default-get-perm">tenant.settings</Code>,
+            "Read the current tenant default.",
+          ],
+          [
+            <Code key="tenant-default-patch-method">PATCH</Code>,
+            <Code key="tenant-default-patch-path">/api/v1/quotation-templates/default</Code>,
+            <Code key="tenant-default-patch-perm">tenant.settings</Code>,
+            '{ "quotationTemplateCode": "cc" } or { "quotationTemplateCode": null }',
+          ],
+        ]}
+      />
+      <Pre>{`curl -H "Authorization: Bearer qdk_xxx" \
+  https://app.quandatics.com/api/v1/quotation-templates/default
+
+curl -X PATCH \
+  -H "Authorization: Bearer qdk_xxx" -H "content-type: application/json" \
+  -d '{ "quotationTemplateCode": "cc" }' \
+  https://app.quandatics.com/api/v1/quotation-templates/default`}</Pre>
+
       <H2>Resolution flow (what system uses)</H2>
       <DocTable
         head={["Order", "Selector"]}
         rows={[
           ["1st", "Account override: accounts.quotation_template_code"],
-          ["2nd", "Tenant fallback: tenant_settings.quotation_template_code"],
-          ["3rd", "Entity code map (legacy) and default fallback"]
+          ["2nd", "Tenant default: tenant_settings.quotation_template_code"],
+          ["3rd", "Legacy entity-code map and default fallback"]
         ]}
       />
 
@@ -495,8 +525,8 @@ export const apiIntegrationsPage: DocPage = {
         <Li><Code>400</Code>: validation error, e.g. HTML mode without htmlTemplate.</Li>
       </Ul>
       <Callout>
-        If a change fails, keep the same flow: validate with GET LIST + GET ACCOUNT,
-        then POST/PATCH, then confirm again with GET ACCOUNT.
+        If a change fails, validate with GET LIST + GET DEFAULT + GET ACCOUNT, then
+        POST/PATCH, then confirm with GET DEFAULT or GET ACCOUNT.
       </Callout>
 
       <H2>Versioning and release notes</H2>

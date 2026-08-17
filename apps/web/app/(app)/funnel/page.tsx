@@ -43,6 +43,7 @@ export default async function OpportunitiesPage() {
 
   const canCreate = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
   const canAdvance = ctx.can(PERMISSIONS.STAGE_ADVANCE)
+  const canEditPpvvc = ctx.can(PERMISSIONS.OPPORTUNITY_UPDATE)
 
   const newButton = canCreate ? (
     <OpportunityForm
@@ -81,6 +82,7 @@ export default async function OpportunitiesPage() {
               data={rows}
               pipelines={pipelines}
               canAdvance={canAdvance}
+              canEditPpvvc={canEditPpvvc}
               customFieldDefs={customFunnelFields}
             />
           </TabsContent>

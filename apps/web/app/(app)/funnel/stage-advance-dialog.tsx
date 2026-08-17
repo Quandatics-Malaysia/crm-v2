@@ -50,8 +50,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { AttachmentUpload } from "@/components/attachments/attachment-upload"
 import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
 import { formatPercent } from "@/lib/format"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 import { StageBadge } from "./stage-badge"
-import { advanceStageAction } from "./actions"
+import { advanceStageAction, updateOpportunity } from "./actions"
 import { selectableTargets } from "./stage-transitions"
 
 // Where each Opportunity-level preset gate field is edited, so a blocked move
@@ -93,6 +95,8 @@ export function StageAdvanceDialog({
   customValues = {},
   opportunityId,
   opportunityName,
+  ppvvc,
+  canEditPpvvc = false,
 }: {
   funnelId: string
   currentStageId: string
@@ -114,6 +118,9 @@ export function StageAdvanceDialog({
    * live there, not on this Funnel, so a blocked move needs a way there. */
   opportunityId?: string
   opportunityName?: string
+  /** Authoritative Opportunity PPVVC values, shown inline for gated moves. */
+  ppvvc?: PpvvcPatch | null
+  canEditPpvvc?: boolean
 }) {
   const router = useRouter()
   const [openState, setOpenState] = React.useState(false)
@@ -392,6 +399,23 @@ export function StageAdvanceDialog({
                 </div>
               ) : null}
             </div>
+
+            {target && ppvvc ? (
+              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  PPVVC requirements — edit inline if needed
+                </p>
+                <PpvvcEditor
+                  values={ppvvc}
+                  editable={canEditPpvvc}
+                  onSave={
+                    canEditPpvvc
+                      ? (next) => updateOpportunity(funnelId, next)
+                      : undefined
+                  }
+                />
+              </div>
+            ) : null}
 
             {target && collectFields.length > 0 ? (
               <div className="grid gap-3 rounded-md border bg-muted/30 p-3">

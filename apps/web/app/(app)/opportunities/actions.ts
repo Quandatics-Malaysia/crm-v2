@@ -13,6 +13,8 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import { opportunities, funnels } from "@/db/schema"
+import { updateOpportunityPpvvc } from "@/server/services/ppvvc"
+import type { PpvvcValues } from "@/lib/ppvvc"
 
 /** A resolved contact for display: name + derived "Designation" (persons.title). */
 export type ContactRef = { id: string; name: string; designation: string | null }
@@ -49,6 +51,7 @@ export type OpportunityContainerDetail = {
   opportunity: typeof opportunities.$inferSelect
   accountId: string
   accountName: string
+  accountCurrency: string
   ownerName: string | null
   /** Opportunity Owner Contact, resolved with its derived Designation. */
   ownerContact: ContactRef | null
@@ -136,12 +139,14 @@ export async function updateOpportunityContainer(
         throw new Error("FORBIDDEN: not permitted on this Opportunity")
       }
 
-      const cascade = {
+      const nextPpvvc: PpvvcValues = {
         pain: input.pain === undefined ? existing.pain : input.pain || null,
         power: input.power === undefined ? existing.power : input.power || null,
         vision: input.vision === undefined ? existing.vision : input.vision || null,
         value: input.value === undefined ? existing.value : input.value || null,
         control: input.control === undefined ? existing.control : input.control || null,
+      }
+      const cascade = {
         projectNatureCode:
           input.projectNatures !== undefined
             ? (input.projectNatures?.[0] ?? null)
@@ -195,18 +200,24 @@ export async function updateOpportunityContainer(
         updatedAt: new Date(),
       }
 
+      const hasPpvvcInput = Object.keys(nextPpvvc).some(
+        (key) => input[key as keyof OpportunityContainerUpdateInput] !== undefined
+      )
+      if (hasPpvvcInput) {
+        await updateOpportunityPpvvc(tx, {
+          opportunityId: id,
+          values: nextPpvvc,
+          actorId: ctx.userId,
+        })
+      }
+
       await tx.update(opportunities).set(updated).where(eq(opportunities.id, id))
 
-      // Cascade PPVVC + nature to every non-deleted child funnel — they're
-      // read-only copies for display/gating, this container is the source.
+      // Project nature remains a compatibility snapshot on live child Funnels;
+      // PPVVC snapshots are maintained only by updateOpportunityPpvvc above.
       await tx
         .update(funnels)
         .set({
-          pain: cascade.pain,
-          power: cascade.power,
-          vision: cascade.vision,
-          value: cascade.value,
-          control: cascade.control,
           projectNatureCode: cascade.projectNatureCode,
           projectNatures: cascade.projectNatures,
           updatedAt: new Date(),
@@ -218,7 +229,7 @@ export async function updateOpportunityContainer(
         registryKey: "opportunity",
         entityId: id,
         before: existing,
-        after: { ...existing, ...updated },
+        after: { ...existing, ...updated, ...(hasPpvvcInput ? nextPpvvc : {}) },
         subject: "Opportunity updated",
       })
     })

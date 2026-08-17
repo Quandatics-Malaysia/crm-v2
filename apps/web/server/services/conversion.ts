@@ -35,7 +35,12 @@ export type ConversionResult = {
 }
 
 export function resolveDefaultSalesFunnel(
-  pipelines: readonly { id: string; isDefault: boolean; tenantId?: string }[],
+  pipelines: readonly {
+    id: string
+    isDefault: boolean
+    name?: string
+    tenantId?: string
+  }[],
   stages: readonly {
     id: string
     pipelineId: string

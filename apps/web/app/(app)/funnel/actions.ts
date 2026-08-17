@@ -45,6 +45,7 @@ import {
   pickNature,
 } from "@/server/services/opportunity-container"
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
+import { updateFunnelPpvvc } from "@/server/services/ppvvc"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 import {
@@ -206,6 +207,7 @@ function assertRecognizedPercent(v: string | null | undefined): void {
 
 export type OpportunityListRow = {
   id: string
+  opportunityId: string
   name: string
   accountId: string
   accountName: string
@@ -235,6 +237,11 @@ export type OpportunityListRow = {
   primaryQuotationId: string | null
   projectNatureCode: string | null
   projectNatures: string[] | null
+  pain: string | null
+  power: string | null
+  vision: string | null
+  value: string | null
+  control: string | null
   customFields: Record<string, string> | null
 }
 
@@ -431,7 +438,7 @@ export async function createOpportunity(
       // cascades DOWN from it), or auto-create a 1:1 container so the single-step
       // "create a funnel" UX keeps working. The funnel's account is inherited
       // from the container (Salesforce "auto-populate funnel account").
-      let containerId: string
+      let containerId = ""
       let containerAccountId = input.accountId
       let ppvvc: Ppvvc
       let nature: { projectNatureCode: string | null; projectNatures: string[] | null }
@@ -628,6 +635,17 @@ export async function updateOpportunity(
         ? existing.customFields
         : normalizeOpportunityCustomFields(input.customFields, customFieldDefs)
 
+    const ppvvcInput = {
+      pain: input.pain,
+      power: input.power,
+      vision: input.vision,
+      value: input.value,
+      control: input.control,
+    }
+    const hasPpvvcInput = Object.values(ppvvcInput).some(
+      (value) => value !== undefined
+    )
+
     let partyInputs: PartyInput[] | null = input.parties ?? null
     if (effectiveInterco && input.parties === undefined) {
       partyInputs = (await loadPartiesByOpportunity(tx, [id])).get(id) ?? []
@@ -719,6 +737,14 @@ export async function updateOpportunity(
       updatedAt: new Date(),
     }
 
+    const syncedPpvvc = hasPpvvcInput
+      ? await updateFunnelPpvvc(tx, {
+          funnelId: id,
+          values: ppvvcInput,
+          actorId: ctx.userId,
+        })
+      : null
+
     await tx.update(funnels).set(updated).where(eq(funnels.id, id))
 
     // estimatedAmount may have changed → refresh the parent container's rollup.
@@ -733,7 +759,11 @@ export async function updateOpportunity(
       registryKey: "funnel",
       entityId: id,
       before: existing,
-      after: { ...existing, ...updated },
+      after: {
+        ...existing,
+        ...updated,
+        ...(syncedPpvvc?.after ?? {}),
+      },
       subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.

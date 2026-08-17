@@ -57,7 +57,7 @@ const ctx = {
   memberId: "member-1",
   isSuperadmin: true,
   can: () => true,
-} as ServerContext
+} as unknown as ServerContext
 
 function stageTransactionFixture() {
   const stages = [

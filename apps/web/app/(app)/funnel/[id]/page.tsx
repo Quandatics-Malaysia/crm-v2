@@ -226,6 +226,8 @@ export default async function OpportunityDetailPage({
                 customValues={(opp.customFields ?? {}) as Record<string, string>}
                 opportunityId={container?.id}
                 opportunityName={container?.name}
+                ppvvc={container}
+                canEditPpvvc={canUpdate}
               />
             )}
           </div>

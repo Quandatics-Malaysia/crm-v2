@@ -8,6 +8,7 @@ import {
   type PathNote,
 } from "@/components/stage-path-view"
 import type { StageGate, CustomFunnelField } from "@/lib/stage-gate"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
 import { selectableTargets } from "./stage-transitions"
 
@@ -37,6 +38,8 @@ export function StagePath({
   gate,
   customFieldDefs = [],
   customValues = {},
+  ppvvc,
+  canEditPpvvc = false,
 }: {
   funnelId: string
   currentStageId: string
@@ -49,6 +52,9 @@ export function StagePath({
   customFieldDefs?: CustomFunnelField[]
   /** The funnel's current custom-field values. */
   customValues?: Record<string, string>
+  /** Authoritative Opportunity PPVVC values for inline stage editing. */
+  ppvvc?: PpvvcPatch | null
+  canEditPpvvc?: boolean
 }) {
   const [target, setTarget] = React.useState<string | null>(null)
 
@@ -111,6 +117,8 @@ export function StagePath({
           gate={gate}
           customFieldDefs={customFieldDefs}
           customValues={customValues}
+          ppvvc={ppvvc}
+          canEditPpvvc={canEditPpvvc}
         />
       ) : null}
     </>

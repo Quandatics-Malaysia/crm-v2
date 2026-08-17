@@ -33,6 +33,7 @@ import {
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -154,7 +155,16 @@ export type FunnelDetailData = {
   accountName: string | null
   /** Every account, for the inline Account picker. */
   accountOptions: Option[]
-  container: { id: string; code: string; name: string } | null
+  container: {
+    id: string
+    code: string
+    name: string
+    pain: string | null
+    power: string | null
+    vision: string | null
+    value: string | null
+    control: string | null
+  } | null
   ownerMemberId: string
   ownerName: string | null
   /** Every tenant member, for the inline Owner picker. */
@@ -999,6 +1009,18 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       <div className="grid gap-4 lg:col-span-2">
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">PPVVC analysis</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PpvvcEditor
+              values={container}
+              editable={canEdit && !!container}
+              onSave={container ? (values) => updateOpportunity(funnelId, values) : undefined}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Stage</CardTitle>
           </CardHeader>
           <CardContent>
@@ -1010,6 +1032,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               gate={gate}
               customFieldDefs={customFieldDefs}
               customValues={customValues}
+              ppvvc={container}
+              canEditPpvvc={canEdit}
             />
           </CardContent>
         </Card>

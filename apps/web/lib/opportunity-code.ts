@@ -67,15 +67,18 @@ export function formatFunnelName(input: {
   return products ? `${head} - ${products}` : head
 }
 
-/** The five PPVVC "Analysis" field keys, in canonical order. */
-export const PPVVC_FIELDS = ["pain", "power", "vision", "value", "control"] as const
-export type PpvvcField = (typeof PPVVC_FIELDS)[number]
-export type Ppvvc = Partial<Record<PpvvcField, string | null>>
+export {
+  PPVVC_FIELDS,
+  type PpvvcField,
+  type PpvvcPatch as Ppvvc,
+} from "@/lib/ppvvc"
+import { PPVVC_FIELDS } from "@/lib/ppvvc"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 
 /** Pick just the PPVVC fields off any object (for cascading container → funnel). */
-export function pickPpvvc(src: Ppvvc | null | undefined): Ppvvc {
-  const out: Ppvvc = {}
+export function pickPpvvc(src: PpvvcPatch | null | undefined): PpvvcPatch {
+  const out: PpvvcPatch = {}
   if (!src) return out
-  for (const k of PPVVC_FIELDS) out[k] = src[k] ?? null
+  for (const { key } of PPVVC_FIELDS) out[key] = src[key] ?? null
   return out
 }

@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, ne } from "drizzle-orm"
+import { and, eq, isNull, ne } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
 import {
   funnels,
@@ -423,7 +423,7 @@ export async function requestStageAdvance(
     const [opp] = await tx
       .select()
       .from(funnels)
-      .where(eq(funnels.id, input.funnelId))
+      .where(and(eq(funnels.id, input.funnelId), isNull(funnels.deletedAt)))
       .limit(1)
     if (!opp) throw new Error("Funnel not found")
 
@@ -433,7 +433,12 @@ export async function requestStageAdvance(
     const [container] = await tx
       .select()
       .from(opportunities)
-      .where(eq(opportunities.id, opp.opportunityId))
+      .where(
+        and(
+          eq(opportunities.id, opp.opportunityId),
+          isNull(opportunities.deletedAt)
+        )
+      )
       .limit(1)
     if (!container) throw new Error("Opportunity not found")
 

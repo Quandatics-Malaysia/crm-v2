@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
   matchesFilter,
+  parseDataTableFilterParam,
   validateFilterValue,
   type DataTableFilterDefinition,
   type DataTableFilterValue,
@@ -117,17 +118,6 @@ const typedFilterFn = (
   id: string,
   value: DataTableFilterValue
 ) => matchesFilter(row.getValue(id), value)
-
-function parseTypedFilterParam(raw: string | null): DataTableFilterValue | null {
-  if (!raw) return null
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    const result = validateFilterValue(parsed)
-    return result.success ? result.value : null
-  } catch {
-    return null
-  }
-}
 
 function hasActiveFilterValue(value: DataTableFilterValue | undefined): boolean {
   if (!value) return false
@@ -226,8 +216,9 @@ export function DataTable<TData, TValue>({
 
     const columnFilters: ColumnFiltersState = []
     for (const filter of filters ?? []) {
-      const typedValue = parseTypedFilterParam(
-        searchParams.get(key(`f_${filter.columnId}`))
+      const typedValue = parseDataTableFilterParam(
+        searchParams.get(key(`f_${filter.columnId}`)),
+        filter.type
       )
       if (
         typedValue &&

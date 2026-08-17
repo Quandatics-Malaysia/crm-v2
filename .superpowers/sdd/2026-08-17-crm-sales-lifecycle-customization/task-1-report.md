@@ -71,3 +71,59 @@ Additional check: `rtk proxy git diff --check` passed.
 Interactive filter controls and URL hydration do not have component-level tests in this task; the requested focused coverage is pure-function coverage. Typecheck and the full web suite pass, but future tasks should add browser/component coverage when saved views are introduced.
 
 Commit: `feat: add typed data table filters` (see final commit in repository history).
+
+## Review fix round 1/5
+
+Addressed only the three Important findings:
+
+1. Legacy comma-separated enum/relation facet values now hydrate into typed filter state and are rewritten as JSON URL state.
+2. Date predicates now normalize `Date` instances and ISO timestamp strings by UTC calendar date.
+3. Incomplete numeric/date ranges validate and match as inactive, preventing partial UI input from filtering every row; URL persistence still waits for complete ranges.
+
+### Covering tests
+
+Updated `apps/web/tests/data-table-filters.test.ts` with regressions for:
+
+- legacy `active,won` enum and `account-42,account-7` relation values;
+- `Date` and ISO timestamp row values;
+- incomplete numeric and date ranges.
+
+### Review RED
+
+Command:
+
+```text
+rtk pnpm --filter web test -- data-table-filters.test.ts
+```
+
+Result: FAIL as expected: 3 new tests failed, while 454 existing tests passed and 37 were skipped. Failures were missing legacy parser export, Date row mismatch, and incomplete numeric range validation.
+
+### Review GREEN
+
+Focused command:
+
+```text
+rtk pnpm --filter web test -- data-table-filters.test.ts
+```
+
+Result: PASS. `47 passed | 4 skipped` test files; `457 passed | 37 skipped` tests.
+
+Full web command:
+
+```text
+rtk pnpm --filter web test
+```
+
+Result: PASS. `47 passed | 4 skipped` test files; `457 passed | 37 skipped` tests.
+
+Typecheck:
+
+```text
+rtk proxy pnpm --filter web typecheck
+```
+
+Result: PASS. `tsc --noEmit` completed with exit code 0. `rtk proxy git diff --check` also passed.
+
+### Review self-check
+
+No deferred Minor findings were changed. The worktree contains only the three implementation/test files from Task 1 plus the requested report update. Commit: `fix: address typed filter review findings`.

@@ -64,6 +64,8 @@ export type DataTableFilterValue =
   | { type: "enum"; value?: readonly string[] | null }
   | { type: "relation"; value?: string | readonly string[] | null }
 
+export type DataTableFilterType = DataTableFilterValue["type"]
+
 export type FilterValidationResult =
   | { success: true; value: DataTableFilterValue }
   | { success: false; error: string }
@@ -130,7 +132,7 @@ function validateNumericFilter(
   if (operator === "between") {
     const min = value.min
     const max = value.max
-    if (isEmpty(min) && isEmpty(max)) {
+    if (isEmpty(min) || isEmpty(max)) {
       return { success: true, value: value as DataTableFilterValue }
     }
     if (!isFiniteNumber(min) || !isFiniteNumber(max)) {
@@ -172,7 +174,7 @@ export function validateFilterValue(value: unknown): FilterValidationResult {
         return { success: false, error: "Invalid date operator." }
       }
       if (value.operator === "between") {
-        if (isEmpty(value.from) && isEmpty(value.to)) {
+        if (isEmpty(value.from) || isEmpty(value.to)) {
           return { success: true, value: value as DataTableFilterValue }
         }
         if (!isIsoCalendarDate(value.from) || !isIsoCalendarDate(value.to)) {
@@ -219,6 +221,27 @@ export function validateFilterValue(value: unknown): FilterValidationResult {
   }
 }
 
+export function parseDataTableFilterParam(
+  raw: string | null,
+  type: DataTableFilterType
+): DataTableFilterValue | null {
+  if (!raw) return null
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const result = validateFilterValue(parsed)
+    if (result.success && result.value.type === type) return result.value
+  } catch {
+    // Legacy facet values were comma-separated rather than JSON.
+  }
+
+  if (type !== "enum" && type !== "relation") return null
+  const values = raw.split(",").map((item) => item.trim()).filter(Boolean)
+  if (!values.length) return null
+  const result = validateFilterValue({ type, value: values })
+  return result.success ? result.value : null
+}
+
 function rowNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null
   if (typeof value !== "string" || value.trim() === "") return null
@@ -227,7 +250,16 @@ function rowNumber(value: unknown): number | null {
 }
 
 function rowDate(value: unknown): number | null {
-  return isIsoCalendarDate(value) ? calendarDateNumber(value) : null
+  if (isIsoCalendarDate(value)) return calendarDateNumber(value)
+
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)
+        ? new Date(value)
+        : null
+  if (!date || Number.isNaN(date.getTime())) return null
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
 }
 
 function rowRelationId(value: unknown): string | null {
@@ -255,7 +287,10 @@ export function matchesFilter(rowValue: unknown, filter: DataTableFilterValue): 
     }
     case "number":
     case "money": {
-      if (value.operator === "between" && isEmpty(value.min) && isEmpty(value.max)) return true
+      if (
+        value.operator === "between" &&
+        (isEmpty(value.min) || isEmpty(value.max))
+      ) return true
       if (value.operator !== "between" && isEmpty(value.value)) return true
       const row = rowNumber(rowValue)
       if (row == null) return false
@@ -265,7 +300,10 @@ export function matchesFilter(rowValue: unknown, filter: DataTableFilterValue): 
       return row < value.value!
     }
     case "date": {
-      if (value.operator === "between" && isEmpty(value.from) && isEmpty(value.to)) return true
+      if (
+        value.operator === "between" &&
+        (isEmpty(value.from) || isEmpty(value.to))
+      ) return true
       if (value.operator !== "between" && isEmpty(value.value)) return true
       const row = rowDate(rowValue)
       if (row == null) return false

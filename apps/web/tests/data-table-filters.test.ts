@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   matchesFilter,
+  parseDataTableFilterParam,
   validateFilterValue,
 } from "@/lib/data-table-filters"
 
@@ -143,5 +144,32 @@ describe("typed data table filters", () => {
     expect(
       validateFilterValue({ type: "money", operator: "equals", value: Number.POSITIVE_INFINITY }).success
     ).toBe(false)
+  })
+
+  it("translates legacy comma-separated enum and relation URL values", () => {
+    expect(parseDataTableFilterParam("active,won", "enum")).toEqual({
+      type: "enum",
+      value: ["active", "won"],
+    })
+    expect(parseDataTableFilterParam("account-42,account-7", "relation")).toEqual({
+      type: "relation",
+      value: ["account-42", "account-7"],
+    })
+  })
+
+  it("matches Date and ISO timestamp row values by calendar date", () => {
+    const filter = { type: "date", operator: "on", value: "2026-08-17" } as const
+    expect(matchesFilter(new Date("2026-08-17T12:30:00.000Z"), filter)).toBe(true)
+    expect(matchesFilter("2026-08-17T23:59:59.000Z", filter)).toBe(true)
+  })
+
+  it("treats incomplete numeric and date ranges as inactive", () => {
+    const numberFilter = { type: "number", operator: "between", min: 10 } as const
+    const dateFilter = { type: "date", operator: "between", from: "2026-08-10" } as const
+
+    expect(validateFilterValue(numberFilter).success).toBe(true)
+    expect(validateFilterValue(dateFilter).success).toBe(true)
+    expect(matchesFilter(5, numberFilter)).toBe(true)
+    expect(matchesFilter("2026-09-01", dateFilter)).toBe(true)
   })
 })

@@ -39,15 +39,28 @@ const integration = adminUrl ? describe.sequential : describe.skip
 const actionDatabaseUrl = process.env.TEST_DATABASE_URL
 const actionIntegration = adminUrl && actionDatabaseUrl ? describe.sequential : describe.skip
 let actionTenantId = ""
+let actionUserId = ""
+let actionMemberId = ""
+
+type GlobalDb = typeof globalThis & { __pgClient?: Sql }
+
+async function closeClient(client: Sql | undefined): Promise<void> {
+  if (!client) return
+  try {
+    await client.end({ timeout: 5 })
+  } catch {
+    // A prior serial suite may already have closed its cached client.
+  }
+}
 
 vi.doMock("@/lib/server-context", () => ({
   requireContext: vi.fn(async () => ({
-    userId: "",
+    userId: actionUserId,
     userName: "Taxonomy test",
     userEmail: "taxonomy-test@example.com",
     isSuperadmin: true,
     tenantId: actionTenantId,
-    memberId: null,
+    memberId: actionMemberId,
     tierLevel: 100,
     roleName: "Owner",
     status: "active",
@@ -136,6 +149,7 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
   const prefix = `task7-action-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
   let admin: Sql
   let actionClient: Sql | undefined
+  let previousDatabaseUrl: string | undefined
   let updateProductCodes: typeof import("@/app/(app)/settings/actions").updateProductCodes
   let createProduct: typeof import("@/app/(app)/products/actions").createProduct
   let updateProduct: typeof import("@/app/(app)/products/actions").updateProduct
@@ -156,10 +170,11 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       throw new Error("Production taxonomy boundary tests require both database URLs")
     }
 
-    const globalForDb = globalThis as typeof globalThis & { __pgClient?: Sql }
+    previousDatabaseUrl = process.env.DATABASE_URL
+    const globalForDb = globalThis as GlobalDb
     const previousClient = globalForDb.__pgClient
     delete globalForDb.__pgClient
-    if (previousClient) await previousClient.end()
+    await closeClient(previousClient)
 
     admin = postgres(adminUrl, { max: 4 })
     process.env.DATABASE_URL = actionDatabaseUrl
@@ -173,18 +188,47 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
   })
 
   afterAll(async () => {
-    if (admin) await admin`delete from organization where id like ${`${prefix}%`}`
-    if (actionClient) await actionClient.end()
-    await admin?.end()
-    delete process.env.DATABASE_URL
+    try {
+      if (admin) {
+        await admin`delete from organization where id like ${`${prefix}%`}`
+        await admin`delete from "user" where id like ${`${prefix}%`}`
+      }
+    } finally {
+      const globalForDb = globalThis as GlobalDb
+      const cachedClient = globalForDb.__pgClient
+      delete globalForDb.__pgClient
+      await closeClient(cachedClient)
+      if (actionClient && actionClient !== cachedClient) await closeClient(actionClient)
+      await admin?.end()
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = previousDatabaseUrl
+      actionTenantId = ""
+      actionUserId = ""
+      actionMemberId = ""
+      vi.resetModules()
+    }
   })
 
   async function createTenant(withProduct = false) {
     const tenantId = `${prefix}-${crypto.randomUUID()}`
     const productId = crypto.randomUUID()
+    const userId = `${prefix}-user-${crypto.randomUUID()}`
+    const memberId = `${prefix}-member-${crypto.randomUUID()}`
     await admin`
       insert into organization (id, name, slug)
       values (${tenantId}, ${tenantId}, ${tenantId})
+    `
+    await admin`
+      insert into "user" (id, name, email, email_verified, is_superadmin, is_vendor_support)
+      values (${userId}, 'Taxonomy test actor', ${`${userId}@example.com`}, true, false, false)
+    `
+    await admin`
+      insert into member (id, organization_id, user_id, role)
+      values (${memberId}, ${tenantId}, ${userId}, 'member')
+    `
+    await admin`
+      insert into membership_profiles (member_id, tenant_id, tier_level, status)
+      values (${memberId}, ${tenantId}, 100, 'active')
     `
     await admin`
       insert into tenant_settings (organization_id, product_codes)
@@ -197,6 +241,8 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       `
     }
     actionTenantId = tenantId
+    actionUserId = userId
+    actionMemberId = memberId
     return { tenantId, productId }
   }
 
@@ -252,7 +298,11 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
   it.each(lockCases)("%s waits for the shared taxonomy lock", async (name, operation) => {
     const fixture = await createTenant(name === "updateProduct")
     try {
-      await withHeldTaxonomyLock(fixture.tenantId, () => operation(fixture.tenantId, fixture.productId))
+      const result = await withHeldTaxonomyLock(
+        fixture.tenantId,
+        () => operation(fixture.tenantId, fixture.productId)
+      )
+      expect(result).toMatchObject({ ok: true })
     } finally {
       await admin`delete from organization where id = ${fixture.tenantId}`
     }

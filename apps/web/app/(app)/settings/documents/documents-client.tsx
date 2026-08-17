@@ -61,6 +61,13 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
+        <form
+        className="grid gap-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+        >
         <label className="grid gap-2 text-sm font-medium">
           Notes
           <Textarea
@@ -95,10 +102,11 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
           <span className="text-xs text-muted-foreground">Maximum {QUOTE_DEFAULT_PAYMENT_TERM_MAX} characters.</span>
         </label>
         <div className="flex justify-end">
-          <Button type="button" onClick={save} disabled={isPending || !dirty}>
+          <Button type="submit" disabled={isPending || !dirty}>
             {isPending ? "Saving…" : "Save quotation defaults"}
           </Button>
         </div>
+        </form>
       </CardContent>
     </Card>
   )

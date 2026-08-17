@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import postgres, { type Sql } from "postgres"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import type { Tx } from "@/db"
 import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
@@ -36,6 +36,43 @@ describe("product taxonomy mutation boundary", () => {
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const integration = adminUrl ? describe.sequential : describe.skip
+const actionDatabaseUrl = process.env.TEST_DATABASE_URL
+const actionIntegration = adminUrl && actionDatabaseUrl ? describe.sequential : describe.skip
+let actionTenantId = ""
+
+vi.doMock("@/lib/server-context", () => ({
+  requireContext: vi.fn(async () => ({
+    userId: "",
+    userName: "Taxonomy test",
+    userEmail: "taxonomy-test@example.com",
+    isSuperadmin: true,
+    tenantId: actionTenantId,
+    memberId: null,
+    tierLevel: 100,
+    roleName: "Owner",
+    status: "active",
+    tenantSuspended: false,
+    subscriptionInactive: false,
+    permissions: new Set(),
+    can: () => true,
+  })),
+  assertCan: vi.fn(),
+}))
+
+vi.doMock("@/lib/action-result", () => ({
+  runAction: async (fn: () => Promise<unknown>) => {
+    try {
+      return { ok: true, data: await fn() }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unexpected error",
+      }
+    }
+  },
+}))
+
+vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }))
 
 integration("product taxonomy lock concurrency", () => {
   const tenantId = `task7-lock-${process.pid}`
@@ -93,4 +130,177 @@ integration("product taxonomy lock concurrency", () => {
 
     await sql`DELETE FROM organization WHERE id = ${tenantId}`
   }, 30_000)
+})
+
+actionIntegration("production product taxonomy mutation boundaries", () => {
+  const prefix = `task7-action-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
+  let admin: Sql
+  let actionClient: Sql | undefined
+  let updateProductCodes: typeof import("@/app/(app)/settings/actions").updateProductCodes
+  let createProduct: typeof import("@/app/(app)/products/actions").createProduct
+  let updateProduct: typeof import("@/app/(app)/products/actions").updateProduct
+
+  const taxonomy = [
+    {
+      code: "PS",
+      name: "Professional Services",
+      subcategories: [{ code: "DATA", name: "Data Analytics" }],
+    },
+  ]
+  const withoutSubcategory = [
+    { code: "PS", name: "Professional Services", subcategories: [] },
+  ]
+
+  beforeAll(async () => {
+    if (!adminUrl || !actionDatabaseUrl) {
+      throw new Error("Production taxonomy boundary tests require both database URLs")
+    }
+
+    const globalForDb = globalThis as typeof globalThis & { __pgClient?: Sql }
+    const previousClient = globalForDb.__pgClient
+    delete globalForDb.__pgClient
+    if (previousClient) await previousClient.end()
+
+    admin = postgres(adminUrl, { max: 4 })
+    process.env.DATABASE_URL = actionDatabaseUrl
+    vi.resetModules()
+    const settingsActions = await import("@/app/(app)/settings/actions")
+    const productActions = await import("@/app/(app)/products/actions")
+    updateProductCodes = settingsActions.updateProductCodes
+    createProduct = productActions.createProduct
+    updateProduct = productActions.updateProduct
+    actionClient = globalForDb.__pgClient
+  })
+
+  afterAll(async () => {
+    if (admin) await admin`delete from organization where id like ${`${prefix}%`}`
+    if (actionClient) await actionClient.end()
+    await admin?.end()
+    delete process.env.DATABASE_URL
+  })
+
+  async function createTenant(withProduct = false) {
+    const tenantId = `${prefix}-${crypto.randomUUID()}`
+    const productId = crypto.randomUUID()
+    await admin`
+      insert into organization (id, name, slug)
+      values (${tenantId}, ${tenantId}, ${tenantId})
+    `
+    await admin`
+      insert into tenant_settings (organization_id, product_codes)
+      values (${tenantId}, ${JSON.stringify(taxonomy)}::jsonb)
+    `
+    if (withProduct) {
+      await admin`
+        insert into products (id, tenant_id, name, product_code, subcategory, currency, standard_price)
+        values (${productId}::uuid, ${tenantId}, 'Analytics', 'PS', 'DATA', 'MYR', '20.00')
+      `
+    }
+    actionTenantId = tenantId
+    return { tenantId, productId }
+  }
+
+  async function withHeldTaxonomyLock<T>(tenantId: string, operation: () => Promise<T>) {
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let locked!: () => void
+    const lockedPromise = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const holder = admin.begin(async (connection) => {
+      await lockProductTaxonomy(transactionDb(connection), tenantId)
+      locked()
+      await released
+    })
+    await lockedPromise
+
+    const pending = operation()
+    const passedBeforeRelease = await Promise.race([
+      pending.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
+    ])
+    expect(passedBeforeRelease).toBe(false)
+
+    release()
+    await holder
+    return pending
+  }
+
+  const lockCases: Array<[
+    string,
+    (tenantId: string, productId: string) => Promise<unknown>,
+  ]> = [
+    ["updateProductCodes", async (_tenantId: string, _productId?: string) => updateProductCodes(withoutSubcategory)],
+    ["createProduct", async (_tenantId: string, _productId?: string) => createProduct({
+      name: "New analytics",
+      productCode: "PS",
+      subcategory: "DATA",
+      currency: "MYR",
+      standardPrice: "10",
+    })],
+    ["updateProduct", async (_tenantId: string, productId: string) => updateProduct(productId, {
+      name: "Updated analytics",
+      productCode: "PS",
+      subcategory: "DATA",
+      currency: "MYR",
+      standardPrice: "25",
+    })],
+  ]
+
+  it.each(lockCases)("%s waits for the shared taxonomy lock", async (name, operation) => {
+    const fixture = await createTenant(name === "updateProduct")
+    try {
+      await withHeldTaxonomyLock(fixture.tenantId, () => operation(fixture.tenantId, fixture.productId))
+    } finally {
+      await admin`delete from organization where id = ${fixture.tenantId}`
+    }
+  })
+
+  it.each([
+    ["createProduct", async (_productId: string) => createProduct({
+      name: "Concurrent analytics",
+      productCode: "PS",
+      subcategory: "DATA",
+      currency: "MYR",
+      standardPrice: "15",
+    })],
+    ["updateProduct", async (productId: string) => updateProduct(productId, {
+      name: "Concurrent update",
+      productCode: "PS",
+      subcategory: "DATA",
+      currency: "MYR",
+      standardPrice: "30",
+    })],
+  ] as const)("removal races safely with production %s", async (name, mutation) => {
+    const fixture = await createTenant(name === "updateProduct")
+    try {
+      await withHeldTaxonomyLock(fixture.tenantId, async () => {
+        const [removal, productMutation] = await Promise.all([
+          updateProductCodes(withoutSubcategory),
+          mutation(fixture.productId),
+        ])
+        expect(removal.ok || productMutation.ok).toBe(true)
+      })
+
+      const rows = await admin<{ product_code: string | null; subcategory: string | null }[]>`
+        select product_code, subcategory from products
+        where tenant_id = ${fixture.tenantId} and deleted_at is null
+      `
+      const [settings] = await admin<{ product_codes: typeof taxonomy }[]>`
+        select product_codes from tenant_settings where organization_id = ${fixture.tenantId}
+      `
+      const validPairs = new Set(
+        settings.product_codes.flatMap((category) =>
+          category.subcategories.map((subcategory) => `${category.code}:${subcategory.code}`)
+        )
+      )
+      expect(rows.filter((row) => row.product_code && row.subcategory)
+        .map((row) => `${row.product_code}:${row.subcategory}`)
+        .every((pair) => validPairs.has(pair))).toBe(true)
+    } finally {
+      await admin`delete from organization where id = ${fixture.tenantId}`
+    }
+  })
 })

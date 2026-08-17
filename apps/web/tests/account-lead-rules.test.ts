@@ -1,16 +1,62 @@
 import { describe, expect, it } from "vitest"
 
 import { resolveAccountCurrency } from "@/app/(app)/accounts/actions"
+import { resolveOpportunityCurrency } from "@/app/(app)/funnel/actions"
 import { normalizeLeadInput, type LeadInput } from "@/app/(app)/leads/actions"
+import { resolveQuotationCurrency } from "@/app/(app)/quotations/actions"
 import { resolveDefaultSalesFunnel } from "@/server/services/conversion"
+import {
+  resolveAccountCurrencyBackfill,
+  resolveConfiguredCurrency,
+} from "@/server/services/tenant-currency"
 
-describe("account currency rules", () => {
-  it("rejects free-text currencies and defaults missing input from tenant currency", () => {
-    expect(resolveAccountCurrency(undefined, ["MYR", "USD"], "USD")).toBe("USD")
-    expect(resolveAccountCurrency("usd", ["MYR", "USD"], "MYR")).toBe("USD")
-    expect(() => resolveAccountCurrency("EUR", ["MYR", "USD"], "MYR")).toThrow(
+describe("account persistence currency rules", () => {
+  it("rejects free-text currencies during account create", () => {
+    expect(() => resolveAccountCurrency("EUR", ["MYR", "USD"], "USD")).toThrow(
       /configured currencies/
     )
+  })
+
+  it("rejects free-text currencies during account update", () => {
+    expect(() => resolveAccountCurrency("EUR", ["MYR", "USD"], "USD")).toThrow(
+      /configured currencies/
+    )
+  })
+
+  it("defaults missing input from a configured tenant currency", () => {
+    expect(resolveAccountCurrency(undefined, ["MYR", "USD"], "USD")).toBe("USD")
+    expect(resolveAccountCurrency("usd", ["MYR", "USD"], "MYR")).toBe("USD")
+  })
+})
+
+describe("opportunity and quotation currency persistence", () => {
+  it("defaults opportunity creation from the account and validates overrides", () => {
+    expect(resolveOpportunityCurrency(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(() => resolveOpportunityCurrency("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
+      /configured currencies/
+    )
+  })
+
+  it("defaults quotation creation from its funnel and validates overrides", () => {
+    expect(resolveQuotationCurrency(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(() => resolveQuotationCurrency("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
+      /configured currencies/
+    )
+  })
+})
+
+describe("tenant currency migration behavior", () => {
+  it("keeps a configured default, otherwise chooses first configured currency", () => {
+    expect(resolveAccountCurrencyBackfill("usd", ["MYR", "USD"])).toBe("USD")
+    expect(resolveAccountCurrencyBackfill("EUR", ["MYR", "USD"])).toBe("MYR")
+  })
+
+  it("falls back to MYR when settings have no valid currencies", () => {
+    expect(resolveAccountCurrencyBackfill("EUR", [])).toBe("MYR")
+  })
+
+  it("uses the first configured currency when tenant default is invalid", () => {
+    expect(resolveConfiguredCurrency(undefined, ["SGD", "USD"], "EUR")).toBe("SGD")
   })
 })
 

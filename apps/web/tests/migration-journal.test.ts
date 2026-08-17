@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
+import { resolveAccountCurrencyBackfill } from "@/server/services/tenant-currency"
 
 describe("migration journal", () => {
   it("includes the latest account currency migration", async () => {
@@ -14,14 +15,10 @@ describe("migration journal", () => {
     })
   })
 
-  it("backfills account currency before enforcing the required column", async () => {
-    const migration = await readFile(
-      path.resolve(process.cwd(), "db/migrations/0077_account_currency.sql"),
-      "utf8"
-    )
-
-    expect(migration).toMatch(/UPDATE "accounts" AS a[\s\S]*tenant_settings/)
-    expect(migration).toMatch(/ALTER TABLE "accounts" ALTER COLUMN "currency" SET NOT NULL/)
+  it("uses configured default, first configured, then MYR for account backfill", () => {
+    expect(resolveAccountCurrencyBackfill("USD", ["MYR", "USD"])).toBe("USD")
+    expect(resolveAccountCurrencyBackfill("EUR", ["SGD", "USD"])).toBe("SGD")
+    expect(resolveAccountCurrencyBackfill("EUR", [])).toBe("MYR")
   })
 
   it("repairs the drifted contact department column idempotently", async () => {

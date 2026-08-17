@@ -64,7 +64,7 @@ export default async function OpportunityDetailPage({
     <OpportunityForm
       mode="create"
       opportunityId={o.id}
-      accounts={[{ id: detail.accountId, name: detail.accountName }]}
+      accounts={[{ id: detail.accountId, name: detail.accountName, currency: detail.accountCurrency }]}
       persons={persons}
       members={members}
       pipelines={pipelines}

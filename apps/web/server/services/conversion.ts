@@ -11,7 +11,7 @@ import {
   funnelStageHistory,
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
-import { tenantDefaultCurrency } from "./tenant-currency"
+import { tenantConfiguredCurrency } from "./tenant-currency"
 import {
   createOpportunityContainer,
   recomputeOpportunityTotal,
@@ -163,7 +163,7 @@ export async function convertLead(
           name: lead.companyName || lead.name,
           code,
           ownerMemberId: lead.ownerMemberId ?? ctx.memberId,
-          currency: await tenantDefaultCurrency(tx, ctx.tenantId),
+          currency: await tenantConfiguredCurrency(tx, ctx.tenantId, undefined),
           accountType:
             input.newAccount?.accountType === "reseller" ? "reseller" : "client",
           phone: input.newAccount?.phone?.trim() || null,
@@ -224,7 +224,11 @@ export async function convertLead(
         .from(accounts)
         .where(eq(accounts.id, accountId))
         .limit(1)
-      const currency = account?.currency ?? (await tenantDefaultCurrency(tx, ctx.tenantId))
+      const currency = await tenantConfiguredCurrency(
+        tx,
+        ctx.tenantId,
+        account?.currency
+      )
       const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""
       // Lead → Opportunity CONTAINER, with a first funnel under it.
       const container = await createOpportunityContainer(tx, ctx, {

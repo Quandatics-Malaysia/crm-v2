@@ -29,7 +29,10 @@ import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
-import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
+import {
+  tenantConfiguredCurrency,
+} from "@/server/services/tenant-currency"
+export { resolveOpportunityCurrency } from "@/server/services/tenant-currency"
 import {
   deriveOriginRecognizedPercent,
   validatePartyShares,
@@ -424,15 +427,12 @@ export async function createOpportunity(
           ? input.recognizedPercent
           : null
 
-      const currency =
-        input.currency || (await tenantDefaultCurrency(tx, ctx.tenantId))
-
       // Resolve the parent Opportunity container: use the one passed in (PPVVC
       // cascades DOWN from it), or auto-create a 1:1 container so the single-step
       // "create a funnel" UX keeps working. The funnel's account is inherited
       // from the container (Salesforce "auto-populate funnel account").
       let containerId: string
-      let containerAccountId: string
+      let containerAccountId = input.accountId
       let ppvvc: Ppvvc
       let nature: { projectNatureCode: string | null; projectNatures: string[] | null }
       if (input.opportunityId) {
@@ -452,20 +452,33 @@ export async function createOpportunity(
         ppvvc = pickPpvvc(c)
         nature = pickNature(c)
       } else {
+        ppvvc = pickPpvvc(input)
+        nature = pickNature(input)
+      }
+      const [account] = await tx
+        .select({ currency: accounts.currency })
+        .from(accounts)
+        .where(eq(accounts.id, containerAccountId))
+        .limit(1)
+      const currency = await tenantConfiguredCurrency(
+        tx,
+        ctx.tenantId,
+        input.currency || account?.currency
+      )
+      if (!input.opportunityId) {
         const c = await createOpportunityContainer(tx, ctx, {
-          accountId: input.accountId,
+          accountId: containerAccountId,
           ownerMemberId,
           name: input.name,
           year: projectYear,
           currency,
           description: input.description,
-          ppvvc: pickPpvvc(input),
+          ppvvc,
           primaryPersonId: input.primaryPersonId,
           projectNatureCode: input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
           projectNatures: input.projectNatures ?? null,
         })
         containerId = c.id
-        containerAccountId = c.accountId
         ppvvc = c.ppvvc
         nature = c.nature
       }

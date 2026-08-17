@@ -13,10 +13,10 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { getEntitledModuleMap } from "@/lib/modules.server"
-import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import { cascadeAccountOwner } from "@/server/services/owner-cascade"
+import { resolveConfiguredCurrency } from "@/server/services/tenant-currency"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import type { Tx, ServerContext } from "@/lib/actions"
 import {
@@ -98,23 +98,7 @@ export function resolveAccountCurrency(
   configuredCurrencies: readonly string[] | null | undefined,
   tenantCurrency: string | null | undefined
 ): string {
-  const configured = Array.from(
-    new Set(
-      (configuredCurrencies?.length ? configuredCurrencies : DEFAULT_CURRENCIES)
-        .map((currency) => currency.trim().toUpperCase())
-        .filter((currency) => /^[A-Z]{3}$/.test(currency))
-    )
-  )
-  const fallback = (tenantCurrency ?? "").trim().toUpperCase()
-  const defaultCurrency = configured.includes(fallback)
-    ? fallback
-    : configured[0] ?? "MYR"
-  const requested = (input ?? "").trim().toUpperCase()
-  if (!requested) return defaultCurrency
-  if (!configured.includes(requested)) {
-    throw new Error("Currency must be one of the configured currencies")
-  }
-  return requested
+  return resolveConfiguredCurrency(input, configuredCurrencies, tenantCurrency)
 }
 
 async function tenantAccountCurrency(

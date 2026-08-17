@@ -828,6 +828,7 @@ export type OpportunityDetail = {
   }[]
   opportunity: typeof funnels.$inferSelect
   accountName: string
+  accountCurrency: string
   container: typeof opportunities.$inferSelect | null
   personName: string | null
   ownerName: string | null
@@ -872,7 +873,7 @@ export async function funnelsGet(
   if (!ownsOrManages(visible, opp.ownerMemberId)) return null
 
   const [acct] = await tx
-    .select({ name: accounts.name })
+    .select({ name: accounts.name, currency: accounts.currency })
     .from(accounts)
     .where(eq(accounts.id, opp.accountId))
     .limit(1)
@@ -1023,6 +1024,7 @@ export async function funnelsGet(
   return {
     opportunity: opp,
     accountName: acct?.name ?? "—",
+    accountCurrency: acct?.currency ?? "MYR",
     container: container ?? null,
     parties,
     partnerResponses,

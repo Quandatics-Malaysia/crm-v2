@@ -30,6 +30,8 @@ import {
 } from "@/db/schema"
 import type { ProductOption } from "@/lib/lookups"
 import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
+import { resolveQuotationCurrency } from "@/server/services/tenant-currency"
+export { resolveQuotationCurrency } from "@/server/services/tenant-currency"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
 import { syncFunnelProductsFromQuote } from "@/server/services/quote-sync"
@@ -521,12 +523,12 @@ export async function createQuotation(input: {
       taxInclusive,
     })
 
-    const configuredCurrencies = currencySettings?.currencies?.length
-      ? currencySettings.currencies
-      : DEFAULT_CURRENCIES
-    const currency = (input.currency?.trim().toUpperCase() || opp.currency)
-    if (!configuredCurrencies.includes(currency))
-      throw new Error("Currency must be one of the configured currencies")
+    const currency = resolveQuotationCurrency(
+      input.currency,
+      opp.currency,
+      currencySettings?.currencies,
+      null
+    )
 
     const { quoteNumber, version } = await nextQuoteNumber(tx, ctx, input.funnelId)
 

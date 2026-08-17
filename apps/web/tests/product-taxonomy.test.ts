@@ -7,6 +7,7 @@ import {
   validateProductTaxonomyPair,
   type ProductCategory,
 } from "@/app/(app)/settings/constants"
+import { allocateProductSubcategoryCode } from "@/server/services/product-taxonomy-seed"
 
 const categories: ProductCategory[] = [
   {
@@ -112,5 +113,53 @@ describe("quotation defaults", () => {
         paymentTerm: field === "paymentTerm" ? character.repeat(max + 1) : "",
       })
     ).toThrow(new RegExp(`${field}.*${max}`, "i"))
+  })
+})
+
+describe("sample seed subcategory codes", () => {
+  it("suffixes a normalized code already used by another subcategory", () => {
+    const taxonomy: ProductCategory[] = [
+      {
+        code: "PS",
+        name: "Professional Services",
+        subcategories: [{ code: "DATA_ANALYTICS", name: "Existing Analytics" }],
+      },
+      {
+        code: "TRAINING",
+        name: "Training",
+        subcategories: [{ code: "legacy", name: "Legacy Delivery" }],
+      },
+    ]
+
+    expect(allocateProductSubcategoryCode(taxonomy, "PS", "Data Analytics")).toBe(
+      "DATA_ANALYTICS_2"
+    )
+    expect(allocateProductSubcategoryCode(taxonomy, "PS", "Legacy")).toBe(
+      "LEGACY_2"
+    )
+  })
+
+  it("reuses the allocated code on an idempotent seed rerun", () => {
+    const taxonomy: ProductCategory[] = [
+      {
+        code: "PS",
+        name: "Professional Services",
+        subcategories: [{ code: "DATA_ANALYTICS", name: "Existing Analytics" }],
+      },
+    ]
+    const generated = allocateProductSubcategoryCode(taxonomy, "PS", "Data Analytics")
+    const rerunTaxonomy = [
+      {
+        ...taxonomy[0],
+        subcategories: [
+          ...taxonomy[0].subcategories,
+          { code: generated, name: "Data Analytics" },
+        ],
+      },
+    ]
+
+    expect(
+      allocateProductSubcategoryCode(rerunTaxonomy, "PS", "Data Analytics")
+    ).toBe(generated)
   })
 })

@@ -20,8 +20,8 @@ export type SettingsNavGroup = {
 
 /**
  * Grouped settings sub-nav. Pure + server-importable (no client imports) so the
- * layout can read it too. Invoicing's finance gating happens in-page; the Tax
- * item is permission-gated here (TAX_VIEW).
+ * layout can read it too. Invoicing remains finance-gated in-page; quotation
+ * defaults live in Documents so CRM tenants have a non-finance route.
  */
 export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
@@ -30,6 +30,16 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       {
         label: "General",
         href: "/settings/general",
+        permission: PERMISSIONS.TENANT_SETTINGS,
+      },
+    ],
+  },
+  {
+    label: "Documents",
+    items: [
+      {
+        label: "Documents",
+        href: "/settings/documents",
         permission: PERMISSIONS.TENANT_SETTINGS,
       },
     ],

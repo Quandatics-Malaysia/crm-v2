@@ -9,8 +9,8 @@ import { computeQuotation } from "@/server/services/quotation-math"
 import { COMPILED_MODULE_MAP } from "@/lib/module-registry"
 import {
   normalizeProductCategories,
-  normalizeProductSubcategoryCode,
 } from "@/app/(app)/settings/constants"
+import { allocateProductSubcategoryCode } from "@/server/services/product-taxonomy-seed"
 
 /**
  * Idempotent sample-data seed for role-play / demos.
@@ -814,27 +814,23 @@ async function main() {
     .from(tenantSettings)
     .where(eq(tenantSettings.organizationId, TENANT_ID))
     .limit(1)
-  const taxonomy = normalizeProductCategories(
-    (taxonomySettings?.productCodes ?? []).map((category) => {
-      const names = new Map(
-        category.subcategories.map((subcategory) => [subcategory.name.toLowerCase(), subcategory])
-      )
-      for (const product of productValues.filter((value) => value.productCode === category.code)) {
-        const name = product.subcategory.trim()
-        const key = name.toLowerCase()
-        if (!names.has(key)) {
-          names.set(key, {
-            code: normalizeProductSubcategoryCode(name)
-              .replace(/[^A-Z0-9_-]+/g, "_")
-              .replace(/^_+|_+$/g, "")
-              .slice(0, 32) || "SUBCATEGORY",
-            name,
-          })
-        }
-      }
-      return { ...category, subcategories: [...names.values()] }
+  const taxonomyDraft = (taxonomySettings?.productCodes ?? []).map((category) => ({
+    ...category,
+    subcategories: [...category.subcategories],
+  }))
+  for (const product of productValues) {
+    const category = taxonomyDraft.find((value) => value.code === product.productCode)
+    if (!category) continue
+    const name = product.subcategory.trim()
+    if (category.subcategories.some((value) => value.name.toLowerCase() === name.toLowerCase())) {
+      continue
+    }
+    category.subcategories.push({
+      code: allocateProductSubcategoryCode(taxonomyDraft, category.code, name),
+      name,
     })
-  )
+  }
+  const taxonomy = normalizeProductCategories(taxonomyDraft)
   await db
     .update(tenantSettings)
     .set({ productCodes: taxonomy })

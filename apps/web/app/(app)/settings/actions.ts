@@ -21,6 +21,7 @@ import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
+import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   getLicenseStateForTenant,
@@ -1238,6 +1239,7 @@ export async function updateProductCodes(
     const cleaned = normalizeProductCategories(productCodes ?? [])
 
     const saved = await runInTenant(ctx.tenantId, async (tx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
       const [current] = await tx
         .select({ productCodes: tenantSettings.productCodes })
         .from(tenantSettings)

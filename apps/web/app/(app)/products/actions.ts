@@ -9,6 +9,7 @@ import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
 import { validateProductTaxonomyPair } from "@/app/(app)/settings/constants"
+import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 import {
   products,
   quotations,
@@ -181,6 +182,7 @@ export async function createProduct(
     const standardPrice = normalizePrice(input.standardPrice)
 
     const row = await withTenant(PERMISSIONS.PRODUCT_CREATE, async (tx, ctx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
       const [settings] = await tx
         .select({ productCodes: tenantSettings.productCodes })
         .from(tenantSettings)
@@ -231,6 +233,7 @@ export async function updateProduct(
     const standardPrice = normalizePrice(input.standardPrice)
 
     const row = await withTenant(PERMISSIONS.PRODUCT_UPDATE, async (tx, ctx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
       const [before] = await tx
         .select()
         .from(products)

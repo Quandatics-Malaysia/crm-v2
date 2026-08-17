@@ -58,6 +58,7 @@ const ACCOUNT_TYPE_ITEMS = [
 const schema = z
   .object({
     name: z.string().min(1, "Name is required"),
+    currency: z.string().length(3, "Currency is required"),
     code: z
       .string()
       .refine(
@@ -97,12 +98,21 @@ function addr(account?: AccountRow): BillingAddress {
 }
 
 /** Tenant presets (Settings → General) prefilled on CREATE only. */
-export type AccountFormPresets = { defaultCountry?: string; phonePrefix?: string }
+export type AccountFormPresets = {
+  defaultCountry?: string
+  defaultCurrency?: string
+  phonePrefix?: string
+}
 
-function defaults(account?: AccountRow, presets?: AccountFormPresets): FormValues {
+function defaults(
+  account?: AccountRow,
+  presets?: AccountFormPresets,
+  currencies: string[] = []
+): FormValues {
   const a = addr(account)
   return {
     name: account?.name ?? "",
+    currency: account?.currency ?? presets?.defaultCurrency ?? currencies[0] ?? "",
     code: account?.code ?? "",
     registrationNumber: account?.registrationNumber ?? "",
     parentAccountId: account?.parentAccountId ?? NONE,
@@ -127,6 +137,7 @@ export function AccountForm({
   endUserOptions,
   industries,
   countries = [],
+  currencies = [],
   presets,
   trigger,
   open: controlledOpen,
@@ -143,6 +154,8 @@ export function AccountForm({
   industries: string[]
   /** Configurable country → states picklist from listCountries(). */
   countries?: CountryOption[]
+  /** Tenant-configured ISO-4217 currency picklist. */
+  currencies?: string[]
   /** Tenant presets (getFormPresets) prefilled on create. */
   presets?: AccountFormPresets
   /** Render-prop trigger. Omit when controlling open externally. */
@@ -156,7 +169,7 @@ export function AccountForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: defaults(account, presets),
+    defaultValues: defaults(account, presets, currencies),
   })
 
   // Near-miss duplicate warning (create only): checked when the user leaves
@@ -172,9 +185,9 @@ export function AccountForm({
   )
 
   React.useEffect(() => {
-    if (open) form.reset(defaults(account, presets))
+    if (open) form.reset(defaults(account, presets, currencies))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, currencies])
 
   // Parent / end-user options become local state so inline "+ Create" can
   // append the new account and have it immediately selectable.
@@ -228,6 +241,7 @@ export function AccountForm({
     }
     const payload = {
       name: values.name,
+      currency: values.currency,
       code: values.code || null,
       registrationNumber: values.registrationNumber || null,
       parentAccountId:
@@ -497,6 +511,37 @@ export function AccountForm({
                         {industries.map((i) => (
                           <SelectItem key={i} value={i}>
                             {i}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="currency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel required>Currency</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      items={currencies.map((currency) => ({
+                        value: currency,
+                        label: currency,
+                      }))}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select currency…" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {currencies.map((currency) => (
+                          <SelectItem key={currency} value={currency}>
+                            {currency}
                           </SelectItem>
                         ))}
                       </SelectContent>

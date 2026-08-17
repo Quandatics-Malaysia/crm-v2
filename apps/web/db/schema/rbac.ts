@@ -97,7 +97,7 @@ export const tenantSettings = pgTable("tenant_settings", {
    */
   intercompanyPartnerIds: jsonb("intercompany_partner_ids").$type<string[]>(),
   /**
-   * Tenant-managed ISO-4217 currency picklist for deal/quote forms.
+   * Tenant-managed ISO-4217 currency picklist for accounts, deals, and quotes.
    * NULL/empty = the built-in default set (lib/tenant-defaults.ts).
    */
   currencies: jsonb("currencies").$type<string[]>(),

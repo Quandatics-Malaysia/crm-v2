@@ -2,12 +2,11 @@
 
 import { and, eq, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant, requireContext, type Tx, type ServerContext } from "@/lib/actions"
+import { withTenant, requireContext } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { leadsList, leadsGet } from "@/lib/api-readers"
 import {
   leads,
-  pipelines,
   pipelineStages,
   tenantSettings,
 } from "@/db/schema"
@@ -25,41 +24,6 @@ import {
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
 const LIST_LIMIT = 1000
 
-/**
- * Validate a caller-supplied (pipelineId, currentStageId) pair against the tenant:
- * the funnel must exist, and the stage must belong to it. A stage without a
- * funnel is rejected. Returns the normalized ids to persist.
- */
-async function resolveFunnelStage(
-  tx: Tx,
-  ctx: ServerContext,
-  funnelIdInput: string | null,
-  stageIdInput: string | null
-): Promise<{ pipelineId: string | null; currentStageId: string | null }> {
-  if (!funnelIdInput && !stageIdInput) {
-    return { pipelineId: null, currentStageId: null }
-  }
-  if (!funnelIdInput) throw new Error("A funnel is required to set a stage")
-
-  const [funnel] = await tx
-    .select({ id: pipelines.id })
-    .from(pipelines)
-    .where(and(eq(pipelines.id, funnelIdInput), eq(pipelines.tenantId, ctx.tenantId)))
-    .limit(1)
-  if (!funnel) throw new Error("Funnel not found")
-
-  if (!stageIdInput) return { pipelineId: funnel.id, currentStageId: null }
-
-  const [stage] = await tx
-    .select({ id: pipelineStages.id })
-    .from(pipelineStages)
-    .where(and(eq(pipelineStages.id, stageIdInput), eq(pipelineStages.pipelineId, funnel.id)))
-    .limit(1)
-  if (!stage) throw new Error("Stage not found in this funnel")
-
-  return { pipelineId: funnel.id, currentStageId: stage.id }
-}
-
 export type Lead = typeof leads.$inferSelect
 
 export type LeadInput = {
@@ -69,13 +33,23 @@ export type LeadInput = {
   phone?: string | null
   source?: string | null
   status?: Lead["status"]
-  pipelineId?: string | null
-  currentStageId?: string | null
 }
 
 function clean(v?: string | null): string | null {
   const t = (v ?? "").trim()
   return t.length ? t : null
+}
+
+/** Keep lead create/update payloads limited to the simplified lead fields. */
+export function normalizeLeadInput(input: LeadInput) {
+  return {
+    name: input.name.trim(),
+    companyName: clean(input.companyName),
+    email: clean(input.email),
+    phone: clean(input.phone),
+    source: clean(input.source),
+    status: input.status,
+  }
 }
 
 /**
@@ -117,8 +91,9 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
 
 export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> {
   return runAction(async () => {
-    if (!input.name?.trim()) throw new Error("Name is required")
-    const email = requireEmail(input.email)
+    const normalized = normalizeLeadInput(input)
+    if (!normalized.name) throw new Error("Name is required")
+    const email = requireEmail(normalized.email)
 
     const row = await withTenant(PERMISSIONS.LEAD_CREATE, async (tx, ctx) => {
       // Duplicate guard: a live lead with the same email is almost always the
@@ -144,25 +119,16 @@ export async function createLead(input: LeadInput): Promise<ActionResult<Lead>> 
         }
       }
 
-      const { pipelineId, currentStageId } = await resolveFunnelStage(
-        tx,
-        ctx,
-        clean(input.pipelineId),
-        clean(input.currentStageId)
-      )
-
       const [lead] = await tx
         .insert(leads)
         .values({
           tenantId: ctx.tenantId,
-          name: input.name.trim(),
-          companyName: clean(input.companyName),
+          name: normalized.name,
+          companyName: normalized.companyName,
           email,
-          phone: clean(input.phone),
-          source: clean(input.source),
-          status: input.status ?? "new",
-          pipelineId,
-          currentStageId,
+          phone: normalized.phone,
+          source: normalized.source,
+          status: normalized.status ?? "new",
           ownerMemberId: ctx.memberId,
         })
         .returning()
@@ -213,9 +179,6 @@ export async function updateLead(
   input: LeadInput
 ): Promise<ActionResult<Lead>> {
   return runAction(async () => {
-    if (!input.name?.trim()) throw new Error("Name is required")
-    const email = requireEmail(input.email)
-
     const row = await withTenant(PERMISSIONS.LEAD_UPDATE, async (tx, ctx) => {
       const [before] = await tx
         .select()
@@ -228,22 +191,17 @@ export async function updateLead(
       if (!canManageAllRecords(ctx) && !ownsOrManages(visible, before.ownerMemberId))
         throw new Error("FORBIDDEN: not permitted on this lead")
 
-      const { pipelineId, currentStageId: nextStageId } = await resolveFunnelStage(
-        tx,
-        ctx,
-        clean(input.pipelineId),
-        clean(input.currentStageId)
-      )
+      const normalized = normalizeLeadInput(input)
+      if (!normalized.name) throw new Error("Name is required")
+      const email = requireEmail(normalized.email)
 
       const updated = {
-        name: input.name.trim(),
-        companyName: clean(input.companyName),
+        name: normalized.name,
+        companyName: normalized.companyName,
         email,
-        phone: clean(input.phone),
-        source: clean(input.source),
-        status: input.status ?? before.status,
-        pipelineId,
-        currentStageId: nextStageId,
+        phone: normalized.phone,
+        source: normalized.source,
+        status: normalized.status ?? before.status,
         updatedAt: new Date(),
       }
 
@@ -253,24 +211,6 @@ export async function updateLead(
         .where(eq(leads.id, id))
         .returning()
 
-      // Record a dedicated stage-change activity when the stage moves.
-      if (before.currentStageId !== nextStageId) {
-        let toName = "—"
-        if (nextStageId) {
-          const [stage] = await tx
-            .select({ name: pipelineStages.name })
-            .from(pipelineStages)
-            .where(eq(pipelineStages.id, nextStageId))
-            .limit(1)
-          toName = stage?.name ?? "—"
-        }
-        await logActivity(tx, ctx, {
-          entityType: "lead",
-          entityId: id,
-          type: "stage_change",
-          subject: `Moved to ${toName}`,
-        })
-      }
 
       await recordChanges(tx, ctx, {
         entityType: "lead",

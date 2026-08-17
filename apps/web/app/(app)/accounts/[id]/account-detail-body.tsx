@@ -65,6 +65,7 @@ export type AccountEditKey =
   | "phone"
   | "website"
   | "registrationNumber"
+  | "currency"
   | `address.${AccountAddressKey}`
 
 export type AccountDetailSection = {
@@ -81,6 +82,7 @@ export type AccountDetailData = {
   /** Gates every inline editor (ACCOUNT_UPDATE, resolved server-side). */
   canEdit: boolean
   industries: string[]
+  currencies: string[]
   /** Country picklist for the inline billing-address country combobox. */
   countries: string[]
   /** Tenant members, for the inline account-owner (account manager) picker. */
@@ -111,6 +113,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     record,
     canEdit,
     industries,
+    currencies,
     countries,
     members,
     contacts,
@@ -148,6 +151,10 @@ export function AccountDetailBody(props: AccountDetailData) {
   const industryOptions = React.useMemo(
     () => industries.map((i) => ({ value: i, label: i })),
     [industries]
+  )
+  const currencyOptions = React.useMemo(
+    () => currencies.map((currency) => ({ value: currency, label: currency })),
+    [currencies]
   )
   const countryOptions = React.useMemo(
     () => countries.map((c) => ({ value: c, label: c })),
@@ -317,7 +324,11 @@ export function AccountDetailBody(props: AccountDetailData) {
                       : null
                   // What's left after the industry/owner/address branches below.
                   const scalarKey =
-                    key && !addressSub && key !== "industry" && key !== "owner"
+                      key &&
+                      !addressSub &&
+                      key !== "industry" &&
+                      key !== "owner" &&
+                      key !== "currency"
                       ? (key as "name" | "phone" | "website" | "registrationNumber")
                       : null
                   return (
@@ -364,6 +375,16 @@ export function AccountDetailBody(props: AccountDetailData) {
                           searchPlaceholder="Search members…"
                           emptyMessage="No members found."
                           title="Click to change owner"
+                        />
+                      ) : key === "currency" ? (
+                        <InlineCombobox
+                          value={record.currency}
+                          display={record.currency}
+                          options={currencyOptions}
+                          onSave={(next) => saveField({ currency: next })}
+                          searchPlaceholder="Search currencies…"
+                          emptyMessage="No currencies configured."
+                          title="Click to change currency"
                         />
                       ) : scalarKey ? (
                         <InlineValue

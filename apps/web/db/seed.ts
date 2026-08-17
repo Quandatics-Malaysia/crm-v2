@@ -165,7 +165,7 @@ async function main() {
   if (!funnel) {
     ;[funnel] = await db
       .insert(pipelines)
-      .values({ tenantId: TENANT_ID, name: "Sales Pipeline", isDefault: true, isActive: true })
+      .values({ tenantId: TENANT_ID, name: "Sales Funnel", isDefault: true, isActive: true })
       .returning()
   }
   // Entry requirements matching the ACTIVE Salesforce validation rules only

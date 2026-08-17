@@ -21,7 +21,7 @@ import {
 } from "@/lib/tenant-defaults"
 
 export type MemberOption = { memberId: string; name: string; email: string }
-export type Option = { id: string; name: string }
+export type Option = { id: string; name: string; currency?: string }
 
 /** Members of the active tenant — for owner / assignee selects. */
 export async function listMembers(): Promise<MemberOption[]> {
@@ -38,7 +38,7 @@ export async function listAccountOptions(): Promise<Option[]> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
-      .select({ id: accounts.id, name: accounts.name })
+      .select({ id: accounts.id, name: accounts.name, currency: accounts.currency })
       .from(accounts)
       .where(
         and(

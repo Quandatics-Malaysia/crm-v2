@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   boolean,
+  char,
   date,
   jsonb,
   timestamp,
@@ -32,6 +33,8 @@ export const accounts = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** ISO-4217 account currency, constrained by tenant settings. */
+    currency: char("currency", { length: 3 }).notNull().default("MYR"),
     /** Short account code, used in project codes. */
     code: text("code"),
     parentAccountId: uuid("parent_account_id").references(

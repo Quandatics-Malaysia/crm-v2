@@ -29,6 +29,7 @@ import {
   user,
 } from "@/db/schema"
 import type { ProductOption } from "@/lib/lookups"
+import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
 import { syncFunnelProductsFromQuote } from "@/server/services/quote-sync"
@@ -349,12 +350,12 @@ export async function getProjectForQuotation(
 
 /** Open funnels for the "new quotation" picker. */
 export async function listOpportunityOptions(): Promise<
-  { id: string; name: string }[]
+  { id: string; name: string; currency: string }[]
 > {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
-      .select({ id: funnels.id, name: funnels.name })
+      .select({ id: funnels.id, name: funnels.name, currency: funnels.currency })
       .from(funnels)
       .where(
         and(
@@ -385,6 +386,7 @@ export async function getQuotationFormMeta(): Promise<{
   products: ProductOption[]
   /** Prefill for "Valid until" (today + tenant quote_valid_days), or null. */
   defaultValidUntil: string | null
+  currencies: string[]
 }> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const taxOptions = await tx
@@ -402,6 +404,7 @@ export async function getQuotationFormMeta(): Promise<{
       .select({
         projectNatures: tenantSettings.projectNatures,
         quoteValidDays: tenantSettings.quoteValidDays,
+        currencies: tenantSettings.currencies,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
@@ -430,6 +433,7 @@ export async function getQuotationFormMeta(): Promise<{
       projectNatures: settings?.projectNatures ?? [],
       products: productOptions,
       defaultValidUntil,
+      currencies: settings?.currencies?.length ? settings.currencies : DEFAULT_CURRENCIES,
     }
   })
 }
@@ -461,6 +465,7 @@ async function loadTaxInclusive(
 
 export async function createQuotation(input: {
   funnelId: string
+  currency?: string | null
   taxSettingId: string | null
   validUntil: string | null
   notes: string | null
@@ -486,6 +491,11 @@ export async function createQuotation(input: {
     if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
       throw new Error("FORBIDDEN")
+    const [currencySettings] = await tx
+      .select({ currencies: tenantSettings.currencies })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
 
     // Inherit the funnel's project nature as the default when the user didn't
     // pick one; the quotation keeps it editable from here on.
@@ -511,6 +521,13 @@ export async function createQuotation(input: {
       taxInclusive,
     })
 
+    const configuredCurrencies = currencySettings?.currencies?.length
+      ? currencySettings.currencies
+      : DEFAULT_CURRENCIES
+    const currency = (input.currency?.trim().toUpperCase() || opp.currency)
+    if (!configuredCurrencies.includes(currency))
+      throw new Error("Currency must be one of the configured currencies")
+
     const { quoteNumber, version } = await nextQuoteNumber(tx, ctx, input.funnelId)
 
     const [created] = await tx
@@ -521,7 +538,7 @@ export async function createQuotation(input: {
         quoteNumber,
         version,
         status: "draft",
-        currency: opp.currency,
+        currency,
         projectNatureCode,
         taxSettingId: input.taxSettingId,
         taxInclusive,

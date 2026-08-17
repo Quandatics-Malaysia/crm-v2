@@ -41,11 +41,13 @@ function RowActions({
   parentOptions,
   industries,
   countries,
+  currencies,
 }: {
   account: AccountListItem
   parentOptions: Option[]
   industries: string[]
   countries: CountryOption[]
+  currencies: string[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -94,6 +96,7 @@ function RowActions({
           endUserOptions={editOptions}
           industries={industries}
           countries={countries}
+          currencies={currencies}
           open={editOpen}
           onOpenChange={setEditOpen}
           onSaved={() => {
@@ -166,12 +169,14 @@ export function AccountsTable({
   parentOptions,
   industries,
   countries,
+  currencies,
   presets,
 }: {
   data: AccountListItem[]
   parentOptions: Option[]
   industries: string[]
   countries: CountryOption[]
+  currencies: string[]
   /** Tenant form presets (default country / phone prefix) for the create form. */
   presets?: { defaultCountry: string; phonePrefix: string }
 }) {
@@ -220,6 +225,11 @@ export function AccountsTable({
         ),
       },
       {
+        accessorKey: "currency",
+        header: "Currency",
+        cell: ({ row }) => row.original.currency,
+      },
+      {
         accessorKey: "industry",
         header: "Industry",
         cell: ({ row }) => row.original.industry ?? "—",
@@ -255,12 +265,13 @@ export function AccountsTable({
             parentOptions={parentOptions}
             industries={industries}
             countries={countries}
+            currencies={currencies}
           />
         ),
         enableHiding: false,
       },
     ],
-    [parentOptions, industries, countries]
+    [parentOptions, industries, countries, currencies]
   )
 
   return (
@@ -286,6 +297,7 @@ export function AccountsTable({
             endUserOptions={parentOptions}
             industries={industries}
             countries={countries}
+            currencies={currencies}
             presets={presets}
             trigger={
               <Button size="sm">
@@ -304,6 +316,7 @@ export function AccountsTable({
             endUserOptions={parentOptions}
             industries={industries}
             countries={countries}
+            currencies={currencies}
             presets={presets}
             open={newOpen}
             onOpenChange={setNewOpen}

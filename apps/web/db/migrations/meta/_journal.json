@@ -540,6 +540,13 @@
 			"when": 1786975200000,
 			"tag": "0076_saved_views",
 			"breakpoints": true
+		},
+		{
+			"idx": 77,
+			"version": "7",
+			"when": 1786975201000,
+			"tag": "0077_account_currency",
+			"breakpoints": true
 		}
 	]
 }

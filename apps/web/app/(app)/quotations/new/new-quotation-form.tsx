@@ -21,6 +21,7 @@ export function NewQuotationForm({
   taxInclusive,
   projectNatures,
   products,
+  currencies,
   defaultValidUntil,
 }: {
   funnels: OpportunityOption[]
@@ -29,6 +30,7 @@ export function NewQuotationForm({
   taxInclusive: boolean
   projectNatures: ProjectNatureOption[]
   products: ProductOption[]
+  currencies: string[]
   /** Tenant default "Valid until" prefill (Settings → Numbering). */
   defaultValidUntil?: string | null
 }) {
@@ -41,6 +43,7 @@ export function NewQuotationForm({
       taxInclusive={taxInclusive}
       projectNatures={projectNatures}
       products={products}
+      currencies={currencies}
       defaultValidUntil={defaultValidUntil}
       submitLabel="Create draft"
       onCancel={() => router.push("/quotations")}

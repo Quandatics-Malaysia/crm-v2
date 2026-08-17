@@ -397,7 +397,6 @@ export function LeadsTable({
                   <DialogTitle>New lead</DialogTitle>
                 </DialogHeader>
                 <LeadForm
-                  pipelines={pipelines}
                   sources={leadSources}
                   phonePrefix={phonePrefix}
                   onSubmit={handleCreate}
@@ -422,7 +421,6 @@ export function LeadsTable({
             <LeadForm
               key={editLead.id}
               lead={editLead}
-              pipelines={pipelines}
               sources={leadSources}
               onSubmit={handleUpdate}
               submitLabel="Save changes"

@@ -158,7 +158,7 @@ export default async function LeadDetailPage({
               </Badge>
             ) : null}
             {!isConverted ? <LeadDetailActions lead={lead} /> : null}
-            <LeadEditButton lead={lead} pipelines={pipelines} />
+            <LeadEditButton lead={lead} />
             <Button
               variant="outline"
               nativeButton={false}

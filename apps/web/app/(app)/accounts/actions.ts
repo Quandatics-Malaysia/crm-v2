@@ -13,6 +13,7 @@ import {
 } from "@/lib/access-scope"
 import { writeAudit } from "@/server/audit"
 import { getEntitledModuleMap } from "@/lib/modules.server"
+import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import { cascadeAccountOwner } from "@/server/services/owner-cascade"
@@ -25,6 +26,7 @@ import {
   opportunities,
   projects,
   quotations,
+  tenantSettings,
 } from "@/db/schema"
 import {
   normalizePhoneInput,
@@ -69,6 +71,7 @@ export type AccountFunnelItem = {
 
 export type AccountInput = {
   name: string
+  currency: string
   code?: string | null
   parentAccountId?: string | null
   /** "client" (end user) or "reseller" (channel); defaults to "client". */
@@ -87,6 +90,48 @@ export type AccountInput = {
   phone?: string | null
   registrationNumber?: string | null
   billingAddress?: BillingAddress | null
+}
+
+/** Resolve and validate an account currency against the tenant picklist. */
+export function resolveAccountCurrency(
+  input: string | null | undefined,
+  configuredCurrencies: readonly string[] | null | undefined,
+  tenantCurrency: string | null | undefined
+): string {
+  const configured = Array.from(
+    new Set(
+      (configuredCurrencies?.length ? configuredCurrencies : DEFAULT_CURRENCIES)
+        .map((currency) => currency.trim().toUpperCase())
+        .filter((currency) => /^[A-Z]{3}$/.test(currency))
+    )
+  )
+  const fallback = (tenantCurrency ?? "").trim().toUpperCase()
+  const defaultCurrency = configured.includes(fallback)
+    ? fallback
+    : configured[0] ?? "MYR"
+  const requested = (input ?? "").trim().toUpperCase()
+  if (!requested) return defaultCurrency
+  if (!configured.includes(requested)) {
+    throw new Error("Currency must be one of the configured currencies")
+  }
+  return requested
+}
+
+async function tenantAccountCurrency(
+  tx: Tx,
+  tenantId: string,
+  requested: string | null | undefined
+): Promise<string> {
+  const [settings] = await tx
+    .select({ currencies: tenantSettings.currencies, defaultCurrency: tenantSettings.defaultCurrency })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, tenantId))
+    .limit(1)
+  return resolveAccountCurrency(
+    requested,
+    settings?.currencies,
+    settings?.defaultCurrency
+  )
 }
 
 /**
@@ -113,6 +158,7 @@ function normalizeAccountInput(input: AccountInput): AccountInput {
   if (!name) throw new Error("Name is required.")
   return {
     ...input,
+    currency: input.currency.trim().toUpperCase(),
     name,
     industry: normalizeTextInput(input.industry, "Industry", 160),
     website: normalizeUrlInput(input.website, "Website"),
@@ -450,11 +496,18 @@ export async function findSimilarAccounts(
   }
 }
 
+export function createAccount(input: AccountInput): Promise<ActionResult<AccountRow>>
+export function createAccount(input: Pick<AccountInput, "name">): Promise<ActionResult<AccountRow>>
 export async function createAccount(
-  input: AccountInput
+  input: AccountInput | Pick<AccountInput, "name">
 ): Promise<ActionResult<AccountRow>> {
   return runAction(async () => {
-    const normalized = normalizeAccountInput(input)
+    const inputWithCurrency = {
+      ...input,
+      currency: "currency" in input ? input.currency : "",
+    }
+    const accountInput = inputWithCurrency as AccountInput
+    const normalized = normalizeAccountInput(inputWithCurrency)
     const row = await withTenant(PERMISSIONS.ACCOUNT_CREATE, async (tx, ctx) => {
       // Duplicate guard: an exact (case-insensitive) name match almost always
       // means the account already exists — block with a pointer instead of
@@ -464,7 +517,7 @@ export async function createAccount(
         .from(accounts)
         .where(
           and(
-            sql`lower(${accounts.name}) = lower(${input.name.trim()})`,
+            sql`lower(${accounts.name}) = lower(${accountInput.name.trim()})`,
             isNull(accounts.deletedAt)
           )
         )
@@ -478,13 +531,18 @@ export async function createAccount(
       // User-entered code is validated + uniqueness-checked; a blank code is
       // auto-generated from the name so accounts.code is always populated (it
       // feeds the project code).
-      let code = normalizeCode(input.code)
+      let code = normalizeCode(accountInput.code)
       if (code) await assertCodeUnique(tx, ctx.tenantId, code)
       else code = await generateAccountCode(tx, ctx.tenantId, normalized.name)
-      const parentAccountId = input.parentAccountId || null
+      const parentAccountId = accountInput.parentAccountId || null
       if (parentAccountId) await assertParentValid(tx, parentAccountId)
-      const { accountType, endUserAccountId } = resolveAccountType(input)
+      const { accountType, endUserAccountId } = resolveAccountType(accountInput)
       if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
+      const currency = await tenantAccountCurrency(
+        tx,
+        ctx.tenantId,
+        inputWithCurrency.currency
+      )
 
       const [created] = await tx
         .insert(accounts)
@@ -492,6 +550,7 @@ export async function createAccount(
           tenantId: ctx.tenantId,
           ownerMemberId: ctx.memberId,
           name: normalized.name,
+          currency,
           code,
           parentAccountId,
           accountType,
@@ -500,7 +559,7 @@ export async function createAccount(
           website: normalized.website ?? null,
           phone: normalized.phone ?? null,
           registrationNumber: normalized.registrationNumber ?? null,
-          billingAddress: cleanAddress(input.billingAddress),
+          billingAddress: cleanAddress(accountInput.billingAddress),
         })
         .returning()
       await logActivity(tx, ctx, {
@@ -556,6 +615,11 @@ export async function updateAccount(
         throw new Error("An account cannot be its own end user.")
       }
       if (endUserAccountId) await assertEndUserValid(tx, ctx, endUserAccountId)
+      const currency = await tenantAccountCurrency(
+        tx,
+        ctx.tenantId,
+        input.currency
+      )
 
       // Owner is full-replace like every other field: an omitted ownerMemberId
       // means "leave as-is", so it defaults to the current owner.
@@ -566,6 +630,7 @@ export async function updateAccount(
 
       const updated = {
         name: normalized.name,
+        currency,
         code,
         parentAccountId,
         accountType,

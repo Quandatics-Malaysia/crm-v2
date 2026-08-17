@@ -315,7 +315,7 @@ export function ConvertForm({
           <div className="grid gap-0.5">
             <CardTitle className="text-base">Opportunity &amp; Funnel</CardTitle>
             <CardDescription>
-              Created together in the Sales Pipeline at its first stage.
+              Created together in the Sales Funnel at its first stage.
             </CardDescription>
           </div>
         </CardHeader>

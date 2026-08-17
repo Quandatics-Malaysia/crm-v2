@@ -16,12 +16,14 @@ export function AccountEditButton({
   endUserOptions,
   industries,
   countries,
+  currencies,
 }: {
   account: AccountRow
   parentOptions: Option[]
   endUserOptions: Option[]
   industries: string[]
   countries: CountryOption[]
+  currencies: string[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -33,6 +35,7 @@ export function AccountEditButton({
       endUserOptions={endUserOptions}
       industries={industries}
       countries={countries}
+      currencies={currencies}
       trigger={
         <Button variant="outline" size="sm">
           <Pencil className="size-4" />

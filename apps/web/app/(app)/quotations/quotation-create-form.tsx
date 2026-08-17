@@ -53,6 +53,7 @@ const NO_PRODUCT = "__custom__"
 
 const schema = z.object({
   funnelId: z.string().trim().min(1, "Select a funnel"),
+  currency: z.string().min(1, "Currency is required"),
   taxSettingId: z.string(),
   projectNatureCode: z.string(),
   validUntil: z.string(),
@@ -63,7 +64,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-export type OpportunityOption = { id: string; name: string }
+export type OpportunityOption = { id: string; name: string; currency?: string }
 export type ProjectNatureOption = { code: string; name: string }
 
 /**
@@ -80,7 +81,8 @@ export function QuotationCreateForm({
   funnels,
   funnelId,
   defaultOpportunityId,
-  currency = "MYR",
+  currency,
+  currencies = [],
   defaultValidUntil,
   submitLabel = "Create quotation",
   onCancel,
@@ -99,6 +101,7 @@ export function QuotationCreateForm({
   /** Pre-selected funnel in the picker (picker stays visible/editable). */
   defaultOpportunityId?: string
   currency?: string
+  currencies?: string[]
   /** Prefill for "Valid until" (tenant default validity), YYYY-MM-DD. */
   defaultValidUntil?: string | null
   submitLabel?: string
@@ -116,6 +119,11 @@ export function QuotationCreateForm({
     mode: "onBlur",
     defaultValues: {
       funnelId: funnelId ?? defaultOpportunityId ?? "",
+      currency:
+        funnels?.find((funnel) => funnel.id === (funnelId ?? defaultOpportunityId))?.currency ??
+        currency ??
+        currencies[0] ??
+        "MYR",
       taxSettingId: defaultTaxId,
       projectNatureCode: INHERIT_PROJECT_NATURE,
       validUntil: defaultValidUntil ?? "",
@@ -200,6 +208,7 @@ export function QuotationCreateForm({
     setBusy(true)
     const res = await createQuotation({
       funnelId: values.funnelId,
+      currency: values.currency,
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
       projectNatureCode:
@@ -252,7 +261,17 @@ export function QuotationCreateForm({
                   <FormControl>
                     <Combobox
                       value={field.value}
-                      onChange={field.onChange}
+                      onChange={(value) => {
+                        field.onChange(value)
+                        if (!form.formState.dirtyFields.currency) {
+                          form.setValue(
+                            "currency",
+                            funnels?.find((funnel) => funnel.id === value)?.currency ??
+                              currencies[0] ??
+                              "MYR"
+                          )
+                        }
+                      }}
                       options={(funnels ?? []).map((o) => ({
                         value: o.id,
                         label: o.name,
@@ -268,6 +287,35 @@ export function QuotationCreateForm({
               )}
             />
           ) : null}
+
+          <FormField
+            control={form.control}
+            name="currency"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel required>Currency</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  items={currencies.map((value) => ({ value, label: value }))}
+                >
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Pick a currency…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {currencies.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}

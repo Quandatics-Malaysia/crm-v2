@@ -143,3 +143,34 @@ Commit SHA: reported in the final handoff.
 - `apps/web/tests/ppvvc-actions.test.ts`
 
 Commit SHA: reported in the final handoff.
+
+## Fix round 4/5 — action-to-storage sparse PPVVC persistence
+
+### Findings addressed
+
+- Added environment-gated PostgreSQL regressions for sparse Funnel and Opportunity Server Actions.
+- Each regression exercises production `runAction`, `withTenant`, authenticated tenant context, real tenant transaction, real PPVVC synchronization service, and admin storage reads.
+- Assertions prove submitted PPVVC fields change while every untouched PPVVC field remains unchanged on both authoritative Opportunities and live Funnel snapshots.
+- Existing action unit tests remain as forwarding-contract coverage; no synchronization services are mocked in the new regressions.
+- No production defect found; production code unchanged.
+
+### TDD evidence
+
+- Tests were authored before any production change; no production change was required because sparse persistence path is already correct.
+- PostgreSQL action regressions are environment-gated and skipped in this workspace because `TEST_DATABASE_ADMIN_URL` and `TEST_DATABASE_URL` are unset.
+
+### Verification
+
+- Focused PPVVC tests: 2 files passed; 9 tests passed; PostgreSQL boundary file skipped with 6 tests skipped.
+- Full web suite: 54 files passed; 6 skipped; 498 tests passed; 44 skipped.
+- Typecheck: passed with no TypeScript errors.
+- Lint: passed.
+- Migration-focused checks: 2 files passed; 1 skipped; 20 tests passed; 1 skipped.
+- `git diff --check`: passed.
+
+### Fix-round files
+
+- `apps/web/tests/ppvvc-sync-db.test.ts`
+- `.superpowers/sdd/2026-08-17-crm-sales-lifecycle-customization/task-5-report.md`
+
+Commit: `test: verify PPVVC sparse persistence`

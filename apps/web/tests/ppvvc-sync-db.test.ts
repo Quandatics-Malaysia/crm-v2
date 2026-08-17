@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js"
 import { sql } from "drizzle-orm"
 import postgres, { type Sql } from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { Tx } from "@/db"
 import * as schema from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
@@ -10,6 +10,28 @@ import {
   updateFunnelPpvvc,
   updateOpportunityPpvvc,
 } from "@/server/services/ppvvc"
+
+const actionHarness = vi.hoisted(() => ({
+  authSession: vi.fn(),
+  assertWriteAllowed: vi.fn(async () => undefined),
+}))
+
+vi.mock("@/lib/auth", () => ({
+  auth: { api: { getSession: actionHarness.authSession } },
+}))
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => new Headers()),
+  cookies: vi.fn(async () => ({ get: () => undefined })),
+}))
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/write-access", () => {
+  class TestLicenseReadOnlyError extends Error {}
+  return {
+    LICENSE_READ_ONLY: "LICENSE_READ_ONLY",
+    LicenseReadOnlyError: TestLicenseReadOnlyError,
+    assertWriteAllowed: actionHarness.assertWriteAllowed,
+  }
+})
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const appUrl = process.env.TEST_DATABASE_URL
@@ -113,15 +135,24 @@ integration("PPVVC PostgreSQL boundary", () => {
   let admin: Sql
   let appA: Sql
   let appB: Sql
+  let updateFunnelAction: typeof import("@/app/(app)/funnel/actions").updateOpportunity
+  let updateOpportunityAction: typeof import("@/app/(app)/opportunities/actions").updateOpportunityContainer
+  let previousDatabaseUrl: string | undefined
   const tenants: string[] = []
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (!adminUrl || !appUrl) {
       throw new Error("PPVVC PostgreSQL tests require TEST_DATABASE_ADMIN_URL and TEST_DATABASE_URL")
     }
     admin = postgres(adminUrl, { max: 2 })
     appA = postgres(appUrl, { max: 2 })
     appB = postgres(appUrl, { max: 2 })
+    previousDatabaseUrl = process.env.DATABASE_URL
+    process.env.DATABASE_URL = appUrl
+    const funnelActions = await import("@/app/(app)/funnel/actions")
+    const opportunityActions = await import("@/app/(app)/opportunities/actions")
+    updateFunnelAction = funnelActions.updateOpportunity
+    updateOpportunityAction = opportunityActions.updateOpportunityContainer
   })
 
   afterAll(async () => {
@@ -131,6 +162,12 @@ integration("PPVVC PostgreSQL boundary", () => {
     }
     await admin`delete from "user" where id like ${`${prefix}%`}`
     await Promise.all([admin.end(), appA.end(), appB.end()])
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previousDatabaseUrl
+    const actionClient = (globalThis as typeof globalThis & {
+      __pgClient?: { end: () => Promise<unknown> }
+    }).__pgClient
+    if (actionClient) await actionClient.end()
   })
 
   async function scoped<T>(
@@ -175,6 +212,9 @@ integration("PPVVC PostgreSQL boundary", () => {
       values
         (${userId}, 'Task 5 Actor', ${`${userId}@example.com`}, true, now(), now()),
         (${otherUserId}, 'Task 5 Other Actor', ${`${otherUserId}@example.com`}, true, now(), now())
+    `
+    await admin`
+      update "user" set is_superadmin = true where id = ${userId}
     `
     await admin`
       insert into member (id, organization_id, user_id, role, created_at)
@@ -410,5 +450,71 @@ integration("PPVVC PostgreSQL boundary", () => {
     `
     expect(finalSource).toMatchObject({ pain: "Funnel writer", power: "Opportunity writer" })
     expect(finalChild).toMatchObject(finalSource)
+  })
+
+  it("persists sparse Funnel action PPVVC patch without clearing untouched fields", async () => {
+    const f = await fixture()
+    actionHarness.authSession.mockResolvedValue({
+      user: {
+        id: f.userId,
+        name: "Task 5 Actor",
+        email: `${f.userId}@example.com`,
+      },
+      session: { activeOrganizationId: f.tenantId },
+    })
+
+    const result = await updateFunnelAction(f.liveFunnelId, { pain: "  Funnel action pain  " })
+
+    expect(result).toEqual({ ok: true, data: undefined })
+    const [source] = await admin`
+      select pain, power, vision, value, control
+      from opportunities where id = ${f.opportunityId}::uuid
+    `
+    const [child] = await admin`
+      select pain, power, vision, value, control
+      from funnels where id = ${f.liveFunnelId}::uuid
+    `
+    expect(source).toEqual({
+      pain: "Funnel action pain",
+      power: "Old power",
+      vision: "Old vision",
+      value: "Old value",
+      control: "Old control",
+    })
+    expect(child).toEqual(source)
+  })
+
+  it("persists sparse Opportunity action PPVVC patch without clearing untouched fields", async () => {
+    const f = await fixture()
+    actionHarness.authSession.mockResolvedValue({
+      user: {
+        id: f.userId,
+        name: "Task 5 Actor",
+        email: `${f.userId}@example.com`,
+      },
+      session: { activeOrganizationId: f.tenantId },
+    })
+
+    const result = await updateOpportunityAction(f.opportunityId, {
+      value: "  Opportunity action value  ",
+    })
+
+    expect(result).toEqual({ ok: true, data: undefined })
+    const [source] = await admin`
+      select pain, power, vision, value, control
+      from opportunities where id = ${f.opportunityId}::uuid
+    `
+    const [child] = await admin`
+      select pain, power, vision, value, control
+      from funnels where id = ${f.liveFunnelId}::uuid
+    `
+    expect(source).toEqual({
+      pain: "Old pain",
+      power: "Old power",
+      vision: "Old vision",
+      value: "Opportunity action value",
+      control: "Old control",
+    })
+    expect(child).toEqual(source)
   })
 })

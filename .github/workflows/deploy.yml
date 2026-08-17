@@ -120,6 +120,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          backup_dir=/var/lib/quandatics-client/backup
+          configured_evidence_file="$(awk -F= '$1 == "BACKUP_EVIDENCE_FILE" { sub(/^[^=]*=/, ""); print; found++ } END { if (found != 1) exit 1 }' "$CLIENT_DIR/.env")"
+          case "$configured_evidence_file" in
+            "$backup_dir"/*) ;;
+            *) echo "backup evidence file is outside the protected backup directory" >&2; exit 1 ;;
+          esac
+          if [ ! -w "$backup_dir" ]; then
+            sudo -n chown "$(id -u):$(id -g)" "$backup_dir"
+            sudo -n chmod 0700 "$backup_dir"
+          fi
+          [ -d "$backup_dir" ] && [ ! -L "$backup_dir" ] && [ -w "$backup_dir" ] || {
+            echo "protected backup directory is not writable by the deployment user" >&2
+            exit 1
+          }
           "$CLIENT_DIR/ops/prepare-backup-evidence.sh" \
             "$CLIENT_DIR/.env" \
             "$CLIENT_DIR/backup/.backup-evidence.key"

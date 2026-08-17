@@ -70,12 +70,12 @@ function chain(value: unknown, updates: unknown[]): Chain {
   return q
 }
 
-function txWithSelects(values: unknown[]) {
+function txWithSelects(values: unknown[], updatedRow: unknown = { id: "quotation-1" }) {
   const queue = [...values]
   const updates: unknown[] = []
   const tx = {
     select: vi.fn(() => chain(queue.shift() ?? [], updates)),
-    update: vi.fn(() => chain([{ id: "quotation-1" }], updates)),
+    update: vi.fn(() => chain([updatedRow], updates)),
     delete: vi.fn(() => chain([], updates)),
     insert: vi.fn(() => chain([], updates)),
   }
@@ -122,5 +122,61 @@ describe("quotation edit currency persistence", () => {
 
     expect(result.ok).toBe(true)
     expect(updates[0]).toMatchObject({ currency: "USD" })
+  })
+
+  it("saves a draft when its unchanged attention contact is now unavailable", async () => {
+    const existing = {
+      id: "quotation-1",
+      funnelId: "funnel-1",
+      status: "draft",
+      currency: "USD",
+      isPrimary: false,
+      attentionContactId: "legacy-contact",
+      notes: "Saved note",
+      delivery: "14 days",
+      paymentTerm: "30 days",
+    }
+    const updated = { ...existing, total: "100.00" }
+    const { tx } = txWithSelects([
+      [existing],
+      [{ ownerMemberId: "member-1", currency: "MYR", accountId: "account-1" }],
+      [{ currencies: ["MYR", "USD"], defaultCurrency: "MYR" }],
+      [{ taxInclusive: false }],
+    ], updated)
+    mocks.withTenant.mockImplementation(async (_permission, work) =>
+      work(tx, { tenantId: "tenant-1" })
+    )
+
+    const result = await updateQuotation("quotation-1", {
+      taxSettingId: null,
+      validUntil: null,
+      notes: existing.notes,
+      delivery: existing.delivery,
+      paymentTerm: existing.paymentTerm,
+      attentionContactId: existing.attentionContactId,
+      headerDiscount: "0",
+      lines: [
+        {
+          description: "Consulting",
+          quantity: "1",
+          unitPrice: "100",
+          discountAmount: "0",
+        },
+      ],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(tx.select).toHaveBeenCalledTimes(4)
+    const auditEntry = mocks.writeAudit.mock.calls.at(-1)?.[2] as {
+      before: Record<string, unknown>
+      after: Record<string, unknown>
+    }
+    expect(auditEntry.before).toEqual({
+      attentionContactId: "legacy-contact",
+      notes: "Saved note",
+      delivery: "14 days",
+      paymentTerm: "30 days",
+    })
+    expect(auditEntry.after).toEqual(auditEntry.before)
   })
 })

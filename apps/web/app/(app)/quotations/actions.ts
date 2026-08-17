@@ -49,6 +49,8 @@ import {
 import { resolveQuotationPdfTemplate } from "@/lib/quotation-pdf-template"
 import {
   assertAttentionContactBelongsToAccount,
+  attentionContactChanged,
+  quotationContentAuditSnapshot,
   resolveQuotationContent,
 } from "@/lib/quotation-content"
 
@@ -768,7 +770,7 @@ export async function createQuotation(input: {
       action: "quotation.created",
       entityType: "quotation",
       entityId: created.id,
-      after: { quoteNumber: created.quoteNumber, total: created.total },
+      after: quotationContentAuditSnapshot(created),
     })
     return created
   })
@@ -833,7 +835,10 @@ export async function updateQuotation(
     let attentionContactId = existing.attentionContactId
     if (input.attentionContactId !== undefined) {
       attentionContactId = input.attentionContactId
-      if (attentionContactId) {
+      if (
+        attentionContactId &&
+        attentionContactChanged(existing.attentionContactId, attentionContactId)
+      ) {
         const [contact] = await tx
           .select({ accountId: persons.accountId })
           .from(persons)
@@ -916,7 +921,8 @@ export async function updateQuotation(
       action: "quotation.updated",
       entityType: "quotation",
       entityId: id,
-      after: { total: updated.total },
+      before: quotationContentAuditSnapshot(existing),
+      after: quotationContentAuditSnapshot(updated),
     })
     return updated
   })

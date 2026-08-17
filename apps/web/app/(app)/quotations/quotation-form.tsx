@@ -66,7 +66,10 @@ import {
   headerDiscountSchema,
 } from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
-import { snapshotQuotationLineDescription } from "@/lib/quotation-content"
+import {
+  QUOTATION_CONTENT_LIMITS,
+  snapshotQuotationLineDescription,
+} from "@/lib/quotation-content"
 import {
   updateQuotation,
   sendQuotation,
@@ -82,9 +85,9 @@ const schema = z.object({
   taxSettingId: z.string(),
   projectNatureCode: z.string(),
   validUntil: z.string(),
-  notes: z.string(),
-  delivery: z.string(),
-  paymentTerm: z.string(),
+  notes: z.string().max(QUOTATION_CONTENT_LIMITS.notes, "Notes must be 2000 characters or fewer"),
+  delivery: z.string().max(QUOTATION_CONTENT_LIMITS.delivery, "Delivery must be 500 characters or fewer"),
+  paymentTerm: z.string().max(QUOTATION_CONTENT_LIMITS.paymentTerm, "Payment term must be 120 characters or fewer"),
   attentionContactId: z.string(),
   headerDiscount: headerDiscountSchema,
   lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
@@ -635,6 +638,7 @@ export function QuotationForm({
                       <FormControl>
                         <Textarea
                           rows={3}
+                          maxLength={QUOTATION_CONTENT_LIMITS.notes}
                           disabled={!canEditDraft}
                           placeholder="Optional notes for the customer…"
                           {...field}
@@ -651,7 +655,12 @@ export function QuotationForm({
                     <FormItem>
                       <FormLabel>Delivery</FormLabel>
                       <FormControl>
-                        <Input disabled={!canEditDraft} placeholder="e.g. 14 days" {...field} />
+                        <Input
+                          maxLength={QUOTATION_CONTENT_LIMITS.delivery}
+                          disabled={!canEditDraft}
+                          placeholder="e.g. 14 days"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -664,7 +673,12 @@ export function QuotationForm({
                     <FormItem>
                       <FormLabel>Payment term</FormLabel>
                       <FormControl>
-                        <Input disabled={!canEditDraft} placeholder="e.g. 30 days" {...field} />
+                        <Input
+                          maxLength={QUOTATION_CONTENT_LIMITS.paymentTerm}
+                          disabled={!canEditDraft}
+                          placeholder="e.g. 30 days"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

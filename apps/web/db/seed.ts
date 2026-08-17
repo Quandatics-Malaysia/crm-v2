@@ -160,9 +160,15 @@ async function main() {
   let [funnel] = await db
     .select()
     .from(pipelines)
-    .where(and(eq(pipelines.tenantId, TENANT_ID), eq(pipelines.name, "Sales Pipeline")))
+    .where(and(eq(pipelines.tenantId, TENANT_ID), eq(pipelines.isDefault, true)))
     .limit(1)
-  if (!funnel) {
+  if (funnel) {
+    ;[funnel] = await db
+      .update(pipelines)
+      .set({ name: "Sales Funnel", isActive: true, updatedAt: new Date() })
+      .where(eq(pipelines.id, funnel.id))
+      .returning()
+  } else {
     ;[funnel] = await db
       .insert(pipelines)
       .values({ tenantId: TENANT_ID, name: "Sales Funnel", isDefault: true, isActive: true })

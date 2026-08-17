@@ -547,6 +547,13 @@
 			"when": 1786975201000,
 			"tag": "0077_account_currency",
 			"breakpoints": true
+		},
+		{
+			"idx": 78,
+			"version": "7",
+			"when": 1786975202000,
+			"tag": "0078_opportunity_name_project_code",
+			"breakpoints": true
 		}
 	]
 }

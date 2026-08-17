@@ -21,17 +21,28 @@ export function nextOpportunityNumber(existingNumbersForYear: number[]): number 
 }
 
 /**
- * Formulated Opportunity id, e.g. `OPP-2026-0001`. Full year for
- * unambiguity; number zero-padded to `pad`.
+ * Formulated Opportunity id, e.g. `QMOPP-2026-0001`. The organization code
+ * is normalized to uppercase alphanumeric characters before formatting.
  */
 export function formatOpportunityCode(
-  year: number,
-  n: number,
-  pad: number = OPPORTUNITY_PAD_WIDTH
+  input: {
+    organizationCode: string
+    year: number
+    number: number
+  }
 ): string {
-  const yyyy = String(Math.trunc(year))
-  const running = String(Math.trunc(n)).padStart(pad, "0")
-  return `OPP-${yyyy}-${running}`
+  const organizationCode = input.organizationCode
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+  if (!organizationCode) throw new Error("Organization code is required")
+
+  const yyyy = String(Math.trunc(input.year))
+  const running = String(Math.trunc(input.number)).padStart(
+    OPPORTUNITY_PAD_WIDTH,
+    "0"
+  )
+  return `${organizationCode}OPP-${yyyy}-${running}`
 }
 
 /**

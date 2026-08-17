@@ -228,20 +228,7 @@ export function OpportunityDetailBody({
               <span className="font-mono text-xs">{o.code}</span>
             </FieldRow>
             <FieldRow inline label="Name">
-              {canEdit ? (
-                <InlineValue
-                  value={o.name}
-                  display={o.name}
-                  title="Click to edit name"
-                  onSave={(next) => {
-                    if (!next.trim()) return
-                    return saveField({ name: next })
-                  }}
-                  className="font-medium"
-                />
-              ) : (
-                <span className="font-medium">{o.name}</span>
-              )}
+              <span className="font-medium">{o.name}</span>
             </FieldRow>
             <FieldRow inline label="Account">
               <Link href={`/accounts/${detail.accountId}`} className="font-medium link">

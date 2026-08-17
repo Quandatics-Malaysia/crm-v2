@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest"
 import { resolveAccountCurrencyBackfill } from "@/server/services/tenant-currency"
 
 describe("migration journal", () => {
-  it("includes the latest account currency migration", async () => {
+  it("includes the latest opportunity code migration", async () => {
     const journal = JSON.parse(
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 77,
-      tag: "0077_account_currency",
+      idx: 78,
+      tag: "0078_opportunity_name_project_code",
     })
   })
 
@@ -31,5 +31,16 @@ describe("migration journal", () => {
     expect(migration).toMatch(
       /ALTER TABLE\s+"persons"\s+ADD COLUMN IF NOT EXISTS\s+"department" text/
     )
+  })
+
+  it("backfills names without renumbering or rewriting project codes", async () => {
+    const migration = await readFile(
+      path.resolve(process.cwd(), "db/migrations/0078_opportunity_name_project_code.sql"),
+      "utf8"
+    )
+
+    expect(migration).toMatch(/SET\s+"name"\s*=\s*"code"/)
+    expect(migration).not.toMatch(/opportunity_number\s*=/i)
+    expect(migration).not.toMatch(/project_code\s*=/i)
   })
 })

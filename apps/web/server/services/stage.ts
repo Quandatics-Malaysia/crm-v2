@@ -15,7 +15,10 @@ import {
   tenantSettings,
   paymentMilestones,
 } from "@/db/schema"
-import { recomputeOpportunityTotal } from "@/server/services/opportunity-container"
+import {
+  ensureOpportunityProjectCode,
+  recomputeOpportunityTotal,
+} from "@/server/services/opportunity-container"
 import { opportunityNetValue } from "@/server/services/value"
 import { milestoneName } from "@/lib/so-milestones"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -61,6 +64,11 @@ function kindToStatus(kind: string): "open" | "won" | "lost" | "on_hold" {
     default:
       return "open"
   }
+}
+
+/** Project codes are minted only when a child funnel first enters 4A. */
+export function shouldAllocateOpportunityProjectCode(stageCode: string): boolean {
+  return stageCode.trim().toLowerCase() === "4a"
 }
 
 async function memberHasPermission(
@@ -324,6 +332,10 @@ async function applyStageMove(
       ...remarksSet,
     })
     .where(eq(funnels.id, opp.id))
+
+  if (shouldAllocateOpportunityProjectCode(toStage.code)) {
+    await ensureOpportunityProjectCode(tx, opp.opportunityId, ctx)
+  }
 
   // ── Salesforce "Closed Won" automations (core) ─────────────────────────────
   if (status === "won") {

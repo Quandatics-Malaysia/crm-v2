@@ -91,7 +91,6 @@ export async function getOpportunity(
 }
 
 export type OpportunityContainerUpdateInput = {
-  name?: string
   description?: string | null
   // PPVVC "Analysis" block — source of truth on the container, cascaded to
   // every non-deleted child funnel (same pattern as project nature below).
@@ -158,7 +157,6 @@ export async function updateOpportunityContainer(
       }
 
       const updated = {
-        name: input.name?.trim() || existing.name,
         description:
           input.description === undefined ? existing.description : input.description || null,
         ...cascade,

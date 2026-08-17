@@ -1,7 +1,7 @@
 import "server-only"
 import { and, eq, isNull, sql } from "drizzle-orm"
 import type { Tx } from "@/db"
-import { opportunities, funnels, accounts } from "@/db/schema"
+import { opportunities, funnels, accounts, tenantSettings } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
 import { toDateString } from "@/lib/dates"
 import { formatOpportunityCode, pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
@@ -10,6 +10,7 @@ import { nextProjectCode } from "@/server/services/numbering"
 export type NewContainerInput = {
   accountId: string
   ownerMemberId: string
+  /** Deprecated display-name input. Opportunity names are always generated. */
   name?: string | null
   /** Container year (drives the per-year running number). Defaults to now. */
   year?: number | null
@@ -39,10 +40,8 @@ export function pickNature(src: {
  * Create an Opportunity CONTAINER with a per-(tenant, year) running number →
  * formulated `code` / `name`. The unique (tenant, year, number) constraint
  * guards against a racing duplicate; callers create the container inside the
- * same tenant tx as the first funnel. Also mints an internal delivery
- * `projectCode` (via {@link nextProjectCode}) — never shown in the UI, used
- * only to prefix payment milestones' hidden `name`. Returns the id + code +
- * normalized PPVVC + nature so the caller can cascade both to the child funnel.
+ * same tenant tx as the first funnel. Project-code allocation is deliberately
+ * deferred until a child funnel enters 4A.
  */
 export async function createOpportunityContainer(
   tx: Tx,
@@ -72,23 +71,18 @@ export async function createOpportunityContainer(
       )
     )
   const n = (maxRow?.max ?? 0) + 1
-  const code = formatOpportunityCode(year, n)
+  const [settings] = await tx
+    .select({ organizationCode: tenantSettings.entityCode })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, ctx.tenantId))
+    .limit(1)
+  const code = formatOpportunityCode({
+    organizationCode: settings?.organizationCode ?? "",
+    year,
+    number: n,
+  })
   const ppvvc = pickPpvvc(input.ppvvc)
   const nature = pickNature(input)
-
-  // Internal-only delivery code — best-effort, never blocks container creation
-  // (unlike the Projects module's stricter account-code requirement) since it
-  // stays hidden and only seeds payment-milestone naming.
-  const [acct] = await tx
-    .select({ code: accounts.code })
-    .from(accounts)
-    .where(eq(accounts.id, input.accountId))
-    .limit(1)
-  const projectCode = await nextProjectCode(tx, ctx, {
-    accountCode: acct?.code ?? "",
-    projectNatureCode: nature.projectNatureCode ?? "",
-    year,
-  })
 
   const [created] = await tx
     .insert(opportunities)
@@ -100,16 +94,77 @@ export async function createOpportunityContainer(
       opportunityYear: year,
       opportunityNumber: n,
       code,
-      name: input.name?.trim() || code,
+      name: code,
       ...ppvvc,
       ...nature,
-      projectCode,
+      projectCode: null,
       description: input.description ?? null,
       currency: input.currency,
     })
     .returning({ id: opportunities.id, accountId: opportunities.accountId })
 
   return { id: created.id, accountId: created.accountId, code, ppvvc, nature }
+}
+
+/**
+ * Allocate an Opportunity's internal project code exactly once. The parent
+ * Opportunity is locked inside the caller's stage transaction, so rollback
+ * and re-entry return the existing value without consuming another number.
+ */
+export async function ensureOpportunityProjectCode(
+  tx: Tx,
+  opportunityId: string,
+  context: ServerContext
+): Promise<string> {
+  const [opportunity] = await tx
+    .select({
+      projectCode: opportunities.projectCode,
+      accountId: opportunities.accountId,
+      opportunityYear: opportunities.opportunityYear,
+      projectNatureCode: opportunities.projectNatureCode,
+    })
+    .from(opportunities)
+    .where(
+      and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, context.tenantId)
+      )
+    )
+    .limit(1)
+    .for("update")
+
+  if (!opportunity) throw new Error("Opportunity not found")
+  if (opportunity.projectCode) return opportunity.projectCode
+
+  const [account] = await tx
+    .select({ code: accounts.code })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.id, opportunity.accountId),
+        eq(accounts.tenantId, context.tenantId)
+      )
+    )
+    .limit(1)
+
+  const projectCode = await nextProjectCode(tx, context, {
+    accountCode: account?.code ?? "",
+    projectNatureCode: opportunity.projectNatureCode ?? "",
+    year: opportunity.opportunityYear,
+  })
+  const [updated] = await tx
+    .update(opportunities)
+    .set({ projectCode, updatedAt: new Date() })
+    .where(
+      and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, context.tenantId),
+        isNull(opportunities.projectCode)
+      )
+    )
+    .returning({ projectCode: opportunities.projectCode })
+
+  return updated?.projectCode ?? projectCode
 }
 
 /**

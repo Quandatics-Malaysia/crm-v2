@@ -110,6 +110,75 @@ function parseStaticStringLiteral(expression: string): string | null {
   return content.includes("\\") ? null : content
 }
 
+function extractStaticObjectArrayStrings(expression: string): string[] | null {
+  const literal = expression.trim()
+  if (!literal.startsWith("[") && !literal.startsWith("{")) return null
+
+  const containers = [literal[0]]
+  const strings: string[] = []
+
+  for (let index = 1; index < literal.length; index += 1) {
+    const character = literal[index]
+
+    if (character === "/" && literal[index + 1] === "/") {
+      const newline = literal.indexOf("\n", index + 2)
+      index = newline === -1 ? literal.length : newline
+      continue
+    }
+    if (character === "/" && literal[index + 1] === "*") {
+      const commentEnd = literal.indexOf("*/", index + 2)
+      index = commentEnd === -1 ? literal.length : commentEnd + 1
+      continue
+    }
+
+    if (character === '"' || character === "'" || character === "`") {
+      let end = index + 1
+      let escaped = false
+      for (; end < literal.length; end += 1) {
+        const next = literal[end]
+        if (escaped) {
+          escaped = false
+        } else if (next === "\\") {
+          escaped = true
+        } else if (next === character) {
+          break
+        }
+      }
+
+      if (containers.at(-1) === "[" || containers.at(-1) === "{") {
+        const value = parseStaticStringLiteral(literal.slice(index, end + 1))
+        if (value !== null) strings.push(value)
+      }
+      index = end
+      continue
+    }
+
+    if (character === "[" || character === "{" || character === "(") {
+      containers.push(character)
+    } else if (character === "]" || character === "}" || character === ")") {
+      containers.pop()
+    }
+  }
+
+  return strings
+}
+
+function extractStaticJsxAttributeLiterals(tag: string): string[] {
+  const strings: string[] = []
+  for (let index = 0; index < tag.length; index += 1) {
+    if (tag[index] !== "{") continue
+    const end = readJsxExpressionEnd(tag, index)
+    if (end === -1) continue
+    const expression = tag.slice(index + 1, end)
+    const literal = parseStaticStringLiteral(expression)
+    const objectArrayStrings = extractStaticObjectArrayStrings(expression)
+    if (literal !== null) strings.push(literal)
+    else if (objectArrayStrings !== null) strings.push(...objectArrayStrings)
+    index = end
+  }
+  return strings
+}
+
 function stripDynamicJsxExpressions(text: string): string {
   let output = ""
   let index = 0
@@ -127,8 +196,16 @@ function stripDynamicJsxExpressions(text: string): string {
       break
     }
 
-    const literal = parseStaticStringLiteral(text.slice(index + 1, end))
-    output += literal === null ? " " : ` ${literal} `
+    const expression = text.slice(index + 1, end)
+    const literal = parseStaticStringLiteral(expression)
+    const objectArrayStrings = extractStaticObjectArrayStrings(expression)
+    if (literal !== null) {
+      output += ` ${literal} `
+    } else if (objectArrayStrings !== null) {
+      output += objectArrayStrings.length ? ` ${objectArrayStrings.join(" ")} ` : " "
+    } else {
+      output += " "
+    }
     index = end + 1
   }
 
@@ -142,8 +219,12 @@ function stripDynamicJsxExpressions(text: string): string {
  * treating tag attributes or arbitrary expression code as documentation.
  */
 export function normalizeDocumentation(text: string): string {
-  return stripDynamicJsxExpressions(text)
-    .replace(JSX_TAG, " ")
+  return stripDynamicJsxExpressions(
+    text.replace(JSX_TAG, (tag) => {
+      const literals = extractStaticJsxAttributeLiterals(tag)
+      return literals.length ? ` ${literals.join(" ")} ` : " "
+    })
+  )
     .replace(/\s+/g, " ")
     .trim()
 }

@@ -106,6 +106,27 @@ describe("payment milestone documentation", () => {
     ).toEqual([])
   })
 
+  it("preserves static strings inside JSX object and array literals", () => {
+    expect(
+      findForbiddenStaleClaims(
+        `<DocTable rows={[{ label: "one live invoice per milestone" }, { label: invoiceLabel }]} />`
+      )
+    ).toContain("one live invoice per milestone")
+    expect(
+      findForbiddenStaleClaims(
+        `<DocTable data={[["one live invoice per milestone"], ...dynamicRows]} />`
+      )
+    ).toContain("one live invoice per milestone")
+  })
+
+  it("strips dynamic values from compound JSX object and array literals", () => {
+    expect(
+      findForbiddenStaleClaims(
+        `<DocTable rows={[{ label: invoiceLabel }, { label: buildLabel() }, ...dynamicRows]} />`
+      )
+    ).toEqual([])
+  })
+
   it("allows accurate negated coupling wording", () => {
     const accurateNegations = [
       "Payment Milestones do not create a one-click invoice.",

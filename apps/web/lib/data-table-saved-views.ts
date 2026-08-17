@@ -3,7 +3,7 @@ import type {
   SortingState,
   VisibilityState,
 } from "@tanstack/react-table"
-import type { SavedViewPayload } from "@/app/(app)/_shared/saved-view-actions"
+import type { SavedViewPayload } from "@/lib/saved-views"
 import {
   validateFilterValue,
   type DataTableFilterDefinition,

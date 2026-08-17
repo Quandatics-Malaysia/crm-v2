@@ -92,15 +92,6 @@ export type AccountInput = {
   billingAddress?: BillingAddress | null
 }
 
-/** Resolve and validate an account currency against the tenant picklist. */
-export function resolveAccountCurrency(
-  input: string | null | undefined,
-  configuredCurrencies: readonly string[] | null | undefined,
-  tenantCurrency: string | null | undefined
-): string {
-  return resolveConfiguredCurrency(input, configuredCurrencies, tenantCurrency)
-}
-
 async function tenantAccountCurrency(
   tx: Tx,
   tenantId: string,
@@ -111,7 +102,7 @@ async function tenantAccountCurrency(
     .from(tenantSettings)
     .where(eq(tenantSettings.organizationId, tenantId))
     .limit(1)
-  return resolveAccountCurrency(
+  return resolveConfiguredCurrency(
     requested,
     settings?.currencies,
     settings?.defaultCurrency
@@ -480,8 +471,6 @@ export async function findSimilarAccounts(
   }
 }
 
-export function createAccount(input: AccountInput): Promise<ActionResult<AccountRow>>
-export function createAccount(input: Pick<AccountInput, "name">): Promise<ActionResult<AccountRow>>
 export async function createAccount(
   input: AccountInput | Pick<AccountInput, "name">
 ): Promise<ActionResult<AccountRow>> {

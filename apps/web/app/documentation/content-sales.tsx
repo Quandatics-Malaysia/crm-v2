@@ -32,10 +32,13 @@ flowchart TD
   L -- "convert" --> O[Funnel deal<br/>stage pipeline, open]
   A --> O
   O -- "New quotation" --> Q[Quotation draft<br/>lines, tax, discounts]
-  Q -- "send" --> QS[Quotation sent]
-  QS -- "accept (one live accepted per funnel)" --> QA[Quotation accepted]
-  QA -- "auto-win toggle" --> OW[Funnel won]
-  QA -- "auto-create-project toggle" --> P[Project<br/>value = quote net]
+  Q -- "submit for approval" --> QP[Pending approval]
+  QP -- "approve" --> QA[Approved]
+  QA -- "send" --> QS[Quotation sent]
+  QS -- "accept or reject" --> QC[Customer decision]
+  QA -. "explicit reset" .-> Q
+  O -- "stage transition" --> OW[Funnel stage: Closed Won]
+  O -- "manual create" --> P[Project<br/>value = quote net]
   O -- "prepare any time" --> M[Payment milestones<br/>Won / Invoiced]
   OW -- "Closed Won marks live" --> MW[Live milestones Won]
   M -- "manual Won → Invoiced" --> MI[Milestone Invoiced]
@@ -68,7 +71,7 @@ flowchart TD
           [
             "Project → Funnel / Quotation / Account",
             <Code key="c">projects.funnel_id / quotation_id / account_id</Code>,
-            "Create project (manual or auto on quote accept).",
+            "Create project manually; quotation acceptance does not create one.",
           ],
           [
             "Payment Milestone → Funnel",
@@ -163,7 +166,7 @@ flowchart TD
         Statuses across the chain: lead{" "}
         <Code>new → contacted → qualified / disqualified</Code>; funnel{" "}
         <Code>open → won / lost / on_hold</Code>; quotation{" "}
-        <Code>draft → sent → accepted / rejected</Code>; project{" "}
+        <Code>draft → pending_approval → approved → sent → accepted / rejected</Code>; project{" "}
         <Code>planning → active → completed</Code> (plus{" "}
         <Code>on_hold / cancelled</Code>); milestone{" "}
         <Code>Won → Invoiced</Code> (manual only); sales order{" "}
@@ -198,6 +201,11 @@ export const crmCorePage: DocPage = {
         in one step and stamps the back-links so the lead shows
         where it went.
       </P>
+      <P>
+        Lead forms contain no Funnel or Stage fields. Conversion resolves the
+        tenant&apos;s single default <B>Sales Funnel</B> and its first open{" "}
+        <Code>0E</Code> stage; the user supplies descriptive Funnel data only.
+      </P>
       <Ul>
         <Li>
           <B>Duplicate guard:</B> creating a lead with the email of an existing
@@ -217,6 +225,11 @@ export const crmCorePage: DocPage = {
         one (case-insensitive) is rejected; similar names (trigram match, e.g.
         “Acme Sdn Bhd” vs “ACME”) produce a warn-only banner on the form.
         Address country and phone prefix prefill from the tenant presets.
+      </P>
+      <P>
+        Account <Code>currency</Code> is required and must be selected from
+        Settings&apos; configured ISO currencies. New Opportunities and
+        Quotations inherit it, with configured-currency overrides allowed.
       </P>
 
       <H2>Contacts</H2>
@@ -247,14 +260,31 @@ export const funnelForecastPage: DocPage = {
     "The deal pipeline, the three-amount value model, stage gates, and how the weighted forecast is computed.",
   body: (
     <>
-      <H2>Pipeline</H2>
+      <H2>Sales Funnel and stages</H2>
       <P>
-        Deals (“pipelines”) move through tenant-configurable stages, each with a{" "}
-        <B>probability</B> and a kind (<Code>OPEN / WON / LOST / PARKED</Code>).
-        Stages can require <B>approval to enter</B>: reps below the bypass tier
-        raise a stage-approval request that a manager approves on /approvals.
-        Deal status (<Code>open / won / lost / on_hold</Code>) follows the
-        stage kind.
+        New deals use the default <B>Sales Funnel</B>; legacy pipeline rows stay
+        readable, but new pipeline creation and editing are disabled. Each
+        stage has a probability and kind (<Code>OPEN / WON / LOST / PARKED</Code>).
+        Forward movement validates every entered stage&apos;s PPVVC and approval
+        requirements, including skipped stages. Rollback to any nonterminal
+        stage skips gates; forward movement after rollback validates again.
+        <Code>Closed Won</Code> and <Code>Closed Lost</Code> are permanent.
+      </P>
+      <P>
+        Opportunity code and name are the same generated value,
+        <Code>ORGCODEOPP-YYYY-NNNN</Code>. A project code stays empty until a
+        child Funnel first enters <Code>4A</Code>; rollback and re-entry reuse
+        the original code and never create a Project record.
+      </P>
+
+      <H2>PPVVC</H2>
+      <P>
+        The Opportunity owns the authoritative five-field value model:{" "}
+        <B>1 Pain, 2 Power, 3 Vision, 4 Value, 5 Control</B>. Editing from an
+        Opportunity or Funnel synchronizes the Opportunity and all live child
+        Funnels in one transaction. Funnel cards show compact complete/missing
+        badges; stage dialogs expose only the requirements for the entered
+        stages.
       </P>
 
       <H2>The value model</H2>
@@ -351,11 +381,20 @@ export const quotationsPage: DocPage = {
         chart={`
 stateDiagram-v2
   [*] --> draft : create (from funnel or list)
-  draft --> sent : send
+  draft --> pending_approval : submit
+  pending_approval --> approved : approve
+  pending_approval --> draft : reject (reason)
+  approved --> sent : send
+  approved --> draft : explicit edit reset
   draft --> [*] : delete
   sent --> accepted : accept
   sent --> rejected : reject
   accepted --> [*]
+  sent --> draft : create revision
+  accepted --> draft : create revision
+  rejected --> draft : create revision
+  expired --> draft : create revision
+  void --> draft : create revision
   note right of accepted
     max ONE live accepted +
     ONE live primary per funnel
@@ -364,10 +403,17 @@ stateDiagram-v2
 `}
       />
       <P>
-        Sent and accepted quotations are <B>read-only</B> — pricing changes
-        happen by creating a <B>revision</B> from the funnel, which becomes the
-        new primary. Numbers are minted from the tenant’s configurable
-        prefix/sequence/padding.
+        Approved quotations are read-only until an explicit reset to Draft;
+        reset clears approval metadata and requires approval again. Send is
+        available only from Approved. Customer Accept/Reject is available only
+        from Sent and never changes Funnel stage.
+      </P>
+      <P>
+        Any non-Draft or soft-deleted quotation can create a Draft revision.
+        The revision copies recipient, Attention, currency, tax inputs, dates,
+        Notes, Delivery, Payment Term, header discount and lines; it increments
+        the Funnel&apos;s running version/number and keeps <Code>revisionOfId</Code>.
+        The source remains unchanged.
       </P>
 
       <H2>Money math</H2>
@@ -388,23 +434,21 @@ stateDiagram-v2
         </Li>
       </Ul>
 
-      <H2>What acceptance automates</H2>
+      <H2>Quotation content and permissions</H2>
       <Ul>
         <Li>
-          The funnel’s <B>quoted amount</B> re-syncs from the accepted (primary)
-          quote’s net.
+          Settings provides default Notes, Delivery and Payment Term. New
+          quotations copy editable snapshots; Delivery and Payment Term are
+          available to built-in and external templates.
         </Li>
         <Li>
-          <Code>auto_win_on_quote_accept</Code>: the funnel moves to Won
-          (bypassing the Won stage’s approval gate — deliberate).
+          Attention is selected from the recipient account and defaults to its
+          primary contact; cross-account contacts are rejected.
         </Li>
         <Li>
-          <Code>auto_create_project_on_accept</Code>: the{" "}
-          <Link className="link" href="/documentation/projects-milestones">
-            delivery project
-          </Link>{" "}
-          is created with value/currency/nature carried over and the{" "}
-          <B>milestone template</B> seeded (last row absorbs cent rounding).
+          Approval uses <Code>quotation.approve</Code>. Assign it in Team &amp;
+          roles to the approval role; quotation-create permission is still
+          required to create revisions.
         </Li>
       </Ul>
 
@@ -437,11 +481,11 @@ export const projectsPage: DocPage = {
     <>
       <H2>Creating a project</H2>
       <P>
-        Two paths: manually (optionally prefilled from a funnel/quote) or
-        automatically on quote acceptance. The project code derives from the
-        account code + primary nature; <Code>projects.value</Code> prefills
-        from the accepted quote’s net. Payment Milestones are separate planning
-        records attached to the Funnel.
+        Projects are created manually (optionally prefilled from a
+        funnel/quote). Quotation acceptance never creates a Project. The
+        project code derives from account code + primary nature;{" "}
+        <Code>projects.value</Code> may be prefilled from the quote&apos;s net.
+        Payment Milestones are separate planning records attached to the Funnel.
       </P>
 
       <H2>Payment milestones</H2>

@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/select"
 import { EmptyState } from "@/components/empty-state"
 import { SavedViewMenu } from "@/components/saved-view-menu"
-import type { SavedViewPayload } from "@/app/(app)/_shared/saved-view-actions"
+import type { SavedViewPayload } from "@/lib/saved-views"
 import { applySavedViewPayload } from "@/lib/data-table-saved-views"
 import type { LucideIcon } from "lucide-react"
 import {

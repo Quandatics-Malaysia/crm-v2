@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveAccountCurrency } from "@/app/(app)/accounts/actions"
-import { normalizeLeadInput, type LeadInput } from "@/app/(app)/leads/actions"
+import { resolveConfiguredCurrency as resolveAccountCurrency } from "@/server/services/tenant-currency"
+import { normalizeLeadInput, type LeadInput } from "@/lib/lead-rules"
 import { resolveDefaultSalesFunnel } from "@/server/services/conversion"
 import {
   resolveAccountCurrencyBackfill,

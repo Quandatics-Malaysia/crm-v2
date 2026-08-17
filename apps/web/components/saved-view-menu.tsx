@@ -10,9 +10,8 @@ import {
   renameView,
   saveView,
   setDefaultView,
-  type SavedView,
-  type SavedViewPayload,
 } from "@/app/(app)/_shared/saved-view-actions"
+import type { SavedView, SavedViewPayload } from "@/lib/saved-views"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {

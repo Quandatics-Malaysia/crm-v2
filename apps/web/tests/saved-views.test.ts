@@ -12,7 +12,7 @@ import {
   type SavedViewRepositoryRow,
   type SavedViewPayload,
   validateSavedViewPayload,
-} from "@/app/(app)/_shared/saved-view-actions"
+} from "@/lib/saved-views"
 import { applySavedViewPayload } from "@/lib/data-table-saved-views"
 
 const payload = {

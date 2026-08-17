@@ -20,37 +20,14 @@ import {
   ownsOrManages,
   canManageAllRecords,
 } from "@/lib/access-scope"
+import { clean, normalizeLeadInput, type LeadInput } from "@/lib/lead-rules"
 
 /** Largest page we ever return from a list endpoint (defense against unbounded scans). */
 const LIST_LIMIT = 1000
 
 export type Lead = typeof leads.$inferSelect
 
-export type LeadInput = {
-  name: string
-  companyName?: string | null
-  email?: string | null
-  phone?: string | null
-  source?: string | null
-  status?: Lead["status"]
-}
-
-function clean(v?: string | null): string | null {
-  const t = (v ?? "").trim()
-  return t.length ? t : null
-}
-
-/** Keep lead create/update payloads limited to the simplified lead fields. */
-export function normalizeLeadInput(input: LeadInput) {
-  return {
-    name: input.name.trim(),
-    companyName: clean(input.companyName),
-    email: clean(input.email),
-    phone: clean(input.phone),
-    source: clean(input.source),
-    status: input.status,
-  }
-}
+export type { LeadInput } from "@/lib/lead-rules"
 
 /**
  * Leads must carry a valid email — it becomes the contact's email on conversion,

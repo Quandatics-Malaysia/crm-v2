@@ -15,6 +15,23 @@ describe("migration journal", () => {
     })
   })
 
+  it("keeps the CRM sales lifecycle migrations contiguous and ordered", async () => {
+    const journal = JSON.parse(
+      await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
+    ) as { entries: Array<{ idx: number; tag: string }> }
+
+    expect(journal.entries.slice(-8).map(({ idx, tag }) => ({ idx, tag }))).toEqual([
+      { idx: 76, tag: "0076_saved_views" },
+      { idx: 77, tag: "0077_account_currency" },
+      { idx: 78, tag: "0078_opportunity_name_project_code" },
+      { idx: 79, tag: "0079_product_taxonomy_quote_defaults" },
+      { idx: 80, tag: "0080_quotation_content_fields" },
+      { idx: 81, tag: "0081_quotation_approval" },
+      { idx: 82, tag: "0082_quotation_revisions" },
+      { idx: 83, tag: "0083_payment_milestone_decoupling" },
+    ])
+  })
+
   it("adds tenant-safe revision lineage and a unique funnel version guard", async () => {
     const migration = await readFile(
       path.resolve(process.cwd(), "db/migrations/0082_quotation_revisions.sql"),

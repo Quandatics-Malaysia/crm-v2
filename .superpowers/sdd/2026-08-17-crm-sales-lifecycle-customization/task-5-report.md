@@ -82,3 +82,37 @@ Commit SHA is returned in the final handoff after the requested feature commit.
 - `apps/web/tests/stage-gate.test.ts`
 
 Commit SHA: reported in the final handoff.
+
+## Fix round 2/5 — PPVVC lost updates and lock-order inversion
+
+### Findings addressed
+
+- P1 Funnel sparse patches: added `normalizePpvvcPatch`, so omitted action fields stay omitted instead of becoming `undefined` keys that normalize to `null`.
+- P1 Opportunity stale snapshots: the Opportunity action now forwards only submitted PPVVC keys; the service re-reads the locked authoritative Opportunity, merges that sparse patch, and persists only those keys.
+- P2 cross-entry lock order: Funnel validates its tenant/live row without taking a child lock, then both Funnel and Opportunity entry points lock the Opportunity first and live child Funnels second. Funnel identity is revalidated at that ordered lock boundary.
+- P2 concurrency coverage: added a PostgreSQL boundary regression racing Funnel and Opportunity edits, with timeout/deadlock protection and final source/child assertions for both disjoint fields.
+
+### TDD evidence
+
+- RED: the sparse-patch contract failed with `TypeError: normalizePpvvcPatch is not a function` before the production helper existed.
+- GREEN: the focused PPVVC/editor run passed after the helper, sparse actions, lock-time merge, and ordered locking were implemented.
+- The PostgreSQL cross-entry regression is present at the strongest available database boundary but skipped in this workspace because `TEST_DATABASE_ADMIN_URL` and `TEST_DATABASE_URL` are unset.
+
+### Verification
+
+- Full web suite: 53 files passed; 6 skipped; 496 tests passed; 42 skipped.
+- Typecheck: passed with no TypeScript errors.
+- Lint: passed.
+- Migration-focused checks: passed; PostgreSQL migration fixture skipped without configured database URLs.
+- `git diff --check`: passed.
+
+### Fix-round files
+
+- `apps/web/lib/ppvvc.ts`
+- `apps/web/app/(app)/funnel/actions.ts`
+- `apps/web/app/(app)/opportunities/actions.ts`
+- `apps/web/server/services/ppvvc.ts`
+- `apps/web/tests/ppvvc-sync.test.ts`
+- `apps/web/tests/ppvvc-sync-db.test.ts`
+
+Commit SHA: reported in the final handoff.

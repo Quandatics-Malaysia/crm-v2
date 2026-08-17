@@ -45,6 +45,7 @@ import {
   pickNature,
 } from "@/server/services/opportunity-container"
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
+import { normalizePpvvcPatch } from "@/lib/ppvvc"
 import {
   recordPpvvcSyncChanges,
   updateFunnelPpvvc,
@@ -638,16 +639,14 @@ export async function updateOpportunity(
         ? existing.customFields
         : normalizeOpportunityCustomFields(input.customFields, customFieldDefs)
 
-    const ppvvcInput = {
+    const ppvvcInput = normalizePpvvcPatch({
       pain: input.pain,
       power: input.power,
       vision: input.vision,
       value: input.value,
       control: input.control,
-    }
-    const hasPpvvcInput = Object.values(ppvvcInput).some(
-      (value) => value !== undefined
-    )
+    })
+    const hasPpvvcInput = Object.keys(ppvvcInput).length > 0
 
     let partyInputs: PartyInput[] | null = input.parties ?? null
     if (effectiveInterco && input.parties === undefined) {

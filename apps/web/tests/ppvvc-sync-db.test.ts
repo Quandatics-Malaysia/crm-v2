@@ -286,4 +286,41 @@ integration("PPVVC PostgreSQL boundary", () => {
     const [finalChild] = await admin`select pain, power from funnels where id = ${f.liveFunnelId}::uuid`
     expect(finalChild).toMatchObject(finalSource)
   })
+
+  it("serializes Funnel and Opportunity entry points without deadlock or lost fields", async () => {
+    const f = await fixture()
+    const funnelWrite = scoped(appA, f.tenantId, (tx) =>
+      updateFunnelPpvvc(tx, {
+        funnelId: f.liveFunnelId,
+        tenantId: f.tenantId,
+        values: { pain: "Funnel writer" },
+        actorId: f.userId,
+      })
+    )
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const opportunityWrite = scoped(appB, f.tenantId, (tx) =>
+      updateOpportunityPpvvc(tx, {
+        opportunityId: f.opportunityId,
+        tenantId: f.tenantId,
+        values: { power: "Opportunity writer" },
+        actorId: f.userId,
+      })
+    )
+
+    await Promise.race([
+      Promise.all([funnelWrite, opportunityWrite]),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("cross-entry PPVVC update timed out")), 3_000)
+      ),
+    ])
+
+    const [finalSource] = await admin`
+      select pain, power from opportunities where id = ${f.opportunityId}::uuid
+    `
+    const [finalChild] = await admin`
+      select pain, power from funnels where id = ${f.liveFunnelId}::uuid
+    `
+    expect(finalSource).toMatchObject({ pain: "Funnel writer", power: "Opportunity writer" })
+    expect(finalChild).toMatchObject(finalSource)
+  })
 })

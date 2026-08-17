@@ -5,6 +5,7 @@ import { funnels, opportunities } from "@/db/schema"
 import type { ServerContext } from "@/lib/server-context"
 import { recordChanges } from "@/server/services/changes/record"
 import {
+  normalizePpvvcPatch,
   normalizePpvvcValues,
   type PpvvcPatch,
   type PpvvcValues,
@@ -71,6 +72,7 @@ export async function updateOpportunityPpvvc(
     tenantId: string
     values: PpvvcPatch
     actorId: string
+    expectedFunnelId?: string
   }
 ): Promise<PpvvcSyncResult> {
   const actorId = input.actorId.trim()
@@ -101,19 +103,9 @@ export async function updateOpportunityPpvvc(
   if (!source) throw new Error("Opportunity not found")
 
   const before = valuesFromRow(source)
-  const after = normalizePpvvcValues({ ...before, ...input.values })
+  const patch = normalizePpvvcPatch(input.values)
+  const after = normalizePpvvcValues({ ...before, ...patch })
   const changedAt = new Date()
-
-  await tx
-    .update(opportunities)
-    .set({ ...after, updatedAt: changedAt })
-    .where(
-      and(
-        eq(opportunities.id, source.id),
-        eq(opportunities.tenantId, source.tenantId),
-        isNull(opportunities.deletedAt)
-      )
-    )
 
   const children = await tx
     .select({
@@ -136,6 +128,24 @@ export async function updateOpportunityPpvvc(
     )
     .for("update")
 
+  if (
+    input.expectedFunnelId &&
+    !children.some((child) => child.id === input.expectedFunnelId)
+  ) {
+    throw new Error("Funnel not found")
+  }
+
+  await tx
+    .update(opportunities)
+    .set({ ...patch, updatedAt: changedAt })
+    .where(
+      and(
+        eq(opportunities.id, source.id),
+        eq(opportunities.tenantId, source.tenantId),
+        isNull(opportunities.deletedAt)
+      )
+    )
+
   const updatedChildIds = children
     .filter((child) => child.deletedAt == null)
     .map((child) => child.id)
@@ -150,7 +160,7 @@ export async function updateOpportunityPpvvc(
   if (updatedChildIds.length > 0) {
     await tx
       .update(funnels)
-      .set({ ...after, updatedAt: changedAt })
+      .set({ ...patch, updatedAt: changedAt })
       .where(
         and(
           eq(funnels.opportunityId, source.id),
@@ -197,7 +207,6 @@ export async function updateFunnelPpvvc(
       )
     )
     .limit(1)
-    .for("update")
 
   if (!funnel) throw new Error("Funnel not found")
 
@@ -206,5 +215,6 @@ export async function updateFunnelPpvvc(
     tenantId: funnel.tenantId,
     values: input.values,
     actorId: input.actorId,
+    expectedFunnelId: funnel.id,
   })
 }

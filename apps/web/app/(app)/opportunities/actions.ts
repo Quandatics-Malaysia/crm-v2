@@ -17,7 +17,7 @@ import {
   recordPpvvcSyncChanges,
   updateOpportunityPpvvc,
 } from "@/server/services/ppvvc"
-import type { PpvvcValues } from "@/lib/ppvvc"
+import { normalizePpvvcPatch } from "@/lib/ppvvc"
 
 /** A resolved contact for display: name + derived "Designation" (persons.title). */
 export type ContactRef = { id: string; name: string; designation: string | null }
@@ -142,13 +142,13 @@ export async function updateOpportunityContainer(
         throw new Error("FORBIDDEN: not permitted on this Opportunity")
       }
 
-      const nextPpvvc: PpvvcValues = {
-        pain: input.pain === undefined ? existing.pain : input.pain || null,
-        power: input.power === undefined ? existing.power : input.power || null,
-        vision: input.vision === undefined ? existing.vision : input.vision || null,
-        value: input.value === undefined ? existing.value : input.value || null,
-        control: input.control === undefined ? existing.control : input.control || null,
-      }
+      const ppvvcInput = normalizePpvvcPatch({
+        pain: input.pain,
+        power: input.power,
+        vision: input.vision,
+        value: input.value,
+        control: input.control,
+      })
       const cascade = {
         projectNatureCode:
           input.projectNatures !== undefined
@@ -203,14 +203,12 @@ export async function updateOpportunityContainer(
         updatedAt: new Date(),
       }
 
-      const hasPpvvcInput = Object.keys(nextPpvvc).some(
-        (key) => input[key as keyof OpportunityContainerUpdateInput] !== undefined
-      )
+      const hasPpvvcInput = Object.keys(ppvvcInput).length > 0
       const syncedPpvvc = hasPpvvcInput
         ? await updateOpportunityPpvvc(tx, {
             opportunityId: id,
             tenantId: ctx.tenantId,
-            values: nextPpvvc,
+            values: ppvvcInput,
             actorId: ctx.userId,
           })
         : null

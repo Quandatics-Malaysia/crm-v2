@@ -36,6 +36,18 @@ export function normalizePpvvcValues(values: PpvvcPatch | null | undefined): Ppv
   ) as PpvvcValues
 }
 
+/** Normalize only submitted PPVVC keys; omitted keys stay omitted. */
+export function normalizePpvvcPatch(
+  values: PpvvcPatch | null | undefined
+): PpvvcPatch {
+  return Object.fromEntries(
+    PPVVC_FIELDS.filter(({ key }) => values?.[key] !== undefined).map(({ key }) => {
+      const value = values?.[key]
+      return [key, present(value) ? value!.trim() : null]
+    })
+  ) as PpvvcPatch
+}
+
 /** Return only fields that differ from the server snapshot. */
 export function getPpvvcDirtyPatch(
   serverValues: PpvvcPatch | null | undefined,

@@ -6,6 +6,7 @@ import {
   getPpvvcFieldsForRequiredKeys,
   getPpvvcCompletion,
   mergePpvvcDraft,
+  normalizePpvvcPatch,
 } from "@/lib/ppvvc"
 
 const values = {
@@ -78,6 +79,16 @@ describe("PPVVC metadata", () => {
       { key: "power", number: 2, label: "Power" },
       { key: "vision", number: 3, label: "Vision" },
     ])
+  })
+
+  it("keeps sparse PPVVC patches sparse while normalizing submitted values", () => {
+    expect(
+      normalizePpvvcPatch({
+        pain: "  New pain  ",
+        power: undefined,
+        vision: null,
+      })
+    ).toEqual({ pain: "New pain", vision: null })
   })
 })
 

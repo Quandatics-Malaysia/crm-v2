@@ -41,3 +41,11 @@
 Implementation commit SHA: `33fca9f`
 
 The report is committed in the follow-up Task 4 commit using the same required commit message.
+
+## Fix round 1/5
+
+- Added executable PostgreSQL migration coverage for 0078 using the existing temporary-database Drizzle migrator convention. The fixture migrates through 0077, seeds two tenants, applies 0078, reruns the migrator, and asserts `name = code` plus preservation of code, year/number, and non-null `projectCode` values.
+- Strengthened the stage test through `requestStageAdvance`/`reopenOpportunity` and the `runInTenant` transaction seam. It now proves rollback, re-entry idempotence, committed Opportunity-code writes, and no `projects` table writes.
+- SQLite/PGlite coverage is not used: migration 0078 uses PostgreSQL `IS DISTINCT FROM`, and this repository’s migration harness is PostgreSQL/Drizzle. The integration test uses `TEST_DATABASE_ADMIN_URL`; without it, the focused run reports the PostgreSQL suite as skipped.
+
+Fix-round verification: full web suite passed with 51 files / 487 tests and 38 skipped; typecheck and lint passed. The PostgreSQL fixture was skipped because `TEST_DATABASE_ADMIN_URL` is unset in this workspace.

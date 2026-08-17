@@ -104,6 +104,8 @@ export interface DataTableProps<TData, TValue> {
   facets?: DataTableFacet[]
   /** Namespaces the URL state params so multiple tables can coexist on a page. */
   tableId?: string
+  /** Explicitly disable saved views only for a table that cannot persist them. */
+  savedViews?: boolean
   /**
    * Server-side row cap. When `data.length >= cap`, a notice is shown so users
    * know the list is truncated and should refine their search.
@@ -174,6 +176,7 @@ export function DataTable<TData, TValue>({
   filters,
   facets,
   tableId,
+  savedViews = true,
   cap,
 }: DataTableProps<TData, TValue>) {
   const filterIds = React.useMemo(
@@ -497,7 +500,7 @@ export function DataTable<TData, TValue>({
 
         <div className="ml-auto flex items-center gap-2">
           {toolbar}
-          {tableId ? (
+          {tableId && savedViews ? (
             <SavedViewMenu
               listKey={tableId}
               currentPayload={currentSavedPayload}

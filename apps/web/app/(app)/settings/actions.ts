@@ -88,8 +88,6 @@ export type TenantSettingsView = {
   quoteValidDays: number | null
   /** Dashboard "due soon" follow-up window in days. */
   followUpDueDays: number
-  /** Automation: auto-create the delivery project when a quote is accepted. */
-  autoCreateProjectOnAccept: boolean
   /** Stale-funnel nudge threshold in days (null = off). */
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
@@ -161,7 +159,6 @@ export type UpdateSettingsInput = {
   followUpDueDays: number
   taxInclusive: boolean
   autoWinOnQuoteAccept: boolean
-  autoCreateProjectOnAccept: boolean
   allowPasswordLogin: boolean
   entityCode: string
   defaultCountry: string
@@ -309,7 +306,6 @@ function toView(
     paymentTerms: row.paymentTerms ?? [],
     quoteValidDays: row.quoteValidDays ?? null,
     followUpDueDays: row.followUpDueDays ?? 7,
-    autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
     financeEnabled,
@@ -866,7 +862,6 @@ export async function updateSettings(
     followUpDueDays: input.followUpDueDays,
     taxInclusive: input.taxInclusive,
     autoWinOnQuoteAccept: input.autoWinOnQuoteAccept,
-    autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
     ...(financeEnabled

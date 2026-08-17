@@ -306,7 +306,6 @@ describe("direct module-owned action entrypoints", () => {
       followUpDueDays: 7,
       taxInclusive: true,
       autoWinOnQuoteAccept: true,
-      autoCreateProjectOnAccept: false,
       allowPasswordLogin: true,
       entityCode: "ACME",
       defaultCountry: "MY",

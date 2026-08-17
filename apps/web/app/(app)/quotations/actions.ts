@@ -2,7 +2,7 @@
 
 import { and, asc, desc, eq, isNull, ne, notInArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { withTenant, requireContext, type Tx } from "@/lib/actions"
+import { withTenant, type Tx } from "@/lib/actions"
 import { PERMISSIONS } from "@/lib/permissions"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { quotationsList, quotationsGet } from "@/lib/api-readers"
@@ -1416,10 +1416,6 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
 export type AcceptQuotationResult = {
   funnelId: string
   accountId: string
-  /** Non-fatal warning when acceptance-related project automation fails. */
-  warning?: string
-  /** Set when auto-create-project is on and the delivery project was created. */
-  projectCreated?: { id: string; projectCode: string }
 }
 
 export async function acceptQuotation(
@@ -1495,27 +1491,6 @@ export async function acceptQuotation(
       .set({ isPrimary: true })
       .where(eq(quotations.id, id))
 
-    // Set primary then derive amount from the primary quote's net.
-    await tx
-      .update(funnels)
-      .set({ primaryQuotationId: id, updatedAt: new Date() })
-      .where(eq(funnels.id, q.funnelId))
-    await syncOpportunityAmount(tx, ctx, q.funnelId)
-    // Synced quote -> opportunity products (Salesforce Quote Line Item ->
-    // Opportunity Product behaviour).
-    await syncFunnelProductsFromQuote(tx, ctx.tenantId, q.funnelId, id)
-    // Itemised into the quotation by default: a synced quote seeds exactly
-    // one "Full Payment" milestone, no-op once any milestone exists.
-    await seedDefaultFunnelMilestone(tx, ctx, q.funnelId)
-
-    const [settings] = await tx
-      .select({
-        autoProject: tenantSettings.autoCreateProjectOnAccept,
-      })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-
     await logActivity(tx, ctx, {
       entityType: "opportunity",
       entityId: q.funnelId,
@@ -1536,75 +1511,14 @@ export async function acceptQuotation(
     return {
       funnelId: q.funnelId,
       accountId: opp.accountId,
-      autoProject: settings?.autoProject ?? false,
-      quotationId: id,
     }
   })
-  let warning: string | undefined
-
-  // Automation: auto-create the delivery project (Settings → Behavior). Runs
-  // AFTER acceptance committed and is strictly best-effort — a failure (no
-  // account code yet, missing permission, duplicate code race) surfaces as a
-  // warning, never as a failed acceptance.
-  let projectCreated: AcceptQuotationResult["projectCreated"]
-  if (result.autoProject && (await getEntitledModuleMap()).projects) {
-    try {
-      // Loaded lazily so core quotations carries no static dependency on the
-      // projects plugin (whose actions transitively import sales-orders +
-      // finance).
-      const { createProject, prefillFromOpportunity } = await import(
-        "@/app/(app)/projects/actions"
-      )
-      const ctx = await requireContext()
-      if (!ctx.can(PERMISSIONS.PROJECT_CREATE)) {
-        throw new Error("you don't have the Create projects permission")
-      }
-      // Skip when a project already exists for this quotation.
-      const existing = await withTenant(
-        PERMISSIONS.PROJECT_CREATE,
-        async (tx) => {
-          const [p] = await tx
-            .select({ id: projects.id })
-            .from(projects)
-            .where(
-              and(
-                eq(projects.quotationId, result.quotationId),
-                isNull(projects.deletedAt)
-              )
-            )
-            .limit(1)
-          return p ?? null
-        }
-      )
-      if (!existing) {
-        const prefill = await prefillFromOpportunity(result.funnelId)
-        if (!prefill) throw new Error("the funnel could not be loaded")
-        const created = await createProject({
-          name: prefill.opportunityName,
-          accountId: prefill.accountId,
-          funnelId: result.funnelId,
-          quotationId: prefill.quotationId ?? result.quotationId,
-          value: prefill.value,
-          currency: prefill.currency,
-          projectNatureCode: prefill.projectNatureCode || undefined,
-        })
-        if (!created.ok) throw new Error(created.error)
-        projectCreated = created.data
-      }
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : "unknown error"
-      const note = `Quotation accepted, but the project was not auto-created (${detail}). Create it from the funnel when ready.`
-      warning = warning ? `${warning} ${note}` : note
-    }
-  }
 
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
   return {
     funnelId: result.funnelId,
     accountId: result.accountId,
-    warning,
-    projectCreated,
   }
   })
 }

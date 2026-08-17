@@ -303,6 +303,7 @@ export function TaxClient({ data }: { data: TaxSettingRow[] }) {
       <DataTable
         columns={columns}
         data={data}
+        tableId="settings-tax-rates"
         searchColumn="name"
         searchPlaceholder="Search tax settings…"
         emptyMessage="No tax settings yet."

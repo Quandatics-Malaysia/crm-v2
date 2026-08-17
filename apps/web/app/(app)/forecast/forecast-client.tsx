@@ -435,6 +435,7 @@ export function ForecastClient({
       <DataTable
         columns={columns}
         data={rows}
+        tableId="forecast"
         searchColumn="opportunityName"
         searchPlaceholder="Search pipelines…"
         facets={[{ columnId: "source", title: "Source" }]}

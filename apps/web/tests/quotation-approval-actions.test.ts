@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   writeAudit: vi.fn(),
   revalidatePath: vi.fn(),
   winOpportunity: vi.fn(),
+  syncOpportunityAmount: vi.fn(),
+  syncFunnelProductsFromQuote: vi.fn(),
+  seedDefaultFunnelMilestone: vi.fn(),
 }))
 
 vi.mock("@/lib/actions", () => ({ withTenant: mocks.withTenant }))
@@ -30,12 +33,14 @@ vi.mock("@/server/services/stage", () => ({ winOpportunity: mocks.winOpportunity
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }))
 vi.mock("@/server/services/activity", () => ({ logActivity: vi.fn() }))
 vi.mock("@/server/services/value", () => ({
-  syncOpportunityAmount: vi.fn(),
+  syncOpportunityAmount: mocks.syncOpportunityAmount,
   quoteNet: vi.fn(),
 }))
-vi.mock("@/server/services/quote-sync", () => ({ syncFunnelProductsFromQuote: vi.fn() }))
+vi.mock("@/server/services/quote-sync", () => ({
+  syncFunnelProductsFromQuote: mocks.syncFunnelProductsFromQuote,
+}))
 vi.mock("@/app/(app)/payment-milestones/actions", () => ({
-  seedDefaultFunnelMilestone: vi.fn(),
+  seedDefaultFunnelMilestone: mocks.seedDefaultFunnelMilestone,
 }))
 vi.mock("@/lib/modules.server", () => ({ getEntitledModuleMap: vi.fn(async () => ({ projects: false })) }))
 vi.mock("@/server/services/numbering", () => ({ nextQuoteNumber: vi.fn() }))
@@ -201,7 +206,7 @@ describe("quotation approval actions", () => {
     })
   })
 
-  it("accepts Sent without invoking Funnel win automation", async () => {
+  it("accepts Sent without changing Funnel or creating a Project", async () => {
     const fixture = txWithSelects([
       [{
         id: "quote-1",
@@ -214,13 +219,23 @@ describe("quotation approval actions", () => {
       }],
       [{ ownerMemberId: "member-1", status: "open", accountId: "account-1" }],
       [],
-      [{ id: "quote-1" }],
     ])
     currentTx = fixture.tx
 
     const result = await acceptQuotation("quote-1")
 
-    expect(result).toMatchObject({ ok: true })
+    expect(result).toEqual({
+      ok: true,
+      data: { funnelId: "funnel-1", accountId: "account-1" },
+    })
+    expect(fixture.tx.select).toHaveBeenCalledTimes(3)
+    expect(fixture.updates).not.toContainEqual(
+      expect.objectContaining({ primaryQuotationId: expect.anything() })
+    )
+    expect(mocks.syncOpportunityAmount).not.toHaveBeenCalled()
+    expect(mocks.syncFunnelProductsFromQuote).not.toHaveBeenCalled()
+    expect(mocks.seedDefaultFunnelMilestone).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain("project")
     expect(mocks.winOpportunity).not.toHaveBeenCalled()
   })
 

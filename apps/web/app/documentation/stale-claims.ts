@@ -110,57 +110,179 @@ function parseStaticStringLiteral(expression: string): string | null {
   return content.includes("\\") ? null : content
 }
 
+type StaticExpression = { end: number; strings: string[] }
+
+function skipStaticWhitespace(text: string, start: number): number {
+  let index = start
+  while (index < text.length) {
+    if (/\s/.test(text[index])) {
+      index += 1
+      continue
+    }
+    if (text[index] === "/" && text[index + 1] === "/") {
+      const newline = text.indexOf("\n", index + 2)
+      index = newline === -1 ? text.length : newline + 1
+      continue
+    }
+    if (text[index] === "/" && text[index + 1] === "*") {
+      const commentEnd = text.indexOf("*/", index + 2)
+      index = commentEnd === -1 ? text.length : commentEnd + 2
+      continue
+    }
+    break
+  }
+  return index
+}
+
+function quotedLiteralEnd(text: string, start: number): number {
+  const quote = text[start]
+  let escaped = false
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index]
+    if (escaped) {
+      escaped = false
+    } else if (character === "\\") {
+      escaped = true
+    } else if (character === quote) {
+      return index + 1
+    }
+  }
+  return -1
+}
+
+function skipDynamicExpression(text: string, start: number): number {
+  const containers: string[] = []
+  let index = start
+
+  while (index < text.length) {
+    const character = text[index]
+    if (character === '"' || character === "'" || character === "`") {
+      const end = quotedLiteralEnd(text, index)
+      index = end === -1 ? text.length : end
+      continue
+    }
+    if (character === "/" && text[index + 1] === "/") {
+      const newline = text.indexOf("\n", index + 2)
+      index = newline === -1 ? text.length : newline + 1
+      continue
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      const commentEnd = text.indexOf("*/", index + 2)
+      index = commentEnd === -1 ? text.length : commentEnd + 2
+      continue
+    }
+    if (character === "[" || character === "{" || character === "(") {
+      containers.push(character)
+    } else if (character === "]" || character === "}" || character === ")") {
+      if (containers.length) containers.pop()
+      else return index
+    } else if (!containers.length && (character === "," || character === "]" || character === "}")) {
+      return index
+    }
+    index += 1
+  }
+
+  return index
+}
+
+function parseStaticValue(text: string, start: number): StaticExpression | null {
+  const index = skipStaticWhitespace(text, start)
+  const character = text[index]
+
+  if (character === '"' || character === "'" || character === "`") {
+    const end = quotedLiteralEnd(text, index)
+    if (end === -1) return null
+    const value = parseStaticStringLiteral(text.slice(index, end))
+    return value === null ? null : { end, strings: [value] }
+  }
+
+  if (character === "[") return parseStaticArray(text, index)
+  if (character === "{") return parseStaticObject(text, index)
+
+  const primitive = text.slice(index).match(/^(?:true|false|null|undefined|-?\d+(?:\.\d+)?\b)/)
+  return primitive
+    ? { end: index + primitive[0].length, strings: [] }
+    : null
+}
+
+function parseStaticArray(text: string, start: number): StaticExpression | null {
+  const strings: string[] = []
+  let index = start + 1
+
+  while (true) {
+    index = skipStaticWhitespace(text, index)
+    if (text[index] === "]") return { end: index + 1, strings }
+    if (index >= text.length) return null
+
+    const value = parseStaticValue(text, index)
+    if (value) {
+      strings.push(...value.strings)
+      index = value.end
+    } else {
+      index = skipDynamicExpression(text, index)
+    }
+
+    index = skipStaticWhitespace(text, index)
+    if (text[index] === ",") {
+      index += 1
+      continue
+    }
+    if (text[index] === "]") return { end: index + 1, strings }
+    return null
+  }
+}
+
+function parseStaticObject(text: string, start: number): StaticExpression | null {
+  const strings: string[] = []
+  let index = start + 1
+
+  while (true) {
+    index = skipStaticWhitespace(text, index)
+    if (text[index] === "}") return { end: index + 1, strings }
+    if (index >= text.length) return null
+    if (text.startsWith("...", index)) return null
+
+    if (text[index] === '"' || text[index] === "'" || text[index] === "`") {
+      const end = quotedLiteralEnd(text, index)
+      if (end === -1) return null
+      index = end
+    } else {
+      const key = text.slice(index).match(/^[A-Za-z_$][\w$]*/)
+      if (!key) return null
+      index += key[0].length
+    }
+
+    index = skipStaticWhitespace(text, index)
+    if (text[index] !== ":") return null
+    index = skipStaticWhitespace(text, index + 1)
+
+    const value = parseStaticValue(text, index)
+    if (value) {
+      strings.push(...value.strings)
+      index = value.end
+    } else {
+      index = skipDynamicExpression(text, index)
+    }
+
+    index = skipStaticWhitespace(text, index)
+    if (text[index] === ",") {
+      index += 1
+      continue
+    }
+    if (text[index] === "}") return { end: index + 1, strings }
+    return null
+  }
+}
+
 function extractStaticObjectArrayStrings(expression: string): string[] | null {
   const literal = expression.trim()
   if (!literal.startsWith("[") && !literal.startsWith("{")) return null
 
-  const containers = [literal[0]]
-  const strings: string[] = []
-
-  for (let index = 1; index < literal.length; index += 1) {
-    const character = literal[index]
-
-    if (character === "/" && literal[index + 1] === "/") {
-      const newline = literal.indexOf("\n", index + 2)
-      index = newline === -1 ? literal.length : newline
-      continue
-    }
-    if (character === "/" && literal[index + 1] === "*") {
-      const commentEnd = literal.indexOf("*/", index + 2)
-      index = commentEnd === -1 ? literal.length : commentEnd + 1
-      continue
-    }
-
-    if (character === '"' || character === "'" || character === "`") {
-      let end = index + 1
-      let escaped = false
-      for (; end < literal.length; end += 1) {
-        const next = literal[end]
-        if (escaped) {
-          escaped = false
-        } else if (next === "\\") {
-          escaped = true
-        } else if (next === character) {
-          break
-        }
-      }
-
-      if (containers.at(-1) === "[" || containers.at(-1) === "{") {
-        const value = parseStaticStringLiteral(literal.slice(index, end + 1))
-        if (value !== null) strings.push(value)
-      }
-      index = end
-      continue
-    }
-
-    if (character === "[" || character === "{" || character === "(") {
-      containers.push(character)
-    } else if (character === "]" || character === "}" || character === ")") {
-      containers.pop()
-    }
+  const parsed = parseStaticValue(literal, 0)
+  if (!parsed || skipStaticWhitespace(literal, parsed.end) !== literal.length) {
+    return null
   }
-
-  return strings
+  return parsed.strings
 }
 
 function extractStaticJsxAttributeLiterals(tag: string): string[] {

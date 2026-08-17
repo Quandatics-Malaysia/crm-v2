@@ -403,13 +403,7 @@ export function QuotationForm({
       setBusy(false)
       return
     }
-    if (res.data.warning) toast.warning(res.data.warning)
-    toast.success("Quotation accepted", {
-      action: {
-        label: "Create project",
-        onClick: () => router.push(createProjectHref),
-      },
-    })
+    toast.success("Quotation accepted")
     router.refresh()
     setBusy(false)
   }

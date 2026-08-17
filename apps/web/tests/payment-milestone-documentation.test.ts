@@ -127,6 +127,20 @@ describe("payment milestone documentation", () => {
     ).toEqual([])
   })
 
+  it("does not extract static-looking strings from dynamic nested values", () => {
+    const dynamicRows = [
+      `<DocTable rows={[{ label: condition ? "one live invoice per milestone" : "safe" }]} />`,
+      `<DocTable rows={[{ label: enabled && "one live invoice per milestone" }]} />`,
+      `<DocTable rows={[{ label: settings.label ?? "one live invoice per milestone" }]} />`,
+      `<DocTable rows={[{ details: condition ? { label: "one live invoice per milestone" } : null }]} />`,
+      '<DocTable rows={[{ label: `${prefix} one live invoice per milestone` }]} />',
+    ]
+
+    for (const source of dynamicRows) {
+      expect(findForbiddenStaleClaims(source)).toEqual([])
+    }
+  })
+
   it("allows accurate negated coupling wording", () => {
     const accurateNegations = [
       "Payment Milestones do not create a one-click invoice.",

@@ -533,6 +533,7 @@ function MembersTab({
     <DataTable
       columns={columns}
       data={members}
+      tableId="team-members"
       searchColumn="name"
       searchPlaceholder="Search members…"
       emptyMessage="No members yet."

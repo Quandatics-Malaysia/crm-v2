@@ -116,3 +116,30 @@ Commit SHA: reported in the final handoff.
 - `apps/web/tests/ppvvc-sync-db.test.ts`
 
 Commit SHA: reported in the final handoff.
+
+## Fix round 3/5 — deterministic cross-entry race and action seams
+
+### Findings addressed
+
+- P1 cross-entry race coverage: replaced timing sleeps with a test-only query-builder barrier that releases both real PostgreSQL transactions together at their first `FOR UPDATE`. Current Funnel and Opportunity paths both report `opportunities` as their first locked table; opposite lock order (`funnels` then `opportunities`) would enter the deadlock path and fail the timeout-bound race.
+- P1 action seam coverage: added direct Server Action regressions proving Funnel and Opportunity actions trim and submit sparse PPVVC patches, omit `undefined` keys, preserve ordinary untouched fields, and leave PPVVC persistence to the synchronization service.
+- No production change was required; round-2 sparse payload and deterministic lock-order implementation satisfies these regressions.
+
+### TDD evidence
+
+- New action seam tests initially failed during setup because the action dependency seam omitted the production `db` export; after correcting the test double, they passed against the existing actions.
+- The database race test now coordinates real transaction query execution rather than relying on elapsed time. It is skipped in this workspace because `TEST_DATABASE_ADMIN_URL` and `TEST_DATABASE_URL` are unset; typecheck validates the barrier implementation.
+
+### Verification
+
+- Focused PPVVC tests: 2 files passed; 9 tests passed; 4 PostgreSQL tests skipped without configured database URLs.
+- Typecheck: passed.
+- Lint: passed.
+- `git diff --check`: passed.
+
+### Fix-round files
+
+- `apps/web/tests/ppvvc-sync-db.test.ts`
+- `apps/web/tests/ppvvc-actions.test.ts`
+
+Commit SHA: reported in the final handoff.

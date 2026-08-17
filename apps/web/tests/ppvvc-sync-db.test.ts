@@ -36,6 +36,79 @@ const updated = {
   control: "Updated control",
 }
 
+type QueryLike = {
+  [key: string]: unknown
+}
+
+function firstLockBarrier(participants: number) {
+  let arrived = 0
+  let release!: () => void
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  return {
+    async waitForAll() {
+      arrived += 1
+      if (arrived === participants) release()
+      await released
+    },
+  }
+}
+
+function coordinateFirstLock(
+  tx: Tx,
+  barrier: ReturnType<typeof firstLockBarrier>,
+  firstLockTables: string[]
+): Tx {
+  const state = { firstLockPending: true, firstLockTable: "unknown" }
+
+  function wrapQuery(query: QueryLike, waitForFirstLock = false): QueryLike {
+    return new Proxy(query, {
+      get(target, property, receiver) {
+        if (property === "then" && waitForFirstLock) {
+          return (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+            barrier.waitForAll().then(
+              () => Reflect.apply(target.then as (...args: unknown[]) => unknown, target, [resolve, reject]),
+              reject
+            )
+          }
+        }
+
+        const value = Reflect.get(target, property, receiver)
+        if (typeof value !== "function") return value
+
+        return (...args: unknown[]) => {
+          const result = Reflect.apply(value, target, args) as QueryLike
+          if (property === "from" && state.firstLockPending) {
+            state.firstLockTable =
+              args[0] === schema.opportunities
+                ? "opportunities"
+                : args[0] === schema.funnels
+                  ? "funnels"
+                  : "unknown"
+          }
+          if (property === "for" && args[0] === "update" && state.firstLockPending) {
+            state.firstLockPending = false
+            firstLockTables.push(state.firstLockTable)
+            return wrapQuery(result, true)
+          }
+          return wrapQuery(result, waitForFirstLock)
+        }
+      },
+    })
+  }
+
+  return new Proxy(tx as unknown as QueryLike, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (property !== "select" || typeof value !== "function") return value
+      return (...args: unknown[]) =>
+        wrapQuery(Reflect.apply(value, target, args) as QueryLike)
+    },
+  }) as unknown as Tx
+}
+
 integration("PPVVC PostgreSQL boundary", () => {
   let admin: Sql
   let appA: Sql
@@ -60,11 +133,16 @@ integration("PPVVC PostgreSQL boundary", () => {
     await Promise.all([admin.end(), appA.end(), appB.end()])
   })
 
-  async function scoped<T>(client: Sql, tenantId: string, work: (tx: Tx) => Promise<T>) {
+  async function scoped<T>(
+    client: Sql,
+    tenantId: string,
+    work: (tx: Tx) => Promise<T>,
+    decorate: (tx: Tx) => Tx = (tx) => tx
+  ) {
     const database = drizzle(client, { schema })
     return database.transaction(async (tx) => {
       await tx.execute(sql`select set_config('app.current_tenant', ${tenantId}, true)`)
-      return work(tx as unknown as Tx)
+      return work(decorate(tx as unknown as Tx))
     })
   }
 
@@ -289,22 +367,31 @@ integration("PPVVC PostgreSQL boundary", () => {
 
   it("serializes Funnel and Opportunity entry points without deadlock or lost fields", async () => {
     const f = await fixture()
-    const funnelWrite = scoped(appA, f.tenantId, (tx) =>
-      updateFunnelPpvvc(tx, {
-        funnelId: f.liveFunnelId,
-        tenantId: f.tenantId,
-        values: { pain: "Funnel writer" },
-        actorId: f.userId,
-      })
+    const barrier = firstLockBarrier(2)
+    const firstLockTables: string[] = []
+    const funnelWrite = scoped(
+      appA,
+      f.tenantId,
+      (tx) =>
+        updateFunnelPpvvc(tx, {
+          funnelId: f.liveFunnelId,
+          tenantId: f.tenantId,
+          values: { pain: "Funnel writer" },
+          actorId: f.userId,
+        }),
+      (tx) => coordinateFirstLock(tx, barrier, firstLockTables)
     )
-    await new Promise((resolve) => setTimeout(resolve, 80))
-    const opportunityWrite = scoped(appB, f.tenantId, (tx) =>
-      updateOpportunityPpvvc(tx, {
-        opportunityId: f.opportunityId,
-        tenantId: f.tenantId,
-        values: { power: "Opportunity writer" },
-        actorId: f.userId,
-      })
+    const opportunityWrite = scoped(
+      appB,
+      f.tenantId,
+      (tx) =>
+        updateOpportunityPpvvc(tx, {
+          opportunityId: f.opportunityId,
+          tenantId: f.tenantId,
+          values: { power: "Opportunity writer" },
+          actorId: f.userId,
+        }),
+      (tx) => coordinateFirstLock(tx, barrier, firstLockTables)
     )
 
     await Promise.race([
@@ -313,6 +400,7 @@ integration("PPVVC PostgreSQL boundary", () => {
         setTimeout(() => reject(new Error("cross-entry PPVVC update timed out")), 3_000)
       ),
     ])
+    expect(firstLockTables.sort()).toEqual(["opportunities", "opportunities"])
 
     const [finalSource] = await admin`
       select pain, power from opportunities where id = ${f.opportunityId}::uuid

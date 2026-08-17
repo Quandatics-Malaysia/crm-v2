@@ -36,6 +36,33 @@
   PostgreSQL `ECONNREFUSED`; no database state changed.
 - `git diff --check`: passed.
 
+## Fix round 1/5
+
+- Root cause: rendered Finance and Sales documentation still described the
+  legacy `pending → invoiced → paid` lifecycle and invoice/receipt-driven
+  Project completion.
+- Updated `content-finance.tsx` and `content-sales.tsx` to document only
+  Won/Invoiced milestones, pre-close preparation, Closed Won → Won propagation,
+  manual Won → Invoiced, and no automatic invoice, receipt, or Project
+  completion side effects.
+- Removed stale milestone billing-tab, invoice-link, receipt, paid, pending,
+  and automatic-coupling claims from the rendered copy and diagrams.
+- Added `payment-milestone-documentation.test.ts`, which extracts rendered
+  React documentation text and guards the lifecycle and stale-copy boundaries.
+
+## Fix round 1 TDD evidence
+
+- RED: the new rendered-documentation regression failed on missing two-state
+  lifecycle copy and the legacy `pending → invoiced → paid` claim.
+- GREEN: focused documentation/lifecycle suite passed with 2 files and 7 tests.
+
+## Fix round 1 verification
+
+- Full web tests: 65 files passed, 9 skipped; 591 tests passed, 55 skipped.
+- Typecheck: passed.
+- Lint: passed.
+- `git diff --check`: passed.
+
 ## Commit
 
 Commit message: `feat: decouple payment milestones from invoicing`

@@ -18,7 +18,7 @@ export const financePage: DocPage = {
   slug: "finance",
   title: "Finance add-on — Billing & Purchasing",
   description:
-    "The O2C and P2P document chains: kinds, status machine, milestone tie, proof gate, reminders, and signed runtime entitlement.",
+    "The O2C and P2P document chains: kinds, status machine, proof gate, reminders, and signed runtime entitlement.",
   body: (
     <>
       <Lead>
@@ -58,7 +58,7 @@ flowchart LR
         head={["Kind", "Direction", "Created from", "Number", "Special"]}
         rows={[
           ["Delivery order", "sale", "approved SO", <Code key="n">{"{ENT}"}DO-0001</Code>, "optional hop"],
-          ["Invoice", "sale", "SO or DO", <Code key="n">{"{ENT}"}INV-0001</Code>, "can tie to a payment milestone"],
+          ["Invoice", "sale", "SO or DO", <Code key="n">{"{ENT}"}INV-0001</Code>, "independent of Payment Milestones"],
           ["Credit note", "sale", "invoice", <Code key="n">{"{ENT}"}CN-0001</Code>, "—"],
           ["Payment receipt", "sale", "issued invoice", <Code key="n">{"{ENT}"}RCT-0001</Code>, "settles its parent; proof required"],
           ["RFQ", "purchase", "approved SO", <Code key="n">{"{ENT}"}RFQ-0001</Code>, "—"],
@@ -87,7 +87,7 @@ stateDiagram-v2
         rows={[
           [
             <B key="t">Invoice issued</B>,
-            "Its milestone → invoiced. On an intercompany project, the auto-mirror drafts the partner-share pair (below).",
+            "The invoice lifecycle is independent of Payment Milestones. On an intercompany project, the auto-mirror drafts the partner-share pair (below).",
           ],
           [
             <B key="t">Receipt/payment issued</B>,
@@ -95,43 +95,39 @@ stateDiagram-v2
               Requires ≥1 attachment (the proof) and an <B>issued</B> parent.
               The parent settles only when cumulative live payments cover its
               full amount — a partial payment leaves it issued and logs the
-              outstanding balance. Settling an invoice marks its milestone
-              paid and can auto-complete the project.
+              outstanding balance. Receipts settle only their parent invoice;
+              they do not change a Payment Milestone or complete a Project.
             </>,
           ],
           [
             <B key="t">Invoice “Mark settled”</B>,
-            "Money received without a receipt document: milestone → paid + project auto-complete, same as the receipt path.",
+            "Money received without a receipt document: the invoice settles without changing a Payment Milestone or completing a Project.",
           ],
           [
             <B key="t">Issued invoice cancelled</B>,
-            "Blocked while live receipts exist. Frees its milestone back to pending so it can be re-invoiced.",
+            "Blocked while live receipts exist. Cancelling the invoice does not change a Payment Milestone.",
           ],
           [
             <B key="t">Issued receipt cancelled</B>,
-            "If remaining payments no longer cover the invoice, the invoice reverts to issued and the milestone to invoiced. An auto-completed project stays completed (reopen manually).",
+            "If remaining payments no longer cover the invoice, the invoice reverts to issued. Payment Milestones and Project status are unchanged.",
           ],
         ]}
       />
       <Callout>
         Concurrency-safe by construction: the status update is compare-and-set
-        (a second concurrent click fails loudly), one milestone can carry only
-        one live invoice (DB partial unique index), and number minting retries
+        (a second concurrent click fails loudly), and number minting retries
         inside savepoints.
       </Callout>
 
-      <H2>Streamlined issuance</H2>
+      <H2>Payment Milestones are separate</H2>
       <P>
-        The{" "}
-        <Link className="link" href="/documentation/projects-milestones">
-          project
-        </Link>
-        ’s <B>Billing tab</B> shows an invoiced/paid progress bar
-        against the project value, the billed margin, and a “Ready to invoice”
-        list: one click drafts the invoice for a pending milestone with
-        amount, customer, currency, sales order and due date all derived —
-        the salesperson types nothing. The due date defaults to{" "}
-        <Code>doc date + invoice_due_days</Code>.
+        Payment Milestones are planning records with only two statuses:{" "}
+        <B>Won</B> and <B>Invoiced</B>. They may be prepared before a Funnel
+        closes; <B>Closed Won</B> marks live milestones Won, and a user
+        manually changes Won to Invoiced. Payment Milestones do not create or
+        update invoices or receipts and never complete a Project automatically.
+        Finance documents are created and managed through their own Finance
+        flows.
       </P>
 
       <H2>Reminders (in-app)</H2>
@@ -181,12 +177,11 @@ stateDiagram-v2
       </Ul>
       <P>
         <B>Nothing is deleted or mutated by toggling.</B> All documents,
-        attachments, reminder counters and milestone states are retained;
+        attachments, reminder counters and Payment Milestone records are retained;
         toggling back ON shows everything exactly as it was. Numbering
         continues where it left off (count-based, and documents are never
-        hard-deleted). Milestone statuses already reached (invoiced/paid) stay
-        put while off — milestones simply can’t move further until the module
-        returns.
+        hard-deleted). Payment Milestone status is managed independently of
+        the Finance entitlement.
       </P>
       <Callout tone="warn">
         The only irreversible action in the module is business-level, not

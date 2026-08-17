@@ -36,13 +36,13 @@ flowchart TD
   QS -- "accept (one live accepted per funnel)" --> QA[Quotation accepted]
   QA -- "auto-win toggle" --> OW[Funnel won]
   QA -- "auto-create-project toggle" --> P[Project<br/>value = quote net]
-  P --> M[Payment milestones<br/>split by exact amount]
+  O -- "prepare any time" --> M[Payment milestones<br/>Won / Invoiced]
+  OW -- "Closed Won marks live" --> MW[Live milestones Won]
+  M -- "manual Won → Invoiced" --> MI[Milestone Invoiced]
   P -- "submit for approval" --> SO[Sales order<br/>submitted → approved]
   SO -- "approved unlocks" --> INV[Invoice draft]
-  M -- "one-click draft" --> INV
-  INV -- "issue" --> INVI[Invoice issued<br/>milestone → invoiced]
-  INVI -- "receipt + proof" --> RCT[Receipt issued<br/>invoice settled, milestone paid]
-  RCT -- "all milestones paid + toggle" --> PC[Project completed]
+  INV -- "issue" --> INVI[Invoice issued]
+  INVI -- "receipt + proof" --> RCT[Receipt issued<br/>invoice settled]
 `}
       />
 
@@ -71,9 +71,9 @@ flowchart TD
             "Create project (manual or auto on quote accept).",
           ],
           [
-            "Milestones → Project",
-            <Code key="c">payment_milestones.project_id</Code>,
-            "Milestones panel or the milestone template.",
+            "Payment Milestone → Funnel",
+            <Code key="c">payment_milestones.funnel_id</Code>,
+            "Prepared from the Funnel before close; Closed Won marks live milestones Won.",
           ],
           [
             "Sales order → Project",
@@ -81,12 +81,11 @@ flowchart TD
             "Submit for approval on the project.",
           ],
           [
-            "Billing doc → SO / Project / Milestone / parent doc",
+            "Billing doc → SO / Project / parent doc",
             <Code key="c">
-              finance_docs.sales_order_id / project_id / milestone_id /
-              parent_id
+              finance_docs.sales_order_id / project_id / parent_id
             </Code>,
-            "Finance module (chains from the approved SO).",
+            "Finance module; Payment Milestones are not Finance document parents.",
           ],
           [
             "Interco mirror → Funnel",
@@ -104,19 +103,19 @@ flowchart TD
           just application checks.
         </Li>
         <Li>
-          Milestones <B>reconcile to the project value</B> — edits that would
-          push the total above <Code>projects.value</Code> are rejected.
+          Payment Milestones are planning records with only <B>Won</B> and{" "}
+          <B>Invoiced</B> statuses and may be prepared before the Funnel closes.
         </Li>
         <Li>
-          Invoicing requires an <B>approved sales order</B> on the project.
+          <B>Closed Won</B> marks live Payment Milestones Won.
         </Li>
         <Li>
-          One <B>live invoice per milestone</B> (DB partial unique index) — a
-          milestone can never be double-billed.
+          A user manually changes <B>Won → Invoiced</B>; there is no automatic
+          invoice or receipt transition.
         </Li>
         <Li>
-          A receipt/payment cannot be issued without an <B>attached proof</B>,
-          and its parent invoice must itself be issued.
+          Payment Milestones do not create or update invoices or receipts and
+          never complete a Project automatically.
         </Li>
       </Ul>
 
@@ -167,7 +166,7 @@ flowchart TD
         <Code>draft → sent → accepted / rejected</Code>; project{" "}
         <Code>planning → active → completed</Code> (plus{" "}
         <Code>on_hold / cancelled</Code>); milestone{" "}
-        <Code>pending → invoiced → paid</Code> (forward-only); sales order{" "}
+        <Code>Won → Invoiced</Code> (manual only); sales order{" "}
         <Code>submitted → approved / rejected</Code>; finance doc{" "}
         <Code>draft → issued → settled / cancelled</Code>.
       </Callout>
@@ -433,7 +432,7 @@ export const projectsPage: DocPage = {
   slug: "projects-milestones",
   title: "Projects & payment milestones",
   description:
-    "Delivery projects, the milestone payment split, sales-order approval, and project status automation.",
+    "Delivery projects, payment-milestone planning, sales-order approval, and project status.",
   body: (
     <>
       <H2>Creating a project</H2>
@@ -441,36 +440,41 @@ export const projectsPage: DocPage = {
         Two paths: manually (optionally prefilled from a funnel/quote) or
         automatically on quote acceptance. The project code derives from the
         account code + primary nature; <Code>projects.value</Code> prefills
-        from the accepted quote’s net and becomes the reconciliation ceiling
-        for milestones.
+        from the accepted quote’s net. Payment Milestones are separate planning
+        records attached to the Funnel.
       </P>
 
       <H2>Payment milestones</H2>
+      <P>
+        Payment Milestones are planning records with only two statuses:{" "}
+        <B>Won</B> and <B>Invoiced</B>. They may be prepared before a Funnel
+        closes. When the Funnel reaches <B>Closed Won</B>, its live milestones
+        are marked Won. A user manually changes Won to Invoiced; there is no
+        backward move.
+      </P>
       <Mermaid
         chart={`
 stateDiagram-v2
-  [*] --> pending : created (manual or template)
-  pending --> invoiced : linked invoice ISSUED
-  invoiced --> paid : receipt settles the invoice
-  invoiced --> pending : invoice cancelled (auto-freed)
-  paid --> invoiced : receipt cancelled and cover lost
-  note right of pending : one LIVE invoice per milestone (DB unique index)
+  [*] --> won : prepared (before or after close)
+  won --> invoiced : manual status change
+  note right of won : Closed Won marks live milestones Won
 `}
       />
       <Ul>
         <Li>
-          Milestones split by <B>exact amount</B> (not percent); the total may
-          never exceed the project value.
+          Milestones split by <B>exact amount</B> (not percent) for planning.
         </Li>
         <Li>
           The <B>milestone template</B> in Settings seeds new projects
-          automatically (percent split of the value; the last row absorbs
-          rounding).
+          with a percent split of the value; the last row absorbs rounding.
         </Li>
         <Li>
-          Manual status moves are <B>forward-only</B>{" "}
-          (<Code>pending → invoiced → paid</Code>); only billing-document
-          events move a milestone backwards (invoice/receipt cancellation).
+          Manual status moves are <B>forward-only</B> (<Code>Won → Invoiced</Code>).
+          Finance invoices and receipts do not change milestone status.
+        </Li>
+        <Li>
+          Payment Milestones do not create or update invoices or receipts and
+          never complete a Project automatically.
         </Li>
       </Ul>
 
@@ -490,17 +494,15 @@ stateDiagram-v2
         .
       </P>
 
-      <H2>Status automation</H2>
+      <H2>Project status</H2>
       <Ul>
         <Li>
-          With <Code>auto_complete_project_on_paid</Code> on, a project moves
-          to <B>Completed</B> when its last milestone is paid — via receipts,
-          manual invoice settlement, or manual milestone edits/deletes.
+          Project status is managed independently of Payment Milestones; a
+          milestone transition never completes a Project automatically.
         </Li>
         <Li>
-          The project Billing tab shows invoiced/paid progress against the
-          value and one-click drafts an invoice per unclaimed pending
-          milestone (see{" "}
+          Finance invoices and receipts follow the separate Finance lifecycle
+          and do not depend on Payment Milestones (see{" "}
           <Link className="link" href="/documentation/finance">
             Finance
           </Link>

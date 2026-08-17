@@ -3,6 +3,7 @@ import postgres, { type Sql } from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import type { Tx } from "@/db"
+import { PERMISSIONS } from "@/lib/permissions"
 import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 
 function transactionDb(connection: unknown): Tx {
@@ -38,11 +39,97 @@ const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const integration = adminUrl ? describe.sequential : describe.skip
 const actionDatabaseUrl = process.env.TEST_DATABASE_URL
 const actionIntegration = adminUrl && actionDatabaseUrl ? describe.sequential : describe.skip
-let actionTenantId = ""
 let actionUserId = ""
 let actionMemberId = ""
+let actionSession: {
+  user: { id: string; name: string; email: string }
+  session: { activeOrganizationId: string }
+} | null = null
 
 type GlobalDb = typeof globalThis & { __pgClient?: Sql }
+
+type ActionRepository<T> = {
+  value: T
+  client: Sql
+  close: () => Promise<void>
+}
+
+async function openActionRepository<T>(
+  databaseUrl: string,
+  load: () => Promise<T>,
+): Promise<ActionRepository<T>> {
+  const globalForDb = globalThis as GlobalDb
+  const previousClient = globalForDb.__pgClient
+  const previousDatabaseUrl = process.env.DATABASE_URL
+  let actionClient: Sql | undefined
+
+  process.env.DATABASE_URL = databaseUrl
+  delete globalForDb.__pgClient
+
+  const restore = () => {
+    if (previousClient === undefined) delete globalForDb.__pgClient
+    else globalForDb.__pgClient = previousClient
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = previousDatabaseUrl
+  }
+
+  try {
+    const value = await load()
+    actionClient = globalForDb.__pgClient
+    if (!actionClient) throw new Error("Action repository did not create a database client")
+    restore()
+
+    return {
+      value,
+      client: actionClient,
+      close: async () => closeClient(actionClient),
+    }
+  } catch (error) {
+    actionClient = globalForDb.__pgClient
+    restore()
+    if (actionClient && actionClient !== previousClient) await closeClient(actionClient)
+    throw error
+  }
+}
+
+describe("taxonomy action repository isolation", () => {
+  it("restores the exact prior env and shared client without closing it", async () => {
+    const globalForDb = globalThis as GlobalDb
+    const priorClient = { end: vi.fn() } as unknown as Sql
+    const actionClient = { end: vi.fn().mockResolvedValue(undefined) } as unknown as Sql
+    const priorDatabaseUrl = process.env.DATABASE_URL
+    const priorGlobalClient = globalForDb.__pgClient
+
+    globalForDb.__pgClient = priorClient
+    process.env.DATABASE_URL = "postgres://shared-client.example/crm"
+
+    try {
+      const repository = await openActionRepository(
+        "postgres://isolated-action.example/crm",
+        async () => {
+          globalForDb.__pgClient = actionClient
+          return "loaded"
+        },
+      )
+
+      expect(repository.value).toBe("loaded")
+      expect(globalForDb.__pgClient).toBe(priorClient)
+      expect(process.env.DATABASE_URL).toBe("postgres://shared-client.example/crm")
+      expect(priorClient.end).not.toHaveBeenCalled()
+
+      await repository.close()
+
+      expect(actionClient.end).toHaveBeenCalledOnce()
+      expect(globalForDb.__pgClient).toBe(priorClient)
+      expect(process.env.DATABASE_URL).toBe("postgres://shared-client.example/crm")
+    } finally {
+      if (priorGlobalClient === undefined) delete globalForDb.__pgClient
+      else globalForDb.__pgClient = priorGlobalClient
+      if (priorDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = priorDatabaseUrl
+    }
+  })
+})
 
 async function closeClient(client: Sql | undefined): Promise<void> {
   if (!client) return
@@ -53,23 +140,24 @@ async function closeClient(client: Sql | undefined): Promise<void> {
   }
 }
 
-vi.doMock("@/lib/server-context", () => ({
-  requireContext: vi.fn(async () => ({
-    userId: actionUserId,
-    userName: "Taxonomy test",
-    userEmail: "taxonomy-test@example.com",
-    isSuperadmin: true,
-    tenantId: actionTenantId,
-    memberId: actionMemberId,
-    tierLevel: 100,
-    roleName: "Owner",
-    status: "active",
-    tenantSuspended: false,
-    subscriptionInactive: false,
-    permissions: new Set(),
-    can: () => true,
-  })),
-  assertCan: vi.fn(),
+vi.doMock("@/lib/auth", () => ({
+  auth: {
+    api: {
+      getSession: vi.fn(async () => actionSession),
+      setActiveOrganization: vi.fn(),
+    },
+  },
+}))
+
+vi.doMock("next/headers", () => ({
+  cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) })),
+  headers: vi.fn(async () => new Headers()),
+}))
+
+vi.doMock("@/lib/modules.server", () => ({
+  getEntitledModuleMap: vi.fn(async () => ({ finance: false })),
+  requireEntitledModule: vi.fn(async () => undefined),
+  withEntitledModule: vi.fn(async (_moduleId: string, work: () => unknown) => work()),
 }))
 
 vi.doMock("@/lib/action-result", () => ({
@@ -148,8 +236,11 @@ integration("product taxonomy lock concurrency", () => {
 actionIntegration("production product taxonomy mutation boundaries", () => {
   const prefix = `task7-action-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
   let admin: Sql
-  let actionClient: Sql | undefined
-  let previousDatabaseUrl: string | undefined
+  let actionRepository: ActionRepository<{
+    updateProductCodes: typeof import("@/app/(app)/settings/actions").updateProductCodes
+    createProduct: typeof import("@/app/(app)/products/actions").createProduct
+    updateProduct: typeof import("@/app/(app)/products/actions").updateProduct
+  }> | undefined
   let updateProductCodes: typeof import("@/app/(app)/settings/actions").updateProductCodes
   let createProduct: typeof import("@/app/(app)/products/actions").createProduct
   let updateProduct: typeof import("@/app/(app)/products/actions").updateProduct
@@ -170,21 +261,20 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       throw new Error("Production taxonomy boundary tests require both database URLs")
     }
 
-    previousDatabaseUrl = process.env.DATABASE_URL
-    const globalForDb = globalThis as GlobalDb
-    const previousClient = globalForDb.__pgClient
-    delete globalForDb.__pgClient
-    await closeClient(previousClient)
-
     admin = postgres(adminUrl, { max: 4 })
-    process.env.DATABASE_URL = actionDatabaseUrl
-    vi.resetModules()
-    const settingsActions = await import("@/app/(app)/settings/actions")
-    const productActions = await import("@/app/(app)/products/actions")
-    updateProductCodes = settingsActions.updateProductCodes
-    createProduct = productActions.createProduct
-    updateProduct = productActions.updateProduct
-    actionClient = globalForDb.__pgClient
+    actionRepository = await openActionRepository(actionDatabaseUrl, async () => {
+      vi.resetModules()
+      const settingsActions = await import("@/app/(app)/settings/actions")
+      const productActions = await import("@/app/(app)/products/actions")
+      return {
+        updateProductCodes: settingsActions.updateProductCodes,
+        createProduct: productActions.createProduct,
+        updateProduct: productActions.updateProduct,
+      }
+    })
+    updateProductCodes = actionRepository.value.updateProductCodes
+    createProduct = actionRepository.value.createProduct
+    updateProduct = actionRepository.value.updateProduct
   })
 
   afterAll(async () => {
@@ -194,17 +284,11 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
         await admin`delete from "user" where id like ${`${prefix}%`}`
       }
     } finally {
-      const globalForDb = globalThis as GlobalDb
-      const cachedClient = globalForDb.__pgClient
-      delete globalForDb.__pgClient
-      await closeClient(cachedClient)
-      if (actionClient && actionClient !== cachedClient) await closeClient(actionClient)
+      await actionRepository?.close()
       await admin?.end()
-      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
-      else process.env.DATABASE_URL = previousDatabaseUrl
-      actionTenantId = ""
       actionUserId = ""
       actionMemberId = ""
+      actionSession = null
       vi.resetModules()
     }
   })
@@ -214,6 +298,7 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
     const productId = crypto.randomUUID()
     const userId = `${prefix}-user-${crypto.randomUUID()}`
     const memberId = `${prefix}-member-${crypto.randomUUID()}`
+    const roleId = crypto.randomUUID()
     await admin`
       insert into organization (id, name, slug)
       values (${tenantId}, ${tenantId}, ${tenantId})
@@ -227,8 +312,33 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       values (${memberId}, ${tenantId}, ${userId}, 'member')
     `
     await admin`
-      insert into membership_profiles (member_id, tenant_id, tier_level, status)
-      values (${memberId}, ${tenantId}, 100, 'active')
+      insert into roles (id, tenant_id, name, description, is_system, default_tier_level)
+      values (${roleId}::uuid, ${tenantId}, 'Task 7 Taxonomy Operator', 'Least-privilege taxonomy test role', false, 20)
+    `
+    const requiredPermissions = [
+      PERMISSIONS.TENANT_SETTINGS,
+      PERMISSIONS.PRODUCT_CREATE,
+      PERMISSIONS.PRODUCT_UPDATE,
+    ]
+    const permissionRows = await admin`
+      select id, key from permissions where key = any(${requiredPermissions})
+    `
+    expect(new Set(permissionRows.map((row) => row.key))).toEqual(
+      new Set(requiredPermissions)
+    )
+    for (const permission of permissionRows) {
+      await admin`
+        insert into role_permissions (tenant_id, role_id, permission_id)
+        values (${tenantId}, ${roleId}::uuid, ${permission.id}::uuid)
+      `
+    }
+    await admin`
+      insert into membership_profiles (member_id, tenant_id, role_id, tier_level, status)
+      values (${memberId}, ${tenantId}, ${roleId}::uuid, 20, 'active')
+    `
+    await admin`
+      insert into member_roles (tenant_id, member_id, role_id)
+      values (${tenantId}, ${memberId}, ${roleId}::uuid)
     `
     await admin`
       insert into tenant_settings (organization_id, product_codes)
@@ -240,9 +350,16 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
         values (${productId}::uuid, ${tenantId}, 'Analytics', 'PS', 'DATA', 'MYR', '20.00')
       `
     }
-    actionTenantId = tenantId
     actionUserId = userId
     actionMemberId = memberId
+    actionSession = {
+      user: {
+        id: userId,
+        name: "Taxonomy test actor",
+        email: `${userId}@example.com`,
+      },
+      session: { activeOrganizationId: tenantId },
+    }
     return { tenantId, productId }
   }
 
@@ -274,6 +391,34 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
     return pending
   }
 
+  async function expectAudit(input: {
+    tenantId: string
+    action: string
+    entityType: string
+    entityId: string
+  }) {
+    const [row] = await admin<{
+      actor_user_id: string | null
+      actor_member_id: string | null
+      action: string
+      entity_type: string
+      entity_id: string
+    }[]>`
+      select actor_user_id, actor_member_id, action, entity_type, entity_id
+      from audit_log
+      where tenant_id = ${input.tenantId}
+      order by created_at desc, id desc
+      limit 1
+    `
+    expect(row).toEqual({
+      actor_user_id: actionUserId,
+      actor_member_id: actionMemberId,
+      action: input.action,
+      entity_type: input.entityType,
+      entity_id: input.entityId,
+    })
+  }
+
   const lockCases: Array<[
     string,
     (tenantId: string, productId: string) => Promise<unknown>,
@@ -302,7 +447,45 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
         fixture.tenantId,
         () => operation(fixture.tenantId, fixture.productId)
       )
-      expect(result).toMatchObject({ ok: true })
+      const actionResult = result as { ok: boolean; data?: { id?: string } }
+      expect(actionResult.ok).toBe(true)
+      if (name === "updateProductCodes") {
+        await expectAudit({
+          tenantId: fixture.tenantId,
+          action: "settings.product_codes_updated",
+          entityType: "tenant_settings",
+          entityId: fixture.tenantId,
+        })
+      } else {
+        await expectAudit({
+          tenantId: fixture.tenantId,
+          action: name === "createProduct" ? "product.created" : "product.updated",
+          entityType: "product",
+          entityId: actionResult.data?.id ?? fixture.productId,
+        })
+      }
+    } finally {
+      await admin`delete from organization where id = ${fixture.tenantId}`
+    }
+  })
+
+  it("denies taxonomy settings mutation when member lacks its real permission", async () => {
+    const fixture = await createTenant()
+    try {
+      await admin`
+        delete from role_permissions
+        where tenant_id = ${fixture.tenantId}
+          and permission_id = (select id from permissions where key = ${PERMISSIONS.TENANT_SETTINGS})
+      `
+
+      const result = await updateProductCodes(taxonomy)
+
+      expect(result).toMatchObject({ ok: false })
+      expect(result).toMatchObject({ error: `FORBIDDEN: missing ${PERMISSIONS.TENANT_SETTINGS}` })
+      const auditRows = await admin`
+        select id from audit_log where tenant_id = ${fixture.tenantId}
+      `
+      expect(auditRows).toHaveLength(0)
     } finally {
       await admin`delete from organization where id = ${fixture.tenantId}`
     }

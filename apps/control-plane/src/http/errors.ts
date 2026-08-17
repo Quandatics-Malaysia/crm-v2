@@ -14,16 +14,16 @@ export class SafeHttpError extends Error {
   }
 }
 
-export function unauthorized(): SafeHttpError {
-  return new SafeHttpError(401, "unauthorized")
+export function unauthorized(code = "unauthorized"): SafeHttpError {
+  return new SafeHttpError(401, code)
 }
 
-export function forbidden(): SafeHttpError {
-  return new SafeHttpError(403, "forbidden")
+export function forbidden(code = "forbidden"): SafeHttpError {
+  return new SafeHttpError(403, code)
 }
 
-export function badRequest(): SafeHttpError {
-  return new SafeHttpError(400, "invalid_request")
+export function badRequest(code = "invalid_request"): SafeHttpError {
+  return new SafeHttpError(400, code)
 }
 
 export function notFound(): SafeHttpError {
@@ -43,6 +43,10 @@ export function safeErrorResponse(error: unknown): { code: string; status: SafeH
     return { code: error.code, status: error.status }
   }
   if (error instanceof HTTPException && error.status === 403) {
+    const message = typeof error.message === "string" ? error.message.toLowerCase() : ""
+    if (message.includes("csrf")) {
+      return { code: "csrf_token_invalid", status: 403 }
+    }
     return { code: "forbidden", status: 403 }
   }
   return { code: "internal_error", status: 500 }

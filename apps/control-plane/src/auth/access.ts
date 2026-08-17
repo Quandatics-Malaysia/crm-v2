@@ -250,18 +250,18 @@ async function bindAccessSubject(
 function operatorContext(rows: OperatorRow[], verifiedEmail: string): OperatorContext {
   const primary = rows[0]
   if (!primary || primary.status !== "active") {
-    throw forbidden()
+    throw forbidden("operator_account_inactive")
   }
 
   const roles = new Set<OperatorRole>()
   for (const row of rows) {
     if (row.id !== primary.id || row.status !== "active" || !row.role || !isOperatorRole(row.role)) {
-      throw forbidden()
+      throw forbidden("operator_role_invalid")
     }
     roles.add(row.role)
   }
   if (roles.size === 0) {
-    throw forbidden()
+    throw forbidden("operator_role_missing")
   }
 
   return {
@@ -309,7 +309,7 @@ export async function requireOperator(
 
     if (!existing) {
       if (identity.email !== bootstrapEmail) {
-        throw forbidden()
+        throw forbidden("operator_not_registered")
       }
       await provisionBootstrapOwner(context, identity, undefined)
       rows = await resolveOperator(context.env.CONTROL_DB, identity)
@@ -327,7 +327,7 @@ export async function requireOperator(
       !rows.some((row) => row.role === "vendor_owner")
     ) {
       if (rows.some((row) => row.role !== null && !isOperatorRole(row.role))) {
-        throw forbidden()
+        throw forbidden("operator_role_invalid")
       }
       await provisionBootstrapOwner(context, identity, existing)
       rows = await resolveOperator(context.env.CONTROL_DB, identity)

@@ -28,18 +28,21 @@ export function requireOperatorRole(
   return async (context, next) => {
     const operator = context.get("operator") as OperatorContext | undefined
 
-    if (!operator || operator.roles.size === 0) {
-      throw forbidden()
+    if (!operator) {
+      throw forbidden("operator_session_missing")
+    }
+    if (operator.roles.size === 0) {
+      throw forbidden("operator_role_missing")
     }
 
     for (const role of operator.roles) {
       if (!isOperatorRole(role)) {
-        throw forbidden()
+        throw forbidden("operator_role_invalid")
       }
     }
 
     if (![...operator.roles].some((role) => allowed.has(role))) {
-      throw forbidden()
+      throw forbidden("operator_role_forbidden")
     }
 
     await next()

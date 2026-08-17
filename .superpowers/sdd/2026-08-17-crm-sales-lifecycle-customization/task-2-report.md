@@ -79,3 +79,57 @@ The saved-view tests cover schema ownership columns, the owner/list/name uniquen
 - The implementation intentionally keeps the exact current table state payload, including existing small detail-table page sizes, rather than narrowing persistence to only the main list sizes.
 
 Commit subject: `feat: add per-user saved list views`
+
+## Fix round 1 evidence
+
+### Review finding addressed
+
+Added behavior-level tests in `apps/web/tests/saved-views.test.ts` for:
+
+- real service CRUD through a repository contract, including save/list/get/rename/duplicate/delete and same-tenant different-member isolation;
+- valid zero-default state (new views are not implicitly default);
+- per-owner default replacement, including preservation of another member's default, with the replacement performed through the repository transaction seam;
+- fail-closed RLS predicate behavior for absent, null, mismatched, and matching tenant context;
+- stale sorting, filter, and visibility fields being dropped during saved-view application.
+
+`apps/web/app/(app)/_shared/saved-view-actions.ts` now routes all Server Actions through the repository-backed service. The SQL adapter is run inside the existing `runInTenant` transaction; default clearing is explicitly constrained by organization, member, and list. `apps/web/lib/data-table-saved-views.ts` contains the production application logic used by `DataTable`, so the stale-field test does not inspect source text or metadata.
+
+### TDD evidence
+
+RED was captured before adding the production seams:
+
+```text
+rtk pnpm --dir apps/web test -- saved-views.test.ts
+FAIL tests/saved-views.test.ts
+Error: Cannot find package '@/lib/data-table-saved-views'
+Test Files 1 failed | 47 passed | 4 skipped
+Tests 457 passed | 37 skipped
+```
+
+GREEN after the service and stale-application implementation:
+
+```text
+rtk pnpm --dir apps/web test -- saved-views.test.ts
+Test Files 48 passed | 4 skipped (52)
+Tests 465 passed | 37 skipped (502)
+```
+
+### Database boundary
+
+Live PostgreSQL was unavailable in this workspace: `TEST_DATABASE_ADMIN_URL` and `TEST_DATABASE_URL` were both unset. The fallback therefore uses a minimal in-memory repository implementing the same repository interface consumed by the production service. Tests execute the production validation, ownership, CRUD, default replacement, transaction callback, and stale-application logic. The RLS test executes the pure fail-closed predicate that mirrors the SQL policy `organization_id = current_setting('app.current_tenant', true)`; SQL execution/RLS enforcement itself remains the unexecuted boundary because no PostgreSQL connection was available. Schema metadata, migration journal, and RLS policy wiring remain covered by the existing repository tests.
+
+### Final verification
+
+- Focused saved-view/filter run: PASS — 48 files, 465 passed, 37 skipped.
+- Full web suite: PASS — 48 files, 465 passed, 37 skipped.
+- Migration journal run: PASS — 48 files, 465 passed, 37 skipped.
+- Typecheck: PASS — `rtk pnpm --dir apps/web run typecheck`.
+- Lint: PASS — `rtk pnpm --dir apps/web run lint`.
+- Diff whitespace check: PASS — `rtk git diff --check`.
+
+### Fix-round self-review and concerns
+
+- Zero defaults remain valid; there is no automatic promotion or mandatory default.
+- Tenant/member identity still comes only from server context. Service ownership checks fail closed, while SQL RLS supplies tenant isolation and the adapter preserves member isolation for default replacement.
+- The Task 1 operator-allowlist minor remains resolved by the prior implementation; this fix did not expand that scope.
+- The only verification limitation is the unavailable live PostgreSQL boundary described above. The working tree is otherwise ready for commit.

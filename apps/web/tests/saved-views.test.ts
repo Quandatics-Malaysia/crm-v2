@@ -3,10 +3,17 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core"
 
 import { savedViews } from "@/db/schema/saved-views"
 import {
+  createSavedViewService,
+  savedViewRlsAllows,
   savedViewPayloadSchema,
   savedViewOwnerWhere,
+  type SavedViewRepository,
+  type SavedViewRepositoryInsert,
+  type SavedViewRepositoryRow,
+  type SavedViewPayload,
   validateSavedViewPayload,
 } from "@/app/(app)/_shared/saved-view-actions"
+import { applySavedViewPayload } from "@/lib/data-table-saved-views"
 
 const payload = {
   filters: {
@@ -19,6 +26,71 @@ const payload = {
   visibility: { id: true, status: true, createdAt: false },
   pageSize: 50,
 } as const
+
+class MemorySavedViewRepository implements SavedViewRepository {
+  rows: SavedViewRepositoryRow[] = []
+
+  async list(listKey: string) {
+    return this.rows.filter((row) => row.listKey === listKey)
+  }
+
+  async get(id: string) {
+    return this.rows.find((row) => row.id === id)
+  }
+
+  async insert(input: SavedViewRepositoryInsert) {
+    const now = new Date("2026-08-17T00:00:00.000Z")
+    const row: SavedViewRepositoryRow = {
+      ...input,
+      id: crypto.randomUUID(),
+      isDefault: input.isDefault ?? false,
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.rows.push(row)
+    return row
+  }
+
+  async update(id: string, patch: Partial<SavedViewRepositoryRow>) {
+    const row = await this.get(id)
+    if (!row) return undefined
+    Object.assign(row, patch)
+    return row
+  }
+
+  async delete(id: string) {
+    const index = this.rows.findIndex((row) => row.id === id)
+    if (index < 0) return false
+    this.rows.splice(index, 1)
+    return true
+  }
+
+  async clearDefaults(listKey: string, owner: { tenantId: string; memberId: string }) {
+    for (const row of this.rows) {
+      if (
+        row.organizationId === owner.tenantId &&
+        row.memberId === owner.memberId &&
+        row.listKey === listKey
+      ) {
+        row.isDefault = false
+      }
+    }
+  }
+
+  async transaction<T>(fn: (repository: SavedViewRepository) => Promise<T>): Promise<T> {
+    const snapshot = this.rows.map((row) => ({ ...row }))
+    try {
+      return await fn(this)
+    } catch (error) {
+      this.rows = snapshot
+      throw error
+    }
+  }
+}
+
+const ownerA = { tenantId: "org-a", memberId: "member-a" }
+const ownerB = { tenantId: "org-a", memberId: "member-b" }
+const servicePayload = payload as unknown as SavedViewPayload
 
 describe("saved views", () => {
   it("stores tenant and member ownership with per-list names and defaults", () => {
@@ -73,6 +145,80 @@ describe("saved views", () => {
     expect(
       validateSavedViewPayload({ ...payload, pageSize: 0 }).success
     ).toBe(false)
+  })
+
+  it("performs CRUD with owner isolation and permits zero defaults", async () => {
+    const repository = new MemorySavedViewRepository()
+    const mine = createSavedViewService(repository, ownerA)
+    const other = createSavedViewService(repository, ownerB)
+
+    const saved = await mine.save({ listKey: "accounts", name: "Mine", payload: servicePayload })
+    expect((await mine.list("accounts")).map((view) => view.name)).toEqual(["Mine"])
+    expect((await mine.list("accounts"))[0]?.isDefault).toBe(false)
+    expect(await other.list("accounts")).toEqual([])
+    await expect(other.rename(saved.id, "Stolen")).rejects.toThrow("Saved view not found")
+    await expect(other.duplicate(saved.id, "Stolen")).rejects.toThrow("Saved view not found")
+    await expect(other.delete(saved.id)).rejects.toThrow("Saved view not found")
+    expect((await mine.get(saved.id)).name).toBe("Mine")
+    await mine.rename(saved.id, "Renamed")
+    const duplicate = await mine.duplicate(saved.id, "Copy")
+    await mine.delete(duplicate.id)
+    expect((await mine.list("accounts")).map((view) => view.name)).toEqual(["Renamed"])
+  })
+
+  it("replaces the prior default atomically while keeping at most one", async () => {
+    const repository = new MemorySavedViewRepository()
+    const mine = createSavedViewService(repository, ownerA)
+    const other = createSavedViewService(repository, ownerB)
+    const first = await mine.save({ listKey: "accounts", name: "First", payload: servicePayload })
+    const second = await mine.save({ listKey: "accounts", name: "Second", payload: servicePayload })
+    const otherView = await other.save({ listKey: "accounts", name: "Other", payload: servicePayload })
+
+    await other.setDefault(otherView.id)
+    await mine.setDefault(first.id)
+    expect((await mine.list("accounts")).filter((view) => view.isDefault).map((view) => view.id)).toEqual([first.id])
+    expect((await other.list("accounts")).filter((view) => view.isDefault).map((view) => view.id)).toEqual([otherView.id])
+    await mine.setDefault(second.id)
+    expect((await mine.list("accounts")).filter((view) => view.isDefault).map((view) => view.id)).toEqual([second.id])
+    expect((await other.list("accounts")).filter((view) => view.isDefault).map((view) => view.id)).toEqual([otherView.id])
+  })
+
+  it("fails closed when the tenant context is absent or mismatched", () => {
+    expect(savedViewRlsAllows("org-a", undefined)).toBe(false)
+    expect(savedViewRlsAllows("org-a", null)).toBe(false)
+    expect(savedViewRlsAllows("org-a", "org-b")).toBe(false)
+    expect(savedViewRlsAllows("org-a", "org-a")).toBe(true)
+  })
+
+  it("drops stale sort, filter, and visibility fields when applying a saved view", () => {
+    const result = applySavedViewPayload(
+      {
+        ...servicePayload,
+        sorting: [
+          { id: "status", desc: false },
+          { id: "removedColumn", desc: true },
+        ],
+        visibility: { status: true, removedColumn: false },
+        filters: {
+          global: "acme",
+          columns: {
+            status: { type: "enum", value: ["open"] },
+            removedColumn: { type: "enum", value: ["gone"] },
+          },
+        },
+      },
+      ["id", "status"],
+      [{ type: "enum", columnId: "status", options: [{ value: "open", label: "Open" }] }],
+      []
+    )
+
+    expect(result.stale).toBe(true)
+    expect(result.sorting).toEqual([{ id: "status", desc: false }])
+    expect(result.columnFilters).toEqual([
+      { id: "status", value: { type: "enum", value: ["open"] } },
+    ])
+    expect(result.columnVisibility).toEqual({ status: true })
+    expect(result.globalFilter).toBe("acme")
   })
 
   it("exports the authenticated per-user saved-view actions", async () => {

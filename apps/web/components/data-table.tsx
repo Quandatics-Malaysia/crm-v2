@@ -57,6 +57,7 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { SavedViewMenu } from "@/components/saved-view-menu"
 import type { SavedViewPayload } from "@/app/(app)/_shared/saved-view-actions"
+import { applySavedViewPayload } from "@/lib/data-table-saved-views"
 import type { LucideIcon } from "lucide-react"
 import {
   DropdownMenu,
@@ -407,53 +408,22 @@ export function DataTable<TData, TValue>({
 
   const applySavedView = React.useCallback(
     (payload: SavedViewPayload) => {
-      const knownColumnIds = new Set(
+      const result = applySavedViewPayload(
+        payload,
         columns.map(
           (column) =>
             (column as { id?: string; accessorKey?: string }).id ??
             (column as { accessorKey?: string }).accessorKey
-        ).filter((id): id is string => !!id)
+        ).filter((id): id is string => !!id),
+        filters ?? [],
+        (facets ?? []).map((facet) => facet.columnId)
       )
-      let stale = false
-      const nextSorting = payload.sorting.filter((sort) => {
-        const valid = knownColumnIds.has(sort.id)
-        stale ||= !valid
-        return valid
-      })
-      const nextVisibility = Object.fromEntries(
-        Object.entries(payload.visibility).filter(([id]) => {
-          const valid = knownColumnIds.has(id)
-          stale ||= !valid
-          return valid
-        })
-      )
-      const nextFilters: ColumnFiltersState = []
-      for (const [id, value] of Object.entries(payload.filters.columns)) {
-        if (!knownColumnIds.has(id)) {
-          stale = true
-          continue
-        }
-        const definition = (filters ?? []).find((filter) => filter.columnId === id)
-        const facet = (facets ?? []).find((candidate) => candidate.columnId === id)
-        if (definition) {
-          const validation = validateFilterValue(value)
-          if (!validation.success || validation.value.type !== definition.type) {
-            stale = true
-            continue
-          }
-          nextFilters.push({ id, value: validation.value })
-        } else if (facet && Array.isArray(value) && value.every((item) => typeof item === "string")) {
-          nextFilters.push({ id, value })
-        } else {
-          stale = true
-        }
-      }
-      setSorting(nextSorting)
-      setColumnFilters(nextFilters)
+      setSorting(result.sorting)
+      setColumnFilters(result.columnFilters)
       setGlobalFilter(payload.filters.global ?? "")
-      setColumnVisibility(nextVisibility)
-      setPagination({ pageIndex: 0, pageSize: payload.pageSize })
-      if (stale) toast.warning("Some saved view columns are no longer available.")
+      setColumnVisibility(result.columnVisibility)
+      setPagination({ pageIndex: 0, pageSize: result.pageSize })
+      if (result.stale) toast.warning("Some saved view columns are no longer available.")
     },
     [columns, facets, filters]
   )

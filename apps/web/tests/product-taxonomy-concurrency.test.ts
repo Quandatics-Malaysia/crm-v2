@@ -207,7 +207,7 @@ integration("product taxonomy lock concurrency", () => {
       firstLocked()
       await firstHeld
     })
-    await firstLockedPromise
+    await Promise.race([firstLockedPromise, first.then(() => undefined)])
 
     const second = db.transaction(async (tx) => {
       await lockProductTaxonomy(tx as unknown as Tx, tenantId)
@@ -382,7 +382,7 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       locked()
       await released
     })
-    await lockedPromise
+    await Promise.race([lockedPromise, holder.then(() => undefined)])
 
     const pending = operation()
     const passedBeforeRelease = await Promise.race([

@@ -40,7 +40,8 @@ integration("quotation numbering PostgreSQL boundary", () => {
       CREATE TABLE "tenant_settings" (
         "organization_id" text PRIMARY KEY,
         "quote_next_number" integer NOT NULL,
-        "quote_pad_width" integer
+        "quote_pad_width" integer,
+        "updated_at" timestamp with time zone NOT NULL DEFAULT now()
       );
       CREATE TABLE "quotations" (
         "id" uuid PRIMARY KEY,
@@ -83,7 +84,7 @@ integration("quotation numbering PostgreSQL boundary", () => {
       await firstHeld
       return allocation
     })
-    await firstAllocatedPromise
+    await Promise.race([firstAllocatedPromise, first.then(() => undefined)])
 
     const second = db.transaction(async (tx) => {
       const allocation = await nextQuoteNumber(tx as unknown as Tx, ctx, funnelId)

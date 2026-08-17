@@ -68,6 +68,7 @@ export type LineInput = {
 }
 
 export type QuotationHeaderInput = {
+  currency?: string | null
   taxSettingId: string | null
   validUntil: string | null
   notes: string | null
@@ -603,7 +604,7 @@ export async function updateQuotation(
     if (!existing) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: funnels.ownerMemberId })
+      .select({ ownerMemberId: funnels.ownerMemberId, currency: funnels.currency })
       .from(funnels)
       .where(eq(funnels.id, existing.funnelId))
       .limit(1)
@@ -611,6 +612,12 @@ export async function updateQuotation(
       throw new Error("FORBIDDEN: not permitted on this quotation")
     if (existing.status !== "draft")
       throw new Error("Only draft quotations can be edited")
+    const resolvedCurrency = await tenantCurrencyForRecord(
+      tx,
+      ctx.tenantId,
+      input.currency,
+      opp?.currency ?? existing.currency
+    )
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)
     const taxInclusive = await loadTaxInclusive(tx, ctx.tenantId)
@@ -635,6 +642,7 @@ export async function updateQuotation(
     const [updated] = await tx
       .update(quotations)
       .set({
+        currency: resolvedCurrency,
         taxSettingId: input.taxSettingId,
         projectNatureCode: input.projectNatureCode?.trim() || null,
         subtotal: totals.subtotal.toFixed(2),

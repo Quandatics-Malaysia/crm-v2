@@ -5,6 +5,7 @@ import { normalizeLeadInput, type LeadInput } from "@/app/(app)/leads/actions"
 import { resolveDefaultSalesFunnel } from "@/server/services/conversion"
 import {
   resolveAccountCurrencyBackfill,
+  assertCurrencyLock,
   resolveConfiguredCurrency,
   resolveCurrencyOverride,
 } from "@/server/services/tenant-currency"
@@ -33,6 +34,7 @@ describe("opportunity and quotation currency persistence", () => {
     expect(resolveCurrencyOverride(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
     expect(resolveCurrencyOverride("   ", "USD", ["MYR", "USD"], "MYR")).toBe("USD")
     expect(resolveCurrencyOverride(undefined, "EUR", ["MYR", "USD"], "USD")).toBe("USD")
+    expect(resolveCurrencyOverride("EUR", "EUR", ["MYR", "USD"], "USD")).toBe("USD")
     expect(() => resolveCurrencyOverride("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
       /configured currencies/
     )
@@ -41,6 +43,7 @@ describe("opportunity and quotation currency persistence", () => {
   it("defaults quotation creation from its funnel and validates overrides", () => {
     expect(resolveCurrencyOverride(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
     expect(resolveCurrencyOverride("\t", "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(resolveCurrencyOverride("EUR", "EUR", ["MYR", "USD"], "USD")).toBe("USD")
     expect(resolveCurrencyOverride(undefined, "EUR", ["MYR", "USD"], "USD")).toBe("USD")
     expect(() => resolveCurrencyOverride("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
       /configured currencies/
@@ -62,6 +65,11 @@ describe("tenant currency migration behavior", () => {
 
   it("uses the first configured currency when tenant default is invalid", () => {
     expect(resolveConfiguredCurrency(undefined, ["SGD", "USD"], "EUR")).toBe("SGD")
+  })
+
+  it("locks on effective currency even when fallback came from inheritance", () => {
+    expect(() => assertCurrencyLock("MYR", "EUR", "USD")).toThrow(/locked/)
+    expect(() => assertCurrencyLock("USD", "USD", "USD")).not.toThrow()
   })
 })
 

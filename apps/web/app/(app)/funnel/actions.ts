@@ -30,6 +30,7 @@ import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import {
+  assertCurrencyLock,
   tenantCurrencyForRecord,
 } from "@/server/services/tenant-currency"
 import {
@@ -582,11 +583,7 @@ export async function updateOpportunity(
     // money reported under two currencies (and re-denominated with no FX in the
     // forecast/pipeline views). Reject a currency change while a differing,
     // non-deleted primary quotation exists.
-    if (
-      !!input.currency?.trim() &&
-      resolvedCurrency !== existing.currency &&
-      existing.primaryQuotationId
-    ) {
+    if (existing.primaryQuotationId) {
       const [pq] = await tx
         .select({ currency: quotations.currency })
         .from(quotations)
@@ -597,10 +594,7 @@ export async function updateOpportunity(
           )
         )
         .limit(1)
-      if (pq && pq.currency !== resolvedCurrency)
-        throw new Error(
-          "Currency is locked while a primary quotation exists. Remove or replace the primary quotation to change it."
-        )
+      assertCurrencyLock(resolvedCurrency, existing.currency, pq?.currency)
     }
 
     // Resolve the party list against the effective intercompany flag: a

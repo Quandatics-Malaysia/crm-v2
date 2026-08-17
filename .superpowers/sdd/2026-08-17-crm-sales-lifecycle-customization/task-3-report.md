@@ -137,3 +137,44 @@ Result: 2 files passed, 15 tests passed.
 - No live database was available in this run, so direct SQL execution of 0077 remains a deployment-time residual. The production backfill rule and malformed JSON branch are covered without source-text behavior assertions.
 
 Final post-cleanup rerun: focused tests `2 files / 15 passed`; full web suite `49 passed / 4 skipped`, `478 passed / 37 skipped`; typecheck, lint, and diff check all passed.
+
+## Fix round 3/5
+
+### Findings addressed
+
+- Source-equal submitted currency is now treated as inherited, including when that legacy source currency is not configured; resolver falls back to configured default, first configured currency, or MYR.
+- Nonblank submitted currency different from the inherited source remains an explicit override and rejects when outside Settings.
+- Blank/omitted inheritance is consistent across nested Opportunity create, Quotation create/edit, and Funnel edit.
+- Funnel edit now resolves and checks effective currency against the locked primary quotation regardless of raw input presence. Fallback-induced changes are rejected; valid unchanged locked currency passes.
+- Quotation edit now accepts the optional currency input and runs through the same production tenant resolver before persistence.
+
+### Fix-round TDD
+
+RED command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/account-lead-rules.test.ts --reporter verbose
+```
+
+Result: 3 expected failures, 10 passes. Failures covered source-equal invalid inheritance and the missing effective currency lock seam.
+
+GREEN command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/account-lead-rules.test.ts tests/migration-journal.test.ts --reporter verbose
+```
+
+Result: 2 files passed, 16 tests passed.
+
+### Fix-round verification
+
+- Full web suite: `49 passed`, `4 skipped`; `479 passed`, `37 skipped`.
+- Typecheck: `TypeScript: No errors found`.
+- Lint: passed cleanly.
+- Migration journal tests: included in focused run, 3 passed.
+- `rtk git diff --check`: passed.
+
+### Fix-round coverage
+
+- Production resolver tests cover submitted value equal to invalid inherited currency, different invalid explicit override, blank invalid inheritance, and valid inheritance.
+- Production lock seam tests cover fallback-induced lock rejection and valid unchanged locked currency.

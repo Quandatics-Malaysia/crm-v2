@@ -51,12 +51,29 @@ export function resolveCurrencyOverride(
   tenantDefault: string | null | undefined
 ): string {
   const explicit = (requested ?? "").trim()
-  if (explicit) return resolveConfiguredCurrency(explicit, currencies, tenantDefault)
   const inherited = (inheritedCurrency ?? "").trim().toUpperCase()
+  if (explicit && explicit.toUpperCase() !== inherited) {
+    return resolveConfiguredCurrency(explicit, currencies, tenantDefault)
+  }
   const allowed = configuredCurrencies(currencies)
   return allowed.includes(inherited)
     ? inherited
     : resolveConfiguredCurrency(undefined, currencies, tenantDefault)
+}
+
+export function assertCurrencyLock(
+  effectiveCurrency: string,
+  currentCurrency: string,
+  primaryQuotationCurrency: string | null | undefined
+): void {
+  if (
+    primaryQuotationCurrency &&
+    effectiveCurrency.toUpperCase() !== primaryQuotationCurrency.toUpperCase()
+  ) {
+    throw new Error(
+      `Currency is locked while a primary quotation exists. Current ${currentCurrency} cannot change to ${effectiveCurrency}.`
+    )
+  }
 }
 
 async function tenantCurrencySettings(tx: Tx, tenantId: string) {

@@ -95,7 +95,30 @@ signature_dir=$(dirname "$signature_file")
 
 umask 077
 temp_dir=$(mktemp -d "$evidence_dir/.prepare-backup.XXXXXX") || fail "could not create backup workspace"
-trap 'rm -rf -- "$temp_dir"' EXIT HUP INT TERM
+restore_publication=0
+had_prior_evidence=0
+had_prior_signature=0
+cleanup() {
+  if [ "$restore_publication" -eq 1 ]; then
+    if [ "$had_prior_evidence" -eq 1 ]; then
+      cp "$temp_dir/prior-evidence.env" "$temp_dir/restore-evidence.env" 2>/dev/null || true
+      chmod 0600 "$temp_dir/restore-evidence.env" 2>/dev/null || true
+      mv -f "$temp_dir/restore-evidence.env" "$evidence_file" 2>/dev/null || true
+    else
+      rm -f "$evidence_file"
+    fi
+    if [ "$had_prior_signature" -eq 1 ]; then
+      cp "$temp_dir/prior-evidence.env.sig" "$temp_dir/restore-evidence.env.sig" 2>/dev/null || true
+      chmod 0600 "$temp_dir/restore-evidence.env.sig" 2>/dev/null || true
+      mv -f "$temp_dir/restore-evidence.env.sig" "$signature_file" 2>/dev/null || true
+    else
+      rm -f "$signature_file"
+    fi
+  fi
+  rm -rf -- "$temp_dir"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 epoch=$(date +%s)
 verify_db="crm_release_verify_${epoch}_$$"
 container_prefix="/var/lib/backup/work/predeploy-${release_tag#v}-$epoch-$$"
@@ -107,6 +130,7 @@ set -eu
 dump=$1
 uploads=$2
 verify_db=$3
+case "${DATABASE_ADMIN_URL:-}" in postgresql://*|postgres://*) ;; *) echo "backup runtime database URL is invalid" >&2; exit 1 ;; esac
 base_url=${DATABASE_ADMIN_URL%/*}/postgres
 verify_url=${DATABASE_ADMIN_URL%/*}/$verify_db
 cleanup() { psql "$base_url" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"$verify_db\"" >/dev/null 2>&1 || true; }
@@ -164,6 +188,10 @@ openssl dgst -sha256 -verify "$public_key" -signature "$signature_tmp" "$evidenc
   fail "generated backup evidence signature is invalid"
 
 mv "$artifact_tmp" "$artifact_file"
-mv "$signature_tmp" "$signature_file"
+[ ! -f "$evidence_file" ] || { cp "$evidence_file" "$temp_dir/prior-evidence.env"; had_prior_evidence=1; }
+[ ! -f "$signature_file" ] || { cp "$signature_file" "$temp_dir/prior-evidence.env.sig"; had_prior_signature=1; }
+restore_publication=1
 mv "$evidence_tmp" "$evidence_file"
+mv "$signature_tmp" "$signature_file"
+restore_publication=0
 echo "prepared signed backup evidence for $release_tag"

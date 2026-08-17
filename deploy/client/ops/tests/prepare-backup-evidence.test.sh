@@ -20,6 +20,20 @@ case " $* " in
 esac
 EOF
 chmod 0755 "$test_root/bin/docker"
+real_mv=$(command -v mv)
+cat >"$test_root/bin/mv" <<'EOF'
+#!/bin/sh
+set -eu
+if [ -n "${FAKE_MV_STATE:-}" ]; then
+  count=0
+  [ ! -f "$FAKE_MV_STATE" ] || count=$(cat "$FAKE_MV_STATE")
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$FAKE_MV_STATE"
+  [ "$count" != "${FAKE_MV_FAIL_AT:-0}" ] || exit 1
+fi
+exec "${REAL_MV:-/bin/mv}" "$@"
+EOF
+chmod 0755 "$test_root/bin/mv"
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$test_root/client/backup-evidence.key" >/dev/null 2>&1
 openssl pkey -in "$test_root/client/backup-evidence.key" -pubout -out "$test_root/state/backup-evidence.pub" >/dev/null 2>&1
@@ -67,5 +81,15 @@ if FAKE_DOCKER_FAIL_EXEC=1 PATH="$test_root/bin:$PATH" \
 fi
 after=$(sha256sum "$evidence" "$signature")
 [ "$before" = "$after" ] || { echo "failed producer replaced valid evidence" >&2; exit 1; }
+
+rm -f "$test_root/mv-state"
+if FAKE_MV_STATE="$test_root/mv-state" FAKE_MV_FAIL_AT=2 REAL_MV="$real_mv" \
+  PATH="$test_root/bin:$PATH" \
+  "$script" "$test_root/client/.env" "$test_root/client/backup-evidence.key" >/dev/null 2>&1; then
+  echo "producer accepted interrupted evidence publication" >&2
+  exit 1
+fi
+after=$(sha256sum "$evidence" "$signature")
+[ "$before" = "$after" ] || { echo "interrupted publication did not restore prior evidence" >&2; exit 1; }
 
 echo "prepare-backup-evidence tests passed"

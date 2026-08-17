@@ -6,10 +6,6 @@ import type { Tx } from "@/db"
 import { PERMISSIONS } from "@/lib/permissions"
 import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 
-function transactionDb(connection: unknown): Tx {
-  return drizzle(connection as never) as unknown as Tx
-}
-
 function queryChain(rows: unknown[]) {
   const result = Promise.resolve(rows)
   const query: Record<string, unknown> = {
@@ -206,15 +202,15 @@ integration("product taxonomy lock concurrency", () => {
       secondLocked = resolve
     })
 
-    const first = sql.begin(async (connection) => {
-      await lockProductTaxonomy(transactionDb(connection), tenantId)
+    const first = db.transaction(async (tx) => {
+      await lockProductTaxonomy(tx as unknown as Tx, tenantId)
       firstLocked()
       await firstHeld
     })
     await firstLockedPromise
 
-    const second = sql.begin(async (connection) => {
-      await lockProductTaxonomy(transactionDb(connection), tenantId)
+    const second = db.transaction(async (tx) => {
+      await lockProductTaxonomy(tx as unknown as Tx, tenantId)
       secondLocked()
     })
 
@@ -236,6 +232,7 @@ integration("product taxonomy lock concurrency", () => {
 actionIntegration("production product taxonomy mutation boundaries", () => {
   const prefix = `task7-action-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
   let admin: Sql
+  let adminDb: ReturnType<typeof drizzle>
   let actionRepository: ActionRepository<{
     updateProductCodes: typeof import("@/app/(app)/settings/actions").updateProductCodes
     createProduct: typeof import("@/app/(app)/products/actions").createProduct
@@ -269,6 +266,7 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
     }
 
     admin = postgres(adminUrl, { max: 4 })
+    adminDb = drizzle(admin)
     actionRepository = await openActionRepository(actionDatabaseUrl, async () => {
       vi.resetModules()
       const settingsActions = await import("@/app/(app)/settings/actions")
@@ -379,8 +377,8 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
     const lockedPromise = new Promise<void>((resolve) => {
       locked = resolve
     })
-    const holder = admin.begin(async (connection) => {
-      await lockProductTaxonomy(transactionDb(connection), tenantId)
+    const holder = adminDb.transaction(async (tx) => {
+      await lockProductTaxonomy(tx as unknown as Tx, tenantId)
       locked()
       await released
     })

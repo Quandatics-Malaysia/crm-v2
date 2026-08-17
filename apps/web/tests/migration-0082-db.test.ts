@@ -102,8 +102,8 @@ integration("quotation revision migration PostgreSQL boundary", () => {
         expect.objectContaining({ id: "00000000-0000-0000-0000-000000000202", quote_number: "Q-OTHER-2", version: 2 }),
       ])
       expect(uniqueVersions).toEqual([
-        { funnel_id: "00000000-0000-0000-0000-000000000001", total: 4, distinct_total: 4 },
-        { funnel_id: "00000000-0000-0000-0000-000000000002", total: 2, distinct_total: 2 },
+        { funnel_id: "00000000-0000-0000-0000-000000000001", total: "4", distinct_total: "4" },
+        { funnel_id: "00000000-0000-0000-0000-000000000002", total: "2", distinct_total: "2" },
       ])
       expect(afterSecondRun).toEqual(afterFirstRun)
     } finally {

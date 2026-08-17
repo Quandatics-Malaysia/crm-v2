@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import postgres, { type Sql } from "postgres"
+import { sql as query } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -10,14 +11,11 @@ const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const required = process.env.REQUIRE_QUOTATION_DB_TESTS === "1"
 const integration = adminUrl ? describe.sequential : required ? describe.sequential : describe.skip
 
-function transactionDb(connection: unknown): Tx {
-  return drizzle(connection as never) as unknown as Tx
-}
-
 integration("quotation numbering PostgreSQL boundary", () => {
   let server: Sql
   let sql: Sql
   let databaseName: string
+  let db: ReturnType<typeof drizzle>
   const tenantId = `task10-numbering-${process.pid}-${randomBytes(4).toString("hex")}`
   const funnelId = randomUUID()
 
@@ -32,6 +30,7 @@ integration("quotation numbering PostgreSQL boundary", () => {
     const targetUrl = new URL(adminUrl)
     targetUrl.pathname = `/${databaseName}`
     sql = postgres(targetUrl.toString(), { max: 4 })
+    db = drizzle(sql)
     await sql.unsafe(`
       CREATE TABLE "funnels" (
         "id" uuid PRIMARY KEY,
@@ -77,20 +76,18 @@ integration("quotation numbering PostgreSQL boundary", () => {
     })
 
     const ctx = { tenantId } as Parameters<typeof nextQuoteNumber>[1]
-    const first = sql.begin(async (connection) => {
-      const db = transactionDb(connection)
-      const allocation = await nextQuoteNumber(db, ctx, funnelId)
+    const first = db.transaction(async (tx) => {
+      const allocation = await nextQuoteNumber(tx as unknown as Tx, ctx, funnelId)
       firstAllocated()
-      await connection`INSERT INTO "quotations" ("id", "funnel_id", "quote_number", "version", "created_at") VALUES (${randomUUID()}, ${funnelId}, ${allocation.quoteNumber}, ${allocation.version}, now())`
+      await tx.execute(query`INSERT INTO "quotations" ("id", "funnel_id", "quote_number", "version", "created_at") VALUES (${randomUUID()}, ${funnelId}, ${allocation.quoteNumber}, ${allocation.version}, now())`)
       await firstHeld
       return allocation
     })
     await firstAllocatedPromise
 
-    const second = sql.begin(async (connection) => {
-      const db = transactionDb(connection)
-      const allocation = await nextQuoteNumber(db, ctx, funnelId)
-      await connection`INSERT INTO "quotations" ("id", "funnel_id", "quote_number", "version", "created_at") VALUES (${randomUUID()}, ${funnelId}, ${allocation.quoteNumber}, ${allocation.version}, now())`
+    const second = db.transaction(async (tx) => {
+      const allocation = await nextQuoteNumber(tx as unknown as Tx, ctx, funnelId)
+      await tx.execute(query`INSERT INTO "quotations" ("id", "funnel_id", "quote_number", "version", "created_at") VALUES (${randomUUID()}, ${funnelId}, ${allocation.quoteNumber}, ${allocation.version}, now())`)
       return allocation
     })
     const secondFinishedBeforeCommit = await Promise.race([

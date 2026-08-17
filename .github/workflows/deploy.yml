@@ -120,15 +120,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backup_dir=/var/lib/quandatics-client/backup
+          backup_dir="$CLIENT_DIR/backup"
+          legacy_evidence_file=/var/lib/quandatics-client/backup/verified-release.env
+          legacy_signature_file=/var/lib/quandatics-client/backup/verified-release.env.sig
+          evidence_file="$backup_dir/verified-release.env"
+          signature_file="$backup_dir/verified-release.env.sig"
+          install -d -m 0700 "$backup_dir"
           configured_evidence_file="$(awk -F= '$1 == "BACKUP_EVIDENCE_FILE" { sub(/^[^=]*=/, ""); print; found++ } END { if (found != 1) exit 1 }' "$CLIENT_DIR/.env")"
-          case "$configured_evidence_file" in
-            "$backup_dir"/*) ;;
-            *) echo "backup evidence file is outside the protected backup directory" >&2; exit 1 ;;
-          esac
-          if [ ! -w "$backup_dir" ]; then
-            sudo -n chown "$(id -u):$(id -g)" "$backup_dir"
-            sudo -n chmod 0700 "$backup_dir"
+          configured_signature_file="$(awk -F= '$1 == "BACKUP_EVIDENCE_SIGNATURE_FILE" { sub(/^[^=]*=/, ""); print; found++ } END { if (found != 1) exit 1 }' "$CLIENT_DIR/.env")"
+          if [ "$configured_evidence_file" = "$legacy_evidence_file" ] && [ "$configured_signature_file" = "$legacy_signature_file" ]; then
+            cp "$legacy_evidence_file" "$evidence_file"
+            cp "$legacy_signature_file" "$signature_file"
+            chmod 0600 "$evidence_file" "$signature_file"
+            env_tmp="$(mktemp "$CLIENT_DIR/.env.backup-path.XXXXXX")"
+            awk -F= -v evidence="$evidence_file" -v signature="$signature_file" '
+              $1 == "BACKUP_EVIDENCE_FILE" { print "BACKUP_EVIDENCE_FILE=" evidence; next }
+              $1 == "BACKUP_EVIDENCE_SIGNATURE_FILE" { print "BACKUP_EVIDENCE_SIGNATURE_FILE=" signature; next }
+              { print }
+            ' "$CLIENT_DIR/.env" >"$env_tmp"
+            chmod 0600 "$env_tmp"
+            mv "$env_tmp" "$CLIENT_DIR/.env"
+          elif [ "$configured_evidence_file" != "$evidence_file" ] || [ "$configured_signature_file" != "$signature_file" ]; then
+            echo "backup evidence paths are outside the protected deployment directory" >&2
+            exit 1
           fi
           [ -d "$backup_dir" ] && [ ! -L "$backup_dir" ] && [ -w "$backup_dir" ] || {
             echo "protected backup directory is not writable by the deployment user" >&2

@@ -4,15 +4,31 @@ import { describe, expect, it } from "vitest"
 import { resolveAccountCurrencyBackfill } from "@/server/services/tenant-currency"
 
 describe("migration journal", () => {
-  it("includes the latest quotation content migration", async () => {
+  it("includes the quotation approval migration", async () => {
     const journal = JSON.parse(
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 80,
-      tag: "0080_quotation_content_fields",
+      idx: 81,
+      tag: "0081_quotation_approval",
     })
+  })
+
+  it("adds approval statuses and nullable approval metadata safely", async () => {
+    const migration = await readFile(
+      path.resolve(process.cwd(), "db/migrations/0081_quotation_approval.sql"),
+      "utf8"
+    )
+
+    expect(migration).toMatch(/ADD VALUE IF NOT EXISTS\s+'pending_approval'/i)
+    expect(migration).toMatch(/ADD VALUE IF NOT EXISTS\s+'approved'/i)
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"approver_member_id"\s+text/i)
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"approved_at"\s+timestamp with time zone/i)
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"rejection_reason"\s+text/i)
+    expect(migration).toMatch(/quotation\.approve/i)
+    expect(migration).toMatch(/INSERT INTO\s+"role_permissions"/i)
+    expect(migration).not.toMatch(/UPDATE\s+"quotations"/i)
   })
 
   it("adds nullable quotation content fields without fabricating historical values", async () => {

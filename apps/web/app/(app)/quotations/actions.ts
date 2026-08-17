@@ -34,7 +34,6 @@ import { tenantCurrencyForRecord } from "@/server/services/tenant-currency"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
 import { syncFunnelProductsFromQuote } from "@/server/services/quote-sync"
-import { winOpportunity } from "@/server/services/stage"
 import { nextQuoteNumber } from "@/server/services/numbering"
 import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
@@ -53,6 +52,10 @@ import {
   quotationContentAuditSnapshot,
   resolveQuotationContent,
 } from "@/lib/quotation-content"
+import {
+  assertApprovalRejectionReason,
+  assertQuotationTransition,
+} from "@/lib/quotation-transitions"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -790,6 +793,7 @@ export async function updateQuotation(
       .from(quotations)
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
+      .for("update")
     if (!existing) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
@@ -933,6 +937,168 @@ export async function updateQuotation(
   })
 }
 
+async function getLockedQuotation(tx: Tx, id: string): Promise<QuotationRow> {
+  const [quotation] = await tx
+    .select()
+    .from(quotations)
+    .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
+    .limit(1)
+    .for("update")
+  if (!quotation) throw new Error("Quotation not found")
+  return quotation
+}
+
+async function assertQuotationAccess(
+  tx: Tx,
+  ctx: Parameters<typeof visibleMemberIds>[1],
+  quotation: QuotationRow
+): Promise<void> {
+  const visible = await visibleMemberIds(tx, ctx)
+  const [funnel] = await tx
+    .select({ ownerMemberId: funnels.ownerMemberId })
+    .from(funnels)
+    .where(eq(funnels.id, quotation.funnelId))
+    .limit(1)
+  if (!canManageAllRecords(ctx) && !ownsOrManages(visible, funnel?.ownerMemberId ?? null)) {
+    throw new Error("FORBIDDEN: not permitted on this quotation")
+  }
+}
+
+export async function submitQuotationForApproval(
+  id: string
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
+      const quotation = await getLockedQuotation(tx, id)
+      await assertQuotationAccess(tx, ctx, quotation)
+      assertQuotationTransition(quotation.status, "pending_approval")
+
+      await tx
+        .update(quotations)
+        .set({
+          status: "pending_approval",
+          approverMemberId: null,
+          approvedAt: null,
+          rejectionReason: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, id))
+      await writeAudit(tx, ctx, {
+        action: "quotation.submitted_for_approval",
+        entityType: "quotation",
+        entityId: id,
+        before: { status: quotation.status },
+        after: { status: "pending_approval" },
+      })
+    })
+    revalidatePath("/quotations")
+    revalidatePath(`/quotations/${id}`)
+  })
+}
+
+export async function approveQuotation(id: string): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.QUOTATION_APPROVE, async (tx, ctx) => {
+      const quotation = await getLockedQuotation(tx, id)
+      await assertQuotationAccess(tx, ctx, quotation)
+      assertQuotationTransition(quotation.status, "approved")
+
+      await tx
+        .update(quotations)
+        .set({
+          status: "approved",
+          approverMemberId: ctx.memberId,
+          approvedAt: new Date(),
+          rejectionReason: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, id))
+      await writeAudit(tx, ctx, {
+        action: "quotation.approved",
+        entityType: "quotation",
+        entityId: id,
+        before: { status: quotation.status },
+        after: { status: "approved", approverMemberId: ctx.memberId },
+      })
+    })
+    revalidatePath("/quotations")
+    revalidatePath(`/quotations/${id}`)
+  })
+}
+
+/** Reject a pending approval, returning quotation to editable Draft. */
+export async function rejectQuotation(
+  id: string,
+  reason: string
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.QUOTATION_APPROVE, async (tx, ctx) => {
+      const quotation = await getLockedQuotation(tx, id)
+      await assertQuotationAccess(tx, ctx, quotation)
+      if (quotation.status !== "pending_approval") {
+        throw new Error("Only pending approval quotations can be rejected")
+      }
+      assertQuotationTransition(quotation.status, "draft")
+      const rejectionReason = assertApprovalRejectionReason(reason)
+
+      await tx
+        .update(quotations)
+        .set({
+          status: "draft",
+          approverMemberId: null,
+          approvedAt: null,
+          rejectionReason,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, id))
+      await writeAudit(tx, ctx, {
+        action: "quotation.approval_rejected",
+        entityType: "quotation",
+        entityId: id,
+        before: { status: quotation.status },
+        after: { status: "draft", rejectionReason },
+      })
+    })
+    revalidatePath("/quotations")
+    revalidatePath(`/quotations/${id}`)
+  })
+}
+
+export async function returnApprovedQuotationToDraft(
+  id: string
+): Promise<ActionResult<void>> {
+  return runAction(async () => {
+    await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
+      const quotation = await getLockedQuotation(tx, id)
+      await assertQuotationAccess(tx, ctx, quotation)
+      if (quotation.status !== "approved") {
+        throw new Error("Only approved quotations can be returned to Draft")
+      }
+      assertQuotationTransition(quotation.status, "draft")
+
+      await tx
+        .update(quotations)
+        .set({
+          status: "draft",
+          approverMemberId: null,
+          approvedAt: null,
+          rejectionReason: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(quotations.id, id))
+      await writeAudit(tx, ctx, {
+        action: "quotation.returned_to_draft",
+        entityType: "quotation",
+        entityId: id,
+        before: { status: quotation.status },
+        after: { status: "draft" },
+      })
+    })
+    revalidatePath("/quotations")
+    revalidatePath(`/quotations/${id}`)
+  })
+}
+
 async function insertLines(
   tx: Tx,
   tenantId: string,
@@ -970,6 +1136,7 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
       .from(quotations)
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
+      .for("update")
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
@@ -982,8 +1149,7 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
-    if (q.status !== "draft")
-      throw new Error("Only draft quotations can be sent")
+    assertQuotationTransition(q.status, "sent")
     // The funnel must still be live: don't send proposals on won/lost/parked deals.
     if (opp && opp.status !== "open")
       throw new Error(
@@ -1070,14 +1236,8 @@ export async function sendQuotation(id: string): Promise<ActionResult<void>> {
 export type AcceptQuotationResult = {
   funnelId: string
   accountId: string
-  /** Non-fatal warning when accept committed but the auto-win move failed. */
+  /** Non-fatal warning when acceptance-related project automation fails. */
   warning?: string
-  /**
-   * True when auto-win was enabled but winning the funnel is gated behind an
-   * approval request (the stage did NOT move yet). The UI uses this to say the
-   * win is pending approval rather than presenting the deal as won.
-   */
-  pendingApproval?: boolean
   /** Set when auto-create-project is on and the delivery project was created. */
   projectCreated?: { id: string; projectCode: string }
 }
@@ -1092,6 +1252,7 @@ export async function acceptQuotation(
       .from(quotations)
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
+      .for("update")
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
@@ -1169,7 +1330,6 @@ export async function acceptQuotation(
 
     const [settings] = await tx
       .select({
-        autoWin: tenantSettings.autoWinOnQuoteAccept,
         autoProject: tenantSettings.autoCreateProjectOnAccept,
       })
       .from(tenantSettings)
@@ -1193,40 +1353,11 @@ export async function acceptQuotation(
     return {
       funnelId: q.funnelId,
       accountId: opp.accountId,
-      autoWin: settings?.autoWin ?? false,
       autoProject: settings?.autoProject ?? false,
       quotationId: id,
     }
   })
-
-  // Auto-win runs in its own transaction AFTER acceptance committed, so a
-  // failure here must not surface as an overall failure (the quote is already
-  // accepted + primary). Treat it as a non-fatal warning the caller can show.
   let warning: string | undefined
-  let pendingApproval = false
-  if (result.autoWin) {
-    try {
-      const ctx = await requireContext()
-      // winOpportunity reports whether it moved the stage to Won or instead
-      // raised an approval request (Won is approval-gated for this actor). The
-      // cast bridges the additive contract while the stage service is updated
-      // to return `{ moved, pendingApproval }`; older `void` returns read as
-      // "not pending", preserving the prior behaviour.
-      const winResult = (await winOpportunity(ctx, result.funnelId)) as
-        | unknown
-        | void
-      pendingApproval = !!(
-        winResult &&
-        typeof winResult === "object" &&
-        "pendingApproval" in winResult &&
-        (winResult as { pendingApproval?: boolean }).pendingApproval
-      )
-    } catch (e) {
-      console.error("[acceptQuotation] auto-win failed", e)
-      warning =
-        "Quotation accepted, but moving the funnel to Won failed — advance the stage manually."
-    }
-  }
 
   // Automation: auto-create the delivery project (Settings → Behavior). Runs
   // AFTER acceptance committed and is strictly best-effort — a failure (no
@@ -1290,20 +1421,20 @@ export async function acceptQuotation(
     funnelId: result.funnelId,
     accountId: result.accountId,
     warning,
-    pendingApproval,
     projectCreated,
   }
   })
 }
 
-export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
+export async function rejectCustomerQuotation(id: string): Promise<ActionResult<void>> {
   return runAction(async () => {
-  await withTenant(PERMISSIONS.QUOTATION_UPDATE, async (tx, ctx) => {
+  await withTenant(PERMISSIONS.QUOTATION_ACCEPT, async (tx, ctx) => {
     const [q] = await tx
       .select()
       .from(quotations)
       .where(and(eq(quotations.id, id), isNull(quotations.deletedAt)))
       .limit(1)
+      .for("update")
     if (!q) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
@@ -1313,8 +1444,7 @@ export async function rejectQuotation(id: string): Promise<ActionResult<void>> {
       .limit(1)
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp?.ownerMemberId ?? null))
       throw new Error("FORBIDDEN: not permitted on this quotation")
-    if (q.status !== "sent")
-      throw new Error("Only sent quotations can be rejected")
+    assertQuotationTransition(q.status, "rejected")
     await tx
       .update(quotations)
       .set({ status: "rejected", isPrimary: false, updatedAt: new Date() })

@@ -70,11 +70,16 @@ import {
   QUOTATION_CONTENT_LIMITS,
   snapshotQuotationLineDescription,
 } from "@/lib/quotation-content"
+import { quotationActionsFor } from "@/lib/quotation-transitions"
 import {
   updateQuotation,
+  submitQuotationForApproval,
+  approveQuotation,
+  rejectQuotation,
+  returnApprovedQuotationToDraft,
   sendQuotation,
   acceptQuotation,
-  rejectQuotation,
+  rejectCustomerQuotation,
   setPrimaryQuotation,
   deleteQuotation,
   type QuotationContactOption,
@@ -107,6 +112,7 @@ type ProjectNatureOption = { code: string; name: string }
  * permitted so the component stays drop-in for any caller that omits them. */
 export type QuotationPerms = {
   canUpdate: boolean
+  canApprove: boolean
   canSend: boolean
   canAccept: boolean
   canDelete: boolean
@@ -115,6 +121,7 @@ export type QuotationPerms = {
 
 const ALL_QUOTATION_PERMS: QuotationPerms = {
   canUpdate: true,
+  canApprove: true,
   canSend: true,
   canAccept: true,
   canDelete: true,
@@ -150,19 +157,35 @@ export function QuotationForm({
   const router = useRouter()
   const { quotation, lines, opportunityName } = detail
   const isDraft = quotation.status === "draft"
+  const isPendingApproval = quotation.status === "pending_approval"
+  const isApproved = quotation.status === "approved"
   const isSent = quotation.status === "sent"
   const isAccepted = quotation.status === "accepted"
   // A draft is only editable when the user also holds the update permission.
   const canEditDraft = isDraft && perms.canUpdate
   const createProjectHref = `/projects/new?funnelId=${quotation.funnelId}`
   const [busy, setBusy] = React.useState(false)
+  const [approvalReason, setApprovalReason] = React.useState("")
   // "Build" = the editor; "Preview" = the finished quotation document (toggle
   // like the funnel board/list).
   const [view, setView] = React.useState("build")
 
   // Whether the Actions card has anything to show for this user/status.
-  const showSend = isDraft && perms.canSend
-  const showAcceptReject = isSent && perms.canAccept
+  const quotationActions = quotationActionsFor(quotation.status, {
+    canUpdate: perms.canUpdate,
+    canApprove: perms.canApprove,
+    canSend: perms.canSend,
+    canAccept: perms.canAccept,
+  })
+  const hasQuotationAction = (action: (typeof quotationActions)[number]) =>
+    quotationActions.includes(action)
+  const showSubmit = hasQuotationAction("submit_for_approval")
+  const showApproval =
+    isPendingApproval && hasQuotationAction("approve")
+  const showSend = isApproved && hasQuotationAction("send")
+  const showReset = isApproved && hasQuotationAction("return_to_draft")
+  const showAcceptReject =
+    isSent && hasQuotationAction("accept")
   const showCreateProject = isAccepted && !project && perms.canCreateProject
   const showSetPrimary =
     !quotation.isPrimary &&
@@ -170,7 +193,7 @@ export function QuotationForm({
     perms.canUpdate
   const showDelete = perms.canDelete
   const hasAnyAction =
-    showSend || showAcceptReject || showCreateProject || showSetPrimary || showDelete
+    showSubmit || showApproval || showSend || showReset || showAcceptReject || showCreateProject || showSetPrimary || showDelete
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -374,21 +397,12 @@ export function QuotationForm({
       return
     }
     if (res.data.warning) toast.warning(res.data.warning)
-    if (res.data.pendingApproval) {
-      // Auto-win is gated behind an approval request — the funnel is NOT won
-      // yet, so don't offer the "Create project" forward step as if it had.
-      toast.success(
-        "Quotation accepted — winning the funnel is pending approval"
-      )
-    } else {
-      // The highest-value moment: offer the forward step (create the project).
-      toast.success("Quotation accepted", {
-        action: {
-          label: "Create project",
-          onClick: () => router.push(createProjectHref),
-        },
-      })
-    }
+    toast.success("Quotation accepted", {
+      action: {
+        label: "Create project",
+        onClick: () => router.push(createProjectHref),
+      },
+    })
     router.refresh()
     setBusy(false)
   }
@@ -461,7 +475,11 @@ export function QuotationForm({
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
             {!isDraft ? (
               <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
-                {isSent
+                {isPendingApproval
+                  ? "This quotation is pending approval and is now read-only."
+                  : isApproved
+                    ? "This quotation is approved and read-only. Return it to Draft explicitly before editing; approval is required again before sending."
+                    : isSent
                   ? `This quotation was sent${
                       quotation.sentAt
                         ? ` on ${formatDate(quotation.sentAt)}`
@@ -473,8 +491,10 @@ export function QuotationForm({
                           ? ` on ${formatDate(quotation.acceptedAt)}`
                           : ""
                       } and is now read-only.`
-                    : "This quotation is read-only."}{" "}
-                To change pricing, create a revision from the funnel.
+                    : "This quotation is read-only."}
+                {!isPendingApproval && !isApproved
+                  ? " Create a revision from the funnel to change pricing."
+                  : null}
               </div>
             ) : null}
             <Card>
@@ -913,6 +933,91 @@ export function QuotationForm({
             <CardTitle>Actions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
+            {showSubmit ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="default" disabled={busy}>
+                      Submit for approval
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Submit this quotation for approval?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Submission locks editing until an approver returns it to Draft or approves it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() =>
+                        submitAction(
+                          () => submitQuotationForApproval(quotation.id),
+                          "Quotation submitted for approval"
+                        )
+                      }
+                    >
+                      Submit
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+            {showApproval ? (
+              <>
+                <Button
+                  variant="default"
+                  disabled={busy}
+                  onClick={() =>
+                    submitAction(
+                      () => approveQuotation(quotation.id),
+                      "Quotation approved"
+                    )
+                  }
+                >
+                  Approve
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button variant="outline" disabled={busy}>
+                        Reject approval
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Return quotation to Draft?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Rejection reason is required. Quote owner can edit and resubmit after this decision.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <Textarea
+                      value={approvalReason}
+                      onChange={(event) => setApprovalReason(event.target.value)}
+                      placeholder="Reason for rejection"
+                      maxLength={2000}
+                    />
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={!approvalReason.trim()}
+                        onClick={() =>
+                          submitAction(
+                            () => rejectQuotation(quotation.id, approvalReason),
+                            "Quotation returned to Draft"
+                          )
+                        }
+                      >
+                        Reject approval
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            ) : null}
             {showSend ? (
               <AlertDialog>
                 <AlertDialogTrigger
@@ -965,10 +1070,8 @@ export function QuotationForm({
                       </AlertDialogTitle>
                       <AlertDialogDescription>
                         Accepting marks {quotation.quoteNumber} as the funnel’s
-                        primary, winning quotation. If auto-win is enabled this
-                        also moves the funnel to Won (or raises an approval
-                        request) and lets you start a project. This can’t be
-                        undone.
+                        primary quotation. It does not change the Funnel stage.
+                        This can’t be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -1003,7 +1106,7 @@ export function QuotationForm({
                       <AlertDialogAction
                         onClick={() =>
                           submitAction(
-                            () => rejectQuotation(quotation.id),
+                            () => rejectCustomerQuotation(quotation.id),
                             "Quotation rejected"
                           )
                         }
@@ -1014,6 +1117,38 @@ export function QuotationForm({
                   </AlertDialogContent>
                 </AlertDialog>
               </>
+            ) : null}
+            {showReset ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="outline" disabled={busy}>
+                      Return to Draft to edit
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Return approved quotation to Draft?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Approval metadata clears. Any later send requires approval again.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() =>
+                        submitAction(
+                          () => returnApprovedQuotationToDraft(quotation.id),
+                          "Quotation returned to Draft"
+                        )
+                      }
+                    >
+                      Return to Draft
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             {showCreateProject ? (
               <Button

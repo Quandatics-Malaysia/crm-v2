@@ -48,6 +48,7 @@ type Chain = {
   from: ReturnType<typeof vi.fn>
   where: ReturnType<typeof vi.fn>
   limit: ReturnType<typeof vi.fn>
+  for: ReturnType<typeof vi.fn>
   set: ReturnType<typeof vi.fn>
   values: ReturnType<typeof vi.fn>
   returning: ReturnType<typeof vi.fn>
@@ -60,6 +61,7 @@ function chain(value: unknown, updates: unknown[]): Chain {
   q.from = vi.fn(() => q)
   q.where = vi.fn(() => q)
   q.limit = vi.fn(() => q)
+  q.for = vi.fn(() => q)
   q.set = vi.fn((payload: unknown) => {
     updates.push(payload)
     return q

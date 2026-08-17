@@ -59,6 +59,7 @@ export default async function QuotationDetailPage({
 
   const perms = {
     canUpdate: ctx.can(PERMISSIONS.QUOTATION_UPDATE),
+    canApprove: ctx.can(PERMISSIONS.QUOTATION_APPROVE),
     canSend: ctx.can(PERMISSIONS.QUOTATION_SEND),
     canAccept: ctx.can(PERMISSIONS.QUOTATION_ACCEPT),
     canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),

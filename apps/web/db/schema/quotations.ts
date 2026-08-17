@@ -14,7 +14,7 @@ import {
   index,
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
-import { organization } from "./auth"
+import { organization, member } from "./auth"
 import { funnels } from "./pipeline"
 import { products } from "./products"
 import { persons } from "./crm"
@@ -22,6 +22,8 @@ import { timestamps, softDelete } from "./_helpers"
 
 export const quotationStatus = pgEnum("quotation_status", [
   "draft",
+  "pending_approval",
+  "approved",
   "sent",
   "accepted",
   "rejected",
@@ -65,6 +67,11 @@ export const quotations = pgTable(
     version: integer("version").notNull().default(1),
     isPrimary: boolean("is_primary").notNull().default(false),
     status: quotationStatus("status").notNull().default("draft"),
+    approverMemberId: text("approver_member_id").references(() => member.id, {
+      onDelete: "set null",
+    }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
     currency: char("currency", { length: 3 }).notNull().default("MYR"),
     /**
      * Project nature for this quote (code from tenant_settings.product_types).

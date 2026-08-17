@@ -123,6 +123,31 @@
 - Lint: passed.
 - `git diff --check`: passed.
 
+## Fix round 4/5
+
+- Root cause: raw TSX source could hide stale phrases behind JSX tags or
+  whitespace/string expressions, while the negation lookback crossed comma
+  and conjunction boundaries and suppressed later positive claims.
+- Normalized raw source by replacing JSX presentation boundaries with spaces;
+  tag attributes and identifier-only expression code remain non-documentation.
+- Scoped negation to the matched phrase's local clause, stopping at punctuation
+  and conjunctions including `but` and `however`.
+- Added regressions for raw JSX/expression splits, source-code false positives,
+  and negated-then-positive clauses.
+
+## Fix round 4 TDD evidence
+
+- RED: the raw JSX split and negated-then-positive tests failed against the
+  round-3 matcher.
+- GREEN: focused documentation suite passed with 1 file and 6 tests.
+
+## Fix round 4 verification
+
+- Full web tests: 65 files passed, 9 skipped; 595 tests passed, 55 skipped.
+- Typecheck: passed.
+- Lint: passed.
+- `git diff --check`: passed.
+
 ## Commit
 
-Commit message: `docs: harden milestone documentation guard`
+Commit message: `test: harden stale milestone claim`

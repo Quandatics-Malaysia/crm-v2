@@ -47,20 +47,47 @@ const STALE_CLAIMS: StaleClaim[] = [
   },
 ]
 
-const NEGATION_BEFORE =
-  /\b(?:no|not|never|without|does\s+not|do\s+not|doesn't|don't)\b[^.!?;]{0,120}$/i
-const NEGATION_AFTER =
-  /^[^.!?;]{0,80}\b(?:not|never|unsupported|disallowed|no\s+longer)\b/i
+const NEGATION =
+  /\b(?:no|not|never|without|does\s+not|do\s+not|doesn't|don't|unsupported|disallowed|no\s+longer)\b/i
+const CLAUSE_BOUNDARY = /[,.;!?]|\b(?:but|however|although|though|yet|and|or|nor|because|while|whereas|instead)\b/gi
 
-/** Keep the whitespace normalization used by rendered documentation checks. */
+const JSX_TAG = /<\/?(?:[A-Za-z][A-Za-z0-9:._-]*)(?:\s[^<>]*)?\/?\s*>|<\/?\s*>/g
+const JSX_STRING_EXPRESSION = /\{\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*\}/g
+
+/**
+ * Normalize both rendered prose and raw TSX source. JSX tags and static
+ * whitespace/string expressions are presentation boundaries, not words;
+ * replacing them with spaces lets a stale phrase remain detectable without
+ * treating tag attributes or arbitrary expression code as documentation.
+ */
 export function normalizeDocumentation(text: string): string {
-  return text.replace(/\s+/g, " ").trim()
+  return text
+    .replace(JSX_STRING_EXPRESSION, (_match, doubleQuoted, singleQuoted, template) =>
+      ` ${doubleQuoted ?? singleQuoted ?? template ?? ""} `
+    )
+    .replace(JSX_TAG, " ")
+    .replace(/[{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function isNegated(text: string, start: number, end: number): boolean {
-  const before = text.slice(Math.max(0, start - 120), start)
-  const after = text.slice(end, end + 80)
-  return NEGATION_BEFORE.test(before) || NEGATION_AFTER.test(after)
+  const before = text.slice(0, start)
+  const after = text.slice(end)
+  let clauseStart = 0
+  let boundary: RegExpExecArray | null
+
+  CLAUSE_BOUNDARY.lastIndex = 0
+  while ((boundary = CLAUSE_BOUNDARY.exec(before)) !== null) {
+    clauseStart = boundary.index + boundary[0].length
+  }
+
+  CLAUSE_BOUNDARY.lastIndex = 0
+  const nextBoundary = CLAUSE_BOUNDARY.exec(after)
+  const clauseEnd = nextBoundary?.index ?? after.length
+  const clause = `${text.slice(clauseStart, start)} ${after.slice(0, clauseEnd)}`
+
+  return NEGATION.test(clause)
 }
 
 /**

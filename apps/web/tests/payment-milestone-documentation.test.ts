@@ -1,11 +1,9 @@
-import * as React from "react"
 import { readdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 import { extractText } from "@/app/documentation/extract-text"
-import { B, Code } from "@/app/documentation/doc-kit"
 import { financePage } from "@/app/documentation/content-finance"
 import {
   leadToCashPage,
@@ -81,21 +79,17 @@ describe("payment milestone documentation", () => {
     )
   })
 
-  it("rejects JSX-split positive coupling claims after rendering text", () => {
-    const splitClaim = normalizeDocumentation(
-      extractText([
-        "A ",
-        React.createElement(B, null, "one live"),
-        " ",
-        React.createElement(Code, null, "invoice"),
-        " per milestone.",
-      ])
-    )
+  it("rejects positive claims split by raw JSX tags and expressions", () => {
+    const rawJsx = `<P>A <B>one live</B>{" "}<Code>invoice</Code> per milestone.</P>`
 
-    expect(splitClaim).toContain("one live invoice per milestone")
-    expect(findForbiddenStaleClaims(splitClaim)).toContain(
+    expect(findForbiddenStaleClaims(rawJsx)).toContain(
       "one live invoice per milestone"
     )
+    expect(
+      findForbiddenStaleClaims(
+        `<P data-claim="one live invoice per milestone">{oneLiveInvoicePerMilestone}</P>`
+      )
+    ).toEqual([])
   })
 
   it("allows accurate negated coupling wording", () => {
@@ -110,6 +104,17 @@ describe("payment milestone documentation", () => {
       expect(findForbiddenStaleClaims(normalizeDocumentation(wording))).toEqual(
         []
       )
+    }
+  })
+
+  it("does not let a negated clause suppress a later positive claim", () => {
+    const clauses = [
+      "Payment Milestones do not create a one-click invoice, but the legacy flow uses a one-click invoice.",
+      "Payment Milestones do not create a one-click invoice. However, the legacy flow uses a one-click invoice.",
+    ]
+
+    for (const wording of clauses) {
+      expect(findForbiddenStaleClaims(wording)).toContain("one-click invoice")
     }
   })
 })

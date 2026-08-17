@@ -89,6 +89,20 @@ describe("payment milestone documentation", () => {
       findForbiddenStaleClaims(
         `<P data-claim="one live invoice per milestone">{oneLiveInvoicePerMilestone}</P>`
       )
+      ).toEqual([])
+  })
+
+  it("strips dynamic JSX expressions but preserves standalone string literals", () => {
+    expect(
+      findForbiddenStaleClaims(`<P>one live {invoice} per milestone.</P>`)
+    ).toEqual([])
+    expect(
+      findForbiddenStaleClaims(`<P>one {"live invoice"} per milestone.</P>`)
+    ).toContain("one live invoice per milestone")
+    expect(
+      findForbiddenStaleClaims(
+        `<P>{condition ? "one live invoice per milestone" : ""}</P>`
+      )
     ).toEqual([])
   })
 
@@ -115,6 +129,17 @@ describe("payment milestone documentation", () => {
 
     for (const wording of clauses) {
       expect(findForbiddenStaleClaims(wording)).toContain("one-click invoice")
+    }
+  })
+
+  it("carries negation across coordinated predicates", () => {
+    const coordinated = [
+      "Payment Milestones do not create or update a one-click invoice.",
+      "Payment Milestones do not create and update a one-click invoice.",
+    ]
+
+    for (const wording of coordinated) {
+      expect(findForbiddenStaleClaims(wording)).toEqual([])
     }
   })
 })

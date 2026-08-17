@@ -49,10 +49,91 @@ const STALE_CLAIMS: StaleClaim[] = [
 
 const NEGATION =
   /\b(?:no|not|never|without|does\s+not|do\s+not|doesn't|don't|unsupported|disallowed|no\s+longer)\b/i
-const CLAUSE_BOUNDARY = /[,.;!?]|\b(?:but|however|although|though|yet|and|or|nor|because|while|whereas|instead)\b/gi
+const CLAUSE_BOUNDARY =
+  /[,.;!?]|\b(?:but|however|although|though|yet|whereas|instead)\b/gi
 
 const JSX_TAG = /<\/?(?:[A-Za-z][A-Za-z0-9:._-]*)(?:\s[^<>]*)?\/?\s*>|<\/?\s*>/g
-const JSX_STRING_EXPRESSION = /\{\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*\}/g
+
+function readJsxExpressionEnd(text: string, start: number): number {
+  let depth = 1
+  let quote: '"' | "'" | "`" | null = null
+
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index]
+
+    if (quote) {
+      if (character === "\\") {
+        index += 1
+      } else if (character === quote) {
+        quote = null
+      }
+      continue
+    }
+
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character
+    } else if (character === "{") {
+      depth += 1
+    } else if (character === "}" && --depth === 0) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function parseStaticStringLiteral(expression: string): string | null {
+  const literal = expression.trim()
+  const quote = literal[0]
+
+  if (
+    literal.length < 2 ||
+    (quote !== '"' && quote !== "'" && quote !== "`") ||
+    literal[literal.length - 1] !== quote
+  ) {
+    return null
+  }
+
+  const content = literal.slice(1, -1)
+  if (quote === "`" && content.includes("${")) return null
+
+  // Preserve only literals that need no JavaScript evaluation. Escaped
+  // literals are left out unless JSON can safely decode a double-quoted one.
+  if (quote === '"') {
+    try {
+      return JSON.parse(literal) as string
+    } catch {
+      return null
+    }
+  }
+
+  return content.includes("\\") ? null : content
+}
+
+function stripDynamicJsxExpressions(text: string): string {
+  let output = ""
+  let index = 0
+
+  while (index < text.length) {
+    if (text[index] !== "{") {
+      output += text[index]
+      index += 1
+      continue
+    }
+
+    const end = readJsxExpressionEnd(text, index)
+    if (end === -1) {
+      output += " "
+      break
+    }
+
+    const literal = parseStaticStringLiteral(text.slice(index + 1, end))
+    output += literal === null ? " " : ` ${literal} `
+    index = end + 1
+  }
+
+  return output
+}
 
 /**
  * Normalize both rendered prose and raw TSX source. JSX tags and static
@@ -61,12 +142,8 @@ const JSX_STRING_EXPRESSION = /\{\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*\}/g
  * treating tag attributes or arbitrary expression code as documentation.
  */
 export function normalizeDocumentation(text: string): string {
-  return text
-    .replace(JSX_STRING_EXPRESSION, (_match, doubleQuoted, singleQuoted, template) =>
-      ` ${doubleQuoted ?? singleQuoted ?? template ?? ""} `
-    )
+  return stripDynamicJsxExpressions(text)
     .replace(JSX_TAG, " ")
-    .replace(/[{}]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
 }

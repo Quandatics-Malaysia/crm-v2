@@ -148,6 +148,36 @@
 - Lint: passed.
 - `git diff --check`: passed.
 
+## Fix round 5/5
+
+- Root cause: raw JSX normalization only recognized an expression when its
+  entire contents were one simple string. Dynamic expressions such as
+  `{invoice}` therefore left identifier text between prose words, and
+  `and`/`or` were incorrectly treated as negation clause boundaries.
+- Replaced expression cleanup with balanced JSX-expression scanning. Dynamic
+  or compound expressions become separators; only standalone string literals
+  that can be safely parsed remain searchable prose. JSX tags remain
+  presentation separators.
+- Kept negation across coordinated `and`/`or` predicates while stopping at
+  punctuation and adversative boundaries such as `but` and `however`.
+- Added regressions for `{invoice}` false positives, split static literals,
+  compound dynamic expressions, coordinated negation, and the existing
+  negated-then-positive adversative clauses.
+
+## Fix round 5 TDD evidence
+
+- RED: the new dynamic-expression and coordinated-negation regressions failed
+  against the round-4 scanner with two failing tests.
+- GREEN: the same documentation command passed with 65 files and 597 tests;
+  9 files and 55 tests remain intentionally skipped.
+
+## Fix round 5 verification
+
+- Full web tests: 65 files passed, 9 skipped; 597 tests passed, 55 skipped.
+- Typecheck: passed with `tsc --noEmit`.
+- Lint: passed.
+- `git diff --check`: passed.
+
 ## Commit
 
-Commit message: `test: harden stale milestone claim`
+Commit message: `test: finalize milestone claim scanner`

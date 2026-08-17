@@ -37,3 +37,48 @@
 ## Commit
 
 Commit SHA is returned in the final handoff after the requested feature commit.
+
+## Fix round 1/5 — review findings
+
+### Findings addressed
+
+- P1 stale PPVVC snapshots: `PpvvcEditor` now submits only dirty fields and safely merges refreshed props into clean draft fields while preserving unsaved edits.
+- P1 stage gate refresh: successful inline PPVVC saves immediately update the dialog's local authoritative values and PPVVC-backed gate flags.
+- P1 Funnel-side synchronization: both mutation paths record meaningful before/after audit and activity history for the authoritative Opportunity and every live child Funnel.
+- P2 draft resynchronization: editor server snapshots are tracked independently from local drafts and reconciled field-by-field.
+- P2 stage requirements: stage dialogs render only PPVVC sections represented by entered-stage requirements.
+- P2 transaction coverage: removed fake transaction tests and added a PostgreSQL boundary suite covering tenant/deleted predicates, row locking, rollback atomicity, audit/history, and production sync-history wiring.
+
+### TDD evidence
+
+- RED: focused tests failed on missing dirty-patch, draft-merge, relevant-field, and live-gate contracts.
+- GREEN: focused tests passed after the editor and gate helpers were implemented.
+- RED: synchronization contract test failed because child before/after pairs were absent.
+- GREEN: synchronization tests passed after tenant-scoped locks and child change snapshots were added.
+- RED: history contract test failed because Funnel PPVVC fields were not registered.
+- GREEN: history tests passed after registry and shared audit/history wiring were added.
+
+### Verification
+
+- Focused PPVVC/stage tests: 53 files passed; 495 tests passed; 41 skipped.
+- Full web suite: 53 files passed; 6 skipped; 495 tests passed; 41 skipped.
+- Typecheck: passed.
+- Lint: passed.
+- Migration checks: passed; database migration suite skipped without configured test database URLs.
+- `git diff --check`: passed.
+
+### Fix-round files
+
+- `apps/web/components/ppvvc-editor.tsx`
+- `apps/web/lib/ppvvc.ts`
+- `apps/web/lib/stage-gate.ts`
+- `apps/web/app/(app)/funnel/stage-advance-dialog.tsx`
+- `apps/web/app/(app)/funnel/actions.ts`
+- `apps/web/app/(app)/opportunities/actions.ts`
+- `apps/web/server/services/ppvvc.ts`
+- `apps/web/server/services/changes/registry.ts`
+- `apps/web/tests/ppvvc-sync.test.ts`
+- `apps/web/tests/ppvvc-sync-db.test.ts`
+- `apps/web/tests/stage-gate.test.ts`
+
+Commit SHA: reported in the final handoff.

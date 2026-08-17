@@ -13,6 +13,7 @@
  */
 
 import { PERMISSIONS } from "@/lib/permissions"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 
 /** Completeness of the preset system fields (derived from real funnel /
  *  opportunity-container columns — see {@link REQUIRABLE_FIELDS} for which). */
@@ -38,6 +39,29 @@ export type StageGateState = {
   hasNegotiationDone: boolean
   hasNegotiationDate: boolean
   hasExpectedInvoice: boolean
+}
+
+/** Recompute PPVVC-backed gate flags after an inline authoritative save. */
+export function applyPpvvcToStageGate(
+  gate: StageGate,
+  values: PpvvcPatch | null | undefined
+): StageGate {
+  const present = (value: string | null | undefined) =>
+    typeof value === "string" && value.trim() !== ""
+  const satisfied = { ...gate.satisfied }
+  if (values && Object.prototype.hasOwnProperty.call(values, "pain")) {
+    satisfied.objective = present(values.pain)
+  }
+  if (values && Object.prototype.hasOwnProperty.call(values, "vision")) {
+    satisfied.vision = present(values.vision)
+  }
+  if (values && Object.prototype.hasOwnProperty.call(values, "value")) {
+    satisfied.value = present(values.value)
+  }
+  return {
+    satisfied,
+    labels: gate.labels,
+  }
 }
 
 /** Input type for a tenant-defined custom funnel field. */

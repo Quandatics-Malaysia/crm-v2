@@ -1,51 +1,14 @@
 import { describe, expect, it } from "vitest"
-import type { Tx } from "@/db"
-import { funnels, opportunities } from "@/db/schema"
+import { CHANGE_FIELDS } from "@/server/services/changes/registry"
 import {
   PPVVC_FIELDS,
+  getPpvvcDirtyPatch,
+  getPpvvcFieldsForRequiredKeys,
   getPpvvcCompletion,
-  type PpvvcValues,
+  mergePpvvcDraft,
 } from "@/lib/ppvvc"
-import {
-  updateFunnelPpvvc,
-  updateOpportunityPpvvc,
-} from "@/server/services/ppvvc"
 
-type Query = Record<string, unknown> & {
-  then: Promise<unknown>["then"]
-}
-
-function query<T>(value: T): Query {
-  const promise = Promise.resolve(value)
-  const q = {
-    from: () => q,
-    where: () => q,
-    limit: () => q,
-    for: () => q,
-    set: () => q,
-    then: promise.then.bind(promise),
-  } as unknown as Query
-  return q
-}
-
-function fakeTx(selections: unknown[][]) {
-  const updates: Array<{ table: unknown; values: Record<string, unknown> }> = []
-  const queue = [...selections]
-  const tx = {
-    select: () => query(queue.shift() ?? []),
-    update: (table: unknown) => {
-      const q = query([])
-      q.set = (values: Record<string, unknown>) => {
-        updates.push({ table, values })
-        return q
-      }
-      return q
-    },
-  } as unknown as Tx
-  return { tx, updates }
-}
-
-const values: PpvvcValues = {
+const values = {
   pain: "No approved business case",
   power: "CFO sponsor",
   vision: "Automated renewal workflow",
@@ -81,63 +44,48 @@ describe("PPVVC metadata", () => {
       { key: "control", number: 5, label: "Control", complete: false },
     ])
   })
+
+  it("submits only fields changed from the latest server snapshot", () => {
+    expect(
+      getPpvvcDirtyPatch(values, {
+        ...values,
+        pain: "Updated pain",
+        power: "  CFO sponsor  ",
+      })
+    ).toEqual({ pain: "Updated pain" })
+  })
+
+  it("adopts refreshed clean props without clobbering an unsaved local edit", () => {
+    expect(
+      mergePpvvcDraft(
+        { ...values, pain: "Old pain", power: "Old power" },
+        { ...values, pain: "Local pain", power: "Old power" },
+        { ...values, pain: "Server pain", power: "Refreshed power" }
+      )
+    ).toEqual({ ...values, pain: "Local pain", power: "Refreshed power" })
+  })
+
+  it("selects only PPVVC fields represented by entered-stage requirements", () => {
+    expect(
+      getPpvvcFieldsForRequiredKeys([
+        "vision",
+        "powerSponsorContact",
+        "objective",
+        "control",
+      ])
+    ).toEqual([
+      { key: "pain", number: 1, label: "Pain" },
+      { key: "power", number: 2, label: "Power" },
+      { key: "vision", number: 3, label: "Vision" },
+    ])
+  })
 })
 
 describe("PPVVC synchronization", () => {
-  it("updates the authoritative Opportunity and only live child Funnels in one tx", async () => {
-    const { tx, updates } = fakeTx([
-      [
-        {
-          id: "opp-1",
-          tenantId: "tenant-1",
-          deletedAt: null,
-          pain: "old pain",
-          power: null,
-          vision: null,
-          value: null,
-          control: null,
-        },
-      ],
-      [
-        { id: "funnel-live", deletedAt: null },
-        { id: "funnel-deleted", deletedAt: new Date("2026-01-01") },
-      ],
-    ])
-
-    const result = await updateOpportunityPpvvc(tx, {
-      opportunityId: "opp-1",
-      values,
-      actorId: "user-1",
-    })
-
-    expect(result.updatedChildIds).toEqual(["funnel-live"])
-    expect(updates).toHaveLength(2)
-    expect(updates[0]).toMatchObject({
-      table: opportunities,
-      values: { ...values },
-    })
-    expect(updates[1]).toMatchObject({
-      table: funnels,
-      values: { ...values },
-    })
+  it("registers every PPVVC field for Funnel change history", () => {
+    expect(Object.keys(CHANGE_FIELDS.funnel)).toEqual(
+      expect.arrayContaining(["pain", "power", "vision", "value", "control"])
+    )
   })
 
-  it("resolves a Funnel's parent before cascading a Funnel-side edit", async () => {
-    const { tx, updates } = fakeTx([
-      [{ id: "funnel-1", opportunityId: "opp-1", tenantId: "tenant-1", deletedAt: null }],
-      [{ id: "opp-1", tenantId: "tenant-1", deletedAt: null, ...values }],
-      [{ id: "funnel-1", deletedAt: null }],
-    ])
-
-    const result = await updateFunnelPpvvc(tx, {
-      funnelId: "funnel-1",
-      values,
-      actorId: "user-1",
-    })
-
-    expect(result.opportunityId).toBe("opp-1")
-    expect(updates.map((u) => u.table)).toEqual([opportunities, funnels])
-    expect(updates[0].values).toMatchObject(values)
-    expect(updates[1].values).toMatchObject(values)
-  })
 })

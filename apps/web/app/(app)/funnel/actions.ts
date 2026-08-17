@@ -45,7 +45,10 @@ import {
   pickNature,
 } from "@/server/services/opportunity-container"
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
-import { updateFunnelPpvvc } from "@/server/services/ppvvc"
+import {
+  recordPpvvcSyncChanges,
+  updateFunnelPpvvc,
+} from "@/server/services/ppvvc"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 import {
@@ -740,10 +743,12 @@ export async function updateOpportunity(
     const syncedPpvvc = hasPpvvcInput
       ? await updateFunnelPpvvc(tx, {
           funnelId: id,
+          tenantId: ctx.tenantId,
           values: ppvvcInput,
           actorId: ctx.userId,
         })
       : null
+    if (syncedPpvvc) await recordPpvvcSyncChanges(tx, ctx, syncedPpvvc)
 
     await tx.update(funnels).set(updated).where(eq(funnels.id, id))
 
@@ -762,7 +767,6 @@ export async function updateOpportunity(
       after: {
         ...existing,
         ...updated,
-        ...(syncedPpvvc?.after ?? {}),
       },
       subject: "Funnel updated",
     })

@@ -2,6 +2,8 @@ import "server-only"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import type { Tx } from "@/db"
 import { funnels, opportunities } from "@/db/schema"
+import type { ServerContext } from "@/lib/server-context"
+import { recordChanges } from "@/server/services/changes/record"
 import {
   normalizePpvvcValues,
   type PpvvcPatch,
@@ -20,6 +22,37 @@ export type PpvvcSyncResult = {
   before: PpvvcValues
   after: PpvvcValues
   updatedChildIds: string[]
+  updatedChildren: {
+    id: string
+    before: PpvvcValues
+    after: PpvvcValues
+  }[]
+}
+
+/** Persist one meaningful audit/activity pair for the source and every live child. */
+export async function recordPpvvcSyncChanges(
+  tx: Tx,
+  ctx: ServerContext,
+  sync: PpvvcSyncResult
+): Promise<void> {
+  await recordChanges(tx, ctx, {
+    entityType: "opportunity",
+    registryKey: "opportunity",
+    entityId: sync.opportunityId,
+    before: sync.before as unknown as Record<string, unknown>,
+    after: sync.after as unknown as Record<string, unknown>,
+    subject: "Opportunity PPVVC updated",
+  })
+  for (const child of sync.updatedChildren) {
+    await recordChanges(tx, ctx, {
+      entityType: "opportunity",
+      registryKey: "funnel",
+      entityId: child.id,
+      before: child.before as unknown as Record<string, unknown>,
+      after: child.after as unknown as Record<string, unknown>,
+      subject: "Funnel PPVVC updated",
+    })
+  }
 }
 
 function valuesFromRow(row: PpvvcSourceRow): PpvvcValues {
@@ -35,6 +68,7 @@ export async function updateOpportunityPpvvc(
   tx: Tx,
   input: {
     opportunityId: string
+    tenantId: string
     values: PpvvcPatch
     actorId: string
   }
@@ -57,6 +91,7 @@ export async function updateOpportunityPpvvc(
     .where(
       and(
         eq(opportunities.id, input.opportunityId),
+        eq(opportunities.tenantId, input.tenantId),
         isNull(opportunities.deletedAt)
       )
     )
@@ -81,7 +116,16 @@ export async function updateOpportunityPpvvc(
     )
 
   const children = await tx
-    .select({ id: funnels.id, deletedAt: funnels.deletedAt })
+    .select({
+      id: funnels.id,
+      tenantId: funnels.tenantId,
+      deletedAt: funnels.deletedAt,
+      pain: funnels.pain,
+      power: funnels.power,
+      vision: funnels.vision,
+      value: funnels.value,
+      control: funnels.control,
+    })
     .from(funnels)
     .where(
       and(
@@ -90,10 +134,18 @@ export async function updateOpportunityPpvvc(
         isNull(funnels.deletedAt)
       )
     )
+    .for("update")
 
   const updatedChildIds = children
     .filter((child) => child.deletedAt == null)
     .map((child) => child.id)
+  const updatedChildren = children
+    .filter((child) => child.deletedAt == null)
+    .map((child) => ({
+      id: child.id,
+      before: valuesFromRow(child),
+      after,
+    }))
 
   if (updatedChildIds.length > 0) {
     await tx
@@ -115,6 +167,7 @@ export async function updateOpportunityPpvvc(
     before,
     after,
     updatedChildIds,
+    updatedChildren,
   }
 }
 
@@ -123,6 +176,7 @@ export async function updateFunnelPpvvc(
   tx: Tx,
   input: {
     funnelId: string
+    tenantId: string
     values: PpvvcPatch
     actorId: string
   }
@@ -135,13 +189,21 @@ export async function updateFunnelPpvvc(
       deletedAt: funnels.deletedAt,
     })
     .from(funnels)
-    .where(and(eq(funnels.id, input.funnelId), isNull(funnels.deletedAt)))
+    .where(
+      and(
+        eq(funnels.id, input.funnelId),
+        eq(funnels.tenantId, input.tenantId),
+        isNull(funnels.deletedAt)
+      )
+    )
     .limit(1)
+    .for("update")
 
   if (!funnel) throw new Error("Funnel not found")
 
   return updateOpportunityPpvvc(tx, {
     opportunityId: funnel.opportunityId,
+    tenantId: funnel.tenantId,
     values: input.values,
     actorId: input.actorId,
   })

@@ -6,6 +6,7 @@ import {
   missingFromKeys,
   stagesEnteredBy,
   requiredKeysForStages,
+  applyPpvvcToStageGate,
   requiresCloseRemarks,
   entersMilestoneAutoCreateStage,
   entersMilestoneDeleteStage,
@@ -105,6 +106,24 @@ describe("buildStageGate + missingFromKeys — entry requirements", () => {
   it("covers every preset key so a satisfied gate passes clean", () => {
     const gate = buildStageGate(presets(true), null, [])
     expect(missingFromKeys([...REQUIRABLE_FIELD_KEYS], gate)).toEqual([])
+  })
+
+  it("updates PPVVC-backed gate flags immediately after a successful save", () => {
+    const gate = buildStageGate(presets(false), null, [])
+    const live = applyPpvvcToStageGate(gate, {
+      pain: "Business pain",
+      power: null,
+      vision: "Target state",
+      value: "Measured value",
+      control: null,
+    })
+
+    expect(live.satisfied).toMatchObject({
+      objective: true,
+      vision: true,
+      value: true,
+    })
+    expect(live.satisfied.estimate).toBe(false)
   })
 })
 

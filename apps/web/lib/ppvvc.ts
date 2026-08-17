@@ -14,6 +14,14 @@ export type PpvvcCompletion = (typeof PPVVC_FIELDS)[number] & {
   complete: boolean
 }
 
+const PPVVC_FIELD_BY_REQUIRED_KEY: Record<string, PpvvcField> = {
+  objective: "pain",
+  powerSponsorContact: "power",
+  powerSponsorBudgetLimit: "power",
+  value: "value",
+  vision: "vision",
+}
+
 function present(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0
 }
@@ -26,6 +34,45 @@ export function normalizePpvvcValues(values: PpvvcPatch | null | undefined): Ppv
       return [key, present(value) ? value!.trim() : null]
     })
   ) as PpvvcValues
+}
+
+/** Return only fields that differ from the server snapshot. */
+export function getPpvvcDirtyPatch(
+  serverValues: PpvvcPatch | null | undefined,
+  draftValues: PpvvcPatch | null | undefined
+): PpvvcPatch {
+  const server = normalizePpvvcValues(serverValues)
+  const draft = normalizePpvvcValues(draftValues)
+  return Object.fromEntries(
+    PPVVC_FIELDS.filter(({ key }) => server[key] !== draft[key]).map(({ key }) => [
+      key,
+      draft[key],
+    ])
+  ) as PpvvcPatch
+}
+
+/** Merge refreshed server values while retaining fields changed locally. */
+export function mergePpvvcDraft(
+  previousServerValues: PpvvcPatch | null | undefined,
+  draftValues: PpvvcPatch | null | undefined,
+  refreshedServerValues: PpvvcPatch | null | undefined
+): PpvvcValues {
+  return normalizePpvvcValues({
+    ...normalizePpvvcValues(refreshedServerValues),
+    ...getPpvvcDirtyPatch(previousServerValues, draftValues),
+  })
+}
+
+/** PPVVC sections represented by the entered stages' preset requirements. */
+export function getPpvvcFieldsForRequiredKeys(
+  requiredKeys: readonly string[]
+): (typeof PPVVC_FIELDS)[number][] {
+  const relevant = new Set(
+    requiredKeys
+      .map((key) => PPVVC_FIELD_BY_REQUIRED_KEY[key])
+      .filter((key): key is PpvvcField => key !== undefined)
+  )
+  return PPVVC_FIELDS.filter((field) => relevant.has(field.key))
 }
 
 /** Read ordered completion state for badges and stage requirement UI. */

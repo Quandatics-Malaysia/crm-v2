@@ -13,7 +13,10 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import { opportunities, funnels } from "@/db/schema"
-import { updateOpportunityPpvvc } from "@/server/services/ppvvc"
+import {
+  recordPpvvcSyncChanges,
+  updateOpportunityPpvvc,
+} from "@/server/services/ppvvc"
 import type { PpvvcValues } from "@/lib/ppvvc"
 
 /** A resolved contact for display: name + derived "Designation" (persons.title). */
@@ -203,13 +206,15 @@ export async function updateOpportunityContainer(
       const hasPpvvcInput = Object.keys(nextPpvvc).some(
         (key) => input[key as keyof OpportunityContainerUpdateInput] !== undefined
       )
-      if (hasPpvvcInput) {
-        await updateOpportunityPpvvc(tx, {
-          opportunityId: id,
-          values: nextPpvvc,
-          actorId: ctx.userId,
-        })
-      }
+      const syncedPpvvc = hasPpvvcInput
+        ? await updateOpportunityPpvvc(tx, {
+            opportunityId: id,
+            tenantId: ctx.tenantId,
+            values: nextPpvvc,
+            actorId: ctx.userId,
+          })
+        : null
+      if (syncedPpvvc) await recordPpvvcSyncChanges(tx, ctx, syncedPpvvc)
 
       await tx.update(opportunities).set(updated).where(eq(opportunities.id, id))
 
@@ -229,7 +234,7 @@ export async function updateOpportunityContainer(
         registryKey: "opportunity",
         entityId: id,
         before: existing,
-        after: { ...existing, ...updated, ...(hasPpvvcInput ? nextPpvvc : {}) },
+        after: { ...existing, ...updated },
         subject: "Opportunity updated",
       })
     })

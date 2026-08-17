@@ -7,8 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
+  PPVVC_FIELDS,
+  getPpvvcDirtyPatch,
   getPpvvcCompletion,
+  mergePpvvcDraft,
   normalizePpvvcValues,
+  type PpvvcField,
   type PpvvcPatch,
   type PpvvcValues,
 } from "@/lib/ppvvc"
@@ -19,6 +23,7 @@ export function PpvvcEditor({
   values,
   editable = false,
   compact = false,
+  fields,
   onSave,
   className,
 }: {
@@ -26,7 +31,9 @@ export function PpvvcEditor({
   editable?: boolean
   /** Board cards start as badges and expand into this grouped editor. */
   compact?: boolean
-  onSave?: (values: PpvvcValues) => Promise<PpvvcSaveResult>
+  /** Optional subset for stage dialogs; omitted means all five sections. */
+  fields?: readonly { key: PpvvcField }[]
+  onSave?: (values: PpvvcPatch) => Promise<PpvvcSaveResult>
   className?: string
 }) {
   const [draft, setDraft] = React.useState<PpvvcValues>(() =>
@@ -34,8 +41,18 @@ export function PpvvcEditor({
   )
   const [expanded, setExpanded] = React.useState(!compact)
   const [saving, startSaving] = React.useTransition()
+  const serverValuesRef = React.useRef(normalizePpvvcValues(values))
+
+  React.useEffect(() => {
+    const refreshed = normalizePpvvcValues(values)
+    const previousServer = serverValuesRef.current
+    setDraft((current) => mergePpvvcDraft(previousServer, current, refreshed))
+    serverValuesRef.current = refreshed
+  }, [values])
 
   const completion = getPpvvcCompletion(draft)
+  const visibleKeys = new Set((fields ?? PPVVC_FIELDS).map((field) => field.key))
+  const visibleCompletion = completion.filter((field) => visibleKeys.has(field.key))
 
   function update(key: keyof PpvvcValues, value: string) {
     setDraft((current) => ({ ...current, [key]: value || null }))
@@ -45,10 +62,19 @@ export function PpvvcEditor({
     if (!onSave) return
     startSaving(async () => {
       try {
-        const result = await onSave(normalizePpvvcValues(draft))
+        const submitted = normalizePpvvcValues(draft)
+        const patch = getPpvvcDirtyPatch(serverValuesRef.current, submitted)
+        if (Object.keys(patch).length === 0) return
+        const result = await onSave(patch)
         if (result && !result.ok) {
           throw new Error(result.error ?? "Could not save PPVVC")
         }
+        const refreshed = normalizePpvvcValues({
+          ...serverValuesRef.current,
+          ...patch,
+        })
+        serverValuesRef.current = refreshed
+        setDraft((current) => mergePpvvcDraft(submitted, current, refreshed))
         toast.success("PPVVC saved")
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not save PPVVC")
@@ -59,7 +85,7 @@ export function PpvvcEditor({
   return (
     <div className={cn("grid gap-3", className)}>
       <div className="flex flex-wrap items-center gap-1.5">
-        {completion.map((field) => {
+        {visibleCompletion.map((field) => {
           const badge = (
             <Badge
               key={field.key}
@@ -89,7 +115,7 @@ export function PpvvcEditor({
 
       {expanded ? (
         <div className="grid gap-3">
-          {completion.map((field) => (
+          {visibleCompletion.map((field) => (
             <section key={field.key} className="grid gap-1.5 rounded-md border p-3">
               <div className="flex items-center justify-between gap-2">
                 <label

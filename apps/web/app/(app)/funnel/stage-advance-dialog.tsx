@@ -14,6 +14,7 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   groupCustomFields,
+  applyPpvvcToStageGate,
   isPresetFieldKey,
   type StageGate,
   type CustomFunnelField,
@@ -51,7 +52,10 @@ import { AttachmentUpload } from "@/components/attachments/attachment-upload"
 import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
 import { formatPercent } from "@/lib/format"
 import { PpvvcEditor } from "@/components/ppvvc-editor"
-import type { PpvvcPatch } from "@/lib/ppvvc"
+import {
+  getPpvvcFieldsForRequiredKeys,
+  type PpvvcPatch,
+} from "@/lib/ppvvc"
 import { StageBadge } from "./stage-badge"
 import { advanceStageAction, updateOpportunity } from "./actions"
 import { selectableTargets } from "./stage-transitions"
@@ -147,6 +151,7 @@ export function StageAdvanceDialog({
   // Live edits to the required custom fields, merged over the funnel's stored
   // values when the gate is evaluated and sent with the advance.
   const [values, setValues] = React.useState<Record<string, string>>({})
+  const [savedPpvvc, setSavedPpvvc] = React.useState<PpvvcPatch>({})
 
   const ordered = React.useMemo(
     () => [...stages].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -176,18 +181,30 @@ export function StageAdvanceDialog({
       }),
     [enteredStages, target?.kind]
   )
+  const relevantPpvvcFields = React.useMemo(
+    () => getPpvvcFieldsForRequiredKeys(requiredKeys),
+    [requiredKeys]
+  )
+  const livePpvvc = React.useMemo(
+    () => ({ ...(ppvvc ?? {}), ...savedPpvvc }),
+    [ppvvc, savedPpvvc]
+  )
   // Live gate: keep the server-computed presets, but recompute the custom keys
   // from the merged values so the checklist/blocked state update as you type.
   const liveGate = React.useMemo<StageGate>(() => {
-    const satisfied = { ...(gate?.satisfied ?? {}) }
-    const labels = { ...(gate?.labels ?? {}) }
+    const base = applyPpvvcToStageGate(
+      gate ?? { satisfied: {}, labels: {} },
+      livePpvvc
+    )
+    const satisfied = { ...base.satisfied }
+    const labels = { ...base.labels }
     for (const f of customFieldDefs) {
       const s = (merged[f.key] ?? "").trim()
       satisfied[f.key] = f.type === "checkbox" ? s === "true" : s !== ""
       labels[f.key] = f.label
     }
     return { satisfied, labels }
-  }, [gate, customFieldDefs, merged])
+  }, [gate, customFieldDefs, merged, livePpvvc])
 
   const defByKey = React.useMemo(
     () => new Map(customFieldDefs.map((f) => [f.key, f])),
@@ -400,17 +417,24 @@ export function StageAdvanceDialog({
               ) : null}
             </div>
 
-            {target && ppvvc ? (
+            {target && ppvvc && relevantPpvvcFields.length > 0 ? (
               <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
                 <p className="text-xs font-medium text-muted-foreground">
                   PPVVC requirements — edit inline if needed
                 </p>
                 <PpvvcEditor
-                  values={ppvvc}
+                  values={livePpvvc}
+                  fields={relevantPpvvcFields}
                   editable={canEditPpvvc}
                   onSave={
                     canEditPpvvc
-                      ? (next) => updateOpportunity(funnelId, next)
+                      ? async (next) => {
+                          const result = await updateOpportunity(funnelId, next)
+                          if (result.ok) {
+                            setSavedPpvvc((current) => ({ ...current, ...next }))
+                          }
+                          return result
+                        }
                       : undefined
                   }
                 />

@@ -926,8 +926,18 @@ export async function updateQuotation(
       action: "quotation.updated",
       entityType: "quotation",
       entityId: id,
-      before: quotationContentAuditSnapshot(existing),
-      after: quotationContentAuditSnapshot(updated),
+      before: quotationContentAuditSnapshot({
+        attentionContactId: existing.attentionContactId,
+        notes: existing.notes,
+        delivery: existing.delivery,
+        paymentTerm: existing.paymentTerm,
+      }),
+      after: quotationContentAuditSnapshot({
+        attentionContactId,
+        notes: content.notes,
+        delivery: content.delivery,
+        paymentTerm: content.paymentTerm,
+      }),
     })
     return updated
   })
@@ -1517,7 +1527,10 @@ export async function acceptQuotation(
       action: "quotation.accepted",
       entityType: "quotation",
       entityId: id,
-      after: { funnelId: q.funnelId, amount: quoteNet(q) },
+      after: {
+        funnelId: q.funnelId,
+        amount: quoteNet({ subtotal: q.subtotal, discountTotal: q.discountTotal }),
+      },
     })
 
     return {

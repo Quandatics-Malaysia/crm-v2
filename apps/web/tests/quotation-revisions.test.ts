@@ -140,6 +140,8 @@ const sourceLine = {
   sortOrder: 0,
 }
 
+type SourceFixture = Omit<typeof source, "deletedAt"> & { deletedAt: Date | null }
+
 describe("quotation revisions", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -222,7 +224,7 @@ describe("quotation revisions", () => {
   })
 
   function configureRevision(
-    overrides: Partial<typeof source> = {},
+    overrides: Partial<SourceFixture> = {},
     created = { id: "quote-revision", quoteNumber: "Q10001-3" }
   ) {
     const fixture = txWithSelects([

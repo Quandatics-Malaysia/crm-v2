@@ -30,6 +30,7 @@ import {
   intercompanyDealParties,
   intercompanyDealResponses,
 } from "@/db/schema"
+import type { QuotationStatus } from "@/lib/quotation-transitions"
 
 /**
  * Shared read layer for the six list/detail CRM resources. Each `<entity>List`
@@ -856,10 +857,11 @@ export type OpportunityDetail = {
   quotations: {
     id: string
     quoteNumber: string
-    status: string
+    status: QuotationStatus
     total: string
     currency: string
     isPrimary: boolean
+    deletedAt: Date | null
   }[]
   history: {
     id: string
@@ -977,9 +979,10 @@ export async function funnelsGet(
       total: quotations.total,
       currency: quotations.currency,
       isPrimary: quotations.isPrimary,
+      deletedAt: quotations.deletedAt,
     })
     .from(quotations)
-    .where(and(eq(quotations.funnelId, id), isNull(quotations.deletedAt)))
+    .where(eq(quotations.funnelId, id))
     .orderBy(desc(quotations.version))
 
   const toStage = alias(pipelineStages, "to_stage")

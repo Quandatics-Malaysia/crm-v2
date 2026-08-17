@@ -8,6 +8,7 @@ import {
   numeric,
   char,
   date,
+  AnyPgColumn,
   timestamp,
   unique,
   uniqueIndex,
@@ -63,7 +64,7 @@ export const quotations = pgTable(
     funnelId: uuid("funnel_id")
       .notNull()
       .references(() => funnels.id, { onDelete: "cascade" }),
-    revisionOfId: uuid("revision_of_id").references(() => quotations.id, {
+    revisionOfId: uuid("revision_of_id").references((): AnyPgColumn => quotations.id, {
       onDelete: "set null",
     }),
     quoteNumber: text("quote_number").notNull(),

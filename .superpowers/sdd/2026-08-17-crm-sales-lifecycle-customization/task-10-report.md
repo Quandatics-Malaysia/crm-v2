@@ -42,3 +42,41 @@
 ## Commit
 
 Commit message: `fix: harden quotation revision workflow`
+
+## Fix round 2/5
+
+- Fixed the Funnel quotation reader contract: `OpportunityDetail.quotations.status`
+  is now `QuotationStatus` and the payload exposes `deletedAt`.
+- Funnel detail now selects `quotations.deleted_at` and includes soft-deleted
+  quotation history, so the existing revision policy can keep showing the
+  revision action for eligible deleted sources. No UI casts were added.
+- Added a reader/data regression covering a soft-deleted Sent quote, the typed
+  status, the returned deletion timestamp, the selected column, and the absence
+  of the live-only `deleted_at IS NULL` predicate.
+- Cleared adjacent branch typecheck failures with explicit quotation audit/value
+  snapshots, Drizzle's supported self-reference column annotation, and a test
+  fixture type that permits a deleted timestamp.
+
+## Fix round 2 TDD evidence
+
+- RED: the new reader regression failed because the quotation projection did not
+  select `deletedAt`.
+- GREEN: focused reader/policy tests passed after the projection and query
+  change; the full web suite also passed.
+
+## Fix round 2 verification
+
+- Focused tests: 2 files passed, 20 tests passed.
+- Full web tests: 63 files passed, 9 skipped; 586 tests passed, 55 skipped.
+- Exact web typecheck (`pnpm --filter web typecheck`): passed.
+- Lint: passed.
+- Migration contract tests: 2 files passed, 1 skipped; 23 tests passed, 1 skipped.
+- Drizzle migration diff check (`pnpm --filter web exec drizzle-kit check`): passed.
+- `git diff --check`: passed.
+- `db:migrate`: blocked before applying anything by local PostgreSQL
+  `ECONNREFUSED`; `db:generate` was blocked by Drizzle's non-TTY interactive
+  schema-conflict prompt and produced no changes.
+
+## Fix round 2 commit
+
+Commit message: `fix: type quotation revision eligibility`

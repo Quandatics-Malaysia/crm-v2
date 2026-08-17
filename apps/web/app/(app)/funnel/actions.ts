@@ -66,6 +66,7 @@ import {
   loadPartiesByOpportunity,
   type PartyRow,
 } from "@/lib/api-readers"
+import type { QuotationStatus } from "@/lib/quotation-transitions"
 
 export type PartyInput = {
   partnerEntityId: string
@@ -332,10 +333,11 @@ export type OpportunityDetail = {
   quotations: {
     id: string
     quoteNumber: string
-    status: string
+    status: QuotationStatus
     total: string
     currency: string
     isPrimary: boolean
+    deletedAt: Date | null
   }[]
   history: {
     id: string

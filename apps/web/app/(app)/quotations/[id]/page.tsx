@@ -65,6 +65,7 @@ export default async function QuotationDetailPage({
     canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),
     canCreateProject:
       modules.projects && ctx.can(PERMISSIONS.PROJECT_CREATE),
+    canCreateRevision: ctx.can(PERMISSIONS.QUOTATION_CREATE),
   }
 
   return (

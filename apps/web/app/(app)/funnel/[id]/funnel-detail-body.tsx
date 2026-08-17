@@ -2,7 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Plus, PencilIcon, ChevronRight } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Plus, PencilIcon, ChevronRight, CopyPlus } from "lucide-react"
+import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -55,6 +57,8 @@ import {
   type MilestoneItemBase,
 } from "@/components/milestones-panel"
 import { updateOpportunity } from "../actions"
+import { createQuotationRevision } from "@/app/(app)/quotations/actions"
+import { showActionError } from "@/lib/show-action-error"
 import type { ApprovalRow } from "@/app/(app)/approvals/actions"
 import type {
   OpportunityDetail,
@@ -248,6 +252,7 @@ export type FunnelDetailData = {
 /** Two-column detail: a rich details panel on the left, the clickable stage path
  *  plus a tabbed panel of related lists on the right (each top-5 + search). */
 export function FunnelDetailBody(props: FunnelDetailData) {
+  const router = useRouter()
   const {
     funnelId,
     currentStageId,
@@ -393,6 +398,26 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             {row.original.isPrimary ? (
               <Badge variant="outline">Primary</Badge>
             ) : null}
+            {canCreateQuote && row.original.status !== "draft" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                title="Create revision"
+                aria-label={`Create revision of ${row.original.quoteNumber}`}
+                onClick={async () => {
+                  const result = await createQuotationRevision(row.original.id)
+                  if (!result.ok) {
+                    showActionError(result)
+                    return
+                  }
+                  toast.success("Revision created")
+                  router.push(`/quotations/${result.data.id}`)
+                }}
+              >
+                <CopyPlus className="size-4" />
+              </Button>
+            ) : null}
           </div>
         ),
       },
@@ -410,7 +435,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
         ),
       },
     ],
-    []
+    [canCreateQuote, router]
   )
 
   const projectColumns = React.useMemo<ColumnDef<OpportunityProjectRow>[]>(

@@ -73,6 +73,7 @@ import {
 import { quotationActionsFor } from "@/lib/quotation-transitions"
 import {
   updateQuotation,
+  createQuotationRevision,
   submitQuotationForApproval,
   approveQuotation,
   rejectQuotation,
@@ -117,6 +118,7 @@ export type QuotationPerms = {
   canAccept: boolean
   canDelete: boolean
   canCreateProject: boolean
+  canCreateRevision: boolean
 }
 
 const ALL_QUOTATION_PERMS: QuotationPerms = {
@@ -126,6 +128,7 @@ const ALL_QUOTATION_PERMS: QuotationPerms = {
   canAccept: true,
   canDelete: true,
   canCreateProject: true,
+  canCreateRevision: true,
 }
 
 export function QuotationForm({
@@ -187,13 +190,14 @@ export function QuotationForm({
   const showAcceptReject =
     isSent && hasQuotationAction("accept")
   const showCreateProject = isAccepted && !project && perms.canCreateProject
+  const showRevision = !isDraft && perms.canCreateRevision
   const showSetPrimary =
     !quotation.isPrimary &&
     (quotation.status === "accepted" || quotation.status === "sent") &&
     perms.canUpdate
   const showDelete = perms.canDelete
   const hasAnyAction =
-    showSubmit || showApproval || showSend || showReset || showAcceptReject || showCreateProject || showSetPrimary || showDelete
+    showSubmit || showApproval || showSend || showReset || showAcceptReject || showCreateProject || showRevision || showSetPrimary || showDelete
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -439,6 +443,18 @@ export function QuotationForm({
     })
     router.refresh()
     setBusy(false)
+  }
+
+  async function onCreateRevision() {
+    setBusy(true)
+    const res = await createQuotationRevision(quotation.id)
+    if (!res.ok) {
+      showActionError(res)
+      setBusy(false)
+      return
+    }
+    toast.success("Revision created")
+    router.push(`/quotations/${res.data.id}`)
   }
 
   async function submitAction(
@@ -1159,6 +1175,33 @@ export function QuotationForm({
               >
                 Create project
               </Button>
+            ) : null}
+            {showRevision ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="outline" disabled={busy}>
+                      Create revision
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Create a revision of {quotation.quoteNumber}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This copies the frozen quotation snapshot and line items into a new Draft. The source quotation remains unchanged.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={onCreateRevision}>
+                      Create revision
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             {showSetPrimary ? (
               <div className="flex items-center gap-1.5">

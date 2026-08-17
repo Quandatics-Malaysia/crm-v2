@@ -53,6 +53,7 @@ export async function nextQuoteNumber(
     .from(funnels)
     .where(eq(funnels.id, funnelId))
     .limit(1)
+    .for("update")
   if (!f) throw new Error("Funnel not found")
 
   const [ts] = await tx

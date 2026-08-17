@@ -964,6 +964,175 @@ async function assertQuotationAccess(
   }
 }
 
+/**
+ * Clone a historical quotation into a new editable Draft. The source lookup
+ * intentionally does not filter soft-deleted rows: a deleted quotation is
+ * still tenant-owned history and may be revised by a user who can see it.
+ */
+export async function createQuotationRevision(
+  sourceQuotationId: string
+): Promise<ActionResult<{ id: string; quoteNumber: string }>> {
+  return runAction(async () => {
+    let sourceFunnelId: string | null = null
+    const result = await withTenant(PERMISSIONS.QUOTATION_CREATE, async (tx, ctx) => {
+      const [source] = await tx
+        .select()
+        .from(quotations)
+        .where(
+          and(
+            eq(quotations.id, sourceQuotationId),
+            eq(quotations.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1)
+        .for("update")
+      if (!source) throw new Error("Quotation not found")
+      if (source.status === "draft" && !source.deletedAt) {
+        throw new Error("Only non-draft quotations can be revised")
+      }
+      sourceFunnelId = source.funnelId
+
+      await assertQuotationAccess(tx, ctx, source)
+
+      const sourceLines = await tx
+        .select()
+        .from(quotationLineItems)
+        .where(eq(quotationLineItems.quotationId, source.id))
+        .orderBy(asc(quotationLineItems.sortOrder))
+
+      const [funnel] = await tx
+        .select({ accountId: funnels.accountId })
+        .from(funnels)
+        .where(eq(funnels.id, source.funnelId))
+        .limit(1)
+      let recipientAccountId = funnel?.accountId ?? null
+      if (recipientAccountId) {
+        const [account] = await tx
+          .select({
+            accountType: accounts.accountType,
+            endUserAccountId: accounts.endUserAccountId,
+          })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.id, recipientAccountId),
+              eq(accounts.tenantId, ctx.tenantId),
+              isNull(accounts.deletedAt)
+            )
+          )
+          .limit(1)
+        if (account?.accountType === "reseller" && account.endUserAccountId) {
+          recipientAccountId = account.endUserAccountId
+        }
+      }
+
+      let attentionContactId = source.attentionContactId
+      if (attentionContactId) {
+        const [contact] = await tx
+          .select({ accountId: persons.accountId })
+          .from(persons)
+          .where(
+            and(
+              eq(persons.id, attentionContactId),
+              eq(persons.tenantId, ctx.tenantId),
+              isNull(persons.deletedAt)
+            )
+          )
+          .limit(1)
+        // A removed contact cannot be copied as a live foreign-key snapshot.
+        // A present contact must still belong to the current recipient.
+        if (!contact) attentionContactId = null
+        else assertAttentionContactBelongsToAccount(contact.accountId, recipientAccountId)
+      }
+
+      const { quoteNumber, version } = await nextQuoteNumber(
+        tx,
+        ctx,
+        source.funnelId
+      )
+      const [created] = await tx
+        .insert(quotations)
+        .values({
+          tenantId: ctx.tenantId,
+          funnelId: source.funnelId,
+          revisionOfId: source.id,
+          quoteNumber,
+          version,
+          isPrimary: false,
+          status: "draft",
+          currency: source.currency,
+          projectNatureCode: source.projectNatureCode,
+          taxSettingId: source.taxSettingId,
+          taxRateSnapshot: source.taxRateSnapshot,
+          taxInclusive: source.taxInclusive,
+          subtotal: source.subtotal,
+          headerDiscount: source.headerDiscount,
+          discountTotal: source.discountTotal,
+          taxTotal: source.taxTotal,
+          total: source.total,
+          quoteDate: source.quoteDate,
+          validUntil: source.validUntil,
+          notes: source.notes,
+          delivery: source.delivery,
+          paymentTerm: source.paymentTerm,
+          attentionContactId,
+          approverMemberId: null,
+          approvedAt: null,
+          rejectionReason: null,
+          sentAt: null,
+          acceptedAt: null,
+          deletedAt: null,
+        })
+        .returning({ id: quotations.id, quoteNumber: quotations.quoteNumber })
+      if (!created) throw new Error("Quotation revision could not be created")
+
+      if (sourceLines.length > 0) {
+        await tx.insert(quotationLineItems).values(
+          sourceLines.map((line) => ({
+            tenantId: ctx.tenantId,
+            quotationId: created.id,
+            productId: line.productId,
+            projectNatureCode: line.projectNatureCode,
+            description: line.description,
+            uom: line.uom,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            discountAmount: line.discountAmount,
+            taxSettingId: line.taxSettingId,
+            lineSubtotal: line.lineSubtotal,
+            lineTax: line.lineTax,
+            lineTotal: line.lineTotal,
+            sortOrder: line.sortOrder,
+          }))
+        )
+      }
+
+      await writeAudit(tx, ctx, {
+        action: "quotation.revision_created",
+        entityType: "quotation",
+        entityId: created.id,
+        before: {
+          sourceQuotationId: source.id,
+          sourceQuoteNumber: source.quoteNumber,
+          sourceStatus: source.status,
+        },
+        after: {
+          revisionOfId: source.id,
+          quoteNumber: created.quoteNumber,
+          version,
+          status: "draft",
+        },
+      })
+
+      return created
+    })
+    revalidatePath("/quotations")
+    revalidatePath(`/quotations/${sourceQuotationId}`)
+    if (sourceFunnelId) revalidatePath(`/funnel/${sourceFunnelId}`)
+    return result
+  })
+}
+
 export async function submitQuotationForApproval(
   id: string
 ): Promise<ActionResult<void>> {

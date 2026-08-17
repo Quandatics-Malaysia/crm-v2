@@ -1,15 +1,21 @@
+import * as React from "react"
 import { readdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 import { extractText } from "@/app/documentation/extract-text"
+import { B, Code } from "@/app/documentation/doc-kit"
 import { financePage } from "@/app/documentation/content-finance"
 import {
   leadToCashPage,
   projectsPage,
 } from "@/app/documentation/content-sales"
 import { DOC_GROUPS } from "@/app/documentation/registry"
+import {
+  findForbiddenStaleClaims,
+  normalizeDocumentation,
+} from "@/app/documentation/stale-claims"
 
 const paymentMilestoneDocumentation = [
   extractText(leadToCashPage.body),
@@ -29,10 +35,11 @@ const documentationSource = [
   .map((file) => readFileSync(file, "utf8"))
   .join("\n")
 
-const renderedDocumentation = DOC_GROUPS.flatMap((group) => group.pages)
+const renderedDocumentation = normalizeDocumentation(
+  DOC_GROUPS.flatMap((group) => group.pages)
   .map((page) => extractText(page.body))
   .join(" ")
-  .replace(/\s+/g, " ")
+)
 
 describe("payment milestone documentation", () => {
   it("describes the decoupled two-state lifecycle and its boundaries", () => {
@@ -54,26 +61,8 @@ describe("payment milestone documentation", () => {
   })
 
   it("does not render the legacy pending/paid or automatic-coupling claims", () => {
-    const forbiddenStaleClaims = [
-      /pending\s*(?:→|->)\s*invoiced\s*(?:→|->)\s*paid/i,
-      /milestones?\s*(?:→|->|to)\s*paid/i,
-      /(?:all|fully)\s+milestones?\s+paid/i,
-      /one-click\s+(?:draft(?:s)?\s+the\s+)?invoice/i,
-      /one\s+live\s+invoice\s+per\s+milestone/i,
-      /live\s+invoice/i,
-      /auto[- ]complete(?:s|d)?\s+(?:the\s+)?project/i,
-      /auto_complete_project_on_paid/i,
-      /payment_milestone_status\s*\([^)]*\b(?:pending|paid)\b/i,
-      /finance_docs_live_milestone_uq/i,
-    ]
-
-    for (const claim of forbiddenStaleClaims) {
-      expect(documentationSource).not.toMatch(claim)
-    }
-
-    expect(renderedDocumentation).not.toContain("pending → invoiced → paid")
-    expect(renderedDocumentation).not.toContain("milestone → paid")
-    expect(renderedDocumentation).not.toContain("auto-complete the project")
+    expect(findForbiddenStaleClaims(documentationSource)).toEqual([])
+    expect(findForbiddenStaleClaims(renderedDocumentation)).toEqual([])
   })
 
   it("covers Overview, Reference, schema, and every registered documentation page", () => {
@@ -84,5 +73,43 @@ describe("payment milestone documentation", () => {
       "payment_milestone_status (won | invoiced)"
     )
     expect(documentationSource).toContain("no live linkage")
+    expect(documentationSource).toContain(
+      'FUNNELS |o--o{ PAYMENT_MILESTONES : "optional funnel owner"'
+    )
+    expect(documentationSource).toContain(
+      'PROJECTS |o--o{ PAYMENT_MILESTONES : "optional project owner"'
+    )
+  })
+
+  it("rejects JSX-split positive coupling claims after rendering text", () => {
+    const splitClaim = normalizeDocumentation(
+      extractText([
+        "A ",
+        React.createElement(B, null, "one live"),
+        " ",
+        React.createElement(Code, null, "invoice"),
+        " per milestone.",
+      ])
+    )
+
+    expect(splitClaim).toContain("one live invoice per milestone")
+    expect(findForbiddenStaleClaims(splitClaim)).toContain(
+      "one live invoice per milestone"
+    )
+  })
+
+  it("allows accurate negated coupling wording", () => {
+    const accurateNegations = [
+      "Payment Milestones do not create a one-click invoice.",
+      "There is no live invoice per milestone.",
+      "The project does not auto-complete the project.",
+      "A milestone → paid transition is not supported.",
+    ]
+
+    for (const wording of accurateNegations) {
+      expect(findForbiddenStaleClaims(normalizeDocumentation(wording))).toEqual(
+        []
+      )
+    }
   })
 })

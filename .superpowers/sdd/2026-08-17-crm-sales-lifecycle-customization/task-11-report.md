@@ -95,6 +95,34 @@
 - Lint: passed.
 - `git diff --check`: passed.
 
+## Fix round 3/5
+
+- Root cause: round 2 applied the stale-claim regexes only to raw source;
+  rendered JSX could join split phrases, and broad matches could reject
+  accurate negations such as “does not create” or “is not supported”.
+- Added `stale-claims.ts` with normalized rendered-text scanning, all stale
+  patterns applied to both source and rendered documentation, and bounded
+  sentence-context negation handling.
+- Updated the reference ERD with `FUNNELS |o--o{ PAYMENT_MILESTONES` and
+  `PROJECTS |o--o{ PAYMENT_MILESTONES`, accurately showing both nullable
+  ownership paths.
+- Added regressions for JSX-split positive coupling claims and accurate
+  negated wording.
+
+## Fix round 3 TDD evidence
+
+- RED: the new guard import failed before implementation; after the matcher
+  existed, the ERD assertions and overlapping stale-match expectation exposed
+  the remaining cases.
+- GREEN: focused documentation suite passed with 1 file and 5 tests.
+
+## Fix round 3 verification
+
+- Full web tests: 65 files passed, 9 skipped; 594 tests passed, 55 skipped.
+- Typecheck: passed.
+- Lint: passed.
+- `git diff --check`: passed.
+
 ## Commit
 
-Commit message: `feat: decouple payment milestones from invoicing`
+Commit message: `docs: harden milestone documentation guard`

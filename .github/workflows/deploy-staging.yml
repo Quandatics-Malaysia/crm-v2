@@ -71,12 +71,18 @@ jobs:
       - name: Rebuild and start the staging stack (+ public tunnel)
         run: |
           DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
-          docker compose \
+          compose=(docker compose \
             -p crm-staging \
             -f "$DIR/docker-compose.yaml" \
             -f "$DIR/docker-compose.staging-tunnel.yaml" \
-            --env-file "$DIR/.env.staging" \
-            up -d --build migrate web caddy tunnel
+            --env-file "$DIR/.env.staging")
+          if ! "${compose[@]}" up -d --build migrate web caddy tunnel; then
+            echo "Migration/startup failed. Container status:"
+            "${compose[@]}" ps -a
+            echo "Migration logs:"
+            "${compose[@]}" logs --no-color --tail=200 migrate
+            exit 1
+          fi
       # Phase 2: capture the random tunnel URL, point BETTER_AUTH_URL/APP_URL at
       # it, and recreate ONLY web so auth accepts requests through the tunnel.
       - name: Point auth at the tunnel URL and recreate web

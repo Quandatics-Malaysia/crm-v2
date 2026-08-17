@@ -37,7 +37,7 @@ import {
   deriveOriginRecognizedPercent,
   validatePartyShares,
 } from "@/lib/interco-share"
-import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
+import { requestStageAdvance } from "@/server/services/stage"
 import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   createOpportunityContainer,
@@ -983,40 +983,5 @@ export async function advanceStageAction(input: {
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${input.funnelId}`)
   return result
-  })
-}
-
-/**
- * Reopen a parked (KIV) or lost opportunity into a chosen OPEN stage, clearing
- * the close timestamp/date and resetting status. Same permission + record scope
- * as advancing; the terminal-state rules themselves are enforced in the service.
- */
-export async function reopenStageAction(input: {
-  funnelId: string
-  targetStageId: string
-  reason?: string
-}): Promise<ActionResult> {
-  return runAction(async () => {
-    const ctx = await requireContext()
-    assertCan(ctx, PERMISSIONS.STAGE_ADVANCE)
-    await runInTenant(ctx.tenantId, async (tx) => {
-      const visible = await visibleMemberIds(tx, ctx)
-      const [opp] = await tx
-        .select({ ownerMemberId: funnels.ownerMemberId })
-        .from(funnels)
-        .where(
-          and(
-            eq(funnels.id, input.funnelId),
-            isNull(funnels.deletedAt)
-          )
-        )
-        .limit(1)
-      if (!opp) throw new Error("Funnel not found")
-      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
-        throw new Error("FORBIDDEN: not permitted on this Funnel")
-    })
-    await reopenOpportunity(ctx, input)
-    revalidatePath("/funnel")
-    revalidatePath(`/funnel/${input.funnelId}`)
   })
 }

@@ -318,28 +318,56 @@ export function requiredKeysForStages<
   return out
 }
 
-/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
+/** Closed Won and Closed Lost are immutable terminal stages. */
 export function isTerminalKind(kind: string): boolean {
-  return kind !== "OPEN"
+  return kind === "WON" || kind === "LOST"
+}
+
+export type TransitionStage = {
+  id: string
+  kind: string
+  sortOrder: number
+}
+
+/**
+ * The single stage-transition policy shared by the server and client:
+ * - no-op moves are rejected;
+ * - Closed Won/Lost are immutable;
+ * - OPEN and PARKED stages may move to any other stage, including backward.
+ */
+export function canTransition(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  if (from.id === to.id) return false
+  return !isTerminalKind(from.kind)
+}
+
+/** A move that intentionally skips all stage-entry gates and approvals. */
+export function isRollbackTransition(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  return (
+    canTransition(from, to) &&
+    to.kind === "OPEN" &&
+    (from.kind === "PARKED" || to.sortOrder < from.sortOrder)
+  )
 }
 
 /**
  * Enforce the stage state machine for a single move:
  *  - the deal can't move to the stage it's already in,
- *  - a closed/parked (terminal) deal can't move at all without an explicit,
- *    separately-handled reopen,
- *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
- * OPEN → terminal (win / lose / park) is always allowed from an open stage.
+ *  - Closed Won/Lost deals can't move at all,
+ *  - OPEN and PARKED stages may move backward or forward.
  */
 export function assertTransitionAllowed(
-  from: { id: string; kind: string; sortOrder: number },
-  to: { id: string; kind: string; sortOrder: number }
+  from: TransitionStage,
+  to: TransitionStage
 ): void {
   if (from.id === to.id) throw new Error("This funnel is already in this stage")
   if (isTerminalKind(from.kind))
-    throw new Error("This funnel is closed. Reopen it before changing its stage.")
-  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
-    throw new Error("Stage moves must advance forward in the funnel")
+    throw new Error("This funnel is closed and cannot change its stage.")
 }
 
 /** Whether the actor may enter approval-gated stages without a request:

@@ -22,7 +22,6 @@ import {
   ensureOpportunityProjectCode,
 } from "@/server/services/opportunity-container"
 import {
-  reopenOpportunity,
   requestStageAdvance,
   shouldAllocateOpportunityProjectCode,
 } from "@/server/services/stage"
@@ -190,7 +189,7 @@ function stageTransactionFixture() {
       insertRows: [] as unknown[],
     }
     const selects = state.funnel.currentStageId === "stage-kiv"
-      ? [[state.funnel], [stages[2]], [stages[0]]]
+      ? [[state.funnel], [state.opportunity], stages, [{ customFunnelFields: [] }]]
       : [
           [state.funnel],
           [state.opportunity],
@@ -304,7 +303,7 @@ describe("Opportunity project-code timing", () => {
     expect(nextProjectCode).toHaveBeenCalledOnce()
   })
 
-  it("runs the production stage transaction through 4A, rolls back safely, and preserves one assignment on re-entry", async () => {
+  it("runs the production stage transaction through 4A, rolls back safely, and preserves one assignment on KIV rollback and re-entry", async () => {
     const { state } = stageTransactionFixture()
     state.failStageHistoryOnce = true
 
@@ -329,12 +328,11 @@ describe("Opportunity project-code timing", () => {
     state.funnel.currentStageId = "stage-kiv"
     state.funnel.status = "on_hold"
     await expect(
-      reopenOpportunity(ctx, {
+      requestStageAdvance(ctx, {
         funnelId: "funnel-1",
         targetStageId: "stage-0e",
-        reason: "Re-open for a fresh qualification pass",
       })
-    ).resolves.toBeUndefined()
+    ).resolves.toEqual({ moved: true })
 
     await expect(
       requestStageAdvance(ctx, { funnelId: "funnel-1", targetStageId: "stage-4a" })

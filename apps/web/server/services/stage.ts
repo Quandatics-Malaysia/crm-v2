@@ -32,6 +32,7 @@ import {
   isPresetFieldKey,
   isTerminalKind,
   assertTransitionAllowed,
+  isRollbackTransition,
   canBypassApproval,
   entersMilestoneAutoCreateStage,
   entersMilestoneDeleteStage,
@@ -302,7 +303,7 @@ async function applyStageMove(
   ctx: ServerContext,
   opp: OppRow,
   toStage: StageRow,
-  source: "manual" | "approval" | "quote_accept" | "reopen",
+  source: "manual" | "approval" | "quote_accept",
   approvalRequestId?: string | null,
   reason?: string | null
 ): Promise<void> {
@@ -459,6 +460,7 @@ export async function requestStageAdvance(
 
     // Enforce the stage state machine before anything else.
     assertTransitionAllowed(from, target)
+    const rollback = isRollbackTransition(from, target)
 
     const [settings] = await tx
       .select()
@@ -524,13 +526,13 @@ export async function requestStageAdvance(
       stagesEnteredBy(allStages, from.id, target.id),
       { skipPpvvcForWonTransition: target.kind === "WON" }
     ).filter((k) => customKeys.has(k) || isPresetFieldKey(k))
-    const missing = missingFromKeys(requiredKeys, stageGate)
-    if (missing.length > 0) {
+    const missing = rollback ? [] : missingFromKeys(requiredKeys, stageGate)
+    if (!rollback && missing.length > 0) {
       throw new Error(
         `Add ${missing.map((m) => m.label).join(", ")} before moving to ${target.name}.`
       )
     }
-    if (requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
+    if (!rollback && requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
       throw new Error(
         `${closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
       )
@@ -546,7 +548,7 @@ export async function requestStageAdvance(
     }
 
     const gated =
-      target.requiresApprovalToEnter && !canBypassApproval(ctx)
+      !rollback && target.requiresApprovalToEnter && !canBypassApproval(ctx)
 
     if (!gated) {
       await applyStageMove(
@@ -631,63 +633,6 @@ export async function winOpportunity(
 
     await applyStageMove(tx, ctx, opp, won, "quote_accept")
     return { moved: true, pendingApproval: false }
-  })
-}
-
-/**
- * Explicitly reopen a closed deal: a PARKED (KIV) or LOST opportunity is moved
- * back to a chosen OPEN stage, which clears `closedAt`/`actualCloseDate` and
- * resets `status` to "open" (via applyStageMove). This is the only sanctioned
- * way out of a terminal state — `assertTransitionAllowed` otherwise freezes
- * closed deals forever. WON is intentionally NOT reopenable here because it has
- * downstream accepted quotes/projects/sales orders that depend on the win.
- * Permission (`stage.advance`) and record-scope are enforced by the caller.
- */
-export async function reopenOpportunity(
-  ctx: ServerContext,
-  input: { funnelId: string; targetStageId: string; reason?: string }
-): Promise<void> {
-  return runInTenant(ctx.tenantId, async (tx) => {
-    const [opp] = await tx
-      .select()
-      .from(funnels)
-      .where(eq(funnels.id, input.funnelId))
-      .limit(1)
-      .for("update")
-    if (!opp) throw new Error("Funnel not found")
-    if (opp.status === "open") throw new Error("This funnel is already open")
-
-    const [from] = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, opp.currentStageId))
-      .limit(1)
-    if (!from) throw new Error("Current stage not found")
-    if (from.kind !== "PARKED" && from.kind !== "LOST")
-      throw new Error("Only parked or lost pipelines can be reopened")
-
-    const [target] = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, input.targetStageId))
-      .limit(1)
-    if (!target) throw new Error("Stage not found")
-    if (target.pipelineId !== opp.pipelineId)
-      throw new Error("Stage does not belong to this funnel")
-    if (target.kind !== "OPEN")
-      throw new Error("A reopened funnel must move to an open stage")
-
-    // The `reopen` source already marks this move as a reopen, so the reason is
-    // stored verbatim (no "Reopened:" prefix needed).
-    await applyStageMove(
-      tx,
-      ctx,
-      opp,
-      target,
-      "reopen",
-      null,
-      input.reason?.trim() || null
-    )
   })
 }
 

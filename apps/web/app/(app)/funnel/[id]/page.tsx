@@ -29,7 +29,6 @@ import { listFunnelMilestones } from "@/app/(app)/payment-milestones/actions"
 import { listFunnelApprovalHistory } from "@/app/(app)/approvals/actions"
 import { buildStageGate } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "../stage-advance-dialog"
-import { StageReopenDialog } from "../stage-reopen-dialog"
 import { isTerminalKind, selectableTargets } from "../stage-transitions"
 import { listDealCosts } from "../cost-actions"
 import { listContractYears } from "../contract-actions"
@@ -131,11 +130,9 @@ export default async function OpportunityDetailPage({
     customFunnelFields
   )
 
-  // Stage-action state: a closed (terminal) deal can't advance — only a parked
-  // or lost one can be reopened; an open deal with no legal forward target shows
-  // a disabled hint; a pending approval freezes the CTA until it's decided.
+  // Stage-action state: Closed Won/Lost are immutable; OPEN and KIV/PARKED
+  // stages use the same reversible transition dialog.
   const terminal = isTerminalKind(stage.kind)
-  const reopenable = stage.kind === "PARKED" || stage.kind === "LOST"
   const selectable = selectableTargets(
     detail.funnelStagesList.map((s) => ({
       id: s.id,
@@ -205,14 +202,7 @@ export default async function OpportunityDetailPage({
                 <ClockIcon />
                 Awaiting approval
               </Button>
-            ) : !canAdvance ? null : terminal ? (
-              reopenable ? (
-                <StageReopenDialog
-                  funnelId={opp.id}
-                  stages={detail.funnelStagesList}
-                />
-              ) : null
-            ) : selectable.length === 0 ? (
+            ) : !canAdvance ? null : terminal ? null : selectable.length === 0 ? (
               <Button variant="outline" disabled>
                 No further stages available
               </Button>

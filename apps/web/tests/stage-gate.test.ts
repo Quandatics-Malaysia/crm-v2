@@ -13,6 +13,7 @@ import {
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
 } from "@/lib/stage-gate"
+import { canTransition } from "@/app/(app)/funnel/stage-transitions"
 import { PERMISSIONS } from "@/lib/permissions"
 
 const stage = (id: string, kind: string, sortOrder: number) => ({
@@ -24,11 +25,13 @@ const stage = (id: string, kind: string, sortOrder: number) => ({
 describe("assertTransitionAllowed — stage state machine", () => {
   const open1 = stage("s1", "OPEN", 1)
   const open2 = stage("s2", "OPEN", 2)
+  const parked = stage("p", "PARKED", 99)
   const won = stage("w", "WON", 99)
   const lost = stage("l", "LOST", 98)
 
-  it("allows forward OPEN→OPEN and OPEN→terminal", () => {
+  it("allows forward and backward OPEN moves plus OPEN→terminal", () => {
     expect(() => assertTransitionAllowed(open1, open2)).not.toThrow()
+    expect(() => assertTransitionAllowed(open2, open1)).not.toThrow()
     expect(() => assertTransitionAllowed(open1, won)).not.toThrow()
     expect(() => assertTransitionAllowed(open1, lost)).not.toThrow()
   })
@@ -37,14 +40,20 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(() => assertTransitionAllowed(open1, open1)).toThrow(/already in this stage/)
   })
 
-  it("rejects any move out of a terminal stage (won, lost, parked)", () => {
+  it("allows reversible KIV moves but rejects immutable Won/Lost moves", () => {
     expect(() => assertTransitionAllowed(won, open2)).toThrow(/closed/)
     expect(() => assertTransitionAllowed(lost, open1)).toThrow(/closed/)
-    expect(() => assertTransitionAllowed(stage("p", "PARKED", 97), open2)).toThrow(/closed/)
+    expect(() => assertTransitionAllowed(parked, open2)).not.toThrow()
+    expect(() => assertTransitionAllowed(open2, parked)).not.toThrow()
   })
 
-  it("rejects backward OPEN→OPEN moves", () => {
-    expect(() => assertTransitionAllowed(open2, open1)).toThrow(/advance forward/)
+  it("uses the same rule for the client transition helper", () => {
+    expect(canTransition(open2, open1)).toBe(true)
+    expect(canTransition(parked, open1)).toBe(true)
+    expect(canTransition(open1, parked)).toBe(true)
+    expect(canTransition(won, open1)).toBe(false)
+    expect(canTransition(lost, open1)).toBe(false)
+    expect(canTransition(open1, open1)).toBe(false)
   })
 })
 
@@ -156,8 +165,20 @@ describe("stagesEnteredBy — a skip still collects intermediate requirements", 
     ])
   })
 
-  it("a terminal LOST/PARKED target enters only itself", () => {
+  it("a forward move into LOST/PARKED enters only the terminal target", () => {
     expect(stagesEnteredBy(ladder, "a", "lost").map((s) => s.id)).toEqual(["lost"])
+  })
+
+  it("a backward rollback enters no stages, so it bypasses entry requirements", () => {
+    expect(stagesEnteredBy(ladder, "c", "a")).toEqual([])
+    expect(requiredKeysForStages(stagesEnteredBy(ladder, "c", "a"))).toEqual([])
+  })
+
+  it("a forward move after rollback re-enters every stage and revalidates requirements", () => {
+    const rollback = stagesEnteredBy(ladder, "c", "a")
+    expect(rollback).toEqual([])
+    const forward = stagesEnteredBy(ladder, "a", "c")
+    expect(requiredKeysForStages(forward)).toEqual(["contact", "quote", "estimate"])
   })
 
   it("unknown stage ids yield no entered stages", () => {

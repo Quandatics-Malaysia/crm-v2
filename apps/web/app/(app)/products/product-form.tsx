@@ -27,7 +27,6 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Combobox } from "@/components/ui/combobox"
 import {
   Select,
   SelectContent,
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/select"
 import { createProduct, updateProduct, type ProductRow } from "./actions"
 import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
+import type { ProductCategory } from "@/app/(app)/settings/constants"
 
 const NONE = "__none__"
 
@@ -83,8 +83,8 @@ export function ProductForm({
   onSaved,
 }: {
   product?: ProductRow
-  /** Tenant product-code picklist (code + name). */
-  productCodes: { code: string; name: string }[]
+  /** Tenant product taxonomy (category + dependent subcategories). */
+  productCodes: ProductCategory[]
   /** Tenant currency picklist (Settings → General); first = default. */
   currencies?: string[]
   trigger?: React.ReactNode
@@ -99,6 +99,7 @@ export function ProductForm({
     resolver: zodResolver(schema),
     defaultValues: defaults(product, currencies),
   })
+  const selectedProductCode = form.watch("productCode")
 
   React.useEffect(() => {
     if (open) form.reset(defaults(product, currencies))
@@ -118,6 +119,22 @@ export function ProductForm({
     return items
   }, [productCodes, product?.productCode])
 
+  const subcategoryItems = React.useMemo(() => {
+    const category = productCodes.find((candidate) => candidate.code === selectedProductCode)
+    const items = [
+      { value: NONE, label: "None" },
+      ...(category?.subcategories ?? []).map((subcategory) => ({
+        value: subcategory.code,
+        label: `${subcategory.code} · ${subcategory.name}`,
+      })),
+    ]
+    const current = product?.subcategory
+    if (current && !items.some((item) => item.value === current)) {
+      items.push({ value: current, label: current })
+    }
+    return items
+  }, [productCodes, product?.subcategory, selectedProductCode])
+
   // Include the product's stored currency even if it's no longer in the
   // tenant picklist so a stale value stays selectable.
   const currencyItems = React.useMemo(() => {
@@ -133,7 +150,10 @@ export function ProductForm({
         values.productCode && values.productCode !== NONE
           ? values.productCode
           : null,
-      subcategory: values.subcategory || null,
+      subcategory:
+        values.subcategory && values.subcategory !== NONE
+          ? values.subcategory
+          : null,
       uom: values.uom || null,
       currency: values.currency.toUpperCase(),
       standardPrice: values.standardPrice || "0",
@@ -185,17 +205,28 @@ export function ProductForm({
                 name="productCode"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Product code</FormLabel>
-                    <FormControl>
-                      <Combobox
-                        value={field.value}
-                        onChange={(v) => field.onChange(v || NONE)}
-                        options={codeItems}
-                        placeholder="Select a product line"
-                        searchPlaceholder="Search codes…"
-                        emptyMessage="No product codes. Add them in Settings."
-                      />
-                    </FormControl>
+                    <FormLabel>Product category</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value || NONE)
+                        form.setValue("subcategory", NONE, { shouldDirty: true })
+                      }}
+                      items={codeItems}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a product category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {codeItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -206,9 +237,25 @@ export function ProductForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Subcategory</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Data Analytics" {...field} />
-                    </FormControl>
+                    <Select
+                      value={field.value || NONE}
+                      onValueChange={field.onChange}
+                      items={subcategoryItems}
+                      disabled={subcategoryItems.length === 1}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a subcategory" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {subcategoryItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -7,6 +7,10 @@ import * as schema from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { COMPILED_MODULE_MAP } from "@/lib/module-registry"
+import {
+  normalizeProductCategories,
+  normalizeProductSubcategoryCode,
+} from "@/app/(app)/settings/constants"
 
 /**
  * Idempotent sample-data seed for role-play / demos.
@@ -804,7 +808,43 @@ async function main() {
     // was WORKSHOP — a short instructor-led session is training
     { k: "workshop-ai", name: "Workshop - AI for Business", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "9000.00", description: "1-day executive AI workshop" },
   ]
+
+  const [taxonomySettings] = await db
+    .select({ productCodes: tenantSettings.productCodes })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, TENANT_ID))
+    .limit(1)
+  const taxonomy = normalizeProductCategories(
+    (taxonomySettings?.productCodes ?? []).map((category) => {
+      const names = new Map(
+        category.subcategories.map((subcategory) => [subcategory.name.toLowerCase(), subcategory])
+      )
+      for (const product of productValues.filter((value) => value.productCode === category.code)) {
+        const name = product.subcategory.trim()
+        const key = name.toLowerCase()
+        if (!names.has(key)) {
+          names.set(key, {
+            code: normalizeProductSubcategoryCode(name)
+              .replace(/[^A-Z0-9_-]+/g, "_")
+              .replace(/^_+|_+$/g, "")
+              .slice(0, 32) || "SUBCATEGORY",
+            name,
+          })
+        }
+      }
+      return { ...category, subcategories: [...names.values()] }
+    })
+  )
+  await db
+    .update(tenantSettings)
+    .set({ productCodes: taxonomy })
+    .where(eq(tenantSettings.organizationId, TENANT_ID))
+
   for (const p of productValues) {
+    const category = taxonomy.find((value) => value.code === p.productCode)
+    const subcategory = category?.subcategories.find(
+      (value) => value.name.toLowerCase() === p.subcategory.toLowerCase()
+    )
     await db
       .insert(products)
       .values({
@@ -812,7 +852,7 @@ async function main() {
         tenantId: TENANT_ID,
         name: p.name,
         productCode: p.productCode,
-        subcategory: p.subcategory,
+        subcategory: subcategory?.code ?? p.subcategory,
         uom: p.uom,
         currency: DEMO_CURRENCY,
         standardPrice: p.price,

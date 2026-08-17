@@ -100,15 +100,26 @@ export function validateProjectNatureCode(code: string): string | null {
 
 // ─── Product codes ───────────────────────────────────────────────────────────
 
-/**
- * A tenant-managed product code: a short stable CODE identifying a product line,
- * plus a human-readable display NAME. Standardised products reference one of
- * these; distinct from a project nature (which drives project codes).
- */
-export type ProductCode = { code: string; name: string }
+/** A tenant-managed product subcategory. */
+export type ProductSubcategory = { code: string; name: string }
+
+/** A tenant-managed product category with dependent subcategories. */
+export type ProductCategory = {
+  code: string
+  name: string
+  subcategories: ProductSubcategory[]
+}
+
+/** Compatibility name for callers that deal with the product taxonomy. */
+export type ProductCode = ProductCategory
 
 /** Max length for a product code. */
 export const PRODUCT_CODE_MAX = 16
+export const PRODUCT_SUBCATEGORY_CODE_MAX = 32
+
+export const QUOTE_DEFAULT_NOTES_MAX = 2000
+export const QUOTE_DEFAULT_DELIVERY_MAX = 500
+export const QUOTE_DEFAULT_PAYMENT_TERM_MAX = 120
 
 /** Trim + uppercase a product code for storage/comparison. */
 export function normalizeProductCode(raw: string): string {
@@ -129,4 +140,164 @@ export function validateProductCode(code: string): string | null {
     return "Code must be uppercase letters, digits, hyphen or underscore."
   }
   return null
+}
+
+export function normalizeProductSubcategoryCode(raw: string): string {
+  return (raw ?? "").trim().toUpperCase()
+}
+
+export function validateProductSubcategoryCode(code: string): string | null {
+  if (code.length === 0) return "Code is required."
+  if (code.length > PRODUCT_SUBCATEGORY_CODE_MAX) {
+    return `Code must be ${PRODUCT_SUBCATEGORY_CODE_MAX} characters or fewer.`
+  }
+  if (!/^[A-Z0-9_-]+$/.test(code)) {
+    return "Code must be uppercase letters, digits, hyphen or underscore."
+  }
+  return null
+}
+
+/** Normalize and validate the complete nested taxonomy sent by Settings. */
+export function normalizeProductCategories(
+  categories: ProductCategory[]
+): ProductCategory[] {
+  const cleaned: ProductCategory[] = []
+  const categoryCodes = new Set<string>()
+
+  for (const raw of categories ?? []) {
+    const code = normalizeProductCode(raw?.code ?? "")
+    const name = (raw?.name ?? "").trim()
+    const codeError = validateProductCode(code)
+    if (codeError) throw new Error(codeError)
+    if (!name) throw new Error(`Name is required for product category "${code}".`)
+    if (categoryCodes.has(code)) {
+      throw new Error(`Duplicate product category code "${code}".`)
+    }
+    categoryCodes.add(code)
+
+    const subcategories: ProductSubcategory[] = []
+    const subcategoryCodes = new Set<string>()
+    for (const rawSubcategory of raw?.subcategories ?? []) {
+      const subcategoryCode = normalizeProductSubcategoryCode(
+        rawSubcategory?.code ?? ""
+      )
+      const subcategoryName = (rawSubcategory?.name ?? "").trim()
+      const subcategoryError = validateProductSubcategoryCode(subcategoryCode)
+      if (subcategoryError) throw new Error(subcategoryError)
+      if (!subcategoryName) {
+        throw new Error(
+          `Name is required for subcategory "${subcategoryCode}".`
+        )
+      }
+      if (subcategoryCodes.has(subcategoryCode)) {
+        throw new Error(
+          `Duplicate subcategory code "${subcategoryCode}" in category "${code}".`
+        )
+      }
+      subcategoryCodes.add(subcategoryCode)
+      subcategories.push({ code: subcategoryCode, name: subcategoryName })
+    }
+
+    subcategories.sort((a, b) => a.code.localeCompare(b.code))
+    cleaned.push({ code, name, subcategories })
+  }
+
+  cleaned.sort((a, b) => a.code.localeCompare(b.code))
+  return cleaned
+}
+
+/** Validate the dependent category/subcategory pair stored on a Product. */
+export function validateProductTaxonomyPair(
+  categories: ProductCategory[],
+  productCode: string | null | undefined,
+  subcategory: string | null | undefined
+): { productCode: string | null; subcategory: string | null } {
+  const categoryCode = productCode ? normalizeProductCode(productCode) : null
+  const subcategoryCode = subcategory
+    ? normalizeProductSubcategoryCode(subcategory)
+    : null
+
+  if (!categoryCode && subcategoryCode) {
+    throw new Error("A subcategory requires a product category.")
+  }
+  if (!categoryCode) return { productCode: null, subcategory: null }
+
+  const category = categories.find((candidate) => candidate.code === categoryCode)
+  if (!category) {
+    throw new Error(`Product category "${categoryCode}" is not configured.`)
+  }
+  if (!subcategoryCode) return { productCode: category.code, subcategory: null }
+
+  const child = category.subcategories.find(
+    (candidate) => candidate.code === subcategoryCode
+  )
+  if (!child) {
+    throw new Error(
+      `Subcategory "${subcategoryCode}" does not belong to product category "${categoryCode}".`
+    )
+  }
+  return { productCode: category.code, subcategory: child.code }
+}
+
+export type ProductTaxonomyReference = {
+  productCode: string | null
+  subcategory: string | null
+}
+
+/** Block removal of category or subcategory values used by live Products. */
+export function assertTaxonomyRemovalsSafe(
+  previous: ProductCategory[],
+  next: ProductCategory[],
+  references: ProductTaxonomyReference[]
+): void {
+  const nextCategories = new Map(next.map((category) => [category.code, category]))
+  for (const reference of references) {
+    const categoryCode = reference.productCode
+      ? normalizeProductCode(reference.productCode)
+      : null
+    const subcategoryCode = reference.subcategory
+      ? normalizeProductSubcategoryCode(reference.subcategory)
+      : null
+    if (!categoryCode) continue
+
+    const category = nextCategories.get(categoryCode)
+    if (!category) {
+      throw new Error(`Product category "${categoryCode}" is in use.`)
+    }
+    if (
+      subcategoryCode &&
+      !category.subcategories.some((child) => child.code === subcategoryCode)
+    ) {
+      throw new Error(`Subcategory "${subcategoryCode}" is in use.`)
+    }
+  }
+
+  // Keep the previous argument in the contract so callers can make the
+  // removal check explicit, while the live references remain authoritative.
+  void previous
+}
+
+export type QuoteDefaults = {
+  notes: string
+  delivery: string
+  paymentTerm: string
+}
+
+export function normalizeQuoteDefaults(input: QuoteDefaults): QuoteDefaults {
+  const values: QuoteDefaults = {
+    notes: (input.notes ?? "").trim(),
+    delivery: (input.delivery ?? "").trim(),
+    paymentTerm: (input.paymentTerm ?? "").trim(),
+  }
+  const limits: Array<[keyof QuoteDefaults, number]> = [
+    ["notes", QUOTE_DEFAULT_NOTES_MAX],
+    ["delivery", QUOTE_DEFAULT_DELIVERY_MAX],
+    ["paymentTerm", QUOTE_DEFAULT_PAYMENT_TERM_MAX],
+  ]
+  for (const [field, max] of limits) {
+    if (values[field].length > max) {
+      throw new Error(`Quote default ${field} must be ${max} characters or fewer.`)
+    }
+  }
+  return values
 }

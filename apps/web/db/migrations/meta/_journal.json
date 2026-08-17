@@ -554,6 +554,13 @@
 			"when": 1786975202000,
 			"tag": "0078_opportunity_name_project_code",
 			"breakpoints": true
+		},
+		{
+			"idx": 79,
+			"version": "7",
+			"when": 1786975203000,
+			"tag": "0079_product_taxonomy_quote_defaults",
+			"breakpoints": true
 		}
 	]
 }

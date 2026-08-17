@@ -30,6 +30,7 @@ import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import type { ProductCategory } from "@/app/(app)/settings/constants"
 import {
   updateProduct,
   type ProductInput,
@@ -58,7 +59,7 @@ export function ProductDetailBody({
   usage: ProductUsageRow[]
   deals: ProductDealRow[]
   /** Product-line picker options for the inline category combobox. */
-  productCodes: { code: string; name: string }[]
+  productCodes: ProductCategory[]
   /** Gates every inline editor (PRODUCT_UPDATE, resolved server-side). */
   canEdit: boolean
 }) {
@@ -72,6 +73,21 @@ export function ProductDetailBody({
   const codeOptions = React.useMemo(
     () => productCodes.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` })),
     [productCodes]
+  )
+  const subcategoryOptions = React.useMemo(() => {
+    const category = productCodes.find((candidate) => candidate.code === product.productCode)
+    return (category?.subcategories ?? []).map((subcategory) => ({
+      value: subcategory.code,
+      label: `${subcategory.code} · ${subcategory.name}`,
+    }))
+  }, [product.productCode, productCodes])
+  const subcategoryName = React.useMemo(
+    () =>
+      productCodes
+        .find((category) => category.code === product.productCode)
+        ?.subcategories.find((subcategory) => subcategory.code === product.subcategory)
+        ?.name ?? null,
+    [product.productCode, product.subcategory, productCodes]
   )
 
   const dealColumns = React.useMemo<ColumnDef<ProductDealRow>[]>(
@@ -239,7 +255,9 @@ export function ProductDetailBody({
                     )
                   }
                   options={codeOptions}
-                  onSave={(next) => saveField({ productCode: next || null })}
+                  onSave={(next) =>
+                    saveField({ productCode: next || null, subcategory: null })
+                  }
                   searchPlaceholder="Search product lines…"
                   emptyMessage="No product lines configured."
                   title="Click to change product line"
@@ -257,14 +275,37 @@ export function ProductDetailBody({
             </FieldRow>
             <FieldRow label="Subcategory">
               {canEdit ? (
-                <InlineValue
+                <InlineCombobox
                   value={product.subcategory ?? ""}
-                  display={product.subcategory || "—"}
-                  title="Click to edit subcategory"
+                  display={
+                    product.subcategory ? (
+                      <span>
+                        {product.subcategory}
+                        {subcategoryName ? (
+                          <span className="text-muted-foreground"> · {subcategoryName}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      "—"
+                    )
+                  }
+                  options={subcategoryOptions}
+                  searchPlaceholder="Search subcategories…"
+                  emptyMessage="No subcategories configured for this category."
+                  title="Click to change subcategory"
                   onSave={(next) => saveField({ subcategory: next || null })}
                 />
               ) : (
-                (product.subcategory ?? "—")
+                product.subcategory ? (
+                  <span>
+                    {product.subcategory}
+                    {subcategoryName ? (
+                      <span className="text-muted-foreground"> · {subcategoryName}</span>
+                    ) : null}
+                  </span>
+                ) : (
+                  "—"
+                )
               )}
             </FieldRow>
             <FieldRow label="Unit (UOM)">
@@ -364,10 +405,13 @@ export function ProductDetailBody({
               <FieldRow label="Currency">{product.currency}</FieldRow>
               <FieldRow label="Product subcategory">
                 {canEdit ? (
-                  <InlineValue
+                  <InlineCombobox
                     value={product.subcategory ?? ""}
                     display={product.subcategory || "—"}
-                    title="Click to edit subcategory"
+                    options={subcategoryOptions}
+                    searchPlaceholder="Search subcategories…"
+                    emptyMessage="No subcategories configured for this category."
+                    title="Click to change subcategory"
                     onSave={(next) => saveField({ subcategory: next || null })}
                   />
                 ) : (

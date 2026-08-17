@@ -19,6 +19,7 @@ import {
   DEFAULT_LEAD_SOURCES,
   DEFAULT_LOSS_REASONS,
 } from "@/lib/tenant-defaults"
+import type { ProductCategory } from "@/app/(app)/settings/constants"
 
 export type MemberOption = { memberId: string; name: string; email: string }
 export type Option = { id: string; name: string; currency?: string }
@@ -249,7 +250,7 @@ export async function listCustomFunnelFields(): Promise<
  * Tenant-managed product-code picklist (code + display name) for product lines.
  * Standardised products reference one of these. Read from tenant_settings.
  */
-export async function listProductCodes(): Promise<{ code: string; name: string }[]> {
+export async function listProductCodes(): Promise<ProductCategory[]> {
   const ctx = await requireContext()
   const [s] = await runInTenant(ctx.tenantId, (tx) =>
     tx

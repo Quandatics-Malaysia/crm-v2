@@ -11,6 +11,7 @@ on:
         options:
           - deploy
           - inspect
+          - prepare-backup
       release_tag:
         description: Signed strict SemVer release, for example v1.2.20
         required: true
@@ -69,7 +70,7 @@ jobs:
           printf '%s\n' 'BACKUP_PRODUCER_CANDIDATES_END'
 
       - name: Download verified source-free release bundle
-        if: inputs.operation == 'deploy'
+        if: inputs.operation != 'inspect'
         shell: bash
         run: |
           set -euo pipefail
@@ -113,6 +114,15 @@ jobs:
           install -m 0700 "$BUNDLE_DIR"/ops/*.sh "$CLIENT_DIR/ops/"
           install -m 0644 "$BUNDLE_DIR/compose.yaml" "$BUNDLE_DIR/Caddyfile" "$CLIENT_DIR/"
           install -m 0600 "$BUNDLE_DIR/release-manifest.json" "$CLIENT_DIR/release-manifest.json"
+
+      - name: Prepare signed backup evidence for deployed release
+        if: inputs.operation == 'prepare-backup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$CLIENT_DIR/ops/prepare-backup-evidence.sh" \
+            "$CLIENT_DIR/.env" \
+            "$CLIENT_DIR/backup/.backup-evidence.key"
 
       - name: Apply manifest and deploy signed digests
         if: inputs.operation == 'deploy'

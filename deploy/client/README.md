@@ -88,9 +88,21 @@ Health probes clear all common upper/lower-case proxy variables, pass `curl --di
 
 `BACKUP_IMAGE` and authenticated backup evidence remain mandatory while the dedicated backup producer is delivered separately. Do not bypass this gate.
 
-Provision the backup evidence verification public key as a regular root-owned `0600` file. Put its lowercase SHA-256 in `BACKUP_EVIDENCE_PUBLIC_KEY_SHA256`; this pins the key through protected configuration. Keep the signing private key outside the deployment bundle and available only to the verified backup producer.
+Provision the backup evidence verification public key as a regular deployment-user-owned `0600` file. Put its lowercase SHA-256 in `BACKUP_EVIDENCE_PUBLIC_KEY_SHA256`; this pins the key through protected configuration. Keep the signing private key outside the deployment bundle and available only to the verified backup producer.
 
-The producer must atomically write a root-owned `0600` ciphertext/archive, then this strict evidence payload, then an OpenSSL SHA-256 detached signature over the exact evidence bytes:
+The production workflow exposes three explicit operations: `inspect`,
+`prepare-backup`, and `deploy`. Before an upgrade, run `inspect`, then run
+`prepare-backup` for the intended signed release. The producer reads identity
+only from the protected current deployment record, creates a fresh database
+dump and uploaded-files archive, restores the dump into an isolated temporary
+database, copies the verified artifact into the protected host backup store,
+hashes it again, and atomically replaces the signed evidence. Its private key
+must be an owner-only `0600` file at
+`/home/internalops/quandatics-client/backup/.backup-evidence.key`. The
+deployment remains fail-closed if evidence is stale, malformed, unsigned, or
+does not describe either the current or target release.
+
+The producer must atomically write a deployment-user-owned `0600` ciphertext/archive, then this strict evidence payload, then an OpenSSL SHA-256 detached signature over the exact evidence bytes:
 
 ```text
 EVIDENCE_VERSION=1

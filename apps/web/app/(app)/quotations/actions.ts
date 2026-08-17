@@ -616,7 +616,7 @@ export async function updateQuotation(
       tx,
       ctx.tenantId,
       input.currency,
-      opp?.currency ?? existing.currency
+      existing.currency
     )
 
     const ratePercent = await resolveTaxRate(tx, input.taxSettingId)

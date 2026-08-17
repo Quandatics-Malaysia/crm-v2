@@ -178,3 +178,43 @@ Result: 2 files passed, 16 tests passed.
 
 - Production resolver tests cover submitted value equal to invalid inherited currency, different invalid explicit override, blank invalid inheritance, and valid inheritance.
 - Production lock seam tests cover fallback-induced lock rejection and valid unchanged locked currency.
+
+## Fix round 4/5
+
+### Finding addressed
+
+- Quotation edit now uses the stored quotation currency as the inheritance source when no currency override is submitted. A draft quote created in another configured currency is no longer reset to its Funnel currency by an unrelated edit.
+- Added an action-level regression through the production `updateQuotation` seam with distinct stored quotation and Funnel currencies.
+
+### Fix-round TDD
+
+RED command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/quotation-edit-currency.test.ts --reporter verbose
+```
+
+Result: 1 test failed as expected; the production edit persisted `MYR` from the Funnel while the existing draft quotation currency was `USD`.
+
+GREEN command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/quotation-edit-currency.test.ts --reporter verbose
+```
+
+Result: 1 test passed after changing only the quotation edit inheritance source.
+
+### Fix-round verification
+
+- Focused Task 3 + regression + migration tests: 3 files passed, 17 tests passed.
+- Full web suite: `50 passed`, `4 skipped`; `480 passed`, `37 skipped`.
+- Typecheck: `TypeScript: No errors found`.
+- Lint: passed cleanly.
+- Migration journal tests: 2 passed, 3 tests passed.
+- `rtk git diff --check`: passed.
+
+### Fix-round files
+
+- `app/(app)/quotations/actions.ts`: preserve the existing quotation currency on edit when the optional override is omitted.
+- `tests/quotation-edit-currency.test.ts`: production action regression for distinct quotation/Funnel currencies.
+- `task-3-report.md`: round 4 TDD and verification evidence.

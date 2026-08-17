@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
 import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
+import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
@@ -398,7 +399,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             {row.original.isPrimary ? (
               <Badge variant="outline">Primary</Badge>
             ) : null}
-            {canCreateQuote && row.original.status !== "draft" ? (
+            {canCreateQuote &&
+            canCreateQuotationRevision(row.original.status, row.original.deletedAt) ? (
               <Button
                 type="button"
                 variant="ghost"

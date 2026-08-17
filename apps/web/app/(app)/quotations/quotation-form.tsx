@@ -71,6 +71,7 @@ import {
   snapshotQuotationLineDescription,
 } from "@/lib/quotation-content"
 import { quotationActionsFor } from "@/lib/quotation-transitions"
+import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
 import {
   updateQuotation,
   createQuotationRevision,
@@ -190,7 +191,9 @@ export function QuotationForm({
   const showAcceptReject =
     isSent && hasQuotationAction("accept")
   const showCreateProject = isAccepted && !project && perms.canCreateProject
-  const showRevision = !isDraft && perms.canCreateRevision
+  const showRevision =
+    perms.canCreateRevision &&
+    canCreateQuotationRevision(quotation.status, quotation.deletedAt)
   const showSetPrimary =
     !quotation.isPrimary &&
     (quotation.status === "accepted" || quotation.status === "sent") &&

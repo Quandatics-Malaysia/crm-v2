@@ -24,6 +24,9 @@ describe("migration journal", () => {
     expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"revision_of_id"\s+uuid/i)
     expect(migration).toMatch(/REFERENCES\s+"quotations"\s*\("id"\)\s+ON DELETE SET NULL/i)
     expect(migration).toMatch(/CREATE INDEX IF NOT EXISTS\s+"quotations_revision_of_idx"/i)
+    expect(migration).toMatch(/ROW_NUMBER\(\) OVER\s*\(\s*PARTITION BY[\s\S]{0,80}"funnel_id"/i)
+    expect(migration).toMatch(/ORDER BY[\s\S]{0,40}"created_at"[\s\S]{0,40}"id"/i)
+    expect(migration).toMatch(/UPDATE\s+"quotations"/i)
     expect(migration).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS\s+"quotations_funnel_version_uq"/i)
   })
 

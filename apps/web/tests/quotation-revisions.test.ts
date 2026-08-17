@@ -149,6 +149,7 @@ describe("quotation revisions", () => {
   let currentTx: ReturnType<typeof txWithSelects>["tx"]
 
   it("clones the full snapshot into a Draft revision and audits the lineage", async () => {
+    const sourceBefore = { ...source }
     const created = { id: "quote-revision", quoteNumber: "Q10001-3" }
     const fixture = txWithSelects([
       [source],
@@ -174,6 +175,18 @@ describe("quotation revisions", () => {
         revisionOfId: "quote-source",
         status: "draft",
         isPrimary: false,
+        currency: "MYR",
+        projectNatureCode: "WEB",
+        taxSettingId: "tax-1",
+        taxRateSnapshot: "8.00",
+        taxInclusive: false,
+        subtotal: "100.00",
+        headerDiscount: "5.00",
+        discountTotal: "5.00",
+        taxTotal: "7.60",
+        total: "102.60",
+        quoteDate: "2026-08-18",
+        validUntil: "2026-09-18",
         attentionContactId: "contact-1",
         notes: "Approved notes",
         delivery: "30 days",
@@ -205,34 +218,79 @@ describe("quotation revisions", () => {
         after: expect.objectContaining({ revisionOfId: "quote-source", version: 3 }),
       })
     )
+    expect(source).toEqual(sourceBefore)
   })
 
-  it("rejects a live Draft but permits a soft-deleted Draft source", async () => {
+  function configureRevision(
+    overrides: Partial<typeof source> = {},
+    created = { id: "quote-revision", quoteNumber: "Q10001-3" }
+  ) {
+    const fixture = txWithSelects([
+      [{ ...source, attentionContactId: null, ...overrides }],
+      [{ ownerMemberId: "member-1" }],
+      [],
+      [{ accountId: null }],
+    ], [[created]])
+    currentTx = fixture.tx
+    mocks.withTenant.mockImplementation(async (_permission, work) => work(currentTx, ctx))
+    return fixture
+  }
+
+  it.each(["sent", "accepted", "rejected", "expired", "void"] as const)(
+    "allows a live %s source",
+    async (status) => {
+      const fixture = configureRevision({ status })
+
+      const result = await createQuotationRevision(source.id)
+
+      expect(result).toMatchObject({ ok: true, data: { id: "quote-revision" } })
+      expect(fixture.inserts[0]).toEqual(expect.objectContaining({ status: "draft", version: 3 }))
+    }
+  )
+
+  it.each(["pending_approval", "approved", "sent", "accepted", "rejected", "expired", "void"] as const)(
+    "allows soft-deleted non-Draft %s history",
+    async (status) => {
+      configureRevision({ status, deletedAt: new Date("2026-08-18T00:00:00Z") })
+
+      const result = await createQuotationRevision(source.id)
+
+      expect(result).toMatchObject({ ok: true, data: { id: "quote-revision" } })
+    }
+  )
+
+  it("rejects every Draft source, including soft-deleted Draft history", async () => {
     const fixture = txWithSelects([[{ ...source, status: "draft", deletedAt: null }]])
     currentTx = fixture.tx
     mocks.withTenant.mockImplementation(async (_permission, work) => work(currentTx, ctx))
 
     const rejected = await createQuotationRevision(source.id)
 
-    expect(rejected).toEqual({ ok: false, error: "Only non-draft quotations can be revised" })
+    expect(rejected).toEqual({ ok: false, error: "Only eligible non-draft quotations can be revised" })
     expect(mocks.nextQuoteNumber).not.toHaveBeenCalled()
 
     const deletedSource = { ...source, status: "draft", deletedAt: new Date("2026-08-17T00:00:00Z") }
-    const deletedFixture = txWithSelects([
-      [deletedSource],
-      [{ ownerMemberId: "member-1" }],
-      [],
-      [{ accountId: "account-1" }],
-      [{ accountType: "customer", endUserAccountId: null }],
-      [{ accountId: "account-1" }],
-    ], [[{ id: "quote-revision", quoteNumber: "Q10001-3", version: 3, status: "draft" }]])
+    const deletedFixture = txWithSelects([[deletedSource]])
     currentTx = deletedFixture.tx
-    mocks.nextQuoteNumber.mockResolvedValue({ quoteNumber: "Q10001-3", version: 3 })
 
-    const allowed = await createQuotationRevision(source.id)
+    const deletedResult = await createQuotationRevision(source.id)
 
-    expect(allowed).toMatchObject({ ok: true, data: { quoteNumber: "Q10001-3" } })
+    expect(deletedResult).toEqual({ ok: false, error: "Only eligible non-draft quotations can be revised" })
   })
+
+  it.each(["pending_approval", "approved"] as const)(
+    "rejects a live %s source",
+    async (status) => {
+      const fixture = txWithSelects([[{ ...source, status, deletedAt: null }]])
+      currentTx = fixture.tx
+      mocks.withTenant.mockImplementation(async (_permission, work) => work(currentTx, ctx))
+
+      const result = await createQuotationRevision(source.id)
+
+      expect(result).toEqual({ ok: false, error: "Only eligible non-draft quotations can be revised" })
+      expect(mocks.nextQuoteNumber).not.toHaveBeenCalled()
+    }
+  )
 
   it("rejects a source whose attention contact no longer belongs to the recipient account", async () => {
     const fixture = txWithSelects([
@@ -249,6 +307,34 @@ describe("quotation revisions", () => {
     const result = await createQuotationRevision(source.id)
 
     expect(result).toEqual({ ok: false, error: "Attention contact must belong to recipient account" })
+    expect(mocks.nextQuoteNumber).not.toHaveBeenCalled()
+  })
+
+  it("rejects a source outside the authenticated tenant before allocation", async () => {
+    const fixture = txWithSelects([[]])
+    currentTx = fixture.tx
+    mocks.withTenant.mockImplementation(async (_permission, work) =>
+      work(currentTx, { ...ctx, tenantId: "tenant-other" })
+    )
+
+    const result = await createQuotationRevision(source.id)
+
+    expect(result).toEqual({ ok: false, error: "Quotation not found" })
+    expect(mocks.nextQuoteNumber).not.toHaveBeenCalled()
+  })
+
+  it("rejects a quotation the authenticated member cannot manage", async () => {
+    const fixture = txWithSelects([
+      [{ ...source, attentionContactId: null }],
+      [{ ownerMemberId: "member-owner" }],
+    ])
+    currentTx = fixture.tx
+    mocks.withTenant.mockImplementation(async (_permission, work) => work(currentTx, ctx))
+    mocks.ownsOrManages.mockReturnValue(false)
+
+    const result = await createQuotationRevision(source.id)
+
+    expect(result).toEqual({ ok: false, error: "FORBIDDEN: not permitted on this quotation" })
     expect(mocks.nextQuoteNumber).not.toHaveBeenCalled()
   })
 })

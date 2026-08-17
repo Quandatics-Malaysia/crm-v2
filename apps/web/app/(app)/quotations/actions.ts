@@ -56,6 +56,7 @@ import {
   assertApprovalRejectionReason,
   assertQuotationTransition,
 } from "@/lib/quotation-transitions"
+import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -987,8 +988,8 @@ export async function createQuotationRevision(
         .limit(1)
         .for("update")
       if (!source) throw new Error("Quotation not found")
-      if (source.status === "draft" && !source.deletedAt) {
-        throw new Error("Only non-draft quotations can be revised")
+      if (!canCreateQuotationRevision(source.status, source.deletedAt)) {
+        throw new Error("Only eligible non-draft quotations can be revised")
       }
       sourceFunnelId = source.funnelId
 

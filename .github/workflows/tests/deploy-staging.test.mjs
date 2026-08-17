@@ -8,6 +8,10 @@ const workflowPath = resolve(
 );
 const workflow = readFileSync(workflowPath, "utf8");
 
+assert.match(workflow, /Reconcile retained staging database password/);
+assert.match(workflow, /ALTER ROLE postgres PASSWORD/);
+assert.match(workflow, /\^\[0-9a-f\]\{48\}\$/);
+
 assert.match(workflow, /branches:\s*\[main\]/);
 assert.doesNotMatch(workflow, /branches:\s*\[staging\]/);
 assert.match(workflow, /git -C \"\$DIR\" fetch origin main \"\$\{GITHUB_SHA\}\"/);

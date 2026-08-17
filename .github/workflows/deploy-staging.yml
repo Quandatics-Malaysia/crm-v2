@@ -65,6 +65,22 @@ jobs:
           fi
           sed -i "s|^CADDY_HOST_PORT=.*|CADDY_HOST_PORT=8092|" "$DIR/.env.staging"
           node "$DIR/.github/workflows/scripts/provision-deployment-runtime.mjs" --mode staging --env-file "$DIR/.env.staging" --repo-root "$DIR"
+      - name: Reconcile retained staging database password
+        run: |
+          set -euo pipefail
+          DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
+          POSTGRES_PASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$DIR/.env.staging" | tail -1)"
+          if [[ ! "$POSTGRES_PASSWORD" =~ ^[0-9a-f]{48}$ ]]; then
+            echo "Invalid staging PostgreSQL password format" >&2
+            exit 1
+          fi
+          if docker ps --format '{{.Names}}' | grep -qx crm-staging-db-1; then
+            docker exec \
+              -u postgres \
+              -e TARGET_PASSWORD="$POSTGRES_PASSWORD" \
+              crm-staging-db-1 \
+              sh -ceu 'psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER ROLE postgres PASSWORD '\''$TARGET_PASSWORD'\'';" >/dev/null'
+          fi
       # Phase 1: bring the whole stack + tunnel up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
       # URL so Better Auth trusts the public origin (else login -> INVALID_ORIGIN).

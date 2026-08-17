@@ -533,6 +533,13 @@
 			"when": 1786882257000,
 			"tag": "0075_superadmin_deployment_seat_actor",
 			"breakpoints": true
+		},
+		{
+			"idx": 76,
+			"version": "7",
+			"when": 1786975200000,
+			"tag": "0076_saved_views",
+			"breakpoints": true
 		}
 	]
 }

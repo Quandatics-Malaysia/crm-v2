@@ -245,7 +245,12 @@ export function SalesOrdersTable({
         data={data}
         tableId="sales-orders"
         cap={1000}
-        facets={[{ columnId: "status", title: "Status" }]}
+        filters={[{
+          type: "enum",
+          columnId: "status",
+          title: "Status",
+          options: Array.from(new Set(data.map((row) => row.status).filter(Boolean))).map((value) => ({ value, label: value })),
+        }]}
         searchColumn="projectName"
         searchPlaceholder="Search by project…"
         emptyMessage="No sales orders yet."

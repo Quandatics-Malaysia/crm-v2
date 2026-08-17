@@ -269,10 +269,10 @@ export function AccountsTable({
       data={data}
       tableId="accounts"
       cap={1000}
-      facets={[
-        { columnId: "accountType", title: "Type" },
-        { columnId: "industry", title: "Industry" },
-        { columnId: "ownerName", title: "Owner" },
+      filters={[
+        { type: "enum", columnId: "accountType", title: "Type", options: Array.from(new Set(data.map((row) => row.accountType).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+        { type: "enum", columnId: "industry", title: "Industry", options: Array.from(new Set(data.map((row) => row.industry).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+        { type: "relation", columnId: "ownerName", title: "Owner", options: Array.from(new Set(data.map((row) => row.ownerName).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
       ]}
       searchColumn="name"
       searchPlaceholder="Search accounts…"

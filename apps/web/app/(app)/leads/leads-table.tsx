@@ -371,10 +371,10 @@ export function LeadsTable({
         data={data}
         tableId="leads"
         cap={1000}
-        facets={[
-          { columnId: "status", title: "Status" },
-          { columnId: "source", title: "Source" },
-          { columnId: "ownerName", title: "Owner" },
+        filters={[
+          { type: "enum", columnId: "status", title: "Status", options: Array.from(new Set(data.map((row) => row.status))).map((value) => ({ value, label: value })) },
+          { type: "enum", columnId: "source", title: "Source", options: Array.from(new Set(data.map((row) => row.source).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+          { type: "relation", columnId: "ownerName", title: "Owner", options: Array.from(new Set(data.map((row) => ownerNameById.get(row.ownerMemberId ?? "")).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
         ]}
         searchColumn="name"
         searchPlaceholder="Search leads…"

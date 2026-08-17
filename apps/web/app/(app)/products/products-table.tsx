@@ -258,9 +258,9 @@ export function ProductsTable({
       data={data}
       tableId="products"
       cap={1000}
-      facets={[
-        { columnId: "productCode", title: "Product code" },
-        { columnId: "isActive", title: "Status" },
+      filters={[
+        { type: "relation", columnId: "productCode", title: "Product code", options: productCodes.map((option) => ({ value: option.code, label: option.name })) },
+        { type: "boolean", columnId: "isActive", title: "Status" },
       ]}
       searchColumn="name"
       searchPlaceholder="Search products…"

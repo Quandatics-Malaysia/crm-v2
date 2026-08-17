@@ -3,14 +3,14 @@ import path from "node:path"
 import { describe, expect, it } from "vitest"
 
 describe("migration journal", () => {
-  it("includes the latest deployment seat actor migration", async () => {
+  it("includes the latest saved views migration", async () => {
     const journal = JSON.parse(
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 75,
-      tag: "0075_superadmin_deployment_seat_actor",
+      idx: 76,
+      tag: "0076_saved_views",
     })
   })
 

@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
 import { formatMoney } from "@/lib/format"
 import {
   type Column,
@@ -54,6 +55,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { EmptyState } from "@/components/empty-state"
+import { SavedViewMenu } from "@/components/saved-view-menu"
+import type { SavedViewPayload } from "@/app/(app)/_shared/saved-view-actions"
 import type { LucideIcon } from "lucide-react"
 import {
   DropdownMenu,
@@ -269,6 +272,14 @@ export function DataTable<TData, TValue>({
   )
   const [rowSelection, setRowSelection] = React.useState({})
 
+  const hasInitialUrlState =
+    initial.sorting.length > 0 ||
+    initial.columnFilters.length > 0 ||
+    initial.globalFilter.length > 0 ||
+    Object.keys(initial.columnVisibility).length > 0 ||
+    initial.pagination.pageIndex > 0 ||
+    initial.pagination.pageSize !== pageSize
+
   // Write state back to the URL whenever it changes, using history.replaceState
   // (NOT router.replace): a soft router navigation re-runs the server component,
   // which hands us a fresh `data` array whose new reference trips tanstack's
@@ -381,6 +392,80 @@ export function DataTable<TData, TValue>({
   const showSearch = !!searchColumn
   const hasActiveFilters = columnFilters.length > 0 || globalFilter.length > 0
 
+  const currentSavedPayload = React.useMemo<SavedViewPayload>(
+    () => ({
+      filters: {
+        ...(globalFilter ? { global: globalFilter } : {}),
+        columns: Object.fromEntries(columnFilters.map((filter) => [filter.id, filter.value])) as SavedViewPayload["filters"]["columns"],
+      },
+      sorting: sorting.map(({ id, desc }) => ({ id, desc })),
+      visibility: columnVisibility,
+      pageSize: pagination.pageSize,
+    }),
+    [columnFilters, columnVisibility, globalFilter, pagination.pageSize, sorting]
+  )
+
+  const applySavedView = React.useCallback(
+    (payload: SavedViewPayload) => {
+      const knownColumnIds = new Set(
+        columns.map(
+          (column) =>
+            (column as { id?: string; accessorKey?: string }).id ??
+            (column as { accessorKey?: string }).accessorKey
+        ).filter((id): id is string => !!id)
+      )
+      let stale = false
+      const nextSorting = payload.sorting.filter((sort) => {
+        const valid = knownColumnIds.has(sort.id)
+        stale ||= !valid
+        return valid
+      })
+      const nextVisibility = Object.fromEntries(
+        Object.entries(payload.visibility).filter(([id]) => {
+          const valid = knownColumnIds.has(id)
+          stale ||= !valid
+          return valid
+        })
+      )
+      const nextFilters: ColumnFiltersState = []
+      for (const [id, value] of Object.entries(payload.filters.columns)) {
+        if (!knownColumnIds.has(id)) {
+          stale = true
+          continue
+        }
+        const definition = (filters ?? []).find((filter) => filter.columnId === id)
+        const facet = (facets ?? []).find((candidate) => candidate.columnId === id)
+        if (definition) {
+          const validation = validateFilterValue(value)
+          if (!validation.success || validation.value.type !== definition.type) {
+            stale = true
+            continue
+          }
+          nextFilters.push({ id, value: validation.value })
+        } else if (facet && Array.isArray(value) && value.every((item) => typeof item === "string")) {
+          nextFilters.push({ id, value })
+        } else {
+          stale = true
+        }
+      }
+      setSorting(nextSorting)
+      setColumnFilters(nextFilters)
+      setGlobalFilter(payload.filters.global ?? "")
+      setColumnVisibility(nextVisibility)
+      setPagination({ pageIndex: 0, pageSize: payload.pageSize })
+      if (stale) toast.warning("Some saved view columns are no longer available.")
+    },
+    [columns, facets, filters]
+  )
+
+  const resetToBaseView = React.useCallback(() => {
+    setSorting([])
+    setColumnFilters([])
+    setGlobalFilter("")
+    setColumnVisibility({})
+    setPagination({ pageIndex: 0, pageSize })
+  }, [pageSize])
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -442,6 +527,15 @@ export function DataTable<TData, TValue>({
 
         <div className="ml-auto flex items-center gap-2">
           {toolbar}
+          {tableId ? (
+            <SavedViewMenu
+              listKey={tableId}
+              currentPayload={currentSavedPayload}
+              applyDefault={!hasInitialUrlState}
+              onApply={applySavedView}
+              onReset={resetToBaseView}
+            />
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -596,6 +690,15 @@ function filterOperators(
   return allowed?.length ? allowed : fallback
 }
 
+function defaultOperator<T extends string>(
+  configured: readonly T[] | undefined,
+  fallback: readonly T[],
+  current: string | undefined
+): T {
+  const options = filterOperators(configured, fallback)
+  return (current && options.includes(current as T) ? current : options[0]) as T
+}
+
 function OperatorSelect({
   value,
   options,
@@ -636,7 +739,7 @@ function TypedFilter<TData, TValue>({
   switch (definition.type) {
     case "text": {
       const typed = current?.type === "text" ? current : undefined
-      const operator = typed?.operator ?? "contains"
+      const operator = defaultOperator(definition.operators, ["contains", "equals", "starts-with"], typed?.operator)
       return (
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -683,7 +786,11 @@ function TypedFilter<TData, TValue>({
     case "number":
     case "money": {
       const typed = current?.type === definition.type ? current : undefined
-      const operator = typed?.operator ?? "equals"
+      const operator = defaultOperator(
+        definition.operators,
+        ["equals", "greater-than", "less-than", "between"],
+        typed?.operator
+      )
       const isBetween = operator === "between"
       const input = (field: "value" | "min" | "max", placeholder: string) => (
         <Input
@@ -747,7 +854,7 @@ function TypedFilter<TData, TValue>({
     }
     case "date": {
       const typed = current?.type === "date" ? current : undefined
-      const operator = typed?.operator ?? "on"
+      const operator = defaultOperator(definition.operators, ["on", "before", "after", "between"], typed?.operator)
       const isBetween = operator === "between"
       const dateInput = (field: "value" | "from" | "to", placeholder: string) => (
         <Input

@@ -295,9 +295,9 @@ export function PersonsTable({
           />
         ) : undefined
       }
-      facets={[
-        { columnId: "accountName", title: "Account" },
-        { columnId: "primary", title: "Primary" },
+      filters={[
+        { type: "relation", columnId: "accountName", title: "Account", options: Array.from(new Set(data.map((row) => row.accountName).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+        { type: "enum", columnId: "primary", title: "Primary", options: [{ value: "Primary", label: "Primary" }, { value: "Other", label: "Other" }] },
       ]}
       tableId="persons"
       cap={1000}

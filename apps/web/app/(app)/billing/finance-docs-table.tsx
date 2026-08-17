@@ -460,9 +460,9 @@ export function FinanceDocsTable({
         data={data}
         tableId={`finance-${direction}`}
         cap={1000}
-        facets={[
-          { columnId: "kind", title: "Type" },
-          { columnId: "status", title: "Status" },
+        filters={[
+          { type: "enum", columnId: "kind", title: "Type", options: Array.from(new Set(data.map((row) => row.kind).filter(Boolean))).map((value) => ({ value, label: value })) },
+          { type: "enum", columnId: "status", title: "Status", options: Array.from(new Set(data.map((row) => row.status).filter(Boolean))).map((value) => ({ value, label: value })) },
         ]}
         searchColumn="number"
         searchPlaceholder="Search by number…"

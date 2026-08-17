@@ -479,9 +479,9 @@ export function IntercompanyTable({
         data={data}
         tableId="intercompany-inbound"
         cap={1000}
-        facets={[
-          { columnId: "status", title: "Status" },
-          { columnId: "response", title: "Response" },
+        filters={[
+          { type: "enum", columnId: "status", title: "Status", options: Array.from(new Set(data.map((row) => row.status).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+          { type: "enum", columnId: "response", title: "Response", options: Array.from(new Set(data.map((row) => row.response).filter((value): value is NonNullable<typeof value> => Boolean(value)))).map((value) => ({ value, label: value })) },
         ]}
         searchColumn="name"
         searchPlaceholder="Search deals…"

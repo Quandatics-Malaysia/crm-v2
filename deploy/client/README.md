@@ -99,6 +99,9 @@ database, copies the verified artifact into the protected host backup store,
 hashes it again, and atomically replaces the signed evidence. Its private key
 must be an owner-only `0600` file at
 `/home/internalops/quandatics-client/backup/.backup-evidence.key`. The
+protected `/var/lib/quandatics-client/backup` directory must be owned by the
+deployment user with mode `0700`; the workflow reconciles this exact directory
+with non-interactive `sudo` when upgrading an older installation. The
 deployment remains fail-closed if evidence is stale, malformed, unsigned, or
 does not describe either the current or target release.
 

@@ -36,13 +36,27 @@ export function selectableTargets<T extends TransitionStage>(
 
 type StagePathLabelStage = TransitionStage & { name: string }
 
+type StagePathAction = "Move back" | "Advance"
+
+export function stagePathAction(
+  from: StagePathLabelStage,
+  to: StagePathLabelStage
+): StagePathAction {
+  return isRollbackTransition(from, to) ? "Move back" : "Advance"
+}
+
 export function stagePathActionLabel(
   from: StagePathLabelStage,
   to: StagePathLabelStage
 ): string {
-  return `${isRollbackTransition(from, to) ? "Move back" : "Advance"} to ${to.name}`
+  return `${stagePathAction(from, to)} to ${to.name}`
 }
 
-export function stagePathInstruction(): string {
-  return "Click an earlier stage to Move back or a later stage to Advance."
+export function stagePathInstruction(
+  from: StagePathLabelStage,
+  targets: StagePathLabelStage[]
+): string {
+  const actions = new Set(targets.map((target) => stagePathAction(from, target)))
+  if (actions.size === 1) return `Click a stage to ${[...actions][0]}.`
+  return "Click a stage to Move back or Advance."
 }

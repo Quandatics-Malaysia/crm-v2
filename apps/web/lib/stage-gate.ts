@@ -284,6 +284,7 @@ export function stagesEnteredBy<
   const from = stages.find((s) => s.id === currentStageId)
   const to = stages.find((s) => s.id === targetStageId)
   if (!from || !to) return []
+  if (transitionDirection(from, to) === "rollback") return []
   if (to.kind === "LOST" || to.kind === "PARKED") return [to]
   return [...stages]
     .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -329,6 +330,8 @@ export type TransitionStage = {
   sortOrder: number
 }
 
+export type TransitionDirection = "forward" | "rollback"
+
 /**
  * The single stage-transition policy shared by the server and client:
  * - no-op moves are rejected;
@@ -343,18 +346,28 @@ export function canTransition(
   return !isTerminalKind(from.kind)
 }
 
+/**
+ * Classify a legal stage move using status semantics before ladder order:
+ * entering PARKED is a forward close/KIV move, while PARKED→OPEN is a
+ * reversible reopen. Terminal destinations are also forward even when their
+ * tenant-configured sort order is unusual.
+ */
+export function transitionDirection(
+  from: TransitionStage,
+  to: TransitionStage
+): TransitionDirection | null {
+  if (!canTransition(from, to)) return null
+  if (from.kind === "PARKED" && to.kind === "OPEN") return "rollback"
+  if (to.kind === "PARKED" || isTerminalKind(to.kind)) return "forward"
+  return to.sortOrder < from.sortOrder ? "rollback" : "forward"
+}
+
 /** A move that intentionally skips all stage-entry gates and approvals. */
 export function isRollbackTransition(
   from: TransitionStage,
   to: TransitionStage
 ): boolean {
-  if (!canTransition(from, to)) return false
-  // Won/Lost sort orders are not reliable across tenant-configured ladders.
-  // They are terminal destinations, so every allowed move into one is forward.
-  const targetOrder = isTerminalKind(to.kind)
-    ? Number.POSITIVE_INFINITY
-    : to.sortOrder
-  return targetOrder < from.sortOrder
+  return transitionDirection(from, to) === "rollback"
 }
 
 /**

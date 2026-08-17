@@ -862,7 +862,7 @@ export async function decideApproval(
       !transitionStillAllowed ||
       from.id === target.id ||
       target.pipelineId !== opp.pipelineId ||
-      (req.fromStageId != null && req.fromStageId !== from.id) ||
+      req.fromStageId !== from.id ||
       isRollbackTransition(from, target)
     if (staleTransition) {
       const closeNote =

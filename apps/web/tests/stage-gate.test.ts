@@ -11,6 +11,7 @@ import {
   entersMilestoneAutoCreateStage,
   entersMilestoneDeleteStage,
   isRollbackTransition,
+  transitionDirection,
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
 } from "@/lib/stage-gate"
@@ -61,7 +62,7 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(canTransition(open1, open1)).toBe(false)
   })
 
-  it("classifies rollback by ordered target, including odd terminal sort orders", () => {
+  it("classifies ordinary rollback by order but PARKED transitions by status", () => {
     expect(isRollbackTransition(open2, open1)).toBe(true)
     expect(isRollbackTransition(parked, open1)).toBe(true)
     expect(isRollbackTransition(open2, parked)).toBe(false)
@@ -69,15 +70,37 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(isRollbackTransition(parked, won)).toBe(false)
     expect(isRollbackTransition(open2, lost)).toBe(false)
     expect(isRollbackTransition(won, open1)).toBe(false)
+
+    const parkedBeforeLadder = stage("parked-before", "PARKED", -100)
+    const openAfterParked = stage("open-after", "OPEN", 100)
+    expect(transitionDirection(open2, parkedBeforeLadder)).toBe("forward")
+    expect(isRollbackTransition(open2, parkedBeforeLadder)).toBe(false)
+    expect(transitionDirection(parkedBeforeLadder, openAfterParked)).toBe("rollback")
+    expect(isRollbackTransition(parkedBeforeLadder, openAfterParked)).toBe(true)
+    expect(transitionDirection(parkedBeforeLadder, won)).toBe("forward")
   })
 
-  it("labels earlier StagePath targets as Move back and later targets as Advance", () => {
+  it("uses the same classifier for StagePath labels and hints", () => {
     expect(stagePathActionLabel({ ...open2, name: "Qualified" }, { ...open1, name: "Prospect" }))
       .toBe("Move back to Prospect")
     expect(stagePathActionLabel({ ...open1, name: "Prospect" }, { ...open2, name: "Qualified" }))
       .toBe("Advance to Qualified")
-    expect(stagePathInstruction()).toContain("Move back")
-    expect(stagePathInstruction()).toContain("Advance")
+
+    const parkedBeforeLadder = { ...stage("parked-before", "PARKED", -100), name: "KIV" }
+    const openAfterParked = { ...stage("open-after", "OPEN", 100), name: "Reopened" }
+    const lostBeforeLadder = { ...stage("lost-before", "LOST", -200), name: "Lost" }
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, parkedBeforeLadder))
+      .toBe("Advance to KIV")
+    expect(stagePathActionLabel(parkedBeforeLadder, openAfterParked))
+      .toBe("Move back to Reopened")
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, lostBeforeLadder))
+      .toBe("Advance to Lost")
+    expect(stagePathInstruction({ ...open2, name: "Qualified" }, [parkedBeforeLadder]))
+      .toBe("Click a stage to Advance.")
+    expect(stagePathInstruction(parkedBeforeLadder, [openAfterParked]))
+      .toBe("Click a stage to Move back.")
+    expect(stagePathInstruction({ ...open2, name: "Qualified" }, [{ ...open1, name: "Prospect" }, parkedBeforeLadder]))
+      .toBe("Click a stage to Move back or Advance.")
   })
 })
 
@@ -196,6 +219,12 @@ describe("stagesEnteredBy — a skip still collects intermediate requirements", 
   it("a backward rollback enters no stages, so it bypasses entry requirements", () => {
     expect(stagesEnteredBy(ladder, "c", "a")).toEqual([])
     expect(requiredKeysForStages(stagesEnteredBy(ladder, "c", "a"))).toEqual([])
+  })
+
+  it("leaving PARKED enters no stages even when its sort order is first", () => {
+    const parked = { id: "parked", kind: "PARKED", sortOrder: -1, requiredFields: ["closeDate"] }
+    const reopened = { id: "reopened", kind: "OPEN", sortOrder: 9, requiredFields: ["estimate"] }
+    expect(stagesEnteredBy([parked, reopened], parked.id, reopened.id)).toEqual([])
   })
 
   it("a forward move after rollback re-enters every stage and revalidates requirements", () => {

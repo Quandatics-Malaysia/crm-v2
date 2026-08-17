@@ -44,3 +44,24 @@ Commit message: `feat: allow safe funnel stage rollback`
 - Migration-focused tests: 2 files passed; 20 tests passed; 1 skipped. Migrator artifact test and runtime-artifact shell test passed.
 - `git diff --check`: passed.
 - `pnpm --filter web run db:migrate`: unable to connect to local PostgreSQL (`ECONNREFUSED`); no migration was applied.
+
+## Fix round 2/5 — normalize funnel transition direction
+
+- Approval requests with `fromStageId: null` are now obsolete/rejected before any current-source validation can be skipped.
+- Added a shared status-aware `TransitionDirection`: entering PARKED/KIV is forward even when its sort order is earlier, while PARKED→OPEN is a rollback/reopen even when OPEN sorts later. Terminal destinations remain forward.
+- Stage-entry requirements, server rollback gates, client dialog behavior, and StagePath labels/hints now consume the same direction policy; hints no longer claim that visual order determines “earlier/later” action.
+- Added transition matrix coverage, PARKED entry/exit requirement coverage, StagePath copy coverage, and null-source approval regression coverage.
+
+### Fix-round 2 TDD evidence
+
+- RED: 2 files failed; 4 tests failed under the round-1 policy, including the null-source approval regression, odd-sort PARKED direction, StagePath copy, and PARKED stage-entry regression.
+- GREEN: focused stage-gate/stage-approval tests passed; 2 files passed and 27 tests passed.
+
+### Fix-round 2 verification
+
+- Full web suite: 55 files passed; 506 tests passed; 45 skipped.
+- Typecheck: passed with no TypeScript errors.
+- Lint: passed.
+- Migration-focused tests: 2 files passed; 20 tests passed; 1 skipped.
+- Live migration command: unable to connect to local PostgreSQL (`ECONNREFUSED` at `CREATE SCHEMA IF NOT EXISTS "drizzle"`); no migration was applied.
+- `git diff --check`: passed.

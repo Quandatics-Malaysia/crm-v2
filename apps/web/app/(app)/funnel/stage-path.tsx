@@ -62,15 +62,14 @@ export function StagePath({
 }) {
   const [target, setTarget] = React.useState<string | null>(null)
 
-  const { steps, note } = React.useMemo(() => {
+  const { steps, note, hint } = React.useMemo(() => {
     const ladder = stages
       .filter((s) => s.kind === "OPEN" || s.kind === "WON")
       .sort((a, b) => a.sortOrder - b.sortOrder)
     const currentIdx = ladder.findIndex((s) => s.id === currentStageId)
     const current = stages.find((s) => s.id === currentStageId)
-    const selectableIds = new Set(
-      selectableTargets(stages, currentStageId).map((s) => s.id)
-    )
+    const selectable = selectableTargets(stages, currentStageId)
+    const selectableIds = new Set(selectable.map((s) => s.id))
     const steps: PathStep[] = ladder.map((s, i) => {
       const state =
         currentIdx >= 0 && i < currentIdx
@@ -98,7 +97,11 @@ export function StagePath({
     else if (current?.kind === "PARKED")
       note = { label: `KIV — ${current.name}`, tone: "parked" }
 
-    return { steps, note }
+    const hint = interactive && !note && current
+      ? stagePathInstruction(current, selectable)
+      : undefined
+
+    return { steps, note, hint }
   }, [stages, currentStageId, interactive])
 
   return (
@@ -106,7 +109,7 @@ export function StagePath({
       <StagePathView
         steps={steps}
         note={note}
-        hint={interactive && !note ? stagePathInstruction() : undefined}
+        hint={hint}
         onStepClick={interactive ? setTarget : undefined}
       />
       {interactive ? (

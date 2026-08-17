@@ -169,6 +169,7 @@ describe("stage approval lifecycle hardening", () => {
       funnelId: "funnel-1",
       requesterMemberId: "requester-1",
       approverMemberId: "approver-1",
+      fromStageId: early.id,
       targetStageId: later.id,
       reason: "Need approval",
       status: "pending",
@@ -202,6 +203,50 @@ describe("stage approval lifecycle hardening", () => {
     expect(updateCalls[0].values).toMatchObject({
       status: "rejected",
       decisionNote: expect.stringContaining("Estimated funnel amount"),
+    })
+  })
+
+  it("treats an approval with a missing source stage as obsolete", async () => {
+    const target = { ...later, requiredFields: [] }
+    const request = {
+      id: "request-null-source",
+      funnelId: "funnel-1",
+      requesterMemberId: "requester-1",
+      approverMemberId: "approver-1",
+      fromStageId: null,
+      targetStageId: target.id,
+      reason: "Need approval",
+      status: "pending",
+    }
+    const funnel = { ...baseFunnel, currentStageId: early.id }
+    const { tx, updateCalls } = makeTx(
+      [
+        [request],
+        [funnel],
+        [request],
+        [early],
+        [target],
+        [container],
+        [{ customFunnelFields: [] }],
+        [[early, target]],
+      ],
+      [[{ id: request.id }]]
+    )
+    runInTenant.mockImplementation(async (_tenantId: string, work: (tx: unknown) => Promise<unknown>) =>
+      work(tx)
+    )
+
+    await expect(
+      decideApproval(
+        { ...ctx, isSuperadmin: false, can: () => true } as ServerContext,
+        { requestId: request.id, decision: "approved" }
+      )
+    ).resolves.toMatchObject({ status: "obsolete" })
+
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0].values).toMatchObject({
+      status: "rejected",
+      decisionNote: expect.stringContaining("forward transition"),
     })
   })
 })

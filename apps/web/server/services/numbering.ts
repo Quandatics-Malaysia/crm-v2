@@ -91,7 +91,7 @@ export async function nextQuoteNumber(
   const [agg] = await tx
     .select({
       maxVersion: sql<number>`coalesce(max(${quotations.version}), 0)`,
-      minCreatedAt: sql<Date | null>`min(${quotations.createdAt})`,
+      minCreatedAt: sql<string | null>`min(${quotations.createdAt})`,
     })
     .from(quotations)
     .where(eq(quotations.funnelId, funnelId))

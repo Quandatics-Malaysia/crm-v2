@@ -22,6 +22,22 @@ describe("formatQuoteRef", () => {
     ).toBe("Q10001-1")
   })
 
+  it("accepts the PostgreSQL timestamp string returned by aggregate queries", () => {
+    expect(
+      formatQuoteRef({
+        running: 1,
+        rev: 2,
+        earliestQuoteDate: "2025-03-15T10:00:00.000Z",
+      })
+    ).toBe("Q25-0001-2")
+  })
+
+  it("rejects an invalid database timestamp", () => {
+    expect(() =>
+      formatQuoteRef({ running: 1, rev: 1, earliestQuoteDate: "not-a-date" })
+    ).toThrow("Invalid earliest quotation date")
+  })
+
   it("new format when there is no earlier quote (this call is the funnel's first)", () => {
     expect(
       formatQuoteRef({ running: 1, rev: 1, earliestQuoteDate: null })

@@ -45,15 +45,22 @@ export function formatQuoteRef({
    * The funnel's earliest quote's creation timestamp, or `null` when this
    * call is minting the funnel's first quote (no earlier quote exists yet).
    */
-  earliestQuoteDate: Date | null
+  earliestQuoteDate: Date | string | null
   /** Zero-pad width for the running number (tenant-configurable). */
   pad?: number
 }): string {
   const runningStr = String(Math.trunc(running)).padStart(pad, "0")
   const revStr = String(Math.trunc(rev))
+  const earliest = typeof earliestQuoteDate === "string"
+    ? new Date(earliestQuoteDate)
+    : earliestQuoteDate
 
-  if (earliestQuoteDate !== null && earliestQuoteDate.getTime() < QUOTE_FORMAT_CUTOFF.getTime()) {
-    const yy = earliestQuoteDate.toISOString().slice(2, 4)
+  if (earliest !== null && Number.isNaN(earliest.getTime())) {
+    throw new TypeError("Invalid earliest quotation date")
+  }
+
+  if (earliest !== null && earliest.getTime() < QUOTE_FORMAT_CUTOFF.getTime()) {
+    const yy = earliest.toISOString().slice(2, 4)
     return `Q${yy}-${runningStr}-${revStr}`
   }
   return `Q1${runningStr}-${revStr}`

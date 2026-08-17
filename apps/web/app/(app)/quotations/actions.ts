@@ -47,6 +47,10 @@ import {
   type QuotationTemplateSpec,
 } from "@/lib/quotation-template-registry"
 import { resolveQuotationPdfTemplate } from "@/lib/quotation-pdf-template"
+import {
+  assertAttentionContactBelongsToAccount,
+  resolveQuotationContent,
+} from "@/lib/quotation-content"
 
 export type QuotationRow = typeof quotations.$inferSelect
 export type QuotationLineRow = typeof quotationLineItems.$inferSelect
@@ -72,6 +76,9 @@ export type QuotationHeaderInput = {
   taxSettingId: string | null
   validUntil: string | null
   notes: string | null
+  delivery?: string | null
+  paymentTerm?: string | null
+  attentionContactId?: string | null
   headerDiscount?: string | null
   /** Tenant project-nature code (tenant_settings.product_types[].code), editable. */
   projectNatureCode?: string | null
@@ -222,27 +229,43 @@ export async function getQuotationDocument(
         }
       }
 
-      const [primary] = await tx
-        .select({
-          firstName: persons.firstName,
-          lastName: persons.lastName,
-          email: persons.email,
-          phone: persons.phone,
-        })
-        .from(persons)
-        .where(
-          and(
-            eq(persons.accountId, attentionAccountId),
-            eq(persons.isPrimary, true),
-            isNull(persons.deletedAt)
+      const [savedContact] = row.q.attentionContactId
+        ? await tx
+            .select({
+              accountId: persons.accountId,
+              firstName: persons.firstName,
+              lastName: persons.lastName,
+              email: persons.email,
+              phone: persons.phone,
+            })
+            .from(persons)
+            .where(
+              and(
+                eq(persons.id, row.q.attentionContactId),
+                eq(persons.tenantId, ctx.tenantId),
+                isNull(persons.deletedAt)
+              )
+            )
+            .limit(1)
+        : []
+      if (savedContact) {
+        let belongsToRecipient = true
+        try {
+          assertAttentionContactBelongsToAccount(
+            savedContact.accountId,
+            attentionAccountId
           )
-        )
-        .limit(1)
-      if (primary) {
-        contact = {
-          name: [primary.firstName, primary.lastName].filter(Boolean).join(" "),
-          email: primary.email,
-          phone: primary.phone,
+        } catch {
+          belongsToRecipient = false
+        }
+        if (belongsToRecipient) {
+          contact = {
+            name: [savedContact.firstName, savedContact.lastName]
+              .filter(Boolean)
+              .join(" "),
+            email: savedContact.email,
+            phone: savedContact.phone,
+          }
         }
       }
     }
@@ -376,12 +399,20 @@ export type TaxOption = {
   isDefault: boolean
 }
 
+export type QuotationContactOption = {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  isPrimary: boolean
+}
+
 /**
  * Tax settings + tenant tax-inclusive flag needed to render and live-preview a
  * quotation create form. Fetched on demand by the embeddable create dialog so
  * it can stand alone wherever it is triggered.
  */
-export async function getQuotationFormMeta(): Promise<{
+export async function getQuotationFormMeta(funnelId?: string | null): Promise<{
   taxOptions: TaxOption[]
   taxInclusive: boolean
   projectNatures: { code: string; name: string }[]
@@ -389,6 +420,13 @@ export async function getQuotationFormMeta(): Promise<{
   /** Prefill for "Valid until" (today + tenant quote_valid_days), or null. */
   defaultValidUntil: string | null
   currencies: string[]
+  contacts: QuotationContactOption[]
+  defaultAttentionContactId: string | null
+  quoteDefaults: {
+    notes: string | null
+    delivery: string | null
+    paymentTerm: string | null
+  }
 }> {
   return withTenant(PERMISSIONS.QUOTATION_VIEW, async (tx, ctx) => {
     const taxOptions = await tx
@@ -407,6 +445,9 @@ export async function getQuotationFormMeta(): Promise<{
         projectNatures: tenantSettings.projectNatures,
         quoteValidDays: tenantSettings.quoteValidDays,
         currencies: tenantSettings.currencies,
+        quoteDefaultNotes: tenantSettings.quoteDefaultNotes,
+        quoteDefaultDelivery: tenantSettings.quoteDefaultDelivery,
+        quoteDefaultPaymentTerm: tenantSettings.quoteDefaultPaymentTerm,
       })
       .from(tenantSettings)
       .where(eq(tenantSettings.organizationId, ctx.tenantId))
@@ -429,6 +470,70 @@ export async function getQuotationFormMeta(): Promise<{
       .from(products)
       .where(and(eq(products.isActive, true), isNull(products.deletedAt)))
       .orderBy(asc(products.name))
+    let contacts: QuotationContactOption[] = []
+    if (funnelId) {
+      const visible = await visibleMemberIds(tx, ctx)
+      const [funnel] = await tx
+        .select({ ownerMemberId: funnels.ownerMemberId, accountId: funnels.accountId })
+        .from(funnels)
+        .where(
+          and(
+            eq(funnels.id, funnelId),
+            eq(funnels.tenantId, ctx.tenantId),
+            isNull(funnels.deletedAt)
+          )
+        )
+        .limit(1)
+      if (!funnel || (!canManageAllRecords(ctx) && !ownsOrManages(visible, funnel.ownerMemberId))) {
+        throw new Error("Funnel not found")
+      }
+      let recipientAccountId = funnel.accountId
+      if (recipientAccountId) {
+        const [account] = await tx
+          .select({ accountType: accounts.accountType, endUserAccountId: accounts.endUserAccountId })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.id, recipientAccountId),
+              eq(accounts.tenantId, ctx.tenantId),
+              isNull(accounts.deletedAt)
+            )
+          )
+          .limit(1)
+        if (account?.accountType === "reseller" && account.endUserAccountId) {
+          recipientAccountId = account.endUserAccountId
+        }
+      }
+      if (recipientAccountId) {
+        contacts = await tx
+          .select({
+            id: persons.id,
+            firstName: persons.firstName,
+            lastName: persons.lastName,
+            email: persons.email,
+            phone: persons.phone,
+            isPrimary: persons.isPrimary,
+          })
+          .from(persons)
+          .where(
+            and(
+              eq(persons.tenantId, ctx.tenantId),
+              eq(persons.accountId, recipientAccountId),
+              isNull(persons.deletedAt)
+            )
+          )
+          .orderBy(desc(persons.isPrimary), asc(persons.firstName), asc(persons.lastName))
+          .then((rows) =>
+            rows.map((row) => ({
+              id: row.id,
+              name: [row.firstName, row.lastName].filter(Boolean).join(" "),
+              email: row.email,
+              phone: row.phone,
+              isPrimary: row.isPrimary,
+            }))
+          )
+      }
+    }
     return {
       taxOptions,
       taxInclusive,
@@ -436,6 +541,13 @@ export async function getQuotationFormMeta(): Promise<{
       products: productOptions,
       defaultValidUntil,
       currencies: settings?.currencies?.length ? settings.currencies : DEFAULT_CURRENCIES,
+      contacts,
+      defaultAttentionContactId: contacts.find((contact) => contact.isPrimary)?.id ?? null,
+      quoteDefaults: {
+        notes: settings?.quoteDefaultNotes ?? null,
+        delivery: settings?.quoteDefaultDelivery ?? null,
+        paymentTerm: settings?.quoteDefaultPaymentTerm ?? null,
+      },
     }
   })
 }
@@ -470,7 +582,10 @@ export async function createQuotation(input: {
   currency?: string | null
   taxSettingId: string | null
   validUntil: string | null
-  notes: string | null
+  notes?: string | null
+  delivery?: string | null
+  paymentTerm?: string | null
+  attentionContactId?: string | null
   headerDiscount?: string | null
   /** Optional override; defaults to the funnel's project nature when omitted. */
   projectNatureCode?: string | null
@@ -486,6 +601,7 @@ export async function createQuotation(input: {
         primaryQuotationId: funnels.primaryQuotationId,
         ownerMemberId: funnels.ownerMemberId,
         projectNatureCode: funnels.projectNatureCode,
+        accountId: funnels.accountId,
       })
       .from(funnels)
       .where(and(eq(funnels.id, input.funnelId), isNull(funnels.deletedAt)))
@@ -524,6 +640,74 @@ export async function createQuotation(input: {
       opp.currency,
     )
 
+    let recipientAccountId = opp.accountId
+    if (recipientAccountId) {
+      const [account] = await tx
+        .select({
+          accountType: accounts.accountType,
+          endUserAccountId: accounts.endUserAccountId,
+        })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.id, recipientAccountId),
+            eq(accounts.tenantId, ctx.tenantId),
+            isNull(accounts.deletedAt)
+          )
+        )
+        .limit(1)
+      if (account?.accountType === "reseller" && account.endUserAccountId) {
+        recipientAccountId = account.endUserAccountId
+      }
+    }
+
+    let attentionContactId: string | null = input.attentionContactId ?? null
+    if (input.attentionContactId === undefined && recipientAccountId) {
+      const [primary] = await tx
+        .select({ id: persons.id })
+        .from(persons)
+        .where(
+          and(
+            eq(persons.tenantId, ctx.tenantId),
+            eq(persons.accountId, recipientAccountId),
+            eq(persons.isPrimary, true),
+            isNull(persons.deletedAt)
+          )
+        )
+        .limit(1)
+      attentionContactId = primary?.id ?? null
+    }
+    if (attentionContactId) {
+      const [contact] = await tx
+        .select({ accountId: persons.accountId })
+        .from(persons)
+        .where(
+          and(
+            eq(persons.id, attentionContactId),
+            eq(persons.tenantId, ctx.tenantId),
+            isNull(persons.deletedAt)
+          )
+        )
+        .limit(1)
+      if (!contact) throw new Error("Attention contact not found")
+      assertAttentionContactBelongsToAccount(contact.accountId, recipientAccountId)
+    }
+
+    const [settings] = await tx
+      .select({
+        quoteDefaultNotes: tenantSettings.quoteDefaultNotes,
+        quoteDefaultDelivery: tenantSettings.quoteDefaultDelivery,
+        quoteDefaultPaymentTerm: tenantSettings.quoteDefaultPaymentTerm,
+      })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    const content = resolveQuotationContent(input, {
+      notes: settings?.quoteDefaultNotes ?? null,
+      delivery: settings?.quoteDefaultDelivery ?? null,
+      paymentTerm: settings?.quoteDefaultPaymentTerm ?? null,
+    })
+
     const { quoteNumber, version } = await nextQuoteNumber(tx, ctx, input.funnelId)
 
     const [created] = await tx
@@ -544,7 +728,10 @@ export async function createQuotation(input: {
         taxTotal: totals.taxTotal.toFixed(2),
         total: totals.total.toFixed(2),
         validUntil: input.validUntil || null,
-        notes: input.notes || null,
+        notes: content.notes,
+        delivery: content.delivery,
+        paymentTerm: content.paymentTerm,
+        attentionContactId,
       })
       .returning()
 
@@ -604,7 +791,11 @@ export async function updateQuotation(
     if (!existing) throw new Error("Quotation not found")
     const visible = await visibleMemberIds(tx, ctx)
     const [opp] = await tx
-      .select({ ownerMemberId: funnels.ownerMemberId, currency: funnels.currency })
+      .select({
+        ownerMemberId: funnels.ownerMemberId,
+        currency: funnels.currency,
+        accountId: funnels.accountId,
+      })
       .from(funnels)
       .where(eq(funnels.id, existing.funnelId))
       .limit(1)
@@ -639,6 +830,52 @@ export async function updateQuotation(
       taxInclusive,
     })
 
+    let attentionContactId = existing.attentionContactId
+    if (input.attentionContactId !== undefined) {
+      attentionContactId = input.attentionContactId
+      if (attentionContactId) {
+        const [contact] = await tx
+          .select({ accountId: persons.accountId })
+          .from(persons)
+          .where(
+            and(
+              eq(persons.id, attentionContactId),
+              eq(persons.tenantId, ctx.tenantId),
+              isNull(persons.deletedAt)
+            )
+          )
+          .limit(1)
+        if (!contact) throw new Error("Attention contact not found")
+
+        let recipientAccountId = opp?.accountId ?? null
+        if (recipientAccountId) {
+          const [account] = await tx
+            .select({
+              accountType: accounts.accountType,
+              endUserAccountId: accounts.endUserAccountId,
+            })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.id, recipientAccountId),
+                eq(accounts.tenantId, ctx.tenantId),
+                isNull(accounts.deletedAt)
+              )
+            )
+            .limit(1)
+          if (account?.accountType === "reseller" && account.endUserAccountId) {
+            recipientAccountId = account.endUserAccountId
+          }
+        }
+        assertAttentionContactBelongsToAccount(contact.accountId, recipientAccountId)
+      }
+    }
+    const content = resolveQuotationContent(input, {
+      notes: existing.notes,
+      delivery: existing.delivery,
+      paymentTerm: existing.paymentTerm,
+    })
+
     const [updated] = await tx
       .update(quotations)
       .set({
@@ -651,7 +888,10 @@ export async function updateQuotation(
         taxTotal: totals.taxTotal.toFixed(2),
         total: totals.total.toFixed(2),
         validUntil: input.validUntil || null,
-        notes: input.notes || null,
+        notes: content.notes,
+        delivery: content.delivery,
+        paymentTerm: content.paymentTerm,
+        attentionContactId,
         updatedAt: new Date(),
       })
       .where(eq(quotations.id, id))
@@ -682,6 +922,7 @@ export async function updateQuotation(
   })
   revalidatePath("/quotations")
   revalidatePath(`/quotations/${id}`)
+  revalidatePath(`/quotations/${id}/preview`)
   return row
   })
 }

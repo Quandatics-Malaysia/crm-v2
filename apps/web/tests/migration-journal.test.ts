@@ -4,15 +4,27 @@ import { describe, expect, it } from "vitest"
 import { resolveAccountCurrencyBackfill } from "@/server/services/tenant-currency"
 
 describe("migration journal", () => {
-  it("includes the latest product taxonomy migration", async () => {
+  it("includes the latest quotation content migration", async () => {
     const journal = JSON.parse(
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 79,
-      tag: "0079_product_taxonomy_quote_defaults",
+      idx: 80,
+      tag: "0080_quotation_content_fields",
     })
+  })
+
+  it("adds nullable quotation content fields without fabricating historical values", async () => {
+    const migration = await readFile(
+      path.resolve(process.cwd(), "db/migrations/0080_quotation_content_fields.sql"),
+      "utf8"
+    )
+
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"attention_contact_id"\s+uuid/i)
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"delivery"\s+text/i)
+    expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS\s+"payment_term"\s+text/i)
+    expect(migration).not.toMatch(/UPDATE\s+"quotations"\s+SET\s+"(delivery|payment_term|attention_contact_id)"\s*=/i)
   })
 
   it("uses configured default, first configured, then MYR for account backfill", () => {

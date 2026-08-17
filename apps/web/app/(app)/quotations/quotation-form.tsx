@@ -66,6 +66,7 @@ import {
   headerDiscountSchema,
 } from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
+import { snapshotQuotationLineDescription } from "@/lib/quotation-content"
 import {
   updateQuotation,
   sendQuotation,
@@ -73,6 +74,7 @@ import {
   rejectQuotation,
   setPrimaryQuotation,
   deleteQuotation,
+  type QuotationContactOption,
   type QuotationDetail,
 } from "./actions"
 
@@ -81,6 +83,9 @@ const schema = z.object({
   projectNatureCode: z.string(),
   validUntil: z.string(),
   notes: z.string(),
+  delivery: z.string(),
+  paymentTerm: z.string(),
+  attentionContactId: z.string(),
   headerDiscount: headerDiscountSchema,
   lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
 })
@@ -90,6 +95,7 @@ type FormValues = z.infer<typeof schema>
 const NO_TAX = "__none__"
 /** Sentinel for "no project nature" in the editable picker. */
 const NO_PROJECT_NATURE = "__none__"
+const NO_CONTACT = "__none__"
 
 type TaxOption = { id: string; name: string; ratePercent: string; isDefault: boolean }
 type ProjectNatureOption = { code: string; name: string }
@@ -118,6 +124,7 @@ export function QuotationForm({
   taxInclusive,
   projectNatures = [],
   products = [],
+  contacts = [],
   project = null,
   documents = [],
   perms = ALL_QUOTATION_PERMS,
@@ -129,6 +136,8 @@ export function QuotationForm({
   projectNatures?: ProjectNatureOption[]
   /** Active catalog products for the line-item picker. */
   products?: ProductOption[]
+  /** Recipient-account contacts available for the Attention snapshot. */
+  contacts?: QuotationContactOption[]
   /** The delivery project created from this quotation, if any. */
   project?: { id: string; projectCode: string } | null
   /** Files attached to this quotation (shown in the Documents tab). */
@@ -168,6 +177,9 @@ export function QuotationForm({
       projectNatureCode: quotation.projectNatureCode ?? NO_PROJECT_NATURE,
       validUntil: quotation.validUntil ?? "",
       notes: quotation.notes ?? "",
+      delivery: quotation.delivery ?? "",
+      paymentTerm: quotation.paymentTerm ?? "",
+      attentionContactId: quotation.attentionContactId ?? NO_CONTACT,
       headerDiscount: quotation.headerDiscount ?? "0",
       lines:
         lines.length > 0
@@ -212,9 +224,11 @@ export function QuotationForm({
       const p = products.find((x) => x.id === productId)
       if (!p) return
       form.setValue(`lines.${index}.productId`, p.id)
-      form.setValue(`lines.${index}.description`, p.description || p.name, {
-        shouldValidate: true,
-      })
+      form.setValue(
+        `lines.${index}.description`,
+        snapshotQuotationLineDescription({ productDescription: p.description, productName: p.name }),
+        { shouldValidate: true }
+      )
       form.setValue(`lines.${index}.unitPrice`, Number(p.standardPrice).toString(), {
         shouldValidate: true,
       })
@@ -321,6 +335,12 @@ export function QuotationForm({
           : values.projectNatureCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
+      delivery: values.delivery || null,
+      paymentTerm: values.paymentTerm || null,
+      attentionContactId:
+        values.attentionContactId === NO_CONTACT
+          ? null
+          : values.attentionContactId || null,
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
         productId: l.productId || null,
@@ -572,6 +592,42 @@ export function QuotationForm({
                 />
                 <FormField
                   control={form.control}
+                  name="attentionContactId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Attention</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => field.onChange(value ?? NO_CONTACT)}
+                        disabled={!canEditDraft}
+                        items={[
+                          { value: NO_CONTACT, label: "No contact" },
+                          ...contacts.map((contact) => ({
+                            value: contact.id,
+                            label: `${contact.name}${contact.isPrimary ? " (Primary)" : ""}`,
+                          })),
+                        ]}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select contact…" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={NO_CONTACT}>No contact</SelectItem>
+                          {contacts.map((contact) => (
+                            <SelectItem key={contact.id} value={contact.id}>
+                              {contact.name}{contact.isPrimary ? " (Primary)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="notes"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
@@ -583,6 +639,32 @@ export function QuotationForm({
                           placeholder="Optional notes for the customer…"
                           {...field}
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="delivery"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Delivery</FormLabel>
+                      <FormControl>
+                        <Input disabled={!canEditDraft} placeholder="e.g. 14 days" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="paymentTerm"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Payment term</FormLabel>
+                      <FormControl>
+                        <Input disabled={!canEditDraft} placeholder="e.g. 30 days" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

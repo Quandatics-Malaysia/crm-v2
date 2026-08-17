@@ -85,8 +85,8 @@ function CustomerAndMeta({ doc }: { doc: QuotationDocument }) {
     ["Ref. No", doc.quotation.quoteNumber],
     ["Date", documentDate(doc.quotation.quoteDate ?? doc.quotation.createdAt)],
     ["Currency", doc.quotation.currency],
-    ["Delivery", "—"],
-    ["Payment Term", "—"],
+    ["Delivery", doc.quotation.delivery ?? "—"],
+    ["Payment Term", doc.quotation.paymentTerm ?? "—"],
     ["Quote Validity", quoteValidityDays(doc)],
     ["Price", doc.quotation.currency],
   ]

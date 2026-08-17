@@ -561,6 +561,13 @@
 			"when": 1786975203000,
 			"tag": "0079_product_taxonomy_quote_defaults",
 			"breakpoints": true
+		},
+		{
+			"idx": 80,
+			"version": "7",
+			"when": 1786975204000,
+			"tag": "0080_quotation_content_fields",
+			"breakpoints": true
 		}
 	]
 }

@@ -17,6 +17,7 @@ import { sql } from "drizzle-orm"
 import { organization } from "./auth"
 import { funnels } from "./pipeline"
 import { products } from "./products"
+import { persons } from "./crm"
 import { timestamps, softDelete } from "./_helpers"
 
 export const quotationStatus = pgEnum("quotation_status", [
@@ -96,6 +97,13 @@ export const quotations = pgTable(
     quoteDate: date("quote_date"),
     validUntil: date("valid_until"),
     notes: text("notes"),
+    /** Attention contact snapshot, constrained to the recipient account in actions. */
+    attentionContactId: uuid("attention_contact_id").references(() => persons.id, {
+      onDelete: "set null",
+    }),
+    /** Editable delivery and payment-term snapshots copied from tenant settings. */
+    delivery: text("delivery"),
+    paymentTerm: text("payment_term"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     ...timestamps,

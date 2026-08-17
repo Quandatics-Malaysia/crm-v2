@@ -15,15 +15,13 @@ export default async function NewQuotationPage({
   // No create permission -> there's no affordance to land here; bounce back.
   if (!ctx.can(PERMISSIONS.QUOTATION_CREATE)) redirect("/quotations")
   const sp = await searchParams
-  const [funnels, meta] = await Promise.all([
-    listOpportunityOptions(),
-    getQuotationFormMeta(),
-  ])
+  const funnels = await listOpportunityOptions()
 
   // Prefill from the query when the funnel still exists.
   const defaultOpportunityId = funnels.some((o) => o.id === sp.funnelId)
     ? sp.funnelId
     : undefined
+  const meta = await getQuotationFormMeta(defaultOpportunityId)
 
   return (
     <>
@@ -41,6 +39,9 @@ export default async function NewQuotationPage({
           products={meta.products}
           currencies={meta.currencies}
           defaultValidUntil={meta.defaultValidUntil}
+          contacts={meta.contacts}
+          defaultAttentionContactId={meta.defaultAttentionContactId}
+          quoteDefaults={meta.quoteDefaults}
         />
       </PageBody>
     </>

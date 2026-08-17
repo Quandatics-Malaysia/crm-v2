@@ -1,9 +1,11 @@
+import { canonicalJson, type EntitlementLease } from "@crm/control-protocol"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { sql } from "drizzle-orm"
 import postgres, { type Sql } from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { Tx } from "@/db"
 import * as schema from "@/db/schema"
+import { PERMISSIONS } from "@/lib/permissions"
 import type { ServerContext } from "@/lib/server-context"
 import {
   recordPpvvcSyncChanges,
@@ -13,7 +15,6 @@ import {
 
 const actionHarness = vi.hoisted(() => ({
   authSession: vi.fn(),
-  assertWriteAllowed: vi.fn(async () => undefined),
 }))
 
 vi.mock("@/lib/auth", () => ({
@@ -24,14 +25,6 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({ get: () => undefined })),
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
-vi.mock("@/lib/write-access", () => {
-  class TestLicenseReadOnlyError extends Error {}
-  return {
-    LICENSE_READ_ONLY: "LICENSE_READ_ONLY",
-    LicenseReadOnlyError: TestLicenseReadOnlyError,
-    assertWriteAllowed: actionHarness.assertWriteAllowed,
-  }
-})
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
 const appUrl = process.env.TEST_DATABASE_URL
@@ -44,6 +37,7 @@ type Fixture = {
   otherTenantId: string
   userId: string
   memberId: string
+  roleId: string
   opportunityId: string
   otherOpportunityId: string
   liveFunnelId: string
@@ -60,6 +54,38 @@ const updated = {
 
 type QueryLike = {
   [key: string]: unknown
+}
+
+type DeploymentState = {
+  deployment_id: string | null
+  current_revision: string | number
+  canonical_envelope: string | null
+  canonical_payload: string | null
+  envelope_digest: string | null
+  key_id: string | null
+  signature: string | null
+  issued_at: Date | string | null
+  lease_expires_at: Date | string | null
+  contract_starts_at: Date | string | null
+  contract_ends_at: Date | string | null
+  grace_until: Date | string | null
+  subscription_status: string | null
+  seat_limit: number | null
+  module_ids: string[] | null
+  greatest_trusted_at: Date | string | null
+  accepted_at: Date | string | null
+}
+
+type GlobalDb = typeof globalThis & { __pgClient?: Sql }
+
+async function closeClient(client: Sql | undefined): Promise<void> {
+  if (!client) return
+  try {
+    await client.end({ timeout: 5 })
+  } catch {
+    // A previous suite may already have closed its client. Always clear the
+    // cache so the next suite creates a client from its own URL.
+  }
 }
 
 function firstLockBarrier(participants: number) {
@@ -138,21 +164,89 @@ integration("PPVVC PostgreSQL boundary", () => {
   let updateFunnelAction: typeof import("@/app/(app)/funnel/actions").updateOpportunity
   let updateOpportunityAction: typeof import("@/app/(app)/opportunities/actions").updateOpportunityContainer
   let previousDatabaseUrl: string | undefined
+  let actionClient: Sql | undefined
+  let previousDeploymentState: DeploymentState | undefined
   const tenants: string[] = []
 
   beforeAll(async () => {
     if (!adminUrl || !appUrl) {
       throw new Error("PPVVC PostgreSQL tests require TEST_DATABASE_ADMIN_URL and TEST_DATABASE_URL")
     }
+    const globalForDb = globalThis as GlobalDb
+    let previousGlobalClient = globalForDb.__pgClient
+    if (!previousGlobalClient) {
+      // Simulate a prior suite leaving an admin-role client in @/db's cache.
+      previousGlobalClient = postgres(adminUrl, { max: 1 })
+      globalForDb.__pgClient = previousGlobalClient
+    }
+    delete globalForDb.__pgClient
+    await closeClient(previousGlobalClient)
+
     admin = postgres(adminUrl, { max: 2 })
     appA = postgres(appUrl, { max: 2 })
     appB = postgres(appUrl, { max: 2 })
     previousDatabaseUrl = process.env.DATABASE_URL
     process.env.DATABASE_URL = appUrl
+    vi.resetModules()
+
+    ;[previousDeploymentState] = await admin<DeploymentState[]>`
+      select deployment_id, current_revision, canonical_envelope, canonical_payload,
+        envelope_digest, key_id, signature, issued_at, lease_expires_at,
+        contract_starts_at, contract_ends_at, grace_until, subscription_status,
+        seat_limit, module_ids, greatest_trusted_at, accepted_at
+      from deployment_control_state where singleton = 1
+    `
+    const now = Date.now()
+    const issuedAt = new Date(now - 60_000).toISOString()
+    const leaseExpiresAt = new Date(now + 24 * 60 * 60_000 - 60_000).toISOString()
+    const lease: EntitlementLease = {
+      schemaVersion: 2,
+      revision: 1,
+      keyId: "task5-test-key",
+      leaseId: "task5-ppvvc-lease",
+      clientId: "quandatics",
+      deploymentId: "task5-ppvvc-deployment",
+      issuedAt,
+      leaseExpiresAt,
+      contractStartsAt: new Date(now - 24 * 60 * 60_000).toISOString(),
+      contractEndsAt: new Date(now + 365 * 24 * 60 * 60_000).toISOString(),
+      graceUntil: new Date(Date.parse(leaseExpiresAt) + 7 * 24 * 60 * 60_000).toISOString(),
+      subscriptionStatus: "active",
+      planId: "professional",
+      maxActiveUsers: 100,
+      moduleIds: [],
+      addonIds: [],
+      configurationVersion: "task5-test",
+      releaseChannel: "stable",
+      minimumSupportedAppVersion: "0.0.0",
+    }
+    const envelope = { keyId: lease.keyId, payload: lease, signature: "task5-test-signature" }
+    await admin`
+      update deployment_control_state set
+        deployment_id = ${lease.deploymentId}, current_revision = ${lease.revision},
+        canonical_envelope = ${canonicalJson(envelope)}, canonical_payload = ${canonicalJson(lease)},
+        envelope_digest = ${"a".repeat(64)}, key_id = ${lease.keyId}, signature = ${envelope.signature},
+        issued_at = ${lease.issuedAt}, lease_expires_at = ${lease.leaseExpiresAt},
+        contract_starts_at = ${lease.contractStartsAt}, contract_ends_at = ${lease.contractEndsAt},
+        grace_until = ${lease.graceUntil}, subscription_status = ${lease.subscriptionStatus}::deployment_subscription_status,
+        seat_limit = ${lease.maxActiveUsers}, module_ids = ${"{}"}::text[],
+        greatest_trusted_at = ${new Date(now).toISOString()}, accepted_at = ${new Date(now).toISOString()}
+      where singleton = 1
+    `
+
     const funnelActions = await import("@/app/(app)/funnel/actions")
     const opportunityActions = await import("@/app/(app)/opportunities/actions")
     updateFunnelAction = funnelActions.updateOpportunity
     updateOpportunityAction = opportunityActions.updateOpportunityContainer
+
+    const cachedClient = globalForDb.__pgClient
+    if (!cachedClient) throw new Error("@/db did not initialize its cached client")
+    actionClient = cachedClient
+    const queryClient = cachedClient as unknown as {
+      unsafe<T extends readonly object[]>(query: string): Promise<T>
+    }
+    const [identity] = await queryClient.unsafe<Array<{ current_user: string }>>("select current_user")
+    expect(identity.current_user).toBe("crm_app")
   })
 
   afterAll(async () => {
@@ -161,13 +255,33 @@ integration("PPVVC PostgreSQL boundary", () => {
       await admin`delete from organization where id = ${tenantId}`
     }
     await admin`delete from "user" where id like ${`${prefix}%`}`
+    if (previousDeploymentState) {
+      await admin`
+        update deployment_control_state set
+          deployment_id = ${previousDeploymentState.deployment_id},
+          current_revision = ${previousDeploymentState.current_revision},
+          canonical_envelope = ${previousDeploymentState.canonical_envelope},
+          canonical_payload = ${previousDeploymentState.canonical_payload},
+          envelope_digest = ${previousDeploymentState.envelope_digest},
+          key_id = ${previousDeploymentState.key_id}, signature = ${previousDeploymentState.signature},
+          issued_at = ${previousDeploymentState.issued_at}, lease_expires_at = ${previousDeploymentState.lease_expires_at},
+          contract_starts_at = ${previousDeploymentState.contract_starts_at}, contract_ends_at = ${previousDeploymentState.contract_ends_at},
+          grace_until = ${previousDeploymentState.grace_until},
+          subscription_status = ${previousDeploymentState.subscription_status}::deployment_subscription_status,
+          seat_limit = ${previousDeploymentState.seat_limit}, module_ids = ${previousDeploymentState.module_ids},
+          greatest_trusted_at = ${previousDeploymentState.greatest_trusted_at}, accepted_at = ${previousDeploymentState.accepted_at}
+        where singleton = 1
+      `
+    }
+    const globalForDb = globalThis as GlobalDb
+    const cachedClient = globalForDb.__pgClient
+    delete globalForDb.__pgClient
+    await closeClient(cachedClient)
+    if (actionClient && actionClient !== cachedClient) await closeClient(actionClient)
     await Promise.all([admin.end(), appA.end(), appB.end()])
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
     else process.env.DATABASE_URL = previousDatabaseUrl
-    const actionClient = (globalThis as typeof globalThis & {
-      __pgClient?: { end: () => Promise<unknown> }
-    }).__pgClient
-    if (actionClient) await actionClient.end()
+    vi.resetModules()
   })
 
   async function scoped<T>(
@@ -201,6 +315,7 @@ integration("PPVVC PostgreSQL boundary", () => {
     const otherOpportunityId = crypto.randomUUID()
     const liveFunnelId = crypto.randomUUID()
     const deletedFunnelId = crypto.randomUUID()
+    const roleId = crypto.randomUUID()
     tenants.push(tenantId, otherTenantId)
 
     await admin`
@@ -208,19 +323,41 @@ integration("PPVVC PostgreSQL boundary", () => {
       values (${tenantId}, 'Task 5', ${tenantId}, now()), (${otherTenantId}, 'Task 5 Other', ${otherTenantId}, now())
     `
     await admin`
-      insert into "user" (id, name, email, email_verified, created_at, updated_at)
+      insert into "user" (id, name, email, email_verified, is_superadmin, is_vendor_support, created_at, updated_at)
       values
-        (${userId}, 'Task 5 Actor', ${`${userId}@example.com`}, true, now(), now()),
-        (${otherUserId}, 'Task 5 Other Actor', ${`${otherUserId}@example.com`}, true, now(), now())
-    `
-    await admin`
-      update "user" set is_superadmin = true where id = ${userId}
+        (${userId}, 'Task 5 Actor', ${`${userId}@example.com`}, true, false, false, now(), now()),
+        (${otherUserId}, 'Task 5 Other Actor', ${`${otherUserId}@example.com`}, true, false, false, now(), now())
     `
     await admin`
       insert into member (id, organization_id, user_id, role, created_at)
       values
         (${memberId}, ${tenantId}, ${userId}, 'member', now()),
         (${otherMemberId}, ${otherTenantId}, ${otherUserId}, 'member', now())
+    `
+    await admin`
+      insert into roles (id, tenant_id, name, description, is_system, default_tier_level, created_at, updated_at)
+      values (${roleId}::uuid, ${tenantId}, 'Task 5 PPVVC Rep', 'Task 5 least-privilege fixture role', false, 20, now(), now())
+    `
+    const permissions = await admin`
+      select id, key from permissions
+      where key = any(${[PERMISSIONS.OPPORTUNITY_VIEW, PERMISSIONS.OPPORTUNITY_UPDATE]})
+    `
+    expect(new Set(permissions.map((row) => row.key))).toEqual(
+      new Set([PERMISSIONS.OPPORTUNITY_VIEW, PERMISSIONS.OPPORTUNITY_UPDATE])
+    )
+    for (const permission of permissions) {
+      await admin`
+        insert into role_permissions (tenant_id, role_id, permission_id)
+        values (${tenantId}, ${roleId}::uuid, ${permission.id}::uuid)
+      `
+    }
+    await admin`
+      insert into membership_profiles (member_id, tenant_id, role_id, tier_level, status, created_at, updated_at)
+      values (${memberId}, ${tenantId}, ${roleId}::uuid, 20, 'active', now(), now())
+    `
+    await admin`
+      insert into member_roles (tenant_id, member_id, role_id, created_at, updated_at)
+      values (${tenantId}, ${memberId}, ${roleId}::uuid, now(), now())
     `
     await admin`
       insert into accounts (id, tenant_id, name, currency, created_at, updated_at)
@@ -266,6 +403,7 @@ integration("PPVVC PostgreSQL boundary", () => {
       otherTenantId,
       userId,
       memberId,
+      roleId,
       opportunityId,
       otherOpportunityId,
       liveFunnelId,
@@ -286,9 +424,20 @@ integration("PPVVC PostgreSQL boundary", () => {
       status: "active",
       tenantSuspended: false,
       subscriptionInactive: false,
-      permissions: new Set(),
-      can: () => true,
+      permissions: new Set<string>([PERMISSIONS.OPPORTUNITY_VIEW, PERMISSIONS.OPPORTUNITY_UPDATE]),
+      can: (key) => new Set<string>([PERMISSIONS.OPPORTUNITY_VIEW, PERMISSIONS.OPPORTUNITY_UPDATE]).has(key),
     }
+  }
+
+  function authenticate(f: Fixture) {
+    actionHarness.authSession.mockResolvedValue({
+      user: {
+        id: f.userId,
+        name: "Task 5 Actor",
+        email: `${f.userId}@example.com`,
+      },
+      session: { activeOrganizationId: f.tenantId },
+    })
   }
 
   it("enforces tenant/deleted predicates and writes meaningful source and child history", async () => {
@@ -454,14 +603,7 @@ integration("PPVVC PostgreSQL boundary", () => {
 
   it("persists sparse Funnel action PPVVC patch without clearing untouched fields", async () => {
     const f = await fixture()
-    actionHarness.authSession.mockResolvedValue({
-      user: {
-        id: f.userId,
-        name: "Task 5 Actor",
-        email: `${f.userId}@example.com`,
-      },
-      session: { activeOrganizationId: f.tenantId },
-    })
+    authenticate(f)
 
     const result = await updateFunnelAction(f.liveFunnelId, { pain: "  Funnel action pain  " })
 
@@ -486,14 +628,7 @@ integration("PPVVC PostgreSQL boundary", () => {
 
   it("persists sparse Opportunity action PPVVC patch without clearing untouched fields", async () => {
     const f = await fixture()
-    actionHarness.authSession.mockResolvedValue({
-      user: {
-        id: f.userId,
-        name: "Task 5 Actor",
-        email: `${f.userId}@example.com`,
-      },
-      session: { activeOrganizationId: f.tenantId },
-    })
+    authenticate(f)
 
     const result = await updateOpportunityAction(f.opportunityId, {
       value: "  Opportunity action value  ",
@@ -516,5 +651,26 @@ integration("PPVVC PostgreSQL boundary", () => {
       control: "Old control",
     })
     expect(child).toEqual(source)
+  })
+
+  it("rejects a normal tenant member that lacks the required update permission", async () => {
+    const f = await fixture()
+    authenticate(f)
+    await admin`
+      delete from role_permissions
+      where role_id = ${f.roleId}::uuid
+        and permission_id = (select id from permissions where key = ${PERMISSIONS.OPPORTUNITY_UPDATE})
+    `
+
+    const result = await updateOpportunityAction(f.opportunityId, { value: "must not persist" })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "You don't have permission to do this (Edit pipelines).",
+    })
+    const [source] = await admin`
+      select value from opportunities where id = ${f.opportunityId}::uuid
+    `
+    expect(source.value).toBe("Old value")
   })
 })

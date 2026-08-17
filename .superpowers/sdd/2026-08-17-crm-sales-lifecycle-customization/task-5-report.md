@@ -174,3 +174,35 @@ Commit SHA: reported in the final handoff.
 - `.superpowers/sdd/2026-08-17-crm-sales-lifecycle-customization/task-5-report.md`
 
 Commit: `test: verify PPVVC sparse persistence`
+
+## Fix round 5/5 — isolated PPVVC persistence fixture
+
+### Findings addressed
+
+- The production action import now starts only after any stale `@/db` global client is removed and closed, `DATABASE_URL` is set to `TEST_DATABASE_URL`, and the Vitest module cache is reset. The harness asserts the cached action client authenticates as `crm_app`.
+- Cleanup deletes the cached client before closing it, resets modules, restores `DATABASE_URL`, and restores the deployment entitlement row, so later suites cannot inherit an ended or wrong-role client.
+- The action tests now use the real write-access gate with a temporary active test entitlement, rather than mocking licensing authorization.
+- The actor is an explicit non-superadmin, non-support `member` with an active membership profile and a dedicated role granting only `opportunity.view` and `opportunity.update`. A regression also proves removal of `opportunity.update` rejects the action and leaves storage unchanged.
+- Existing persistence assertions continue through the production action, real tenant authorization, real `crm_app` RLS transactions, and admin verification reads.
+
+### TDD evidence
+
+- RED: an adversarial stale admin-role `__pgClient` was installed before the production action import; the new identity assertion requires `current_user = crm_app`.
+- GREEN: the harness now clears stale global state before import and passes the role/RLS authorization assertions when PostgreSQL integration variables are configured.
+- Local PostgreSQL execution is unavailable in this workspace because `TEST_DATABASE_ADMIN_URL` and `TEST_DATABASE_URL` are unset; the boundary file is therefore skipped locally, while typecheck validates the harness.
+
+### Verification
+
+- Focused PPVVC tests: 2 files passed; 9 tests passed; PostgreSQL boundary file skipped with 7 tests skipped.
+- Full web suite: 54 files passed; 6 skipped; 498 tests passed; 45 skipped.
+- Typecheck: passed with no TypeScript errors.
+- Lint: passed.
+- Migration checks: 2 files passed; 1 skipped; 20 tests passed; 1 skipped.
+- `git diff --check`: passed.
+
+### Fix-round files
+
+- `apps/web/tests/ppvvc-sync-db.test.ts`
+- `.superpowers/sdd/2026-08-17-crm-sales-lifecycle-customization/task-5-report.md`
+
+Commit: `test: isolate PPVVC persistence fixture`

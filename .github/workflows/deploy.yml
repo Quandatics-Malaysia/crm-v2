@@ -3,6 +3,14 @@ name: deploy-production
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Deploy a signed release or inspect protected release state
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - inspect
       release_tag:
         description: Signed strict SemVer release, for example v1.2.20
         required: true
@@ -26,7 +34,42 @@ jobs:
       CLIENT_DIR: /home/internalops/quandatics-client
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
+      - name: Inspect protected release state
+        if: inputs.operation == 'inspect'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f "$CLIENT_DIR/.env" ] || { echo "protected production env is missing" >&2; exit 1; }
+
+          read_env_path() {
+            local key=$1 value
+            value="$(awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; found=1 } END { if (!found) exit 1 }' "$CLIENT_DIR/.env")"
+            case "$value" in /*) ;; *) echo "$key is not an absolute path" >&2; exit 1 ;; esac
+            printf '%s\n' "$value"
+          }
+          read_release_tag() {
+            local label=$1 file=$2 value
+            [ -f "$file" ] || { printf '%s=missing\n' "$label"; return; }
+            value="$(awk -F= '$1 == "RELEASE_TAG" { print $2; found=1 } END { if (!found) exit 1 }' "$file")"
+            [[ "$value" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$label has an invalid release tag" >&2; exit 1; }
+            printf '%s=%s\n' "$label" "$value"
+          }
+
+          evidence_file="$(read_env_path BACKUP_EVIDENCE_FILE)"
+          record_file="$(read_env_path DEPLOYMENT_RECORD_FILE)"
+          printf 'TARGET_RELEASE_TAG=%s\n' "$RELEASE_TAG"
+          read_release_tag BACKUP_EVIDENCE_RELEASE_TAG "$evidence_file"
+          read_release_tag DEPLOYED_RELEASE_TAG "$record_file"
+          printf '%s\n' 'BACKUP_PRODUCER_CANDIDATES_BEGIN'
+          find "$CLIENT_DIR" /usr/local/bin /usr/local/sbin -maxdepth 3 -type f \
+            \( -iname '*backup*' -o -iname '*evidence*' \) -print 2>/dev/null | sort || true
+          systemctl list-unit-files --no-legend 2>/dev/null \
+            | awk 'tolower($1) ~ /(backup|evidence)/ { print $1 }' \
+            | sort -u || true
+          printf '%s\n' 'BACKUP_PRODUCER_CANDIDATES_END'
+
       - name: Download verified source-free release bundle
+        if: inputs.operation == 'deploy'
         shell: bash
         run: |
           set -euo pipefail
@@ -72,6 +115,7 @@ jobs:
           install -m 0600 "$BUNDLE_DIR/release-manifest.json" "$CLIENT_DIR/release-manifest.json"
 
       - name: Apply manifest and deploy signed digests
+        if: inputs.operation == 'deploy'
         shell: bash
         run: |
           set -euo pipefail

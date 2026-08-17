@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 import { extractText } from "@/app/documentation/extract-text"
@@ -6,12 +9,30 @@ import {
   leadToCashPage,
   projectsPage,
 } from "@/app/documentation/content-sales"
+import { DOC_GROUPS } from "@/app/documentation/registry"
 
 const paymentMilestoneDocumentation = [
   extractText(leadToCashPage.body),
   extractText(projectsPage.body),
   extractText(financePage.body),
 ].join(" ").replace(/\s+/g, " ")
+
+const documentationDirectory = fileURLToPath(
+  new URL("../app/documentation/", import.meta.url)
+)
+const documentationSource = [
+  ...readdirSync(documentationDirectory)
+    .filter((file) => /^content-.*\.tsx$/.test(file))
+    .map((file) => resolve(documentationDirectory, file)),
+  `${documentationDirectory}/schema-data.ts`,
+]
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n")
+
+const renderedDocumentation = DOC_GROUPS.flatMap((group) => group.pages)
+  .map((page) => extractText(page.body))
+  .join(" ")
+  .replace(/\s+/g, " ")
 
 describe("payment milestone documentation", () => {
   it("describes the decoupled two-state lifecycle and its boundaries", () => {
@@ -33,20 +54,35 @@ describe("payment milestone documentation", () => {
   })
 
   it("does not render the legacy pending/paid or automatic-coupling claims", () => {
-    expect(paymentMilestoneDocumentation).not.toContain(
-      "pending → invoiced → paid"
+    const forbiddenStaleClaims = [
+      /pending\s*(?:→|->)\s*invoiced\s*(?:→|->)\s*paid/i,
+      /milestones?\s*(?:→|->|to)\s*paid/i,
+      /(?:all|fully)\s+milestones?\s+paid/i,
+      /one-click\s+(?:draft(?:s)?\s+the\s+)?invoice/i,
+      /one\s+live\s+invoice\s+per\s+milestone/i,
+      /live\s+invoice/i,
+      /auto[- ]complete(?:s|d)?\s+(?:the\s+)?project/i,
+      /auto_complete_project_on_paid/i,
+      /payment_milestone_status\s*\([^)]*\b(?:pending|paid)\b/i,
+      /finance_docs_live_milestone_uq/i,
+    ]
+
+    for (const claim of forbiddenStaleClaims) {
+      expect(documentationSource).not.toMatch(claim)
+    }
+
+    expect(renderedDocumentation).not.toContain("pending → invoiced → paid")
+    expect(renderedDocumentation).not.toContain("milestone → paid")
+    expect(renderedDocumentation).not.toContain("auto-complete the project")
+  })
+
+  it("covers Overview, Reference, schema, and every registered documentation page", () => {
+    expect(renderedDocumentation).toContain(
+      "Payment Milestones are planning records with only two statuses"
     )
-    expect(paymentMilestoneDocumentation).not.toContain(
-      "milestone → paid"
+    expect(documentationSource).toContain(
+      "payment_milestone_status (won | invoiced)"
     )
-    expect(paymentMilestoneDocumentation).not.toContain(
-      "milestone to paid"
-    )
-    expect(paymentMilestoneDocumentation).not.toContain(
-      "back to pending"
-    )
-    expect(paymentMilestoneDocumentation).not.toContain(
-      "auto-complete the project"
-    )
+    expect(documentationSource).toContain("no live linkage")
   })
 })

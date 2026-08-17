@@ -10,8 +10,8 @@
   create-dialog milestone selector, milestone Finance tab, and milestone-driven
   Project completion. Existing Finance document links remain read-only.
 - Retained deprecated nullable invoice snapshot columns and the historical
-  finance foreign key for read compatibility; new finance documents leave the
-  link null.
+  finance foreign key for read compatibility; they are not live invoice
+  linkage, and new finance documents leave the link null.
 - Added idempotent migration `0083_payment_milestone_decoupling.sql`, mapping
   pending → won and invoiced/paid → invoiced while preserving historical
   invoice columns/FKs.
@@ -60,6 +60,38 @@
 
 - Full web tests: 65 files passed, 9 skipped; 591 tests passed, 55 skipped.
 - Typecheck: passed.
+- Lint: passed.
+- `git diff --check`: passed.
+
+## Fix round 2/5
+
+- Root cause: round 1 covered only Finance and Sales prose. Overview's Mermaid
+  map, Reference settings/ERD/changelog, and generated schema data still
+  exposed one-click invoicing, paid/auto-complete behavior, live invoice
+  linkage, and the legacy pending status.
+- Updated `content-overview.tsx` to show Funnel milestone planning with no
+  Finance edge.
+- Updated `content-reference.tsx` to remove the auto-complete setting, live
+  invoice ERD edge, milestone reconciliation claim, one-click billing history,
+  auto-complete history, and milestone/project Finance side effects.
+- Updated `schema-data.ts` to show `won | invoiced`, default `won`, Funnel
+  ownership, current milestone columns, and deprecated invoice compatibility
+  fields explicitly marked non-live.
+- Extended `payment-milestone-documentation.test.ts` to scan every registered
+  documentation page plus every `content-*.tsx` source and `schema-data.ts` for
+  forbidden stale phrases/statuses.
+
+## Fix round 2 TDD evidence
+
+- RED: expanded source scan failed on the remaining `all milestones paid`,
+  one-click, live-invoice, auto-complete, and legacy schema claims.
+- GREEN: focused documentation test passed with 1 file and 3 tests.
+
+## Fix round 2 verification
+
+- Full web tests: 65 files passed, 9 skipped; 592 tests passed, 55 skipped.
+- Typecheck: passed after replacing unsupported Node `globSync` with typed
+  `readdirSync` source discovery.
 - Lint: passed.
 - `git diff --check`: passed.
 

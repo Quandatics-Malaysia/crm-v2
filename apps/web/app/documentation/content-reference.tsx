@@ -174,7 +174,6 @@ export const settingsReferencePage: DocPage = {
           [<Code key="s">follow_up_due_days</Code>, "7", 'Dashboard "due soon" window.'],
           [<Code key="s">stale_deal_days</Code>, "off", "Dashboard stale-funnel nudges."],
           [<Code key="s">lead_follow_up_days</Code>, "off", 'Auto "First contact" follow-up on new leads.'],
-          [<Code key="s">auto_complete_project_on_paid</Code>, "off", "All milestones paid → project Completed (finance-gated switch)."],
           [<Code key="s">interco_auto_mirror</Code>, "on", "Auto-draft the intercompany invoice pair (finance-gated switch)."],
           [<Code key="s">documentation_module</Code>, "on", "Show /documentation to members holding docs.view."],
           [<Code key="s">allow_password_login</Code>, "on", "Permit email+password sign-in (vs SSO only)."],
@@ -265,7 +264,6 @@ erDiagram
   PROJECTS ||--o{ SALES_ORDERS : approval
   SALES_ORDERS ||--o{ FINANCE_DOCS : "chain root"
   FINANCE_DOCS |o--o{ FINANCE_DOCS : "parent chain"
-  PAYMENT_MILESTONES |o--o| FINANCE_DOCS : "one live invoice"
   OPPORTUNITIES |o--o| INTERCOMPANY_DEALS : mirror
   INTERCOMPANY_DEALS ||--o{ INTERCOMPANY_DEAL_RESPONSES : handshake
 `}
@@ -592,8 +590,8 @@ export const changelogPage: DocPage = {
         <Li>
           <B>Behavior:</B> lead convert, stage approvals with role tiers,
           quotation math (absolute discounts, tax inclusive/exclusive),
-          milestone reconciliation to project value, SO approval minting the
-          SO number, record-level owner + managed-subtree scoping.
+          payment-milestone planning, SO approval minting the SO number,
+          record-level owner + managed-subtree scoping.
         </Li>
       </Ul>
 
@@ -681,15 +679,13 @@ export const changelogPage: DocPage = {
           <B>Schema:</B> <Code>finance_docs.reminder_stage /
           last_reminder_at / intercompany_deal_id / counterpart_doc_id</Code>;{" "}
           <Code>tenant_settings.invoice_reminder_days / invoice_due_days /
-          auto_complete_project_on_paid / interco_auto_mirror</Code>;{" "}
+          interco_auto_mirror</Code>;{" "}
           <Code>finance_doc</Code> added to the attachable + activity enums.
         </Li>
         <Li>
           <B>Behavior:</B> document detail pages (chain, attachments,
-          activity), project Billing tab with one-click milestone invoicing,
-          proof-gated receipts/payments, in-app reminder stages, intercompany
-          invoice auto-mirror, auto-complete project on fully paid, billed
-          margin on the forecast.
+          activity), proof-gated receipts/payments, in-app reminder stages,
+          intercompany invoice auto-mirror, and billed margin on the forecast.
         </Li>
       </Ul>
 
@@ -697,16 +693,15 @@ export const changelogPage: DocPage = {
       <Ul>
         <Li>
           <B>Schema:</B> <Code>finance_docs.counterpart_number</Code>{" "}
-          (denormalized — RLS blocks the cross-tenant join);{" "}
-          <Code>finance_docs_live_milestone_uq</Code> partial unique index
-          (one live invoice per milestone).
+          (denormalized — RLS blocks the cross-tenant join); historical
+          milestone invoice-compatibility fields remain nullable and read-only.
         </Li>
         <Li>
           <B>Behavior (post adversarial review):</B> compare-and-set status
           transitions; payments must be &gt; 0 against an issued parent;
           settlement only when cumulative payments cover the amount (partial
-          payments tracked); manual settle runs the milestone/project side
-          effects; cancel compensation (milestone freed / parent un-settled);
+          payments tracked); cancel compensation restores the parent document
+          state;
           atomic interco mirror with partner-module + declined-handshake
           checks and a visible failure trail; payment-proof deletion blocked;
           source-list endpoint tightened to <Code>finance.manage</Code>;

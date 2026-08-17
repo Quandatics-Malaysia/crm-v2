@@ -1,6 +1,6 @@
 "use server"
 
-import { and, asc, desc, eq, inArray, isNull, ne, notExists, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { revalidatePath } from "next/cache"
 import { withModule, requireContext, type Tx } from "@/lib/actions"
@@ -17,7 +17,6 @@ import {
   salesOrders,
   projects,
   accounts,
-  paymentMilestones,
   tenantSettings,
   attachments,
   funnels,
@@ -25,8 +24,8 @@ import {
   intercompanyDeals,
   intercompanyDealParties,
   intercompanyDealResponses,
+  paymentMilestones,
 } from "@/db/schema"
-import { maybeCompleteProject } from "@/server/services/finance"
 import {
   FINANCE_KINDS,
   FINANCE_STATUS_NEXT,
@@ -165,8 +164,6 @@ export type FinanceSources = {
     amount: string
     currency: string
   }[]
-  /** Pending milestones per project, for the invoice ↔ milestone tie. */
-  milestones: { id: string; projectId: string | null; title: string; amount: string }[]
 }
 
 /** Everything the create dialog needs, in one round trip. Managers only —
@@ -201,38 +198,9 @@ export async function listFinanceSources(): Promise<FinanceSources> {
       .where(inArray(financeDocs.status, ["draft", "issued"]))
       .orderBy(desc(financeDocs.createdAt))
       .limit(500)
-    // Pending AND not already carried by a live invoice (drafts included —
-    // a drafted milestone is spoken for until that draft is cancelled).
-    const milestones = await tx
-      .select({
-        id: paymentMilestones.id,
-        projectId: paymentMilestones.projectId,
-        title: paymentMilestones.title,
-        amount: paymentMilestones.amount,
-      })
-      .from(paymentMilestones)
-      .where(
-        and(
-          eq(paymentMilestones.status, "pending"),
-          notExists(
-            tx
-              .select({ one: sql`1` })
-              .from(financeDocs)
-              .where(
-                and(
-                  eq(financeDocs.milestoneId, paymentMilestones.id),
-                  ne(financeDocs.status, "cancelled")
-                )
-              )
-          )
-        )
-      )
-      .orderBy(asc(paymentMilestones.sortOrder))
-      .limit(500)
     return {
       salesOrders: sos.filter((s) => !!s.soNumber) as FinanceSources["salesOrders"],
       docs: docs as FinanceSources["docs"],
-      milestones,
     }
   })
 }
@@ -316,7 +284,6 @@ export type CreateFinanceDocInput = {
   kind: FinanceDocKind
   salesOrderId?: string | null
   parentId?: string | null
-  milestoneId?: string | null
   partyName?: string | null
   amount: string
   docDate?: string | null
@@ -399,41 +366,6 @@ export async function createFinanceDoc(
           }
         }
 
-        // Invoice ↔ milestone tie (invoices only, milestone must be pending,
-        // belong to this chain's project, and not be claimed by a live invoice).
-        let milestoneId: string | null = null
-        if (input.milestoneId && kind === "invoice") {
-          const [m] = await tx
-            .select({
-              id: paymentMilestones.id,
-              status: paymentMilestones.status,
-              projectId: paymentMilestones.projectId,
-            })
-            .from(paymentMilestones)
-            .where(eq(paymentMilestones.id, input.milestoneId))
-            .limit(1)
-          if (!m) throw new Error("Milestone not found")
-          if (m.status !== "pending")
-            throw new Error("That milestone is already invoiced or paid")
-          if (!projectId || (m.projectId ?? "") !== projectId)
-            throw new Error("That milestone belongs to a different project.")
-          const [claimed] = await tx
-            .select({ number: financeDocs.number })
-            .from(financeDocs)
-            .where(
-              and(
-                eq(financeDocs.milestoneId, m.id),
-                ne(financeDocs.status, "cancelled")
-              )
-            )
-            .limit(1)
-          if (claimed)
-            throw new Error(
-              `That milestone is already on invoice ${claimed.number}.`
-            )
-          milestoneId = m.id
-        }
-
         // Default the payment window (Settings → invoice due days) so the
         // salesperson doesn't type dates for the common case.
         let dueDate = input.dueDate || null
@@ -449,7 +381,9 @@ export async function createFinanceDoc(
           parentId: parent?.id ?? null,
           salesOrderId,
           projectId,
-          milestoneId,
+          // Deprecated historical milestone link is intentionally never set by
+          // new finance documents.
+          milestoneId: null,
           partyName,
           amount: amount.toFixed(2),
           currency: currency ?? "MYR",
@@ -480,10 +414,8 @@ export async function createFinanceDoc(
 }
 
 /**
- * Move a document through draft → issued → settled/cancelled. Side effects
- * keep the chain honest: issuing an invoice marks its milestone invoiced;
- * issuing a receipt/payment settles its parent (and pays the invoice's
- * milestone).
+ * Move a document through draft → issued → settled/cancelled. Finance
+ * document transitions never mutate payment milestones.
  */
 export async function setFinanceDocStatus(
   id: string,
@@ -538,18 +470,6 @@ export async function setFinanceDocStatus(
       }
 
       if (next === "issued") {
-        // Invoice issued → its milestone is now invoiced.
-        if (doc.kind === "invoice" && doc.milestoneId) {
-          await tx
-            .update(paymentMilestones)
-            .set({ status: "invoiced", updatedAt: new Date() })
-            .where(
-              and(
-                eq(paymentMilestones.id, doc.milestoneId),
-                eq(paymentMilestones.status, "pending")
-              )
-            )
-        }
         // Receipt/payment issued → settle the parent once the live payments
         // cover its full amount (a partial payment leaves it issued).
         if (FINANCE_KINDS[doc.kind as FinanceDocKind].settlesParent && doc.parentId) {
@@ -583,16 +503,6 @@ export async function setFinanceDocStatus(
               .where(
                 and(eq(financeDocs.id, parent.id), eq(financeDocs.status, "issued"))
               )
-            if (parent.kind === "invoice" && parent.milestoneId) {
-              await tx
-                .update(paymentMilestones)
-                .set({ status: "paid", updatedAt: new Date() })
-                .where(eq(paymentMilestones.id, parent.milestoneId))
-            }
-            // Automation: all milestones paid → project Completed (toggle).
-            if (parent.kind === "invoice" && parent.projectId) {
-              await maybeCompleteProject(tx, ctx, parent.projectId)
-            }
           } else {
             const outstanding = (cents(parent.amount) - cents(agg?.total)) / 100
             await logActivity(tx, ctx, {
@@ -607,25 +517,6 @@ export async function setFinanceDocStatus(
         // queues the auto-mirror (executed after this tx commits).
         if (doc.kind === "invoice" && !doc.intercompanyDealId) {
           mirrors = await prepareIntercoMirror(tx, ctx.tenantId, doc)
-        }
-      }
-
-      // "Mark settled" straight on an invoice = money received without a
-      // receipt document — same milestone/project side effects as a receipt.
-      if (next === "settled" && doc.kind === "invoice") {
-        if (doc.milestoneId) {
-          await tx
-            .update(paymentMilestones)
-            .set({ status: "paid", updatedAt: new Date() })
-            .where(
-              and(
-                eq(paymentMilestones.id, doc.milestoneId),
-                ne(paymentMilestones.status, "paid")
-              )
-            )
-        }
-        if (doc.projectId) {
-          await maybeCompleteProject(tx, ctx, doc.projectId)
         }
       }
 
@@ -647,18 +538,6 @@ export async function setFinanceDocStatus(
           throw new Error(
             `Cancel ${liveSettle.number} first — it records a payment against this document.`
           )
-        }
-        // Free the milestone so it can be invoiced again.
-        if (doc.kind === "invoice" && doc.milestoneId) {
-          await tx
-            .update(paymentMilestones)
-            .set({ status: "pending", updatedAt: new Date() })
-            .where(
-              and(
-                eq(paymentMilestones.id, doc.milestoneId),
-                eq(paymentMilestones.status, "invoiced")
-              )
-            )
         }
         // Cancelling a receipt/payment: un-settle the parent when the
         // remaining live payments no longer cover it.
@@ -689,19 +568,6 @@ export async function setFinanceDocStatus(
                     eq(financeDocs.status, "settled")
                   )
                 )
-              if (parent.kind === "invoice" && parent.milestoneId) {
-                await tx
-                  .update(paymentMilestones)
-                  .set({ status: "invoiced", updatedAt: new Date() })
-                  .where(
-                    and(
-                      eq(paymentMilestones.id, parent.milestoneId),
-                      eq(paymentMilestones.status, "paid")
-                    )
-                  )
-              }
-              // ponytail: an auto-completed project stays completed — reopen
-              // it manually if the reversal actually reopens delivery.
             }
           }
         }
@@ -1073,114 +939,6 @@ export async function logReminder(id: string): Promise<ActionResult<void>> {
   })
 }
 
-/**
- * One-click issuance from the project page: draft an invoice for a PENDING
- * milestone with everything derived — amount, customer, currency, the
- * project's approved sales order, and the due date from settings.
- */
-export async function createInvoiceFromMilestone(
-  milestoneId: string
-): Promise<ActionResult<{ id: string; number: string }>> {
-  return runAction(async () => {
-    const created = await withModule(
-      "finance",
-      PERMISSIONS.FINANCE_MANAGE,
-      async (tx, ctx) => {
-        const [m] = await tx
-          .select({
-            id: paymentMilestones.id,
-            status: paymentMilestones.status,
-            amount: paymentMilestones.amount,
-            title: paymentMilestones.title,
-            projectId: paymentMilestones.projectId,
-          })
-          .from(paymentMilestones)
-          .where(eq(paymentMilestones.id, milestoneId))
-          .limit(1)
-        if (!m) throw new Error("Milestone not found")
-        if (m.status !== "pending")
-          throw new Error("That milestone is already invoiced or paid.")
-        // A drafted invoice claims the milestone — one live invoice per
-        // milestone (backed by finance_docs_live_milestone_uq).
-        const [claimed] = await tx
-          .select({ number: financeDocs.number })
-          .from(financeDocs)
-          .where(
-            and(
-              eq(financeDocs.milestoneId, m.id),
-              ne(financeDocs.status, "cancelled")
-            )
-          )
-          .limit(1)
-        if (claimed)
-          throw new Error(`That milestone is already on invoice ${claimed.number}.`)
-
-        const [proj] = await tx
-          .select({
-            id: projects.id,
-            currency: projects.currency,
-            accountName: accounts.name,
-          })
-          .from(projects)
-          .leftJoin(accounts, eq(projects.accountId, accounts.id))
-          .where(and(eq(projects.id, (m.projectId ?? "")), isNull(projects.deletedAt)))
-          .limit(1)
-        if (!proj) throw new Error("Project not found")
-
-        // The chain roots on an APPROVED sales order — latest one wins.
-        const [so] = await tx
-          .select({ id: salesOrders.id })
-          .from(salesOrders)
-          .where(
-            and(
-              eq(salesOrders.projectId, (m.projectId ?? "")),
-              eq(salesOrders.status, "approved")
-            )
-          )
-          .orderBy(desc(salesOrders.reviewedAt))
-          .limit(1)
-        if (!so)
-          throw new Error(
-            "This project needs an approved sales order before invoicing."
-          )
-
-        const { invoiceDueDays } = await financeSettings(tx, ctx.tenantId)
-        const due = new Date()
-        due.setDate(due.getDate() + invoiceDueDays)
-
-        const row = await insertDoc(tx, ctx.tenantId, {
-          kind: "invoice",
-          parentId: null,
-          salesOrderId: so.id,
-          projectId: (m.projectId ?? ""),
-          milestoneId: m.id,
-          partyName: proj.accountName,
-          amount: m.amount,
-          currency: proj.currency,
-          docDate: toDateString(new Date()),
-          dueDate: toDateString(due),
-          notes: `Milestone: ${m.title}`,
-        })
-        await writeAudit(tx, ctx, {
-          action: "finance.invoice.created",
-          entityType: "finance_doc",
-          entityId: row.id,
-          after: { number: row.number, amount: m.amount, milestoneId: m.id },
-        })
-        await logActivity(tx, ctx, {
-          entityType: "project",
-          entityId: (m.projectId ?? ""),
-          type: "system",
-          subject: `Invoice ${row.number} drafted for milestone "${m.title}"`,
-        })
-        return row
-      }
-    )
-    revalidatePath("/billing")
-    return created
-  })
-}
-
 export type ProjectBillingSummary = {
   enabled: boolean
   currency: string
@@ -1259,48 +1017,6 @@ export async function getProjectBillingSummary(
       margin: (invoiced - creditNotes - purchaseCost).toFixed(2),
       docs,
     }
-  })
-}
-
-/** Finance documents raised against one payment milestone (milestone detail
- *  Invoices tab). Empty when the finance module is off. */
-export async function listMilestoneFinanceDocs(
-  milestoneId: string
-): Promise<FinanceDocRow[]> {
-  return withModule("finance", PERMISSIONS.FINANCE_VIEW, async (tx) => {
-    const parent = alias(financeDocs, "parent_doc")
-    return (await tx
-      .select({
-        id: financeDocs.id,
-        kind: financeDocs.kind,
-        number: financeDocs.number,
-        status: financeDocs.status,
-        partyName: financeDocs.partyName,
-        amount: financeDocs.amount,
-        currency: financeDocs.currency,
-        docDate: financeDocs.docDate,
-        dueDate: financeDocs.dueDate,
-        notes: financeDocs.notes,
-        parentId: financeDocs.parentId,
-        parentNumber: parent.number,
-        salesOrderId: financeDocs.salesOrderId,
-        soNumber: salesOrders.soNumber,
-        projectId: financeDocs.projectId,
-        projectCode: projects.projectCode,
-        milestoneId: financeDocs.milestoneId,
-        reminderStage: financeDocs.reminderStage,
-        lastReminderAt: financeDocs.lastReminderAt,
-        intercompanyDealId: financeDocs.intercompanyDealId,
-        counterpartDocId: financeDocs.counterpartDocId,
-        attachCount: sql<number>`(select count(*)::int from ${attachments} a where a.attachable_type = 'finance_doc' and a.attachable_id = ${financeDocs.id})`,
-        createdAt: financeDocs.createdAt,
-      })
-      .from(financeDocs)
-      .leftJoin(parent, eq(financeDocs.parentId, parent.id))
-      .leftJoin(salesOrders, eq(financeDocs.salesOrderId, salesOrders.id))
-      .leftJoin(projects, eq(financeDocs.projectId, projects.id))
-      .where(eq(financeDocs.milestoneId, milestoneId))
-      .orderBy(desc(financeDocs.createdAt))) as FinanceDocRow[]
   })
 }
 

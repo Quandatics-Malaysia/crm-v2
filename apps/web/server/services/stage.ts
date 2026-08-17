@@ -34,7 +34,6 @@ import {
   isRollbackTransition,
   canBypassApproval,
   entersMilestoneAutoCreateStage,
-  entersMilestoneDeleteStage,
   type CustomFunnelField,
   type StageGateState,
 } from "@/lib/stage-gate"
@@ -364,26 +363,6 @@ async function autoCreateMilestoneOnStageEntry(
   })
 }
 
-/**
- * Salesforce "Delete Project Item List and Payment Milestones on Funnel When
- * Closed Lost and KIV" flow. Blind-spot guard the client explicitly asked
- * for: a milestone whose status is `invoiced` or `paid` is a billed row and
- * must never be deleted here — only `pending` milestones are removed.
- */
-async function deletePendingMilestonesOnClose(
-  tx: Tx,
-  opp: OppRow
-): Promise<void> {
-  await tx
-    .delete(paymentMilestones)
-    .where(
-      and(
-        eq(paymentMilestones.funnelId, opp.id),
-        eq(paymentMilestones.status, "pending")
-      )
-    )
-}
-
 async function applyStageMove(
   tx: Tx,
   ctx: ServerContext,
@@ -441,16 +420,20 @@ async function applyStageMove(
       .where(and(eq(accounts.id, opp.accountId), eq(accounts.isCustomer, false)))
     // Estimated amount may have changed → refresh the container rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, opp.opportunityId)
+
+    // Closed Won is the only automatic milestone status transition. It is
+    // intentionally independent of Finance and never creates or links an
+    // invoice.
+    await tx
+      .update(paymentMilestones)
+      .set({ status: "won", updatedAt: new Date() })
+      .where(eq(paymentMilestones.funnelId, opp.id))
   }
 
-  // ── Salesforce "Project Item List" (payment milestone) lifecycle ─────────
-  // Create on entering 4A/Won (renewal funnels included — same trigger, no
-  // separate "Renewal" stage exists here); delete PENDING-only milestones on
-  // entering Lost/KIV, leaving invoiced/paid rows untouched.
+  // Milestone planning rows may be created before close. Preserve the
+  // existing 4A/Won default-seed behavior, but keep it independent of Finance.
   if (entersMilestoneAutoCreateStage(toStage)) {
     await autoCreateMilestoneOnStageEntry(tx, ctx, opp)
-  } else if (entersMilestoneDeleteStage(toStage.kind)) {
-    await deletePendingMilestonesOnClose(tx, opp)
   }
 
   await tx.insert(funnelStageHistory).values({

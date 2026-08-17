@@ -72,7 +72,8 @@ export const financeDocs = pgTable(
     projectId: uuid("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
-    /** Invoice ↔ payment-milestone tie: issue → invoiced, receipt → paid. */
+    /** Deprecated historical invoice ↔ milestone link. Read-only compatibility
+     * field; new finance documents always leave it null. */
     milestoneId: uuid("milestone_id").references(() => paymentMilestones.id, {
       onDelete: "set null",
     }),
@@ -112,7 +113,8 @@ export const financeDocs = pgTable(
     index("finance_docs_tenant_kind_idx").on(t.tenantId, t.kind),
     index("finance_docs_parent_idx").on(t.parentId),
     index("finance_docs_project_idx").on(t.projectId),
-    // One LIVE invoice per milestone — the DB-level guard against double-billing.
+    // Historical guard retained with the nullable compatibility link. New
+    // invoice creation no longer claims milestones.
     uniqueIndex("finance_docs_live_milestone_uq")
       .on(t.milestoneId)
       .where(sql`status <> 'cancelled'`),

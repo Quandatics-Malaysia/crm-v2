@@ -9,7 +9,6 @@ import {
   applyPpvvcToStageGate,
   requiresCloseRemarks,
   entersMilestoneAutoCreateStage,
-  entersMilestoneDeleteStage,
   isRollbackTransition,
   transitionDirection,
   REQUIRABLE_FIELD_KEYS,
@@ -265,10 +264,4 @@ describe("milestone lifecycle triggers (SF 'Project Item List' flows)", () => {
     expect(entersMilestoneAutoCreateStage({ code: "kiv", kind: "PARKED" })).toBe(false)
   })
 
-  it("entering Lost or KIV triggers the pending-only delete", () => {
-    expect(entersMilestoneDeleteStage("LOST")).toBe(true)
-    expect(entersMilestoneDeleteStage("PARKED")).toBe(true)
-    expect(entersMilestoneDeleteStage("WON")).toBe(false)
-    expect(entersMilestoneDeleteStage("OPEN")).toBe(false)
-  })
 })

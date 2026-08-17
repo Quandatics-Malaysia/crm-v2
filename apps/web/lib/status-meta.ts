@@ -30,9 +30,8 @@ export const PROJECT_STATUS_OPTIONS: StatusOption[] = [
 ]
 
 export const MILESTONE_STATUS_OPTIONS: StatusOption[] = [
-  { value: "pending", label: "Pending" },
+  { value: "won", label: "Won" },
   { value: "invoiced", label: "Invoiced" },
-  { value: "paid", label: "Paid" },
 ]
 
 /** How a funnel stage change happened (funnel_stage_history.source). */

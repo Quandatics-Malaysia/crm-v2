@@ -582,6 +582,13 @@
 			"when": 1786975206000,
 			"tag": "0082_quotation_revisions",
 			"breakpoints": true
+		},
+		{
+			"idx": 83,
+			"version": "7",
+			"when": 1786975207000,
+			"tag": "0083_payment_milestone_decoupling",
+			"breakpoints": true
 		}
 	]
 }

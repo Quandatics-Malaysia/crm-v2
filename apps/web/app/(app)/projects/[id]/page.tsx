@@ -163,7 +163,6 @@ export default async function ProjectDetailPage({
           activity={activity}
           documents={documents}
           billing={billing}
-          canManageFinance={ctx.can(PERMISSIONS.FINANCE_MANAGE)}
         />
 
         <div>

@@ -420,12 +420,3 @@ export function entersMilestoneAutoCreateStage(stage: {
 }): boolean {
   return stage.code === "4a" || stage.kind === "WON"
 }
-
-/**
- * Stage entry triggers the Salesforce "Delete Project Item List and Payment
- * Milestones on Funnel When Closed Lost and KIV" flow. The caller must only
- * delete `pending` milestones — invoiced/paid (billed) rows must survive.
- */
-export function entersMilestoneDeleteStage(kind: string): boolean {
-  return kind === "LOST" || kind === "PARKED"
-}

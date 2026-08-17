@@ -46,7 +46,6 @@ export type ProjectDetailData = {
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
   /** Finance-module billing rollup; null when the module is off. */
   billing?: ProjectBillingSummary | null
-  canManageFinance?: boolean
 }
 
 /** Project detail: a details panel on the left; tabbed Milestones / Sales
@@ -67,7 +66,6 @@ export function ProjectDetailBody({
   activity,
   documents,
   billing = null,
-  canManageFinance = false,
 }: ProjectDetailData) {
   const [tab, setTab] = React.useState("milestones")
   const revalidate = `/projects/${projectId}`
@@ -211,8 +209,6 @@ export function ProjectDetailBody({
           <TabsContent value="billing" className="mt-4">
             <BillingPanel
               summary={billing}
-              milestones={milestones}
-              canManage={canManageFinance}
             />
           </TabsContent>
         ) : null}

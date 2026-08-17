@@ -21,7 +21,7 @@ export default async function BillingPage() {
     listFinanceDocs("sale"),
     canManage
       ? listFinanceSources()
-      : Promise.resolve({ salesOrders: [], docs: [], milestones: [] }),
+      : Promise.resolve({ salesOrders: [], docs: [] }),
     getReminderSchedule(),
   ])
 
@@ -31,8 +31,7 @@ export default async function BillingPage() {
       <PageBody>
         <p className="text-sm text-muted-foreground">
           Customer documents, chained from the approved sales order: delivery
-          order (optional) → invoice → credit note / payment receipt. Issuing a
-          receipt settles its invoice and marks the linked milestone paid.
+          order (optional) → invoice → credit note / payment receipt.
         </p>
         <FinanceDocsTable
           direction="sale"

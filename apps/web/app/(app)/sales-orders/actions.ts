@@ -467,7 +467,7 @@ async function generateSoMilestones(
 
   // Idempotency: never generate when the deal already has milestones — with
   // one exception: a single untouched seeded default ("Full Payment", still
-  // pending, never invoiced, not tied to an SO — see seedDefaultFunnelMilestone)
+  // Won, never invoiced, not tied to an SO — see seedDefaultFunnelMilestone)
   // is replaced by the per-category split. Anything manual/invoiced no-ops.
   const existing = await tx
     .select({
@@ -491,7 +491,7 @@ async function generateSoMilestones(
   const replaceableSeed =
     existing.length === 1 &&
     seed.title === "Full Payment" &&
-    seed.status === "pending" &&
+    seed.status === "won" &&
     !seed.invoiceNumber &&
     !seed.soNumber
   if (existing.length > 0 && !replaceableSeed) return { count: 0, funnelId }

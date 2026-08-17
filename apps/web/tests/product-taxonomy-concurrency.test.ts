@@ -252,6 +252,13 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
       subcategories: [{ code: "DATA", name: "Data Analytics" }],
     },
   ]
+  const distinctTaxonomy = [
+    {
+      code: "CONSULTING",
+      name: "Consulting",
+      subcategories: [{ code: "ADVISORY", name: "Advisory" }],
+    },
+  ]
   const withoutSubcategory = [
     { code: "PS", name: "Professional Services", subcategories: [] },
   ]
@@ -478,10 +485,32 @@ actionIntegration("production product taxonomy mutation boundaries", () => {
           and permission_id = (select id from permissions where key = ${PERMISSIONS.TENANT_SETTINGS})
       `
 
-      const result = await updateProductCodes(taxonomy)
+      const [beforeSettings] = await admin<{
+        product_codes: typeof taxonomy
+        product_codes_bytes: string
+      }[]>`
+        select
+          product_codes,
+          encode(convert_to(product_codes::text, 'UTF8'), 'hex') as product_codes_bytes
+        from tenant_settings
+        where organization_id = ${fixture.tenantId}
+      `
+
+      const result = await updateProductCodes(distinctTaxonomy)
 
       expect(result).toMatchObject({ ok: false })
       expect(result).toMatchObject({ error: `FORBIDDEN: missing ${PERMISSIONS.TENANT_SETTINGS}` })
+      const [afterSettings] = await admin<{
+        product_codes: typeof taxonomy
+        product_codes_bytes: string
+      }[]>`
+        select
+          product_codes,
+          encode(convert_to(product_codes::text, 'UTF8'), 'hex') as product_codes_bytes
+        from tenant_settings
+        where organization_id = ${fixture.tenantId}
+      `
+      expect(afterSettings).toEqual(beforeSettings)
       const auditRows = await admin`
         select id from audit_log where tenant_id = ${fixture.tenantId}
       `

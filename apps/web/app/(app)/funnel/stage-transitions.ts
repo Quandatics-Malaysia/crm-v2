@@ -1,6 +1,7 @@
 /** Client adapter for the shared server-authoritative transition policy. */
 import {
   canTransition as sharedCanTransition,
+  isRollbackTransition,
   isTerminalKind as sharedIsTerminalKind,
   type TransitionStage,
 } from "@/lib/stage-gate"
@@ -31,4 +32,17 @@ export function selectableTargets<T extends TransitionStage>(
   const from = stages.find((s) => s.id === currentStageId)
   if (!from) return []
   return stages.filter((s) => canTransition(from, s))
+}
+
+type StagePathLabelStage = TransitionStage & { name: string }
+
+export function stagePathActionLabel(
+  from: StagePathLabelStage,
+  to: StagePathLabelStage
+): string {
+  return `${isRollbackTransition(from, to) ? "Move back" : "Advance"} to ${to.name}`
+}
+
+export function stagePathInstruction(): string {
+  return "Click an earlier stage to Move back or a later stage to Advance."
 }

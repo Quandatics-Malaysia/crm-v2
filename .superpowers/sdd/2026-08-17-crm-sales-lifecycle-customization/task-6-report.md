@@ -26,3 +26,21 @@
 ## Commit
 
 Commit message: `feat: allow safe funnel stage rollback`
+
+## Fix round 1/5 — review findings
+
+- Rollbacks now cancel all pending stage approvals in the same transaction as the stage change.
+- Approval resolution locks the funnel, rechecks the exact current transition, and revalidates live funnel/container gate requirements before applying the move. Stale requests resolve as rejected/obsolete with an audit note.
+- Rollback classification now compares ordered targets for every allowed nonterminal transition. Won/Lost targets are always forward despite inconsistent terminal sort orders; Won/Lost sources remain immutable.
+- StagePath target titles and instructions distinguish `Move back` from `Advance`.
+- Added regression coverage for approval invalidation, rollback cancellation, ordering edge cases, and StagePath copy.
+
+### Fix-round verification
+
+- Focused lifecycle tests: 3 files passed; 29 tests passed.
+- Full web suite: 55 files passed; 504 tests passed; 45 skipped.
+- Typecheck: passed with no TypeScript errors.
+- Lint: passed.
+- Migration-focused tests: 2 files passed; 20 tests passed; 1 skipped. Migrator artifact test and runtime-artifact shell test passed.
+- `git diff --check`: passed.
+- `pnpm --filter web run db:migrate`: unable to connect to local PostgreSQL (`ECONNREFUSED`); no migration was applied.

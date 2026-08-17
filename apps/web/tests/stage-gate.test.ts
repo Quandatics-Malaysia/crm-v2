@@ -10,10 +10,15 @@ import {
   requiresCloseRemarks,
   entersMilestoneAutoCreateStage,
   entersMilestoneDeleteStage,
+  isRollbackTransition,
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
 } from "@/lib/stage-gate"
-import { canTransition } from "@/app/(app)/funnel/stage-transitions"
+import {
+  canTransition,
+  stagePathActionLabel,
+  stagePathInstruction,
+} from "@/app/(app)/funnel/stage-transitions"
 import { PERMISSIONS } from "@/lib/permissions"
 
 const stage = (id: string, kind: string, sortOrder: number) => ({
@@ -54,6 +59,25 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(canTransition(won, open1)).toBe(false)
     expect(canTransition(lost, open1)).toBe(false)
     expect(canTransition(open1, open1)).toBe(false)
+  })
+
+  it("classifies rollback by ordered target, including odd terminal sort orders", () => {
+    expect(isRollbackTransition(open2, open1)).toBe(true)
+    expect(isRollbackTransition(parked, open1)).toBe(true)
+    expect(isRollbackTransition(open2, parked)).toBe(false)
+    expect(isRollbackTransition(open2, won)).toBe(false)
+    expect(isRollbackTransition(parked, won)).toBe(false)
+    expect(isRollbackTransition(open2, lost)).toBe(false)
+    expect(isRollbackTransition(won, open1)).toBe(false)
+  })
+
+  it("labels earlier StagePath targets as Move back and later targets as Advance", () => {
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, { ...open1, name: "Prospect" }))
+      .toBe("Move back to Prospect")
+    expect(stagePathActionLabel({ ...open1, name: "Prospect" }, { ...open2, name: "Qualified" }))
+      .toBe("Advance to Qualified")
+    expect(stagePathInstruction()).toContain("Move back")
+    expect(stagePathInstruction()).toContain("Advance")
   })
 })
 

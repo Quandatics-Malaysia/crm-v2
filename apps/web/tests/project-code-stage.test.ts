@@ -318,7 +318,7 @@ describe("Opportunity project-code timing", () => {
     ).resolves.toEqual({ moved: true })
     expect(state.funnel.currentStageId).toBe("stage-4a")
     expect(state.opportunity.projectCode).toBe("2026-QM-ACME-WEB-001")
-    expect(state.lockCount).toBe(2)
+    expect(state.lockCount).toBe(4)
     expect(state.committedInsertRows).toHaveLength(1)
     expect(state.committedInsertTables).not.toContain(projects)
     expect(state.committedUpdates.filter(({ table, values }) => {

@@ -10,7 +10,11 @@ import {
 import type { StageGate, CustomFunnelField } from "@/lib/stage-gate"
 import type { PpvvcPatch } from "@/lib/ppvvc"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
-import { selectableTargets } from "./stage-transitions"
+import {
+  selectableTargets,
+  stagePathActionLabel,
+  stagePathInstruction,
+} from "./stage-transitions"
 
 type Stage = {
   id: string
@@ -63,6 +67,7 @@ export function StagePath({
       .filter((s) => s.kind === "OPEN" || s.kind === "WON")
       .sort((a, b) => a.sortOrder - b.sortOrder)
     const currentIdx = ladder.findIndex((s) => s.id === currentStageId)
+    const current = stages.find((s) => s.id === currentStageId)
     const selectableIds = new Set(
       selectableTargets(stages, currentStageId).map((s) => s.id)
     )
@@ -80,11 +85,13 @@ export function StagePath({
         state,
         tone: s.kind === "WON" ? "won" : "default",
         clickable,
-        title: clickable ? `Advance to ${s.name}` : undefined,
+        title:
+          clickable && current
+            ? stagePathActionLabel(current, s)
+            : undefined,
       }
     })
 
-    const current = stages.find((s) => s.id === currentStageId)
     let note: PathNote = null
     if (current?.kind === "LOST")
       note = { label: `Closed Lost — ${current.name}`, tone: "lost" }
@@ -99,7 +106,7 @@ export function StagePath({
       <StagePathView
         steps={steps}
         note={note}
-        hint={interactive && !note ? "Click a later stage to advance." : undefined}
+        hint={interactive && !note ? stagePathInstruction() : undefined}
         onStepClick={interactive ? setTarget : undefined}
       />
       {interactive ? (

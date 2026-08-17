@@ -348,11 +348,13 @@ export function isRollbackTransition(
   from: TransitionStage,
   to: TransitionStage
 ): boolean {
-  return (
-    canTransition(from, to) &&
-    to.kind === "OPEN" &&
-    (from.kind === "PARKED" || to.sortOrder < from.sortOrder)
-  )
+  if (!canTransition(from, to)) return false
+  // Won/Lost sort orders are not reliable across tenant-configured ladders.
+  // They are terminal destinations, so every allowed move into one is forward.
+  const targetOrder = isTerminalKind(to.kind)
+    ? Number.POSITIVE_INFINITY
+    : to.sortOrder
+  return targetOrder < from.sortOrder
 }
 
 /**

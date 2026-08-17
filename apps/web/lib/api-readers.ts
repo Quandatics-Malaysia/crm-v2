@@ -30,6 +30,7 @@ import {
   intercompanyDealParties,
   intercompanyDealResponses,
 } from "@/db/schema"
+import type { QuotationStatus } from "@/lib/quotation-transitions"
 
 /**
  * Shared read layer for the six list/detail CRM resources. Each `<entity>List`
@@ -512,6 +513,7 @@ export type OpportunityContainerDetail = {
   opportunity: typeof opportunities.$inferSelect
   accountId: string
   accountName: string
+  accountCurrency: string
   ownerName: string | null
   ownerContact: ContactRef | null
   powerSponsorContact: ContactRef | null
@@ -559,7 +561,7 @@ export async function opportunitiesGet(
   if (!ownsOrManages(visible, opp.ownerMemberId)) return null
 
   const [acct] = await tx
-    .select({ name: accounts.name })
+    .select({ name: accounts.name, currency: accounts.currency })
     .from(accounts)
     .where(eq(accounts.id, opp.accountId))
     .limit(1)
@@ -648,6 +650,7 @@ export async function opportunitiesGet(
     opportunity: opp,
     accountId: opp.accountId,
     accountName: acct?.name ?? "—",
+    accountCurrency: acct?.currency ?? "MYR",
     ownerName: owner?.name ?? null,
     ownerContact,
     powerSponsorContact,
@@ -721,6 +724,7 @@ export async function loadPartiesByOpportunity(
 
 export type OpportunityListRow = {
   id: string
+  opportunityId: string
   name: string
   accountId: string
   accountName: string
@@ -746,6 +750,11 @@ export type OpportunityListRow = {
   primaryQuotationId: string | null
   projectNatureCode: string | null
   projectNatures: string[] | null
+  pain: string | null
+  power: string | null
+  vision: string | null
+  value: string | null
+  control: string | null
   customFields: Record<string, string> | null
 }
 
@@ -761,6 +770,7 @@ export async function funnelsList(
     tx
       .select({
         id: funnels.id,
+        opportunityId: funnels.opportunityId,
         name: funnels.name,
         accountId: funnels.accountId,
         accountName: accounts.name,
@@ -785,25 +795,32 @@ export async function funnelsList(
         primaryQuotationId: funnels.primaryQuotationId,
         projectNatureCode: funnels.projectNatureCode,
         projectNatures: funnels.projectNatures,
+        pain: opportunities.pain,
+        power: opportunities.power,
+        vision: opportunities.vision,
+        value: opportunities.value,
+        control: opportunities.control,
         customFields: funnels.customFields,
       })
       .from(funnels)
+      .innerJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
       .innerJoin(accounts, eq(funnels.accountId, accounts.id))
       .innerJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
       .innerJoin(pipelines, eq(funnels.pipelineId, pipelines.id))
       .leftJoin(member, eq(funnels.ownerMemberId, member.id))
       .leftJoin(user, eq(member.userId, user.id))
-      .where(where)
+      .where(and(where, isNull(opportunities.deletedAt)))
       .orderBy(desc(funnels.createdAt))
       .limit(limit)
       .offset(offset),
     tx
       .select({ count: sql<number>`count(*)::int` })
       .from(funnels)
+      .innerJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
       .innerJoin(accounts, eq(funnels.accountId, accounts.id))
       .innerJoin(pipelineStages, eq(funnels.currentStageId, pipelineStages.id))
       .innerJoin(pipelines, eq(funnels.pipelineId, pipelines.id))
-      .where(where),
+      .where(and(where, isNull(opportunities.deletedAt))),
   ])
 
   const partiesByOpp = financeEnabled
@@ -828,6 +845,7 @@ export type OpportunityDetail = {
   }[]
   opportunity: typeof funnels.$inferSelect
   accountName: string
+  accountCurrency: string
   container: typeof opportunities.$inferSelect | null
   personName: string | null
   ownerName: string | null
@@ -839,10 +857,11 @@ export type OpportunityDetail = {
   quotations: {
     id: string
     quoteNumber: string
-    status: string
+    status: QuotationStatus
     total: string
     currency: string
     isPrimary: boolean
+    deletedAt: Date | null
   }[]
   history: {
     id: string
@@ -872,7 +891,7 @@ export async function funnelsGet(
   if (!ownsOrManages(visible, opp.ownerMemberId)) return null
 
   const [acct] = await tx
-    .select({ name: accounts.name })
+    .select({ name: accounts.name, currency: accounts.currency })
     .from(accounts)
     .where(eq(accounts.id, opp.accountId))
     .limit(1)
@@ -881,7 +900,7 @@ export async function funnelsGet(
   const [container] = await tx
     .select()
     .from(opportunities)
-    .where(eq(opportunities.id, opp.opportunityId))
+    .where(and(eq(opportunities.id, opp.opportunityId), isNull(opportunities.deletedAt)))
     .limit(1)
 
   // The handling partners, live-resolved (see loadPartiesByOpportunity).
@@ -960,9 +979,10 @@ export async function funnelsGet(
       total: quotations.total,
       currency: quotations.currency,
       isPrimary: quotations.isPrimary,
+      deletedAt: quotations.deletedAt,
     })
     .from(quotations)
-    .where(and(eq(quotations.funnelId, id), isNull(quotations.deletedAt)))
+    .where(eq(quotations.funnelId, id))
     .orderBy(desc(quotations.version))
 
   const toStage = alias(pipelineStages, "to_stage")
@@ -1023,6 +1043,7 @@ export async function funnelsGet(
   return {
     opportunity: opp,
     accountName: acct?.name ?? "—",
+    accountCurrency: acct?.currency ?? "MYR",
     container: container ?? null,
     parties,
     partnerResponses,

@@ -2,18 +2,26 @@
 
 import { and, asc, eq, isNull } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import type { StageCode, StageKind, ProjectNature, ProductCode } from "./constants"
+import type {
+  StageCode,
+  StageKind,
+  ProjectNature,
+  ProductCategory,
+  QuoteDefaults,
+} from "./constants"
 import {
   normalizeProjectNatureCode,
   validateProjectNatureCode,
-  normalizeProductCode,
-  validateProductCode,
+  normalizeProductCategories,
+  normalizeQuoteDefaults,
+  assertTaxonomyRemovalsSafe,
   AUTO_JOIN_ROLES,
 } from "./constants"
 import { runInTenant, type Tx } from "@/db"
 import { requireContext, assertCan, type ServerContext } from "@/lib/actions"
 import { type ActionResult, runAction } from "@/lib/action-result"
 import { writeAudit } from "@/server/audit"
+import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 import { PERMISSIONS } from "@/lib/permissions"
 import {
   getLicenseStateForTenant,
@@ -39,6 +47,7 @@ import {
   pipelineStages,
   funnels,
   organization,
+  products,
 } from "@/db/schema"
 
 export type TenantSettingsView = {
@@ -62,7 +71,10 @@ export type TenantSettingsView = {
   industries: string[]
   countries: { name: string; states: string[] }[]
   projectNatures: ProjectNature[]
-  productCodes: ProductCode[]
+  productCodes: ProductCategory[]
+  quoteDefaultNotes: string
+  quoteDefaultDelivery: string
+  quoteDefaultPaymentTerm: string
   customFunnelFields: CustomFunnelField[]
   autoJoinDomains: string[]
   autoJoinRole: string | null
@@ -76,8 +88,6 @@ export type TenantSettingsView = {
   quoteValidDays: number | null
   /** Dashboard "due soon" follow-up window in days. */
   followUpDueDays: number
-  /** Automation: auto-create the delivery project when a quote is accepted. */
-  autoCreateProjectOnAccept: boolean
   /** Stale-funnel nudge threshold in days (null = off). */
   staleDealDays: number | null
   /** Auto "First contact" follow-up N days after lead creation (null = off). */
@@ -149,7 +159,6 @@ export type UpdateSettingsInput = {
   followUpDueDays: number
   taxInclusive: boolean
   autoWinOnQuoteAccept: boolean
-  autoCreateProjectOnAccept: boolean
   allowPasswordLogin: boolean
   entityCode: string
   defaultCountry: string
@@ -286,6 +295,9 @@ function toView(
     countries: row.countries ?? [],
     projectNatures: row.projectNatures ?? [],
     productCodes: row.productCodes ?? [],
+    quoteDefaultNotes: row.quoteDefaultNotes ?? "",
+    quoteDefaultDelivery: row.quoteDefaultDelivery ?? "",
+    quoteDefaultPaymentTerm: row.quoteDefaultPaymentTerm ?? "",
     customFunnelFields: row.customFunnelFields ?? [],
     autoJoinDomains: row.autoJoinDomains ?? [],
     autoJoinRole: row.autoJoinRole ?? null,
@@ -294,7 +306,6 @@ function toView(
     paymentTerms: row.paymentTerms ?? [],
     quoteValidDays: row.quoteValidDays ?? null,
     followUpDueDays: row.followUpDueDays ?? 7,
-    autoCreateProjectOnAccept: row.autoCreateProjectOnAccept,
     staleDealDays: row.staleDealDays ?? null,
     leadFollowUpDays: row.leadFollowUpDays ?? null,
     financeEnabled,
@@ -484,6 +495,49 @@ export async function updateCompanyProfile(
         .returning()
       await writeAudit(tx, ctx, {
         action: "settings.company_profile_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: values,
+      })
+      const [org] = await tx
+        .select({ name: organization.name })
+        .from(organization)
+        .where(eq(organization.id, ctx.tenantId))
+        .limit(1)
+      return await toViewWithLicense(tx, updated, org?.name ?? "", ctx.tenantId)
+    })
+
+    revalidatePath("/settings")
+    return view
+  })
+}
+
+/** Save the text copied into new quotation Notes, Delivery, and Payment Term. */
+export async function updateQuoteDefaults(
+  input: QuoteDefaults
+): Promise<ActionResult<TenantSettingsView>> {
+  return runAction(async () => {
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const normalized = normalizeQuoteDefaults(input)
+    const values = {
+      quoteDefaultNotes: normalized.notes || null,
+      quoteDefaultDelivery: normalized.delivery || null,
+      quoteDefaultPaymentTerm: normalized.paymentTerm || null,
+      updatedAt: new Date(),
+    }
+
+    const view = await runInTenant(ctx.tenantId, async (tx) => {
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({ organizationId: ctx.tenantId, ...DEFAULTS, ...values })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: values,
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.quote_defaults_updated",
         entityType: "tenant_settings",
         entityId: ctx.tenantId,
         after: values,
@@ -808,7 +862,6 @@ export async function updateSettings(
     followUpDueDays: input.followUpDueDays,
     taxInclusive: input.taxInclusive,
     autoWinOnQuoteAccept: input.autoWinOnQuoteAccept,
-    autoCreateProjectOnAccept: input.autoCreateProjectOnAccept,
     staleDealDays: input.staleDealDays,
     leadFollowUpDays: input.leadFollowUpDays,
     ...(financeEnabled
@@ -1173,54 +1226,50 @@ export async function updateProjectNatures(
 
 /** Replace the tenant's product-code picklist (product lines for the catalog). */
 export async function updateProductCodes(
-  productCodes: ProductCode[]
-): Promise<ActionResult<ProductCode[]>> {
+  productCodes: ProductCategory[]
+): Promise<ActionResult<ProductCategory[]>> {
   return runAction(async () => {
-  const ctx = await requireContext()
-  assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const ctx = await requireContext()
+    assertCan(ctx, PERMISSIONS.TENANT_SETTINGS)
+    const cleaned = normalizeProductCategories(productCodes ?? [])
 
-  const cleaned: ProductCode[] = []
-  const seenCodes = new Set<string>()
-  for (const raw of productCodes ?? []) {
-    const code = normalizeProductCode(raw?.code ?? "")
-    const name = (raw?.name ?? "").trim()
-    const codeError = validateProductCode(code)
-    if (codeError) throw new Error(codeError)
-    if (name.length === 0) {
-      throw new Error(`Name is required for product code "${code}".`)
-    }
-    if (seenCodes.has(code)) {
-      throw new Error(`Duplicate product code "${code}".`)
-    }
-    seenCodes.add(code)
-    cleaned.push({ code, name })
-  }
-  cleaned.sort((a, b) => a.code.localeCompare(b.code))
+    const saved = await runInTenant(ctx.tenantId, async (tx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
+      const [current] = await tx
+        .select({ productCodes: tenantSettings.productCodes })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      const references = await tx
+        .select({ productCode: products.productCode, subcategory: products.subcategory })
+        .from(products)
+        .where(and(eq(products.tenantId, ctx.tenantId), isNull(products.deletedAt)))
+      assertTaxonomyRemovalsSafe(current?.productCodes ?? [], cleaned, references)
 
-  const saved = await runInTenant(ctx.tenantId, async (tx) => {
-    const [updated] = await tx
-      .insert(tenantSettings)
-      .values({
-        organizationId: ctx.tenantId,
-        status: "active",
-        productCodes: cleaned,
+      const [updated] = await tx
+        .insert(tenantSettings)
+        .values({
+          organizationId: ctx.tenantId,
+          status: "active",
+          productCodes: cleaned,
+        })
+        .onConflictDoUpdate({
+          target: tenantSettings.organizationId,
+          set: { productCodes: cleaned, updatedAt: new Date() },
+        })
+        .returning()
+      await writeAudit(tx, ctx, {
+        action: "settings.product_codes_updated",
+        entityType: "tenant_settings",
+        entityId: ctx.tenantId,
+        after: { productCodes: cleaned },
       })
-      .onConflictDoUpdate({
-        target: tenantSettings.organizationId,
-        set: { productCodes: cleaned, updatedAt: new Date() },
-      })
-      .returning()
-    await writeAudit(tx, ctx, {
-      action: "settings.product_codes_updated",
-      entityType: "tenant_settings",
-      entityId: ctx.tenantId,
-      after: { productCodes: cleaned },
+      return updated.productCodes ?? []
     })
-    return updated.productCodes ?? []
-  })
 
-  revalidatePath("/settings")
-  return saved
+    revalidatePath("/settings")
+    revalidatePath("/products")
+    return saved
   })
 }
 

@@ -533,6 +533,62 @@
 			"when": 1786882257000,
 			"tag": "0075_superadmin_deployment_seat_actor",
 			"breakpoints": true
+		},
+		{
+			"idx": 76,
+			"version": "7",
+			"when": 1786975200000,
+			"tag": "0076_saved_views",
+			"breakpoints": true
+		},
+		{
+			"idx": 77,
+			"version": "7",
+			"when": 1786975201000,
+			"tag": "0077_account_currency",
+			"breakpoints": true
+		},
+		{
+			"idx": 78,
+			"version": "7",
+			"when": 1786975202000,
+			"tag": "0078_opportunity_name_project_code",
+			"breakpoints": true
+		},
+		{
+			"idx": 79,
+			"version": "7",
+			"when": 1786975203000,
+			"tag": "0079_product_taxonomy_quote_defaults",
+			"breakpoints": true
+		},
+		{
+			"idx": 80,
+			"version": "7",
+			"when": 1786975204000,
+			"tag": "0080_quotation_content_fields",
+			"breakpoints": true
+		},
+		{
+			"idx": 81,
+			"version": "7",
+			"when": 1786975205000,
+			"tag": "0081_quotation_approval",
+			"breakpoints": true
+		},
+		{
+			"idx": 82,
+			"version": "7",
+			"when": 1786975206000,
+			"tag": "0082_quotation_revisions",
+			"breakpoints": true
+		},
+		{
+			"idx": 83,
+			"version": "7",
+			"when": 1786975207000,
+			"tag": "0083_payment_milestone_decoupling",
+			"breakpoints": true
 		}
 	]
 }

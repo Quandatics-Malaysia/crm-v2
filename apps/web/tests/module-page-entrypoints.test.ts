@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   auditList: vi.fn(),
   getSettings: vi.fn(),
   listTaxSettings: vi.fn(),
+  documentsClient: vi.fn(),
+  invoicingClient: vi.fn(),
 }))
 
 vi.mock("@/lib/module-guard", () => ({
@@ -68,6 +70,12 @@ vi.mock("@/app/(app)/forecast/forecast-client", () => ({ ForecastView: vi.fn() }
 vi.mock("@/app/(app)/audit/audit-table", () => ({ AuditTable: vi.fn() }))
 vi.mock("@/app/(app)/settings/billing/numbering/numbering-client", () => ({ NumberingClient: vi.fn() }))
 vi.mock("@/app/(app)/settings/billing/tax/tax-client", () => ({ TaxClient: vi.fn() }))
+vi.mock("@/app/(app)/settings/documents/documents-client", () => ({
+  DocumentsClient: mocks.documentsClient,
+}))
+vi.mock("@/app/(app)/settings/billing/invoicing/invoicing-client", () => ({
+  InvoicingClient: mocks.invoicingClient,
+}))
 vi.mock("@/app/documentation/registry", () => ({ DOC_GROUPS: [] }))
 vi.mock("@/app/documentation/extract-text", () => ({ extractText: vi.fn(() => "") }))
 vi.mock("@/app/documentation/docs-header", () => ({ DocsHeader: vi.fn() }))
@@ -80,6 +88,9 @@ import AuditPage from "@/app/(app)/audit/page"
 import DocumentationLayout from "@/app/documentation/layout"
 import NumberingSettingsPage from "@/app/(app)/settings/billing/numbering/page"
 import TaxSettingsPage from "@/app/(app)/settings/billing/tax/page"
+import InvoicingSettingsPage from "@/app/(app)/settings/billing/invoicing/page"
+import DocumentsSettingsPage from "@/app/(app)/settings/documents/page"
+import { SETTINGS_NAV } from "@/app/(app)/settings/_nav"
 
 describe("real optional page denial matrix", () => {
   beforeEach(() => {
@@ -124,5 +135,29 @@ describe("core quotation configuration pages", () => {
     await expect(TaxSettingsPage()).resolves.toBeDefined()
     expect(mocks.listTaxSettings).toHaveBeenCalledOnce()
     expect(mocks.requireRoute).not.toHaveBeenCalled()
+  })
+
+  it("keeps quotation defaults reachable from CRM settings without finance", async () => {
+    await expect(DocumentsSettingsPage()).resolves.toBeDefined()
+    expect(mocks.getSettings).toHaveBeenCalledOnce()
+    expect(mocks.requireRoute).not.toHaveBeenCalled()
+  })
+
+  it("keeps finance-only invoicing behind the finance entitlement", async () => {
+    await expect(InvoicingSettingsPage()).rejects.toMatchObject({ moduleId: "finance" })
+    expect(mocks.getSettings).not.toHaveBeenCalled()
+  })
+
+  it("links the quotation-defaults route once from the settings navigation", () => {
+    const documents = SETTINGS_NAV.flatMap((group) =>
+      group.items.filter((item) => item.href === "/settings/documents")
+    )
+    expect(documents).toEqual([
+      {
+        label: "Documents",
+        href: "/settings/documents",
+        permission: "tenant.settings",
+      },
+    ])
   })
 })

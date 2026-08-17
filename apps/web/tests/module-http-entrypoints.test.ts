@@ -69,7 +69,6 @@ vi.mock("@/lib/api-auth", () => ({
 import BillingSettingsIndex from "@/app/(app)/settings/billing/page"
 import { GET as getFile } from "@/app/api/files/[id]/route"
 import { GET as getApiDetail } from "@/app/api/v1/[resource]/[id]/route"
-import { maybeCompleteProject } from "@/server/services/finance"
 
 function attachmentTx() {
   const value = [{
@@ -172,11 +171,4 @@ describe("direct route, file, API, and service entrypoints", () => {
     expect(await response.json()).toMatchObject({ data: { projects: [] } })
   })
 
-  it("does not let a disabled finance service touch tenant data", async () => {
-    const tx = { select: vi.fn() }
-
-    await maybeCompleteProject(tx as never, {} as never, "project-1")
-
-    expect(tx.select).not.toHaveBeenCalled()
-  })
 })

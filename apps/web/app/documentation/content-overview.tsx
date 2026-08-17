@@ -57,11 +57,10 @@ flowchart LR
   ACC --- PER
   OPP -- quote --> QUO
   QUO -- accept --> PRJ
-  PRJ --- MIL
+  OPP --- MIL
   PRJ -- submit --> SO
   SO -- approved --> BILL
   SO -- approved --> PUR
-  MIL -- one-click invoice --> BILL
   OPP -- weighted --> FC
   BILL -- billed margin --> FC
   OPP -- interco deal --> IC

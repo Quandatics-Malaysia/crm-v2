@@ -86,7 +86,7 @@ const QUOTE_STATUS: Record<string, string> = {
   rejected: "rejected", expired: "expired",
 }
 const MILESTONE_STATUS: Record<string, string> = {
-  pending: "pending", invoiced: "invoiced", billed: "paid", paid: "paid", won: "pending",
+  pending: "won", invoiced: "invoiced", billed: "invoiced", paid: "invoiced", won: "won",
 }
 
 // ── Registry (FK order) ──────────────────────────────────────────────────────
@@ -363,7 +363,7 @@ export const MAPPINGS: ObjectMap[] = [
     consumes: ["Name", "Status__c"],
     defaults: (r) => ({
       title: r.Name || "Milestone",
-      status: MILESTONE_STATUS[(r.Status__c || "").toLowerCase()] ?? "pending",
+      status: MILESTONE_STATUS[(r.Status__c || "").toLowerCase()] ?? "won",
     }),
   },
   {

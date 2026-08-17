@@ -23,8 +23,8 @@ import { toDateString } from "@/lib/dates"
 import { nextProjectCode, isDuplicateNumberError } from "@/server/services/numbering"
 import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { logActivity } from "@/server/services/activity"
-import { maybeCompleteProject } from "@/server/services/finance"
 import { opportunityNetValue } from "@/server/services/value"
+import { canTransitionPaymentMilestone } from "@/lib/payment-milestone-lifecycle"
 import { splitMilestones } from "@/lib/milestone-split"
 import { writeAudit } from "@/server/audit"
 import { recordChanges } from "@/server/services/changes/record"
@@ -959,12 +959,10 @@ export async function updateMilestone(
       const nextStatus = isMilestoneStatus(input.status)
         ? input.status
         : existing.status
-      // Status is forward-only: pending → invoiced → paid. It may stay or
-      // advance, never move back (a paid/invoiced milestone can't revert).
+      // Only Won → Invoiced is a user-controlled transition.
       if (
         nextStatus !== existing.status &&
-        paymentMilestoneStatus.enumValues.indexOf(nextStatus) <
-          paymentMilestoneStatus.enumValues.indexOf(existing.status)
+        !canTransitionPaymentMilestone(existing.status, nextStatus)
       ) {
         throw new Error("Milestone status cannot move backward.")
       }
@@ -1004,12 +1002,6 @@ export async function updateMilestone(
         before: { amount: existing.amount, status: existing.status },
         after: { milestoneId: id, amount: nextAmount, status: nextStatus },
       })
-
-      // Manually marking the last milestone paid completes the project too
-      // (same automation as the receipt path; toggle-gated inside).
-      if (nextStatus === "paid" && nextStatus !== existing.status) {
-        await maybeCompleteProject(tx, ctx, (existing.projectId ?? ""))
-      }
 
       return (existing.projectId ?? "")
     }
@@ -1066,9 +1058,6 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
         entityId: (deleted.projectId ?? ""),
         before: { milestoneId: id, title: deleted.title },
       })
-
-      // Deleting the last unpaid milestone can leave everything paid.
-      await maybeCompleteProject(tx, ctx, (deleted.projectId ?? ""))
 
       return (deleted.projectId ?? "")
     }

@@ -8,6 +8,8 @@ import { writeAudit } from "@/server/audit"
 import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { visibleMemberIds, ownerScope } from "@/lib/access-scope"
+import { validateProductTaxonomyPair } from "@/app/(app)/settings/constants"
+import { lockProductTaxonomy } from "@/server/services/product-taxonomy-lock"
 import {
   products,
   quotations,
@@ -15,6 +17,7 @@ import {
   funnels,
   opportunities,
   opportunityProducts,
+  tenantSettings,
 } from "@/db/schema"
 
 /** Largest page we ever return from a list endpoint. */
@@ -179,13 +182,24 @@ export async function createProduct(
     const standardPrice = normalizePrice(input.standardPrice)
 
     const row = await withTenant(PERMISSIONS.PRODUCT_CREATE, async (tx, ctx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
+      const [settings] = await tx
+        .select({ productCodes: tenantSettings.productCodes })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      const taxonomy = validateProductTaxonomyPair(
+        settings?.productCodes ?? [],
+        clean(input.productCode),
+        clean(input.subcategory)
+      )
       const [created] = await tx
         .insert(products)
         .values({
           tenantId: ctx.tenantId,
           name: input.name.trim(),
-          productCode: clean(input.productCode),
-          subcategory: clean(input.subcategory),
+          productCode: taxonomy.productCode,
+          subcategory: taxonomy.subcategory,
           uom: clean(input.uom),
           currency: (
             clean(input.currency) ?? (await tenantDefaultCurrency(tx, ctx.tenantId))
@@ -219,6 +233,7 @@ export async function updateProduct(
     const standardPrice = normalizePrice(input.standardPrice)
 
     const row = await withTenant(PERMISSIONS.PRODUCT_UPDATE, async (tx, ctx) => {
+      await lockProductTaxonomy(tx, ctx.tenantId)
       const [before] = await tx
         .select()
         .from(products)
@@ -226,12 +241,23 @@ export async function updateProduct(
         .limit(1)
       if (!before) throw new Error("Product not found")
 
+      const [settings] = await tx
+        .select({ productCodes: tenantSettings.productCodes })
+        .from(tenantSettings)
+        .where(eq(tenantSettings.organizationId, ctx.tenantId))
+        .limit(1)
+      const taxonomy = validateProductTaxonomyPair(
+        settings?.productCodes ?? [],
+        clean(input.productCode),
+        clean(input.subcategory)
+      )
+
       const [updated] = await tx
         .update(products)
         .set({
           name: input.name.trim(),
-          productCode: clean(input.productCode),
-          subcategory: clean(input.subcategory),
+          productCode: taxonomy.productCode,
+          subcategory: taxonomy.subcategory,
           uom: clean(input.uom),
           currency: (
             clean(input.currency) ?? (await tenantDefaultCurrency(tx, ctx.tenantId))

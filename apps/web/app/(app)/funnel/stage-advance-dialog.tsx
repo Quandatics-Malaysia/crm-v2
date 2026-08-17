@@ -14,7 +14,9 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   groupCustomFields,
+  applyPpvvcToStageGate,
   isPresetFieldKey,
+  isRollbackTransition,
   type StageGate,
   type CustomFunnelField,
 } from "@/lib/stage-gate"
@@ -50,8 +52,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { AttachmentUpload } from "@/components/attachments/attachment-upload"
 import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
 import { formatPercent } from "@/lib/format"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
+import {
+  getPpvvcFieldsForRequiredKeys,
+  type PpvvcPatch,
+} from "@/lib/ppvvc"
 import { StageBadge } from "./stage-badge"
-import { advanceStageAction } from "./actions"
+import { advanceStageAction, updateOpportunity } from "./actions"
 import { selectableTargets } from "./stage-transitions"
 
 // Where each Opportunity-level preset gate field is edited, so a blocked move
@@ -93,6 +100,8 @@ export function StageAdvanceDialog({
   customValues = {},
   opportunityId,
   opportunityName,
+  ppvvc,
+  canEditPpvvc = false,
 }: {
   funnelId: string
   currentStageId: string
@@ -114,6 +123,9 @@ export function StageAdvanceDialog({
    * live there, not on this Funnel, so a blocked move needs a way there. */
   opportunityId?: string
   opportunityName?: string
+  /** Authoritative Opportunity PPVVC values, shown inline for gated moves. */
+  ppvvc?: PpvvcPatch | null
+  canEditPpvvc?: boolean
 }) {
   const router = useRouter()
   const [openState, setOpenState] = React.useState(false)
@@ -140,6 +152,7 @@ export function StageAdvanceDialog({
   // Live edits to the required custom fields, merged over the funnel's stored
   // values when the gate is evaluated and sent with the advance.
   const [values, setValues] = React.useState<Record<string, string>>({})
+  const [savedPpvvc, setSavedPpvvc] = React.useState<PpvvcPatch>({})
 
   const ordered = React.useMemo(
     () => [...stages].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -148,7 +161,9 @@ export function StageAdvanceDialog({
   // Only stages the server's state machine will actually accept as a move.
   const selectable = selectableTargets(ordered, currentStageId)
   const target = ordered.find((s) => s.id === targetStageId)
-  const needsApproval = target?.requiresApprovalToEnter ?? false
+  const from = ordered.find((s) => s.id === currentStageId)
+  const rollback = !!from && !!target && isRollbackTransition(from, target)
+  const needsApproval = !rollback && (target?.requiresApprovalToEnter ?? false)
 
   // Merge the dialog's live edits over the funnel's stored custom values.
   const merged = React.useMemo(
@@ -169,18 +184,30 @@ export function StageAdvanceDialog({
       }),
     [enteredStages, target?.kind]
   )
+  const relevantPpvvcFields = React.useMemo(
+    () => getPpvvcFieldsForRequiredKeys(requiredKeys),
+    [requiredKeys]
+  )
+  const livePpvvc = React.useMemo(
+    () => ({ ...(ppvvc ?? {}), ...savedPpvvc }),
+    [ppvvc, savedPpvvc]
+  )
   // Live gate: keep the server-computed presets, but recompute the custom keys
   // from the merged values so the checklist/blocked state update as you type.
   const liveGate = React.useMemo<StageGate>(() => {
-    const satisfied = { ...(gate?.satisfied ?? {}) }
-    const labels = { ...(gate?.labels ?? {}) }
+    const base = applyPpvvcToStageGate(
+      gate ?? { satisfied: {}, labels: {} },
+      livePpvvc
+    )
+    const satisfied = { ...base.satisfied }
+    const labels = { ...base.labels }
     for (const f of customFieldDefs) {
       const s = (merged[f.key] ?? "").trim()
       satisfied[f.key] = f.type === "checkbox" ? s === "true" : s !== ""
       labels[f.key] = f.label
     }
     return { satisfied, labels }
-  }, [gate, customFieldDefs, merged])
+  }, [gate, customFieldDefs, merged, livePpvvc])
 
   const defByKey = React.useMemo(
     () => new Map(customFieldDefs.map((f) => [f.key, f])),
@@ -203,7 +230,7 @@ export function StageAdvanceDialog({
   const missingPresets = missing.filter((m) => isPresetFieldKey(m.key))
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
   // A written reason is required for approval-gated AND terminal (Lost/KIV) moves.
-  const needsReason = needsApproval || isTerminal
+  const needsReason = !rollback && (needsApproval || isTerminal)
   const blocked = missing.length > 0 || (needsReason && !reason.trim())
 
   const stageLabel = React.useCallback(
@@ -256,7 +283,7 @@ export function StageAdvanceDialog({
       const result = res.data
       if (result.moved) {
         // Moved immediately — there's no approval request to attach to.
-        toast.success("Stage advanced")
+        toast.success(rollback ? "Stage moved back" : "Stage advanced")
         setOpen(false)
         reset()
         router.refresh()
@@ -305,10 +332,11 @@ export function StageAdvanceDialog({
       )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Advance stage</DialogTitle>
+          <DialogTitle>{rollback ? "Move back" : "Advance stage"}</DialogTitle>
           <DialogDescription>
-            Move this Funnel to a new stage. Some stages require manager
-            approval before the move takes effect.
+            {rollback
+              ? "Move this Funnel back without re-entering stage requirements."
+              : "Move this Funnel to a new stage. Some stages require manager approval before the move takes effect."}
           </DialogDescription>
         </DialogHeader>
 
@@ -393,7 +421,31 @@ export function StageAdvanceDialog({
               ) : null}
             </div>
 
-            {target && collectFields.length > 0 ? (
+            {!rollback && target && ppvvc && relevantPpvvcFields.length > 0 ? (
+              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  PPVVC requirements — edit inline if needed
+                </p>
+                <PpvvcEditor
+                  values={livePpvvc}
+                  fields={relevantPpvvcFields}
+                  editable={canEditPpvvc}
+                  onSave={
+                    canEditPpvvc
+                      ? async (next) => {
+                          const result = await updateOpportunity(funnelId, next)
+                          if (result.ok) {
+                            setSavedPpvvc((current) => ({ ...current, ...next }))
+                          }
+                          return result
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            ) : null}
+
+            {!rollback && target && collectFields.length > 0 ? (
               <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
                 <p className="text-xs font-medium text-muted-foreground">
                   {enteredStages.length > 1
@@ -425,7 +477,7 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
-            {target && missingPresets.length > 0 ? (
+            {!rollback && target && missingPresets.length > 0 ? (
               <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
                 <p className="font-medium">Still needed for {target.name}</p>
                 <ul className="mt-2 grid gap-1.5">
@@ -466,7 +518,7 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
-            {needsReason ? (
+            {!rollback && needsReason ? (
               <div className="grid gap-2">
                 <Label htmlFor="advance-reason">
                   {isTerminal && target
@@ -493,7 +545,7 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
-            <div className="grid gap-2">
+            {!rollback ? <div className="grid gap-2">
               <Label htmlFor="advance-file">
                 Attach supporting document (optional)
               </Label>
@@ -507,7 +559,7 @@ export function StageAdvanceDialog({
               <p className="text-xs text-muted-foreground">
                 If approval is required, this file is attached to the request.
               </p>
-            </div>
+            </div> : null}
 
             <DialogFooter>
               <Button
@@ -525,7 +577,7 @@ export function StageAdvanceDialog({
                 onClick={onSubmit}
                 disabled={submitting || blocked}
               >
-                {needsApproval ? "Request advance" : "Advance"}
+                {rollback ? "Move back" : needsApproval ? "Request advance" : "Advance"}
               </Button>
             </DialogFooter>
           </div>

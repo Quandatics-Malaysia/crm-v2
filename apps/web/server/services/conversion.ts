@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, asc, eq, isNull, sql } from "drizzle-orm"
 import { runInTenant } from "@/db"
 import {
   leads,
@@ -11,7 +11,10 @@ import {
   funnelStageHistory,
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
-import { tenantDefaultCurrency } from "./tenant-currency"
+import {
+  tenantConfiguredCurrency,
+  tenantCurrencyForRecord,
+} from "./tenant-currency"
 import {
   createOpportunityContainer,
   recomputeOpportunityTotal,
@@ -29,6 +32,41 @@ export type ConversionResult = {
   personId: string
   /** The created Opportunity container (null when createOpportunity was false). */
   opportunityId: string | null
+}
+
+export function resolveDefaultSalesFunnel(
+  pipelines: readonly {
+    id: string
+    isDefault: boolean
+    name?: string
+    tenantId?: string
+  }[],
+  stages: readonly {
+    id: string
+    pipelineId: string
+    code: string
+    kind: string
+    sortOrder: number
+    tenantId?: string
+  }[],
+  tenantId?: string
+): { pipelineId: string; stageId: string } {
+  const funnel = pipelines.find(
+    (pipeline) =>
+      pipeline.isDefault && (!tenantId || !pipeline.tenantId || pipeline.tenantId === tenantId)
+  )
+  if (!funnel) throw new Error("No default Sales Funnel configured")
+  const stage = stages
+    .filter(
+      (candidate) =>
+        candidate.pipelineId === funnel.id &&
+        (!tenantId || !candidate.tenantId || candidate.tenantId === tenantId) &&
+        candidate.code === FIRST_STAGE_CODE &&
+        candidate.kind === "OPEN"
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder)[0]
+  if (!stage) throw new Error("Default Sales Funnel has no OPEN 0E stage")
+  return { pipelineId: funnel.id, stageId: stage.id }
 }
 
 /**
@@ -139,6 +177,7 @@ export async function convertLead(
           name: lead.companyName || lead.name,
           code,
           ownerMemberId: lead.ownerMemberId ?? ctx.memberId,
+          currency: await tenantConfiguredCurrency(tx, ctx.tenantId, undefined),
           accountType:
             input.newAccount?.accountType === "reseller" ? "reseller" : "client",
           phone: input.newAccount?.phone?.trim() || null,
@@ -169,75 +208,85 @@ export async function convertLead(
     let containerId: string | null = null
     if (input.createOpportunity) {
       const [defaultFunnel] = await tx
-        .select()
+        .select({
+          id: pipelines.id,
+          name: pipelines.name,
+          isDefault: pipelines.isDefault,
+          tenantId: pipelines.tenantId,
+        })
         .from(pipelines)
         .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.isDefault, true)))
         .limit(1)
-      const funnel =
-        defaultFunnel ??
-        (
-          await tx
+      const stages = defaultFunnel
+        ? await tx
             .select()
-            .from(pipelines)
-            .where(eq(pipelines.tenantId, ctx.tenantId))
-            .limit(1)
-        )[0]
-
-      if (funnel) {
-        const [stage] = await tx
-          .select()
-          .from(pipelineStages)
-          .where(
-            and(
-              eq(pipelineStages.pipelineId, funnel.id),
-              eq(pipelineStages.code, FIRST_STAGE_CODE)
+            .from(pipelineStages)
+            .where(
+              and(
+                eq(pipelineStages.pipelineId, defaultFunnel.id),
+                eq(pipelineStages.code, FIRST_STAGE_CODE),
+                eq(pipelineStages.kind, "OPEN")
+              )
             )
-          )
-          .limit(1)
-        if (stage) {
-          const dealName =
-            input.opportunityName || `${lead.companyName || lead.name} opportunity`
-          const funnelName = input.funnelName || dealName
-          const currency = await tenantDefaultCurrency(tx, ctx.tenantId)
-          const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""
-          // Lead → Opportunity CONTAINER, with a first funnel under it.
-          const container = await createOpportunityContainer(tx, ctx, {
-            accountId,
-            ownerMemberId,
-            name: dealName,
-            year: input.expectedCloseDate
-              ? Number(input.expectedCloseDate.slice(0, 4))
-              : null,
-            currency,
-            primaryPersonId: person.id,
-          })
-          containerId = container.id
-          const [opp] = await tx
-            .insert(funnels)
-            .values({
-              tenantId: ctx.tenantId,
-              opportunityId: container.id,
-              name: funnelName,
-              accountId,
-              primaryPersonId: person.id,
-              pipelineId: funnel.id,
-              currentStageId: stage.id,
-              ownerMemberId,
-              currency,
-              expectedCloseDate: input.expectedCloseDate ?? null,
-            })
-            .returning()
-          await tx.insert(funnelStageHistory).values({
-            tenantId: ctx.tenantId,
-            funnelId: opp.id,
-            toStageId: stage.id,
-            changedByMemberId: ctx.memberId,
-            probabilityAtChange: stage.probability,
-            source: "manual",
-          })
-          await recomputeOpportunityTotal(tx, ctx.tenantId, container.id)
-        }
-      }
+            .orderBy(asc(pipelineStages.sortOrder))
+        : []
+      const resolved = resolveDefaultSalesFunnel(
+        defaultFunnel ? [defaultFunnel] : [],
+        stages,
+        ctx.tenantId
+      )
+      const stage = stages.find((candidate) => candidate.id === resolved.stageId)!
+      const dealName =
+        input.opportunityName || `${lead.companyName || lead.name} opportunity`
+      const funnelName = input.funnelName || dealName
+      const [account] = await tx
+        .select({ currency: accounts.currency })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1)
+      const currency = await tenantCurrencyForRecord(
+        tx,
+        ctx.tenantId,
+        undefined,
+        account?.currency
+      )
+      const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""
+      // Lead → Opportunity CONTAINER, with a first funnel under it.
+      const container = await createOpportunityContainer(tx, ctx, {
+        accountId,
+        ownerMemberId,
+        name: dealName,
+        year: input.expectedCloseDate
+          ? Number(input.expectedCloseDate.slice(0, 4))
+          : null,
+        currency,
+        primaryPersonId: person.id,
+      })
+      containerId = container.id
+      const [opp] = await tx
+        .insert(funnels)
+        .values({
+          tenantId: ctx.tenantId,
+          opportunityId: container.id,
+          name: funnelName,
+          accountId,
+          primaryPersonId: person.id,
+          pipelineId: resolved.pipelineId,
+          currentStageId: stage.id,
+          ownerMemberId,
+          currency,
+          expectedCloseDate: input.expectedCloseDate ?? null,
+        })
+        .returning()
+      await tx.insert(funnelStageHistory).values({
+        tenantId: ctx.tenantId,
+        funnelId: opp.id,
+        toStageId: stage.id,
+        changedByMemberId: ctx.memberId,
+        probabilityAtChange: stage.probability,
+        source: "manual",
+      })
+      await recomputeOpportunityTotal(tx, ctx.tenantId, container.id)
     }
 
     await tx

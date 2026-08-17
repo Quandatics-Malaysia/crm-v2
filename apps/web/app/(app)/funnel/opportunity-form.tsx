@@ -155,6 +155,9 @@ export function OpportunityForm({
         .filter((s) => s.kind === "OPEN")
         .sort((a, b) => a.sortOrder - b.sortOrder)[0] ?? defaultFunnel.stages[0]
     : undefined
+  const initialAccount = accounts.find(
+    (account) => account.id === (opportunityId ? accounts[0]?.id : presetAccountId)
+  )
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -192,7 +195,7 @@ export function OpportunityForm({
           pipelineId: defaultFunnel?.id ?? "",
           currentStageId: firstOpenStage?.id ?? "",
           ownerMemberId: defaultOwnerMemberId ?? "",
-          currency: currencies[0] ?? "MYR",
+          currency: initialAccount?.currency ?? currencies[0] ?? "MYR",
           expectedCloseDate: "",
           estimatedAmount: "",
           recognizedPercent: "",
@@ -344,6 +347,14 @@ export function OpportunityForm({
                         onChange={(v) => {
                           field.onChange(v)
                           form.setValue("primaryPersonId", "")
+                          if (!form.formState.dirtyFields.currency) {
+                            form.setValue(
+                              "currency",
+                              accountOptions.find((account) => account.id === v)?.currency ??
+                                currencies[0] ??
+                                "MYR"
+                            )
+                          }
                         }}
                         disabled={!!opportunityId}
                         options={accountOptions.map((a) => ({

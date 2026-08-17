@@ -1,35 +1,27 @@
-/**
- * Client-side mirror of the server's stage state machine (server/services/stage.ts).
- * Keeps the funnel UI's selectable next-stage set in sync with what the server
- * will actually accept, so the board/dialog never offer an illegal move.
- */
+/** Client adapter for the shared server-authoritative transition policy. */
+import {
+  canTransition as sharedCanTransition,
+  isRollbackTransition,
+  isTerminalKind as sharedIsTerminalKind,
+  type TransitionStage,
+} from "@/lib/stage-gate"
 
-export type TransitionStage = {
-  id: string
-  kind: string
-  sortOrder: number
-}
+export type { TransitionStage }
 
-/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
 export function isTerminalKind(kind: string): boolean {
-  return kind !== "OPEN"
+  return sharedIsTerminalKind(kind)
 }
 
 /**
  * Whether a deal in `from` may move to `to`:
  *  - never to the stage it's already in,
- *  - a terminal (closed/parked) deal can't move (reopen is a separate flow),
- *  - OPEN → OPEN must advance forward (monotonic),
- *  - OPEN → terminal (win / lose / park) is always allowed.
+ * The implementation delegates to the same pure policy used by the server.
  */
 export function canTransition(
   from: TransitionStage,
   to: TransitionStage
 ): boolean {
-  if (from.id === to.id) return false
-  if (isTerminalKind(from.kind)) return false
-  if (to.kind === "OPEN") return to.sortOrder > from.sortOrder
-  return true
+  return sharedCanTransition(from, to)
 }
 
 /** The subset of `stages` a deal currently in `currentStageId` may move to. */
@@ -40,4 +32,31 @@ export function selectableTargets<T extends TransitionStage>(
   const from = stages.find((s) => s.id === currentStageId)
   if (!from) return []
   return stages.filter((s) => canTransition(from, s))
+}
+
+type StagePathLabelStage = TransitionStage & { name: string }
+
+type StagePathAction = "Move back" | "Advance"
+
+export function stagePathAction(
+  from: StagePathLabelStage,
+  to: StagePathLabelStage
+): StagePathAction {
+  return isRollbackTransition(from, to) ? "Move back" : "Advance"
+}
+
+export function stagePathActionLabel(
+  from: StagePathLabelStage,
+  to: StagePathLabelStage
+): string {
+  return `${stagePathAction(from, to)} to ${to.name}`
+}
+
+export function stagePathInstruction(
+  from: StagePathLabelStage,
+  targets: StagePathLabelStage[]
+): string {
+  const actions = new Set(targets.map((target) => stagePathAction(from, target)))
+  if (actions.size === 1) return `Click a stage to ${[...actions][0]}.`
+  return "Click a stage to Move back or Advance."
 }

@@ -24,15 +24,12 @@ import {
 } from "@/components/ui/select"
 import { DialogClose } from "@/components/ui/dialog"
 import { Combobox } from "@/components/ui/combobox"
-import type { FunnelWithStages } from "@/lib/lookups"
 import type { Lead, LeadInput } from "./actions"
 
 /** Sentinel: no source picked. */
 const NO_SOURCE = "__none__"
 
 import { LEAD_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
-
-const NONE = "__none__"
 
 const leadSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -41,22 +38,18 @@ const leadSchema = z.object({
   phone: z.string().trim().min(1, "Phone is required"),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
-  pipelineId: z.string(),
-  currentStageId: z.string(),
 })
 
 export type LeadFormValues = z.infer<typeof leadSchema>
 
 export function LeadForm({
   lead,
-  pipelines,
   sources = [],
   phonePrefix = "",
   onSubmit,
   submitLabel = "Save",
 }: {
   lead?: Lead
-  pipelines: FunnelWithStages[]
   /** Tenant lead-source picklist (Settings); empty falls back to free text. */
   sources?: string[]
   /** Tenant dialing prefix prefilled into the phone field on create. */
@@ -84,31 +77,8 @@ export function LeadForm({
       phone: lead ? lead.phone ?? "" : phonePrefix,
       source: lead?.source ?? "",
       status: lead?.status ?? "new",
-      pipelineId: lead?.pipelineId ?? NONE,
-      currentStageId: lead?.currentStageId ?? NONE,
     },
   })
-
-  const pipelineId = form.watch("pipelineId")
-  const stages = React.useMemo(
-    () => pipelines.find((f) => f.id === pipelineId)?.stages ?? [],
-    [pipelines, pipelineId]
-  )
-
-  const funnelItems = React.useMemo(
-    () => [
-      { value: NONE, label: "No funnel" },
-      ...pipelines.map((f) => ({ value: f.id, label: f.name })),
-    ],
-    [pipelines]
-  )
-  const stageItems = React.useMemo(
-    () => [
-      { value: NONE, label: "No stage" },
-      ...stages.map((s) => ({ value: s.id, label: s.name })),
-    ],
-    [stages]
-  )
 
   async function handleSubmit(values: LeadFormValues) {
     setSubmitting(true)
@@ -120,9 +90,6 @@ export function LeadForm({
         phone: values.phone || null,
         source: values.source || null,
         status: values.status,
-        pipelineId: values.pipelineId === NONE ? null : values.pipelineId,
-        currentStageId:
-          values.currentStageId === NONE ? null : values.currentStageId,
       })
     } finally {
       setSubmitting(false)
@@ -239,71 +206,6 @@ export function LeadForm({
                   </FormControl>
                   <SelectContent>
                     {STATUS_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="pipelineId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Funnel</FormLabel>
-                <Select
-                  value={field.value}
-                  onValueChange={(v) => {
-                    field.onChange(v ?? NONE)
-                    // Reset the stage whenever the funnel changes.
-                    form.setValue("currentStageId", NONE)
-                  }}
-                  items={funnelItems}
-                >
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="No funnel" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {funnelItems.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="currentStageId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Stage</FormLabel>
-                <Select
-                  value={field.value}
-                  onValueChange={(v) => field.onChange(v ?? NONE)}
-                  items={stageItems}
-                  disabled={pipelineId === NONE}
-                >
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="No stage" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {stageItems.map((o) => (
                       <SelectItem key={o.value} value={o.value}>
                         {o.label}
                       </SelectItem>

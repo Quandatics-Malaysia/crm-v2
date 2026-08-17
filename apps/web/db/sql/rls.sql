@@ -134,6 +134,15 @@ DROP POLICY IF EXISTS tenant_isolation ON api_keys;
 CREATE POLICY tenant_isolation ON api_keys
   USING (organization_id = current_setting('app.current_tenant', true))
   WITH CHECK (organization_id = current_setting('app.current_tenant', true));
+
+-- saved_views: per-member views are tenant-scoped by organization_id. The
+-- Server Actions add the member owner predicate for every read and mutation.
+ALTER TABLE saved_views ENABLE ROW LEVEL SECURITY;
+ALTER TABLE saved_views FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON saved_views;
+CREATE POLICY tenant_isolation ON saved_views
+  USING (organization_id = current_setting('app.current_tenant', true))
+  WITH CHECK (organization_id = current_setting('app.current_tenant', true));
 GRANT SELECT, INSERT, UPDATE ON api_keys TO crm_app;
 
 -- Deployment entitlement state is global, not tenant-owned. The app role has

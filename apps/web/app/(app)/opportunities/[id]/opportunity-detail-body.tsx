@@ -29,6 +29,7 @@ import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { ChangeHistory } from "@/components/activity/change-history"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
 import type { ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import { formatMoney, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -228,20 +229,7 @@ export function OpportunityDetailBody({
               <span className="font-mono text-xs">{o.code}</span>
             </FieldRow>
             <FieldRow inline label="Name">
-              {canEdit ? (
-                <InlineValue
-                  value={o.name}
-                  display={o.name}
-                  title="Click to edit name"
-                  onSave={(next) => {
-                    if (!next.trim()) return
-                    return saveField({ name: next })
-                  }}
-                  className="font-medium"
-                />
-              ) : (
-                <span className="font-medium">{o.name}</span>
-              )}
+              <span className="font-medium">{o.name}</span>
             </FieldRow>
             <FieldRow inline label="Account">
               <Link href={`/accounts/${detail.accountId}`} className="font-medium link">
@@ -418,6 +406,16 @@ export function OpportunityDetailBody({
               <TabsContent value="analysis" className="mt-4">
                 <Card>
                   <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">
+                        PPVVC analysis
+                      </div>
+                      <PpvvcEditor
+                        values={o}
+                        editable={canEdit}
+                        onSave={(values) => updateOpportunityContainer(o.id, values)}
+                      />
+                    </div>
                     <div>
                       <div className="text-xs font-medium text-muted-foreground">
                         Power Sponsor Contact

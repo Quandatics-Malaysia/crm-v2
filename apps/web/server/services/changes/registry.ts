@@ -39,6 +39,11 @@ export const CHANGE_FIELDS: Record<RegistryKey, FieldRegistry> = {
     lostReason: { label: "Lost reason" },
     kivReviewDate: { label: "KIV review", format: date() },
     isRenewal: { label: "Renewal", format: bool() },
+    pain: { label: "Pain" },
+    power: { label: "Power" },
+    vision: { label: "Vision" },
+    value: { label: "Value" },
+    control: { label: "Control" },
   },
   account: {
     name: { label: "Name" },

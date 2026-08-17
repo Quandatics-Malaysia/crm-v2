@@ -93,6 +93,7 @@ function TeamTable({ members }: { members: TenantMemberView[] }) {
         <DataTable
           columns={memberColumns}
           data={members}
+          tableId="settings-people"
           searchColumn="name"
           searchPlaceholder="Search members…"
           emptyMessage="No members found."

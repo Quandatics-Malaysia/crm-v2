@@ -79,13 +79,13 @@ async function main() {
         { code: "M", name: "Mixed" },
       ],
       productCodes: [
-        { code: "RENEWAL", name: "Renewal" },
-        { code: "PS", name: "PS" },
-        { code: "TRAINING", name: "Training" },
-        { code: "COACHING", name: "Coaching" },
-        { code: "HARDWARE", name: "Hardware" },
-        { code: "NPS", name: "NPS" },
-        { code: "OTHERS", name: "Others" },
+        { code: "RENEWAL", name: "Renewal", subcategories: [] },
+        { code: "PS", name: "PS", subcategories: [] },
+        { code: "TRAINING", name: "Training", subcategories: [] },
+        { code: "COACHING", name: "Coaching", subcategories: [] },
+        { code: "HARDWARE", name: "Hardware", subcategories: [] },
+        { code: "NPS", name: "NPS", subcategories: [] },
+        { code: "OTHERS", name: "Others", subcategories: [] },
       ],
       industries: [
         "Agriculture",
@@ -165,7 +165,7 @@ async function main() {
   if (!funnel) {
     ;[funnel] = await db
       .insert(pipelines)
-      .values({ tenantId: TENANT_ID, name: "Sales Pipeline", isDefault: true, isActive: true })
+      .values({ tenantId: TENANT_ID, name: "Sales Funnel", isDefault: true, isActive: true })
       .returning()
   }
   // Entry requirements matching the ACTIVE Salesforce validation rules only

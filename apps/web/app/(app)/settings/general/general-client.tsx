@@ -68,7 +68,6 @@ const generalSchema = z.object({
   fiscalYearStartMonth: z.coerce.number().int().min(1, "1–12").max(12, "1–12"),
   approvalBypassTier: z.coerce.number().int().min(0, "Must be ≥ 0"),
   followUpDueDays: z.coerce.number().int().min(1, "1–90").max(90, "1–90"),
-  autoCreateProjectOnAccept: z.boolean(),
   autoCompleteProjectOnPaid: z.boolean(),
   intercoAutoMirror: z.boolean(),
   documentationModule: z.boolean(),
@@ -109,7 +108,6 @@ const SWITCHES: {
   name:
     | "taxInclusive"
     | "autoWinOnQuoteAccept"
-    | "autoCreateProjectOnAccept"
     | "autoCompleteProjectOnPaid"
     | "intercoAutoMirror"
     | "documentationModule"
@@ -127,12 +125,6 @@ const SWITCHES: {
     label: "Auto-win on quote accept",
     description:
       "Move a funnel to Won automatically when its primary quote is accepted. Note: this bypasses the Won stage's \"requires approval to enter\" gate — accepting the quote wins the funnel directly, no sign-off requested.",
-  },
-  {
-    name: "autoCreateProjectOnAccept",
-    label: "Auto-create project on quote accept",
-    description:
-      "Create the delivery project automatically from an accepted quotation (value, currency and nature carried over; milestone template applied). Skipped with a warning when the account has no code yet.",
   },
   {
     name: "autoCompleteProjectOnPaid",
@@ -180,7 +172,6 @@ function GeneralForm({
       fiscalYearStartMonth: settings.fiscalYearStartMonth,
       approvalBypassTier: settings.approvalBypassTier,
       followUpDueDays: settings.followUpDueDays,
-      autoCreateProjectOnAccept: settings.autoCreateProjectOnAccept,
       autoCompleteProjectOnPaid: settings.autoCompleteProjectOnPaid,
       intercoAutoMirror: settings.intercoAutoMirror,
       documentationModule: settings.documentationModule,
@@ -218,7 +209,6 @@ function GeneralForm({
         fiscalYearStartMonth: parsed.fiscalYearStartMonth,
         approvalBypassTier: parsed.approvalBypassTier,
         followUpDueDays: parsed.followUpDueDays,
-        autoCreateProjectOnAccept: parsed.autoCreateProjectOnAccept,
         autoCompleteProjectOnPaid: parsed.autoCompleteProjectOnPaid,
         intercoAutoMirror: parsed.intercoAutoMirror,
         documentationModule: parsed.documentationModule,
@@ -246,7 +236,6 @@ function GeneralForm({
         fiscalYearStartMonth: updated.fiscalYearStartMonth,
         approvalBypassTier: updated.approvalBypassTier,
         followUpDueDays: updated.followUpDueDays,
-        autoCreateProjectOnAccept: updated.autoCreateProjectOnAccept,
         autoCompleteProjectOnPaid: updated.autoCompleteProjectOnPaid,
         intercoAutoMirror: updated.intercoAutoMirror,
         documentationModule: updated.documentationModule,

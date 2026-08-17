@@ -7,6 +7,17 @@ Documentation-only preparation, including operator-workflow updates, does not
 create a release-log entry or indicate a live deployment. Add an entry only
 after its signed release completes.
 
+## Unreleased — CRM sales lifecycle integration
+
+This is documentation and verification preparation only; it is not a signed
+release, deployment, or production migration record. The pending schema range
+is 0076–0083, in journal order: saved views, Account currency, Opportunity
+naming/project-code timing, Product taxonomy and quotation defaults, quotation
+content, approval, revisions, and Payment Milestone decoupling. Apply the
+sequence forward with RLS/views/permission synchronization. If rollout stops,
+use application rollback, preserve additive and deprecated compatibility fields,
+and resume forward; do not run destructive SQL rollback.
+
 ## v1.2.26
 
 - released_at_utc: 2026-08-13T17:17:00Z

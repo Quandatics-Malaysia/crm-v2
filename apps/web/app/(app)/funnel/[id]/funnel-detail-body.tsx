@@ -2,7 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Plus, PencilIcon, ChevronRight } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Plus, PencilIcon, ChevronRight, CopyPlus } from "lucide-react"
+import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
 import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
+import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
@@ -33,6 +36,7 @@ import {
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -54,6 +58,8 @@ import {
   type MilestoneItemBase,
 } from "@/components/milestones-panel"
 import { updateOpportunity } from "../actions"
+import { createQuotationRevision } from "@/app/(app)/quotations/actions"
+import { showActionError } from "@/lib/show-action-error"
 import type { ApprovalRow } from "@/app/(app)/approvals/actions"
 import type {
   OpportunityDetail,
@@ -154,7 +160,16 @@ export type FunnelDetailData = {
   accountName: string | null
   /** Every account, for the inline Account picker. */
   accountOptions: Option[]
-  container: { id: string; code: string; name: string } | null
+  container: {
+    id: string
+    code: string
+    name: string
+    pain: string | null
+    power: string | null
+    vision: string | null
+    value: string | null
+    control: string | null
+  } | null
   ownerMemberId: string
   ownerName: string | null
   /** Every tenant member, for the inline Owner picker. */
@@ -238,6 +253,7 @@ export type FunnelDetailData = {
 /** Two-column detail: a rich details panel on the left, the clickable stage path
  *  plus a tabbed panel of related lists on the right (each top-5 + search). */
 export function FunnelDetailBody(props: FunnelDetailData) {
+  const router = useRouter()
   const {
     funnelId,
     currentStageId,
@@ -383,6 +399,27 @@ export function FunnelDetailBody(props: FunnelDetailData) {
             {row.original.isPrimary ? (
               <Badge variant="outline">Primary</Badge>
             ) : null}
+            {canCreateQuote &&
+            canCreateQuotationRevision(row.original.status, row.original.deletedAt) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                title="Create revision"
+                aria-label={`Create revision of ${row.original.quoteNumber}`}
+                onClick={async () => {
+                  const result = await createQuotationRevision(row.original.id)
+                  if (!result.ok) {
+                    showActionError(result)
+                    return
+                  }
+                  toast.success("Revision created")
+                  router.push(`/quotations/${result.data.id}`)
+                }}
+              >
+                <CopyPlus className="size-4" />
+              </Button>
+            ) : null}
           </div>
         ),
       },
@@ -400,7 +437,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
         ),
       },
     ],
-    []
+    [canCreateQuote, router]
   )
 
   const projectColumns = React.useMemo<ColumnDef<OpportunityProjectRow>[]>(
@@ -999,6 +1036,18 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       <div className="grid gap-4 lg:col-span-2">
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">PPVVC analysis</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PpvvcEditor
+              values={container}
+              editable={canEdit && !!container}
+              onSave={container ? (values) => updateOpportunity(funnelId, values) : undefined}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Stage</CardTitle>
           </CardHeader>
           <CardContent>
@@ -1010,6 +1059,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               gate={gate}
               customFieldDefs={customFieldDefs}
               customValues={customValues}
+              ppvvc={container}
+              canEditPpvvc={canEdit}
             />
           </CardContent>
         </Card>

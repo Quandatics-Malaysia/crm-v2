@@ -221,6 +221,7 @@ export function AccountContacts({
     <DataTable
       columns={columns}
       data={contacts}
+      tableId="account-contacts"
       searchColumn="name"
       searchPlaceholder="Search contacts…"
       emptyMessage="No contacts on this account yet."

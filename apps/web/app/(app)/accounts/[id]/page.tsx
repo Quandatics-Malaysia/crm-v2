@@ -43,12 +43,13 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [data, parentOptions, industries, countries, members, ctx, modules] =
+  const [data, parentOptions, industries, countries, currencies, members, ctx, modules] =
     await Promise.all([
       getAccount(id),
       listParentOptions(id),
       listIndustries(),
       listCountries(),
+      listCurrencies(),
       listMembers(),
       requireContext(),
       getEntitledModuleMap(),
@@ -85,7 +86,7 @@ export default async function AccountDetailPage({
   const canCreateFunnel = ctx.can(PERMISSIONS.OPPORTUNITY_CREATE)
   let newFunnelButton: React.ReactNode
   if (canCreateFunnel) {
-    const [accounts, persons, members, funnelDefs, customFunnelFields, entities, currencies] =
+    const [accounts, persons, members, funnelDefs, customFunnelFields, entities] =
       await Promise.all([
         listAccountOptions(),
         listPersonsWithAccount(),
@@ -93,7 +94,6 @@ export default async function AccountDetailPage({
         listFunnelsWithStages(),
         listCustomFunnelFields(),
         listEntities(),
-        listCurrencies(),
       ])
     newFunnelButton = (
       <OpportunityForm
@@ -123,6 +123,7 @@ export default async function AccountDetailPage({
   // address. Only fields already fetched are included.
   const accountInformation: AccountDetailSection["fields"] = [
     { label: "Name", value: account.name, editKey: "name" },
+    { label: "Currency", value: account.currency, editKey: "currency" },
     { label: "Code", value: account.code ?? "—" },
     {
       label: "Type",
@@ -210,6 +211,7 @@ export default async function AccountDetailPage({
   // the client merges the one edited field into this.
   const record = {
     name: account.name,
+    currency: account.currency,
     code: account.code,
     parentAccountId: account.parentAccountId,
     accountType: account.accountType,
@@ -261,6 +263,7 @@ export default async function AccountDetailPage({
               endUserOptions={parentOptions}
               industries={industries}
               countries={countries}
+              currencies={currencies}
             />
           </div>
         </div>
@@ -271,6 +274,7 @@ export default async function AccountDetailPage({
           record={record}
           canEdit={ctx.can(PERMISSIONS.ACCOUNT_UPDATE)}
           industries={industries}
+          currencies={currencies}
           countries={countries.map((c) => c.name)}
           members={members}
           contacts={contacts}

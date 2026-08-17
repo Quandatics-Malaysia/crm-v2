@@ -96,10 +96,10 @@ export function OpportunitiesTable({
       toolbar={toolbar}
       tableId="funnel"
       cap={1000}
-      facets={[
-        { columnId: "stageName", title: "Stage" },
-        { columnId: "status", title: "Status" },
-        { columnId: "ownerName", title: "Owner" },
+      filters={[
+        { type: "enum", columnId: "stageName", title: "Stage", options: Array.from(new Set(data.map((row) => row.stageName).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+        { type: "enum", columnId: "status", title: "Status", options: Array.from(new Set(data.map((row) => row.status).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
+        { type: "relation", columnId: "ownerName", title: "Owner", options: Array.from(new Set(data.map((row) => row.ownerName).filter((value): value is string => Boolean(value)))).map((value) => ({ value, label: value })) },
       ]}
     />
   )

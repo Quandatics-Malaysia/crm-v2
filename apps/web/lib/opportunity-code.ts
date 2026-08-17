@@ -21,17 +21,28 @@ export function nextOpportunityNumber(existingNumbersForYear: number[]): number 
 }
 
 /**
- * Formulated Opportunity id, e.g. `OPP-2026-0001`. Full year for
- * unambiguity; number zero-padded to `pad`.
+ * Formulated Opportunity id, e.g. `QMOPP-2026-0001`. The organization code
+ * is normalized to uppercase alphanumeric characters before formatting.
  */
 export function formatOpportunityCode(
-  year: number,
-  n: number,
-  pad: number = OPPORTUNITY_PAD_WIDTH
+  input: {
+    organizationCode: string
+    year: number
+    number: number
+  }
 ): string {
-  const yyyy = String(Math.trunc(year))
-  const running = String(Math.trunc(n)).padStart(pad, "0")
-  return `OPP-${yyyy}-${running}`
+  const organizationCode = input.organizationCode
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+  if (!organizationCode) throw new Error("Organization code is required")
+
+  const yyyy = String(Math.trunc(input.year))
+  const running = String(Math.trunc(input.number)).padStart(
+    OPPORTUNITY_PAD_WIDTH,
+    "0"
+  )
+  return `${organizationCode}OPP-${yyyy}-${running}`
 }
 
 /**
@@ -56,15 +67,18 @@ export function formatFunnelName(input: {
   return products ? `${head} - ${products}` : head
 }
 
-/** The five PPVVC "Analysis" field keys, in canonical order. */
-export const PPVVC_FIELDS = ["pain", "power", "vision", "value", "control"] as const
-export type PpvvcField = (typeof PPVVC_FIELDS)[number]
-export type Ppvvc = Partial<Record<PpvvcField, string | null>>
+export {
+  PPVVC_FIELDS,
+  type PpvvcField,
+  type PpvvcPatch as Ppvvc,
+} from "@/lib/ppvvc"
+import { PPVVC_FIELDS } from "@/lib/ppvvc"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 
 /** Pick just the PPVVC fields off any object (for cascading container → funnel). */
-export function pickPpvvc(src: Ppvvc | null | undefined): Ppvvc {
-  const out: Ppvvc = {}
+export function pickPpvvc(src: PpvvcPatch | null | undefined): PpvvcPatch {
+  const out: PpvvcPatch = {}
   if (!src) return out
-  for (const k of PPVVC_FIELDS) out[k] = src[k] ?? null
+  for (const { key } of PPVVC_FIELDS) out[key] = src[key] ?? null
   return out
 }

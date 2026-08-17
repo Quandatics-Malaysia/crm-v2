@@ -13,6 +13,7 @@
  */
 
 import { PERMISSIONS } from "@/lib/permissions"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 
 /** Completeness of the preset system fields (derived from real funnel /
  *  opportunity-container columns — see {@link REQUIRABLE_FIELDS} for which). */
@@ -38,6 +39,29 @@ export type StageGateState = {
   hasNegotiationDone: boolean
   hasNegotiationDate: boolean
   hasExpectedInvoice: boolean
+}
+
+/** Recompute PPVVC-backed gate flags after an inline authoritative save. */
+export function applyPpvvcToStageGate(
+  gate: StageGate,
+  values: PpvvcPatch | null | undefined
+): StageGate {
+  const present = (value: string | null | undefined) =>
+    typeof value === "string" && value.trim() !== ""
+  const satisfied = { ...gate.satisfied }
+  if (values && Object.prototype.hasOwnProperty.call(values, "pain")) {
+    satisfied.objective = present(values.pain)
+  }
+  if (values && Object.prototype.hasOwnProperty.call(values, "vision")) {
+    satisfied.vision = present(values.vision)
+  }
+  if (values && Object.prototype.hasOwnProperty.call(values, "value")) {
+    satisfied.value = present(values.value)
+  }
+  return {
+    satisfied,
+    labels: gate.labels,
+  }
 }
 
 /** Input type for a tenant-defined custom funnel field. */
@@ -260,6 +284,7 @@ export function stagesEnteredBy<
   const from = stages.find((s) => s.id === currentStageId)
   const to = stages.find((s) => s.id === targetStageId)
   if (!from || !to) return []
+  if (transitionDirection(from, to) === "rollback") return []
   if (to.kind === "LOST" || to.kind === "PARKED") return [to]
   return [...stages]
     .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -294,28 +319,70 @@ export function requiredKeysForStages<
   return out
 }
 
-/** Stage kinds other than OPEN are terminal (Won / Lost / KIV-parked). */
+/** Closed Won and Closed Lost are immutable terminal stages. */
 export function isTerminalKind(kind: string): boolean {
-  return kind !== "OPEN"
+  return kind === "WON" || kind === "LOST"
+}
+
+export type TransitionStage = {
+  id: string
+  kind: string
+  sortOrder: number
+}
+
+export type TransitionDirection = "forward" | "rollback"
+
+/**
+ * The single stage-transition policy shared by the server and client:
+ * - no-op moves are rejected;
+ * - Closed Won/Lost are immutable;
+ * - OPEN and PARKED stages may move to any other stage, including backward.
+ */
+export function canTransition(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  if (from.id === to.id) return false
+  return !isTerminalKind(from.kind)
+}
+
+/**
+ * Classify a legal stage move using status semantics before ladder order:
+ * entering PARKED is a forward close/KIV move, while PARKED→OPEN is a
+ * reversible reopen. Terminal destinations are also forward even when their
+ * tenant-configured sort order is unusual.
+ */
+export function transitionDirection(
+  from: TransitionStage,
+  to: TransitionStage
+): TransitionDirection | null {
+  if (!canTransition(from, to)) return null
+  if (from.kind === "PARKED" && to.kind === "OPEN") return "rollback"
+  if (to.kind === "PARKED" || isTerminalKind(to.kind)) return "forward"
+  return to.sortOrder < from.sortOrder ? "rollback" : "forward"
+}
+
+/** A move that intentionally skips all stage-entry gates and approvals. */
+export function isRollbackTransition(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  return transitionDirection(from, to) === "rollback"
 }
 
 /**
  * Enforce the stage state machine for a single move:
  *  - the deal can't move to the stage it's already in,
- *  - a closed/parked (terminal) deal can't move at all without an explicit,
- *    separately-handled reopen,
- *  - moving between OPEN stages must go forward (monotonic) — no backward hops.
- * OPEN → terminal (win / lose / park) is always allowed from an open stage.
+ *  - Closed Won/Lost deals can't move at all,
+ *  - OPEN and PARKED stages may move backward or forward.
  */
 export function assertTransitionAllowed(
-  from: { id: string; kind: string; sortOrder: number },
-  to: { id: string; kind: string; sortOrder: number }
+  from: TransitionStage,
+  to: TransitionStage
 ): void {
   if (from.id === to.id) throw new Error("This funnel is already in this stage")
   if (isTerminalKind(from.kind))
-    throw new Error("This funnel is closed. Reopen it before changing its stage.")
-  if (to.kind === "OPEN" && to.sortOrder <= from.sortOrder)
-    throw new Error("Stage moves must advance forward in the funnel")
+    throw new Error("This funnel is closed and cannot change its stage.")
 }
 
 /** Whether the actor may enter approval-gated stages without a request:
@@ -352,13 +419,4 @@ export function entersMilestoneAutoCreateStage(stage: {
   kind: string
 }): boolean {
   return stage.code === "4a" || stage.kind === "WON"
-}
-
-/**
- * Stage entry triggers the Salesforce "Delete Project Item List and Payment
- * Milestones on Funnel When Closed Lost and KIV" flow. The caller must only
- * delete `pending` milestones — invoiced/paid (billed) rows must survive.
- */
-export function entersMilestoneDeleteStage(kind: string): boolean {
-  return kind === "LOST" || kind === "PARKED"
 }

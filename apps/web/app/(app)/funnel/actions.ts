@@ -29,12 +29,15 @@ import type { Tx } from "@/db"
 import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
-import { tenantDefaultCurrency } from "@/server/services/tenant-currency"
+import {
+  assertCurrencyLock,
+  tenantCurrencyForRecord,
+} from "@/server/services/tenant-currency"
 import {
   deriveOriginRecognizedPercent,
   validatePartyShares,
 } from "@/lib/interco-share"
-import { requestStageAdvance, reopenOpportunity } from "@/server/services/stage"
+import { requestStageAdvance } from "@/server/services/stage"
 import { getEntitledModuleMap } from "@/lib/modules.server"
 import {
   createOpportunityContainer,
@@ -42,6 +45,11 @@ import {
   pickNature,
 } from "@/server/services/opportunity-container"
 import { pickPpvvc, type Ppvvc } from "@/lib/opportunity-code"
+import { normalizePpvvcPatch } from "@/lib/ppvvc"
+import {
+  recordPpvvcSyncChanges,
+  updateFunnelPpvvc,
+} from "@/server/services/ppvvc"
 import { runAction, type ActionResult } from "@/lib/action-result"
 import { listEntities } from "@/lib/lookups"
 import {
@@ -58,6 +66,7 @@ import {
   loadPartiesByOpportunity,
   type PartyRow,
 } from "@/lib/api-readers"
+import type { QuotationStatus } from "@/lib/quotation-transitions"
 
 export type PartyInput = {
   partnerEntityId: string
@@ -203,6 +212,7 @@ function assertRecognizedPercent(v: string | null | undefined): void {
 
 export type OpportunityListRow = {
   id: string
+  opportunityId: string
   name: string
   accountId: string
   accountName: string
@@ -232,6 +242,11 @@ export type OpportunityListRow = {
   primaryQuotationId: string | null
   projectNatureCode: string | null
   projectNatures: string[] | null
+  pain: string | null
+  power: string | null
+  vision: string | null
+  value: string | null
+  control: string | null
   customFields: Record<string, string> | null
 }
 
@@ -318,10 +333,11 @@ export type OpportunityDetail = {
   quotations: {
     id: string
     quoteNumber: string
-    status: string
+    status: QuotationStatus
     total: string
     currency: string
     isPrimary: boolean
+    deletedAt: Date | null
   }[]
   history: {
     id: string
@@ -424,15 +440,12 @@ export async function createOpportunity(
           ? input.recognizedPercent
           : null
 
-      const currency =
-        input.currency || (await tenantDefaultCurrency(tx, ctx.tenantId))
-
       // Resolve the parent Opportunity container: use the one passed in (PPVVC
       // cascades DOWN from it), or auto-create a 1:1 container so the single-step
       // "create a funnel" UX keeps working. The funnel's account is inherited
       // from the container (Salesforce "auto-populate funnel account").
-      let containerId: string
-      let containerAccountId: string
+      let containerId = ""
+      let containerAccountId = input.accountId
       let ppvvc: Ppvvc
       let nature: { projectNatureCode: string | null; projectNatures: string[] | null }
       if (input.opportunityId) {
@@ -452,20 +465,34 @@ export async function createOpportunity(
         ppvvc = pickPpvvc(c)
         nature = pickNature(c)
       } else {
+        ppvvc = pickPpvvc(input)
+        nature = pickNature(input)
+      }
+      const [account] = await tx
+        .select({ currency: accounts.currency })
+        .from(accounts)
+        .where(eq(accounts.id, containerAccountId))
+        .limit(1)
+      const currency = await tenantCurrencyForRecord(
+        tx,
+        ctx.tenantId,
+        input.currency,
+        account?.currency
+      )
+      if (!input.opportunityId) {
         const c = await createOpportunityContainer(tx, ctx, {
-          accountId: input.accountId,
+          accountId: containerAccountId,
           ownerMemberId,
           name: input.name,
           year: projectYear,
           currency,
           description: input.description,
-          ppvvc: pickPpvvc(input),
+          ppvvc,
           primaryPersonId: input.primaryPersonId,
           projectNatureCode: input.projectNatures?.[0] ?? input.projectNatureCode ?? null,
           projectNatures: input.projectNatures ?? null,
         })
         containerId = c.id
-        containerAccountId = c.accountId
         ppvvc = c.ppvvc
         nature = c.nature
       }
@@ -557,17 +584,19 @@ export async function updateOpportunity(
     if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
       throw new Error("FORBIDDEN: not permitted on this Funnel")
+    const resolvedCurrency = await tenantCurrencyForRecord(
+      tx,
+      ctx.tenantId,
+      input.currency,
+      existing.currency
+    )
 
     // The primary quotation freezes its currency at creation and is never
     // re-snapshotted, so a divergent opportunity currency would have the same
     // money reported under two currencies (and re-denominated with no FX in the
     // forecast/pipeline views). Reject a currency change while a differing,
     // non-deleted primary quotation exists.
-    if (
-      input.currency !== undefined &&
-      input.currency !== existing.currency &&
-      existing.primaryQuotationId
-    ) {
+    if (existing.primaryQuotationId) {
       const [pq] = await tx
         .select({ currency: quotations.currency })
         .from(quotations)
@@ -578,10 +607,7 @@ export async function updateOpportunity(
           )
         )
         .limit(1)
-      if (pq && pq.currency !== input.currency)
-        throw new Error(
-          "Currency is locked while a primary quotation exists. Remove or replace the primary quotation to change it."
-        )
+      assertCurrencyLock(resolvedCurrency, existing.currency, pq?.currency)
     }
 
     // Resolve the party list against the effective intercompany flag: a
@@ -614,6 +640,15 @@ export async function updateOpportunity(
       input.customFields === undefined
         ? existing.customFields
         : normalizeOpportunityCustomFields(input.customFields, customFieldDefs)
+
+    const ppvvcInput = normalizePpvvcPatch({
+      pain: input.pain,
+      power: input.power,
+      vision: input.vision,
+      value: input.value,
+      control: input.control,
+    })
+    const hasPpvvcInput = Object.keys(ppvvcInput).length > 0
 
     let partyInputs: PartyInput[] | null = input.parties ?? null
     if (effectiveInterco && input.parties === undefined) {
@@ -665,7 +700,7 @@ export async function updateOpportunity(
           ? existing.projectYear
           : projectYear,
       isIntercompany: effectiveInterco,
-      currency: input.currency ?? existing.currency,
+      currency: resolvedCurrency,
       projectNatures:
         input.projectNatures === undefined
           ? existing.projectNatures
@@ -706,13 +741,23 @@ export async function updateOpportunity(
       updatedAt: new Date(),
     }
 
+    const syncedPpvvc = hasPpvvcInput
+      ? await updateFunnelPpvvc(tx, {
+          funnelId: id,
+          tenantId: ctx.tenantId,
+          values: ppvvcInput,
+          actorId: ctx.userId,
+        })
+      : null
+    if (syncedPpvvc) await recordPpvvcSyncChanges(tx, ctx, syncedPpvvc)
+
     await tx.update(funnels).set(updated).where(eq(funnels.id, id))
 
     // estimatedAmount may have changed → refresh the parent container's rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
 
     if ((await getEntitledModuleMap()).finance) {
-      await saveParties(tx, id, parties, input.currency ?? existing.currency)
+      await saveParties(tx, id, parties, resolvedCurrency)
     }
 
     await recordChanges(tx, ctx, {
@@ -720,7 +765,10 @@ export async function updateOpportunity(
       registryKey: "funnel",
       entityId: id,
       before: existing,
-      after: { ...existing, ...updated },
+      after: {
+        ...existing,
+        ...updated,
+      },
       subject: "Funnel updated",
     })
     // Re-publish (or retract, if interco was switched off) the partner mirror.
@@ -937,40 +985,5 @@ export async function advanceStageAction(input: {
   revalidatePath("/funnel")
   revalidatePath(`/funnel/${input.funnelId}`)
   return result
-  })
-}
-
-/**
- * Reopen a parked (KIV) or lost opportunity into a chosen OPEN stage, clearing
- * the close timestamp/date and resetting status. Same permission + record scope
- * as advancing; the terminal-state rules themselves are enforced in the service.
- */
-export async function reopenStageAction(input: {
-  funnelId: string
-  targetStageId: string
-  reason?: string
-}): Promise<ActionResult> {
-  return runAction(async () => {
-    const ctx = await requireContext()
-    assertCan(ctx, PERMISSIONS.STAGE_ADVANCE)
-    await runInTenant(ctx.tenantId, async (tx) => {
-      const visible = await visibleMemberIds(tx, ctx)
-      const [opp] = await tx
-        .select({ ownerMemberId: funnels.ownerMemberId })
-        .from(funnels)
-        .where(
-          and(
-            eq(funnels.id, input.funnelId),
-            isNull(funnels.deletedAt)
-          )
-        )
-        .limit(1)
-      if (!opp) throw new Error("Funnel not found")
-      if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
-        throw new Error("FORBIDDEN: not permitted on this Funnel")
-    })
-    await reopenOpportunity(ctx, input)
-    revalidatePath("/funnel")
-    revalidatePath(`/funnel/${input.funnelId}`)
   })
 }

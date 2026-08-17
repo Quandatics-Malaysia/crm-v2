@@ -4,9 +4,10 @@ import { describe, expect, it } from "vitest"
 
 import type { QuotationDocument } from "@/app/(app)/quotations/actions"
 import { EntityQuotationDocument } from "@/app/(app)/quotations/[id]/preview/entity-quotation-document"
+import { ExternalQuotationDocument } from "@/app/(app)/quotations/[id]/preview/external-quotation-document"
 
 const doc = {
-  quotation: {
+    quotation: {
     quoteNumber: "Q-1",
     quoteDate: "2026-08-04",
     createdAt: new Date("2026-08-04T00:00:00Z"),
@@ -15,9 +16,11 @@ const doc = {
     subtotal: "100.00",
     taxTotal: "8.00",
     total: "108.00",
-    taxRateSnapshot: "8.000",
-    notes: null,
-  },
+      taxRateSnapshot: "8.000",
+      notes: "Saved customer note",
+      delivery: "14 days",
+      paymentTerm: "30 days",
+    },
   lines: [],
   entityName: "CITRUS CLOUD SDN BHD",
   entityCode: "CC",
@@ -36,8 +39,8 @@ const doc = {
     quoteFooter: null,
     hasLogo: true,
   },
-  account: null,
-  contact: null,
+   account: { name: "Recipient Account", code: "REC", phone: null, address: null },
+   contact: { name: "Ada Contact", email: "ada@example.com", phone: "+6012" },
 } as unknown as QuotationDocument
 
 describe("EntityQuotationDocument", () => {
@@ -51,5 +54,28 @@ describe("EntityQuotationDocument", () => {
     expect(html).toContain("SKU")
     expect(html).toContain("Subtotal")
     expect(html).toContain("SST @ 8%")
+    expect(html).toContain("Ada Contact")
+    expect(html).toContain("14 days")
+    expect(html).toContain("30 days")
+    expect(html).toContain("Saved customer note")
+  })
+
+  it("renders saved terms and attention contact in external templates", () => {
+    const html = renderToStaticMarkup(
+      createElement(ExternalQuotationDocument, {
+        doc,
+        template: {
+          code: "external",
+          label: "External",
+          legacyTemplateCode: null,
+          renderMode: "html",
+          htmlTemplate:
+            "<p>{{customerContact}}|{{delivery}}|{{paymentTerm}}|{{notes}}</p>",
+          cssTemplate: null,
+        },
+      })
+    )
+
+    expect(html).toContain("Ada Contact|14 days|30 days|Saved customer note")
   })
 })

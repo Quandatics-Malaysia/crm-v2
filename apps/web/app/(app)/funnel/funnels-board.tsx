@@ -21,7 +21,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { formatMoney, formatPercent } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { FunnelWithStages } from "@/lib/lookups"
-import { advanceStageAction, type OpportunityListRow } from "./actions"
+import { PpvvcEditor } from "@/components/ppvvc-editor"
+import {
+  advanceStageAction,
+  updateOpportunity,
+  type OpportunityListRow,
+} from "./actions"
 import type { CustomFunnelField } from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
 import { canTransition } from "./stage-transitions"
@@ -65,10 +70,13 @@ function CardBody({ c }: { c: OpportunityListRow }) {
 function DraggableCard({
   c,
   draggable,
+  canEditPpvvc,
 }: {
   c: OpportunityListRow
   draggable: boolean
+  canEditPpvvc: boolean
 }) {
+  const router = useRouter()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: c.id,
     data: { stageId: c.stageId },
@@ -95,6 +103,21 @@ function DraggableCard({
             <CardBody c={c} />
           </span>
         </Link>
+        <PpvvcEditor
+          values={c}
+          compact
+          editable={canEditPpvvc}
+          onSave={
+            canEditPpvvc
+              ? async (values) => {
+                  const result = await updateOpportunity(c.id, values)
+                  if (result.ok) router.refresh()
+                  return result
+                }
+              : undefined
+          }
+          className="mt-2"
+        />
       </CardContent>
     </Card>
   )
@@ -104,10 +127,12 @@ function StageColumn({
   stage,
   cards,
   draggable,
+  canEditPpvvc,
 }: {
   stage: Stage
   cards: OpportunityListRow[]
   draggable: boolean
+  canEditPpvvc: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -146,7 +171,12 @@ function StageColumn({
 
       <div className="flex min-h-2 flex-col gap-2">
         {cards.map((c) => (
-          <DraggableCard key={c.id} c={c} draggable={draggable} />
+          <DraggableCard
+            key={c.id}
+            c={c}
+            draggable={draggable}
+            canEditPpvvc={canEditPpvvc}
+          />
         ))}
         {cards.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
@@ -162,6 +192,7 @@ export function OpportunitiesBoard({
   data,
   pipelines,
   canAdvance,
+  canEditPpvvc,
   customFieldDefs = [],
 }: {
   data: OpportunityListRow[]
@@ -169,6 +200,8 @@ export function OpportunitiesBoard({
   /** When false the board is read-only: cards aren't draggable and drops are
    * ignored, so a user without stage-advance can't move pipelines. */
   canAdvance: boolean
+  /** PPVVC edits use the normal Opportunity update permission. */
+  canEditPpvvc: boolean
   /** Tenant custom-field definitions, so a gated drop can collect required fields. */
   customFieldDefs?: CustomFunnelField[]
 }) {
@@ -312,6 +345,7 @@ export function OpportunitiesBoard({
               stage={stage}
               cards={byStage.get(stage.id) ?? []}
               draggable={canAdvance}
+              canEditPpvvc={canEditPpvvc}
             />
           ))}
         </div>
@@ -338,6 +372,8 @@ export function OpportunitiesBoard({
           customValues={
             data.find((c) => c.id === gated.funnelId)?.customFields ?? {}
           }
+          ppvvc={data.find((c) => c.id === gated.funnelId) ?? null}
+          canEditPpvvc={canEditPpvvc}
           open
           onOpenChange={(o) => {
             if (!o) setGated(null)

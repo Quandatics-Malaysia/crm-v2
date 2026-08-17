@@ -17,10 +17,25 @@ describe("nextOpportunityNumber", () => {
 })
 
 describe("formatOpportunityCode", () => {
-  it("formats OPP-{year}-{padded}", () => {
-    expect(formatOpportunityCode(2026, 1)).toBe("OPP-2026-0001")
-    expect(formatOpportunityCode(2026, 42)).toBe("OPP-2026-0042")
-    expect(formatOpportunityCode(2026, 12345)).toBe("OPP-2026-12345")
+  it("normalizes the organization code and formats the approved code", () => {
+    expect(
+      formatOpportunityCode({ organizationCode: " qm-01 ", year: 2026, number: 1 })
+    ).toBe("QM01OPP-2026-0001")
+    expect(
+      formatOpportunityCode({ organizationCode: "qm", year: 2026, number: 42 })
+    ).toBe("QMOPP-2026-0042")
+  })
+
+  it("preserves running numbers wider than the padding width", () => {
+    expect(
+      formatOpportunityCode({ organizationCode: "QM", year: 2026, number: 12345 })
+    ).toBe("QMOPP-2026-12345")
+  })
+
+  it("rejects a missing or non-alphanumeric organization code", () => {
+    expect(() =>
+      formatOpportunityCode({ organizationCode: "---", year: 2026, number: 1 })
+    ).toThrow("Organization code is required")
   })
 })
 

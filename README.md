@@ -29,6 +29,43 @@ architecture directory.
 | Finance | O2C, P2P, Intercompany, Forecast |
 | Platform | Dashboard, Team & RBAC, Settings, Audit, Documentation, Tenancy & Auth |
 
+## CRM sales lifecycle
+
+- Shared lists support private per-member saved views: typed filters, sorting,
+  visible columns, page size, rename/duplicate/default/delete, and base-view
+  reset. There are no organization-shared views.
+- Accounts require a Settings-configured ISO currency. Leads omit Funnel/Stage;
+  conversion uses the default Sales Funnel and first open 0E stage.
+- Opportunities use generated ORGCODEOPP-YYYY-NNNN code/name values. PPVVC is
+  authoritative on the Opportunity in Pain, Power, Vision, Value, Control
+  order and synchronizes live child Funnels. Project code is allocated once,
+  on first entry to 4A; no Project record is created by that transition.
+- Funnel rollback is allowed to nonterminal stages without gates; forward
+  movement revalidates requirements. Closed Won and Closed Lost are terminal.
+- Quotations copy Settings Notes, Delivery, Payment Term, and recipient-scoped
+  Attention snapshots. Lifecycle is Draft → Pending Approval → Approved →
+  Sent; approval requires quotation.approve. Revisions copy the source into
+  Draft and preserve the source. Customer acceptance never changes Funnel
+  stage.
+- Payment Milestones are planning records: Won → Invoiced only. Closed Won
+  marks live milestones Won; users mark them Invoiced. They do not create
+  invoices or complete Projects.
+
+## Lifecycle migration and maintenance
+
+Apply migrations 0076 through 0083 in journal order: saved views, Account
+currency, Opportunity naming/project-code timing, Product taxonomy and quote
+defaults, quotation content, approval, revisions, then milestone decoupling.
+Deploy also reapplies RLS/views and permission synchronization. Preserve legacy
+pipeline and finance history.
+
+Rollback is application-level: stop new writes, deploy the compatible prior
+application, keep additive columns and deprecated compatibility fields readable,
+then resume with the forward migration sequence. Direct destructive SQL
+rollback is unsupported. Before release, run the web tests, lint, typecheck,
+build, migration-journal checks, and tenant-safe smoke tests for Account,
+conversion, PPVVC, quotations, stage rollback, and milestones.
+
 ## Repository map
 
 ```text

@@ -12,7 +12,7 @@ import { PageBody } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
-import { getQuotation, getProjectForQuotation } from "../actions"
+import { getQuotation, getProjectForQuotation, getQuotationFormMeta } from "../actions"
 import { QuotationForm } from "../quotation-form"
 
 async function getTaxInclusive(): Promise<boolean> {
@@ -32,8 +32,10 @@ export default async function QuotationDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+  const detail = await getQuotation(id)
+  if (!detail) notFound()
+
   const [
-    detail,
     taxOptions,
     taxInclusive,
     projectNatures,
@@ -42,8 +44,8 @@ export default async function QuotationDetailPage({
     project,
     ctx,
     modules,
+    formMeta,
   ] = await Promise.all([
-    getQuotation(id),
     listTaxOptions(),
     getTaxInclusive(),
     listProjectNatures(),
@@ -52,16 +54,18 @@ export default async function QuotationDetailPage({
     getProjectForQuotation(id),
     requireContext(),
     getEntitledModuleMap(),
+    getQuotationFormMeta(detail.quotation.funnelId),
   ])
-  if (!detail) notFound()
 
   const perms = {
     canUpdate: ctx.can(PERMISSIONS.QUOTATION_UPDATE),
+    canApprove: ctx.can(PERMISSIONS.QUOTATION_APPROVE),
     canSend: ctx.can(PERMISSIONS.QUOTATION_SEND),
     canAccept: ctx.can(PERMISSIONS.QUOTATION_ACCEPT),
     canDelete: ctx.can(PERMISSIONS.QUOTATION_DELETE),
     canCreateProject:
       modules.projects && ctx.can(PERMISSIONS.PROJECT_CREATE),
+    canCreateRevision: ctx.can(PERMISSIONS.QUOTATION_CREATE),
   }
 
   return (
@@ -163,6 +167,7 @@ export default async function QuotationDetailPage({
           taxInclusive={taxInclusive}
           projectNatures={projectNatures}
           products={products}
+          contacts={formMeta.contacts}
           project={
             project ? { id: project.id, projectCode: project.projectCode } : null
           }

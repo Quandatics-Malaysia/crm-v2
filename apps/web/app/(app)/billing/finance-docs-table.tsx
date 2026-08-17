@@ -73,7 +73,6 @@ export function CreateDocDialog({
   const [kind, setKind] = React.useState<FinanceDocKind>(preset?.kind ?? kinds[0])
   const [salesOrderId, setSalesOrderId] = React.useState("")
   const [parentId, setParentId] = React.useState(preset?.parent.id ?? "")
-  const [milestoneId, setMilestoneId] = React.useState("")
   const [partyName, setPartyName] = React.useState(preset?.parent.partyName ?? "")
   const [amount, setAmount] = React.useState(preset?.parent.amount ?? "")
   const [docDate, setDocDate] = React.useState(() => toDateString(new Date()))
@@ -90,19 +89,9 @@ export function CreateDocDialog({
     .filter((d) => meta.parents.includes(d.kind))
     .map((d) => ({ value: d.id, label: `${d.number} · ${FINANCE_KINDS[d.kind].label}` }))
 
-  // Milestones for the chosen SO's project (invoice tie).
-  const soProjectId = sources.salesOrders.find((s) => s.id === salesOrderId)?.projectId
-  const milestoneOptions =
-    kind === "invoice" && soProjectId
-      ? sources.milestones
-          .filter((m) => m.projectId === soProjectId)
-          .map((m) => ({ value: m.id, label: `${m.title} · ${m.amount}` }))
-      : []
-
   function onKindChange(next: FinanceDocKind) {
     setKind(next)
     setParentId("")
-    setMilestoneId("")
     // A hidden stale SO would otherwise override the parent's real chain root.
     setSalesOrderId("")
   }
@@ -114,7 +103,6 @@ export function CreateDocDialog({
         kind,
         salesOrderId: salesOrderId || null,
         parentId: parentId || null,
-        milestoneId: milestoneId || null,
         partyName: partyName || null,
         amount: amount || "0",
         docDate: docDate || null,
@@ -171,8 +159,6 @@ export function CreateDocDialog({
                 value={salesOrderId || NONE}
                 onChange={(v) => {
                   setSalesOrderId(!v || v === NONE ? "" : v)
-                  // Milestones belong to the SO's project — never carry one over.
-                  setMilestoneId("")
                 }}
                 options={[{ value: NONE, label: "—" }, ...soOptions]}
                 placeholder="Pick the approved sales order…"
@@ -195,25 +181,6 @@ export function CreateDocDialog({
                 placeholder="Pick the source document…"
                 searchPlaceholder="Search documents…"
                 emptyMessage="No source documents yet."
-              />
-            </div>
-          ) : null}
-
-          {milestoneOptions.length > 0 ? (
-            <div className="grid gap-2">
-              <Label>Payment milestone (optional)</Label>
-              <Combobox
-                value={milestoneId || NONE}
-                onChange={(v) => {
-                  const next = !v || v === NONE ? "" : v
-                  setMilestoneId(next)
-                  const m = sources.milestones.find((x) => x.id === next)
-                  if (m) setAmount(m.amount)
-                }}
-                options={[{ value: NONE, label: "—" }, ...milestoneOptions]}
-                placeholder="Bill a milestone…"
-                searchPlaceholder="Search milestones…"
-                emptyMessage="No pending milestones."
               />
             </div>
           ) : null}
@@ -460,9 +427,9 @@ export function FinanceDocsTable({
         data={data}
         tableId={`finance-${direction}`}
         cap={1000}
-        facets={[
-          { columnId: "kind", title: "Type" },
-          { columnId: "status", title: "Status" },
+        filters={[
+          { type: "enum", columnId: "kind", title: "Type", options: Array.from(new Set(data.map((row) => row.kind).filter(Boolean))).map((value) => ({ value, label: value })) },
+          { type: "enum", columnId: "status", title: "Status", options: Array.from(new Set(data.map((row) => row.status).filter(Boolean))).map((value) => ({ value, label: value })) },
         ]}
         searchColumn="number"
         searchPlaceholder="Search by number…"

@@ -34,8 +34,9 @@ import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { ProductForm } from "./product-form"
 import { deleteProduct, restoreProduct, type ProductRow } from "./actions"
+import type { ProductCategory } from "@/app/(app)/settings/constants"
 
-type ProductCodeOption = { code: string; name: string }
+type ProductCodeOption = ProductCategory
 
 function RowActions({
   product,
@@ -165,6 +166,15 @@ export function ProductsTable({
     () => new Map(productCodes.map((c) => [c.code, c.name])),
     [productCodes]
   )
+  const subcategoryName = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const category of productCodes) {
+      for (const subcategory of category.subcategories) {
+        map.set(`${category.code}:${subcategory.code}`, subcategory.name)
+      }
+    }
+    return map
+  }, [productCodes])
 
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(
     () => [
@@ -208,7 +218,19 @@ export function ProductsTable({
       {
         accessorKey: "subcategory",
         header: "Subcategory",
-        cell: ({ row }) => row.original.subcategory ?? "—",
+        cell: ({ row }) => {
+          if (!row.original.subcategory) return "—"
+          return (
+            <span>
+              {row.original.subcategory}
+              {row.original.productCode && subcategoryName.get(`${row.original.productCode}:${row.original.subcategory}`) ? (
+                <span className="text-muted-foreground">
+                  {" "}· {subcategoryName.get(`${row.original.productCode}:${row.original.subcategory}`)}
+                </span>
+              ) : null}
+            </span>
+          )
+        },
       },
       {
         accessorKey: "uom",
@@ -249,7 +271,7 @@ export function ProductsTable({
         enableHiding: false,
       },
     ],
-    [productCodes, codeName, currencies]
+    [productCodes, codeName, currencies, subcategoryName]
   )
 
   return (
@@ -258,9 +280,9 @@ export function ProductsTable({
       data={data}
       tableId="products"
       cap={1000}
-      facets={[
-        { columnId: "productCode", title: "Product code" },
-        { columnId: "isActive", title: "Status" },
+      filters={[
+        { type: "relation", columnId: "productCode", title: "Product code", options: productCodes.map((option) => ({ value: option.code, label: option.name })) },
+        { type: "boolean", columnId: "isActive", title: "Status" },
       ]}
       searchColumn="name"
       searchPlaceholder="Search products…"

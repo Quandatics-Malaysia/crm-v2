@@ -16,16 +16,13 @@ import {
 } from "@/components/ui/dialog"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
-import type { FunnelWithStages } from "@/lib/lookups"
 import { LeadForm } from "../lead-form"
 import { updateLead, type Lead, type LeadInput } from "../actions"
 
 export function LeadEditButton({
   lead,
-  pipelines,
 }: {
   lead: Lead
-  pipelines: FunnelWithStages[]
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -60,7 +57,6 @@ export function LeadEditButton({
         </DialogHeader>
         <LeadForm
           lead={lead}
-          pipelines={pipelines}
           onSubmit={handleUpdate}
           submitLabel="Save changes"
         />

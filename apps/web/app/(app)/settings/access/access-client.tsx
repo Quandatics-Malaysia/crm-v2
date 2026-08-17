@@ -287,6 +287,7 @@ export function AccessClient({ data }: { data: ApiKeyRow[] }) {
       <DataTable
         columns={columns}
         data={data}
+        tableId="settings-api-keys"
         searchColumn="name"
         searchPlaceholder="Search API keys…"
         emptyMessage="No API keys yet."

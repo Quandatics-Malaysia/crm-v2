@@ -13,6 +13,11 @@ import {
   canManageAllRecords,
 } from "@/lib/access-scope"
 import { opportunities, funnels } from "@/db/schema"
+import {
+  recordPpvvcSyncChanges,
+  updateOpportunityPpvvc,
+} from "@/server/services/ppvvc"
+import { normalizePpvvcPatch } from "@/lib/ppvvc"
 
 /** A resolved contact for display: name + derived "Designation" (persons.title). */
 export type ContactRef = { id: string; name: string; designation: string | null }
@@ -49,6 +54,7 @@ export type OpportunityContainerDetail = {
   opportunity: typeof opportunities.$inferSelect
   accountId: string
   accountName: string
+  accountCurrency: string
   ownerName: string | null
   /** Opportunity Owner Contact, resolved with its derived Designation. */
   ownerContact: ContactRef | null
@@ -91,7 +97,6 @@ export async function getOpportunity(
 }
 
 export type OpportunityContainerUpdateInput = {
-  name?: string
   description?: string | null
   // PPVVC "Analysis" block — source of truth on the container, cascaded to
   // every non-deleted child funnel (same pattern as project nature below).
@@ -137,12 +142,14 @@ export async function updateOpportunityContainer(
         throw new Error("FORBIDDEN: not permitted on this Opportunity")
       }
 
+      const ppvvcInput = normalizePpvvcPatch({
+        pain: input.pain,
+        power: input.power,
+        vision: input.vision,
+        value: input.value,
+        control: input.control,
+      })
       const cascade = {
-        pain: input.pain === undefined ? existing.pain : input.pain || null,
-        power: input.power === undefined ? existing.power : input.power || null,
-        vision: input.vision === undefined ? existing.vision : input.vision || null,
-        value: input.value === undefined ? existing.value : input.value || null,
-        control: input.control === undefined ? existing.control : input.control || null,
         projectNatureCode:
           input.projectNatures !== undefined
             ? (input.projectNatures?.[0] ?? null)
@@ -158,7 +165,6 @@ export async function updateOpportunityContainer(
       }
 
       const updated = {
-        name: input.name?.trim() || existing.name,
         description:
           input.description === undefined ? existing.description : input.description || null,
         ...cascade,
@@ -197,18 +203,24 @@ export async function updateOpportunityContainer(
         updatedAt: new Date(),
       }
 
+      const hasPpvvcInput = Object.keys(ppvvcInput).length > 0
+      const syncedPpvvc = hasPpvvcInput
+        ? await updateOpportunityPpvvc(tx, {
+            opportunityId: id,
+            tenantId: ctx.tenantId,
+            values: ppvvcInput,
+            actorId: ctx.userId,
+          })
+        : null
+      if (syncedPpvvc) await recordPpvvcSyncChanges(tx, ctx, syncedPpvvc)
+
       await tx.update(opportunities).set(updated).where(eq(opportunities.id, id))
 
-      // Cascade PPVVC + nature to every non-deleted child funnel — they're
-      // read-only copies for display/gating, this container is the source.
+      // Project nature remains a compatibility snapshot on live child Funnels;
+      // PPVVC snapshots are maintained only by updateOpportunityPpvvc above.
       await tx
         .update(funnels)
         .set({
-          pain: cascade.pain,
-          power: cascade.power,
-          vision: cascade.vision,
-          value: cascade.value,
-          control: cascade.control,
           projectNatureCode: cascade.projectNatureCode,
           projectNatures: cascade.projectNatures,
           updatedAt: new Date(),

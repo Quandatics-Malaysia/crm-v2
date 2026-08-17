@@ -11,6 +11,8 @@ describe("renderQuotationTemplate", () => {
       context: {
         entityName: "<Trusted Entity>",
         logoUrl: "/api/tenant-logo",
+        delivery: "14 days",
+        paymentTerm: "30 days",
         lines: [
           { description: "First <service>", quantity: "1", lineTotal: "10.00" },
           { description: "Second", quantity: "2", lineTotal: "20.00" },
@@ -27,5 +29,19 @@ describe("renderQuotationTemplate", () => {
     expect(result.css).not.toContain("@import")
     expect(result.css).not.toContain("url(")
     expect(result.css).not.toContain("</style>")
+  })
+
+  it("renders saved quotation content as ordinary escaped template values", () => {
+    const result = renderQuotationTemplate({
+      htmlTemplate: "{{delivery}}|{{paymentTerm}}|{{notes}}|{{customerContact}}",
+      context: {
+        delivery: "14 days",
+        paymentTerm: "30 days",
+        notes: "Saved <note>",
+        customerContact: "Ada Contact",
+      },
+    })
+
+    expect(result.html).toBe("14 days|30 days|Saved &lt;note&gt;|Ada Contact")
   })
 })

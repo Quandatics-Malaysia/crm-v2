@@ -8,8 +8,13 @@ import {
   type PathNote,
 } from "@/components/stage-path-view"
 import type { StageGate, CustomFunnelField } from "@/lib/stage-gate"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
-import { selectableTargets } from "./stage-transitions"
+import {
+  selectableTargets,
+  stagePathActionLabel,
+  stagePathInstruction,
+} from "./stage-transitions"
 
 type Stage = {
   id: string
@@ -37,6 +42,8 @@ export function StagePath({
   gate,
   customFieldDefs = [],
   customValues = {},
+  ppvvc,
+  canEditPpvvc = false,
 }: {
   funnelId: string
   currentStageId: string
@@ -49,17 +56,20 @@ export function StagePath({
   customFieldDefs?: CustomFunnelField[]
   /** The funnel's current custom-field values. */
   customValues?: Record<string, string>
+  /** Authoritative Opportunity PPVVC values for inline stage editing. */
+  ppvvc?: PpvvcPatch | null
+  canEditPpvvc?: boolean
 }) {
   const [target, setTarget] = React.useState<string | null>(null)
 
-  const { steps, note } = React.useMemo(() => {
+  const { steps, note, hint } = React.useMemo(() => {
     const ladder = stages
       .filter((s) => s.kind === "OPEN" || s.kind === "WON")
       .sort((a, b) => a.sortOrder - b.sortOrder)
     const currentIdx = ladder.findIndex((s) => s.id === currentStageId)
-    const selectableIds = new Set(
-      selectableTargets(stages, currentStageId).map((s) => s.id)
-    )
+    const current = stages.find((s) => s.id === currentStageId)
+    const selectable = selectableTargets(stages, currentStageId)
+    const selectableIds = new Set(selectable.map((s) => s.id))
     const steps: PathStep[] = ladder.map((s, i) => {
       const state =
         currentIdx >= 0 && i < currentIdx
@@ -74,18 +84,24 @@ export function StagePath({
         state,
         tone: s.kind === "WON" ? "won" : "default",
         clickable,
-        title: clickable ? `Advance to ${s.name}` : undefined,
+        title:
+          clickable && current
+            ? stagePathActionLabel(current, s)
+            : undefined,
       }
     })
 
-    const current = stages.find((s) => s.id === currentStageId)
     let note: PathNote = null
     if (current?.kind === "LOST")
       note = { label: `Closed Lost — ${current.name}`, tone: "lost" }
     else if (current?.kind === "PARKED")
       note = { label: `KIV — ${current.name}`, tone: "parked" }
 
-    return { steps, note }
+    const hint = interactive && !note && current
+      ? stagePathInstruction(current, selectable)
+      : undefined
+
+    return { steps, note, hint }
   }, [stages, currentStageId, interactive])
 
   return (
@@ -93,7 +109,7 @@ export function StagePath({
       <StagePathView
         steps={steps}
         note={note}
-        hint={interactive && !note ? "Click a later stage to advance." : undefined}
+        hint={hint}
         onStepClick={interactive ? setTarget : undefined}
       />
       {interactive ? (
@@ -111,6 +127,8 @@ export function StagePath({
           gate={gate}
           customFieldDefs={customFieldDefs}
           customValues={customValues}
+          ppvvc={ppvvc}
+          canEditPpvvc={canEditPpvvc}
         />
       ) : null}
     </>

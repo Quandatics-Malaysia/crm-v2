@@ -747,7 +747,7 @@ export const SCHEMA_TABLES: SchemaTable[] = [
       },
       {
         "name": "milestone_id",
-        "type": "uuid",
+        "type": "uuid (deprecated historical invoice link; no live linkage)",
         "nullable": true,
         "def": null
       },
@@ -1958,12 +1958,6 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "def": null
       },
       {
-        "name": "auto_complete_project_on_paid",
-        "type": "boolean",
-        "nullable": false,
-        "def": "false"
-      },
-      {
         "name": "interco_auto_mirror",
         "type": "boolean",
         "nullable": false,
@@ -2554,7 +2548,13 @@ export const SCHEMA_TABLES: SchemaTable[] = [
       {
         "name": "project_id",
         "type": "uuid",
-        "nullable": false,
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "funnel_id",
+        "type": "uuid",
+        "nullable": true,
         "def": null
       },
       {
@@ -2567,6 +2567,18 @@ export const SCHEMA_TABLES: SchemaTable[] = [
         "name": "title",
         "type": "text",
         "nullable": false,
+        "def": null
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": true,
         "def": null
       },
       {
@@ -2583,15 +2595,69 @@ export const SCHEMA_TABLES: SchemaTable[] = [
       },
       {
         "name": "status",
-        "type": "payment_milestone_status (pending | invoiced | paid)",
+        "type": "payment_milestone_status (won | invoiced)",
         "nullable": false,
-        "def": "'pending'"
+        "def": "'won'"
       },
       {
         "name": "sort_order",
         "type": "integer",
         "nullable": false,
         "def": "0"
+      },
+      {
+        "name": "split_percentage",
+        "type": "numeric",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "invoice_number",
+        "type": "text (deprecated historical snapshot; no live linkage)",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "invoice_date",
+        "type": "date (deprecated historical snapshot; no live linkage)",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "expected_invoice_month",
+        "type": "text (deprecated historical planning field)",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "expected_invoice_year",
+        "type": "integer (deprecated historical planning field)",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "so_number",
+        "type": "text",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "product_category",
+        "type": "text",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "product_subcategory",
+        "type": "text",
+        "nullable": true,
+        "def": null
+      },
+      {
+        "name": "is_default",
+        "type": "boolean",
+        "nullable": false,
+        "def": "false"
       },
       {
         "name": "created_at",

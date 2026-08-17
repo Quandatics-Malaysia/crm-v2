@@ -67,12 +67,24 @@ import {
 } from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
 import {
+  QUOTATION_CONTENT_LIMITS,
+  snapshotQuotationLineDescription,
+} from "@/lib/quotation-content"
+import { quotationActionsFor } from "@/lib/quotation-transitions"
+import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
+import {
   updateQuotation,
+  createQuotationRevision,
+  submitQuotationForApproval,
+  approveQuotation,
+  rejectQuotation,
+  returnApprovedQuotationToDraft,
   sendQuotation,
   acceptQuotation,
-  rejectQuotation,
+  rejectCustomerQuotation,
   setPrimaryQuotation,
   deleteQuotation,
+  type QuotationContactOption,
   type QuotationDetail,
 } from "./actions"
 
@@ -80,7 +92,10 @@ const schema = z.object({
   taxSettingId: z.string(),
   projectNatureCode: z.string(),
   validUntil: z.string(),
-  notes: z.string(),
+  notes: z.string().max(QUOTATION_CONTENT_LIMITS.notes, "Notes must be 2000 characters or fewer"),
+  delivery: z.string().max(QUOTATION_CONTENT_LIMITS.delivery, "Delivery must be 500 characters or fewer"),
+  paymentTerm: z.string().max(QUOTATION_CONTENT_LIMITS.paymentTerm, "Payment term must be 120 characters or fewer"),
+  attentionContactId: z.string(),
   headerDiscount: headerDiscountSchema,
   lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
 })
@@ -90,6 +105,7 @@ type FormValues = z.infer<typeof schema>
 const NO_TAX = "__none__"
 /** Sentinel for "no project nature" in the editable picker. */
 const NO_PROJECT_NATURE = "__none__"
+const NO_CONTACT = "__none__"
 
 type TaxOption = { id: string; name: string; ratePercent: string; isDefault: boolean }
 type ProjectNatureOption = { code: string; name: string }
@@ -98,18 +114,22 @@ type ProjectNatureOption = { code: string; name: string }
  * permitted so the component stays drop-in for any caller that omits them. */
 export type QuotationPerms = {
   canUpdate: boolean
+  canApprove: boolean
   canSend: boolean
   canAccept: boolean
   canDelete: boolean
   canCreateProject: boolean
+  canCreateRevision: boolean
 }
 
 const ALL_QUOTATION_PERMS: QuotationPerms = {
   canUpdate: true,
+  canApprove: true,
   canSend: true,
   canAccept: true,
   canDelete: true,
   canCreateProject: true,
+  canCreateRevision: true,
 }
 
 export function QuotationForm({
@@ -118,6 +138,7 @@ export function QuotationForm({
   taxInclusive,
   projectNatures = [],
   products = [],
+  contacts = [],
   project = null,
   documents = [],
   perms = ALL_QUOTATION_PERMS,
@@ -129,6 +150,8 @@ export function QuotationForm({
   projectNatures?: ProjectNatureOption[]
   /** Active catalog products for the line-item picker. */
   products?: ProductOption[]
+  /** Recipient-account contacts available for the Attention snapshot. */
+  contacts?: QuotationContactOption[]
   /** The delivery project created from this quotation, if any. */
   project?: { id: string; projectCode: string } | null
   /** Files attached to this quotation (shown in the Documents tab). */
@@ -138,27 +161,46 @@ export function QuotationForm({
   const router = useRouter()
   const { quotation, lines, opportunityName } = detail
   const isDraft = quotation.status === "draft"
+  const isPendingApproval = quotation.status === "pending_approval"
+  const isApproved = quotation.status === "approved"
   const isSent = quotation.status === "sent"
   const isAccepted = quotation.status === "accepted"
   // A draft is only editable when the user also holds the update permission.
   const canEditDraft = isDraft && perms.canUpdate
   const createProjectHref = `/projects/new?funnelId=${quotation.funnelId}`
   const [busy, setBusy] = React.useState(false)
+  const [approvalReason, setApprovalReason] = React.useState("")
   // "Build" = the editor; "Preview" = the finished quotation document (toggle
   // like the funnel board/list).
   const [view, setView] = React.useState("build")
 
   // Whether the Actions card has anything to show for this user/status.
-  const showSend = isDraft && perms.canSend
-  const showAcceptReject = isSent && perms.canAccept
+  const quotationActions = quotationActionsFor(quotation.status, {
+    canUpdate: perms.canUpdate,
+    canApprove: perms.canApprove,
+    canSend: perms.canSend,
+    canAccept: perms.canAccept,
+  })
+  const hasQuotationAction = (action: (typeof quotationActions)[number]) =>
+    quotationActions.includes(action)
+  const showSubmit = hasQuotationAction("submit_for_approval")
+  const showApproval =
+    isPendingApproval && hasQuotationAction("approve")
+  const showSend = isApproved && hasQuotationAction("send")
+  const showReset = isApproved && hasQuotationAction("return_to_draft")
+  const showAcceptReject =
+    isSent && hasQuotationAction("accept")
   const showCreateProject = isAccepted && !project && perms.canCreateProject
+  const showRevision =
+    perms.canCreateRevision &&
+    canCreateQuotationRevision(quotation.status, quotation.deletedAt)
   const showSetPrimary =
     !quotation.isPrimary &&
     (quotation.status === "accepted" || quotation.status === "sent") &&
     perms.canUpdate
   const showDelete = perms.canDelete
   const hasAnyAction =
-    showSend || showAcceptReject || showCreateProject || showSetPrimary || showDelete
+    showSubmit || showApproval || showSend || showReset || showAcceptReject || showCreateProject || showRevision || showSetPrimary || showDelete
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -168,6 +210,9 @@ export function QuotationForm({
       projectNatureCode: quotation.projectNatureCode ?? NO_PROJECT_NATURE,
       validUntil: quotation.validUntil ?? "",
       notes: quotation.notes ?? "",
+      delivery: quotation.delivery ?? "",
+      paymentTerm: quotation.paymentTerm ?? "",
+      attentionContactId: quotation.attentionContactId ?? NO_CONTACT,
       headerDiscount: quotation.headerDiscount ?? "0",
       lines:
         lines.length > 0
@@ -212,9 +257,11 @@ export function QuotationForm({
       const p = products.find((x) => x.id === productId)
       if (!p) return
       form.setValue(`lines.${index}.productId`, p.id)
-      form.setValue(`lines.${index}.description`, p.description || p.name, {
-        shouldValidate: true,
-      })
+      form.setValue(
+        `lines.${index}.description`,
+        snapshotQuotationLineDescription({ productDescription: p.description, productName: p.name }),
+        { shouldValidate: true }
+      )
       form.setValue(`lines.${index}.unitPrice`, Number(p.standardPrice).toString(), {
         shouldValidate: true,
       })
@@ -321,6 +368,12 @@ export function QuotationForm({
           : values.projectNatureCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
+      delivery: values.delivery || null,
+      paymentTerm: values.paymentTerm || null,
+      attentionContactId:
+        values.attentionContactId === NO_CONTACT
+          ? null
+          : values.attentionContactId || null,
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
         productId: l.productId || null,
@@ -350,22 +403,7 @@ export function QuotationForm({
       setBusy(false)
       return
     }
-    if (res.data.warning) toast.warning(res.data.warning)
-    if (res.data.pendingApproval) {
-      // Auto-win is gated behind an approval request — the funnel is NOT won
-      // yet, so don't offer the "Create project" forward step as if it had.
-      toast.success(
-        "Quotation accepted — winning the funnel is pending approval"
-      )
-    } else {
-      // The highest-value moment: offer the forward step (create the project).
-      toast.success("Quotation accepted", {
-        action: {
-          label: "Create project",
-          onClick: () => router.push(createProjectHref),
-        },
-      })
-    }
+    toast.success("Quotation accepted")
     router.refresh()
     setBusy(false)
   }
@@ -404,6 +442,18 @@ export function QuotationForm({
     setBusy(false)
   }
 
+  async function onCreateRevision() {
+    setBusy(true)
+    const res = await createQuotationRevision(quotation.id)
+    if (!res.ok) {
+      showActionError(res)
+      setBusy(false)
+      return
+    }
+    toast.success("Revision created")
+    router.push(`/quotations/${res.data.id}`)
+  }
+
   async function submitAction(
     fn: () => Promise<ActionResult<unknown>>,
     successMsg: string,
@@ -438,7 +488,11 @@ export function QuotationForm({
           <form onSubmit={form.handleSubmit(onSave)} className="grid gap-6">
             {!isDraft ? (
               <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
-                {isSent
+                {isPendingApproval
+                  ? "This quotation is pending approval and is now read-only."
+                  : isApproved
+                    ? "This quotation is approved and read-only. Return it to Draft explicitly before editing; approval is required again before sending."
+                    : isSent
                   ? `This quotation was sent${
                       quotation.sentAt
                         ? ` on ${formatDate(quotation.sentAt)}`
@@ -450,8 +504,10 @@ export function QuotationForm({
                           ? ` on ${formatDate(quotation.acceptedAt)}`
                           : ""
                       } and is now read-only.`
-                    : "This quotation is read-only."}{" "}
-                To change pricing, create a revision from the funnel.
+                    : "This quotation is read-only."}
+                {!isPendingApproval && !isApproved
+                  ? " Create a revision from the funnel to change pricing."
+                  : null}
               </div>
             ) : null}
             <Card>
@@ -572,6 +628,42 @@ export function QuotationForm({
                 />
                 <FormField
                   control={form.control}
+                  name="attentionContactId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Attention</FormLabel>
+                      <Select
+                        value={field.value}
+                        onValueChange={(value) => field.onChange(value ?? NO_CONTACT)}
+                        disabled={!canEditDraft}
+                        items={[
+                          { value: NO_CONTACT, label: "No contact" },
+                          ...contacts.map((contact) => ({
+                            value: contact.id,
+                            label: `${contact.name}${contact.isPrimary ? " (Primary)" : ""}`,
+                          })),
+                        ]}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select contact…" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={NO_CONTACT}>No contact</SelectItem>
+                          {contacts.map((contact) => (
+                            <SelectItem key={contact.id} value={contact.id}>
+                              {contact.name}{contact.isPrimary ? " (Primary)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="notes"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
@@ -579,8 +671,45 @@ export function QuotationForm({
                       <FormControl>
                         <Textarea
                           rows={3}
+                          maxLength={QUOTATION_CONTENT_LIMITS.notes}
                           disabled={!canEditDraft}
                           placeholder="Optional notes for the customer…"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="delivery"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Delivery</FormLabel>
+                      <FormControl>
+                        <Input
+                          maxLength={QUOTATION_CONTENT_LIMITS.delivery}
+                          disabled={!canEditDraft}
+                          placeholder="e.g. 14 days"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="paymentTerm"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Payment term</FormLabel>
+                      <FormControl>
+                        <Input
+                          maxLength={QUOTATION_CONTENT_LIMITS.paymentTerm}
+                          disabled={!canEditDraft}
+                          placeholder="e.g. 30 days"
                           {...field}
                         />
                       </FormControl>
@@ -817,6 +946,91 @@ export function QuotationForm({
             <CardTitle>Actions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
+            {showSubmit ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="default" disabled={busy}>
+                      Submit for approval
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Submit this quotation for approval?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Submission locks editing until an approver returns it to Draft or approves it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() =>
+                        submitAction(
+                          () => submitQuotationForApproval(quotation.id),
+                          "Quotation submitted for approval"
+                        )
+                      }
+                    >
+                      Submit
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+            {showApproval ? (
+              <>
+                <Button
+                  variant="default"
+                  disabled={busy}
+                  onClick={() =>
+                    submitAction(
+                      () => approveQuotation(quotation.id),
+                      "Quotation approved"
+                    )
+                  }
+                >
+                  Approve
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger
+                    render={
+                      <Button variant="outline" disabled={busy}>
+                        Reject approval
+                      </Button>
+                    }
+                  />
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Return quotation to Draft?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Rejection reason is required. Quote owner can edit and resubmit after this decision.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <Textarea
+                      value={approvalReason}
+                      onChange={(event) => setApprovalReason(event.target.value)}
+                      placeholder="Reason for rejection"
+                      maxLength={2000}
+                    />
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={!approvalReason.trim()}
+                        onClick={() =>
+                          submitAction(
+                            () => rejectQuotation(quotation.id, approvalReason),
+                            "Quotation returned to Draft"
+                          )
+                        }
+                      >
+                        Reject approval
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            ) : null}
             {showSend ? (
               <AlertDialog>
                 <AlertDialogTrigger
@@ -869,10 +1083,8 @@ export function QuotationForm({
                       </AlertDialogTitle>
                       <AlertDialogDescription>
                         Accepting marks {quotation.quoteNumber} as the funnel’s
-                        primary, winning quotation. If auto-win is enabled this
-                        also moves the funnel to Won (or raises an approval
-                        request) and lets you start a project. This can’t be
-                        undone.
+                        primary quotation. It does not change the Funnel stage.
+                        This can’t be undone.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -907,7 +1119,7 @@ export function QuotationForm({
                       <AlertDialogAction
                         onClick={() =>
                           submitAction(
-                            () => rejectQuotation(quotation.id),
+                            () => rejectCustomerQuotation(quotation.id),
                             "Quotation rejected"
                           )
                         }
@@ -919,6 +1131,38 @@ export function QuotationForm({
                 </AlertDialog>
               </>
             ) : null}
+            {showReset ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="outline" disabled={busy}>
+                      Return to Draft to edit
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Return approved quotation to Draft?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Approval metadata clears. Any later send requires approval again.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() =>
+                        submitAction(
+                          () => returnApprovedQuotationToDraft(quotation.id),
+                          "Quotation returned to Draft"
+                        )
+                      }
+                    >
+                      Return to Draft
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
             {showCreateProject ? (
               <Button
                 variant="default"
@@ -928,6 +1172,33 @@ export function QuotationForm({
               >
                 Create project
               </Button>
+            ) : null}
+            {showRevision ? (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="outline" disabled={busy}>
+                      Create revision
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Create a revision of {quotation.quoteNumber}?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This copies the frozen quotation snapshot and line items into a new Draft. The source quotation remains unchanged.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={onCreateRevision}>
+                      Create revision
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             {showSetPrimary ? (
               <div className="flex items-center gap-1.5">

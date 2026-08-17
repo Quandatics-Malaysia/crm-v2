@@ -22,6 +22,10 @@ import { logActivity } from "@/server/services/activity"
 import { writeAudit } from "@/server/audit"
 import { opportunityNetValue } from "@/server/services/value"
 import { milestoneName } from "@/lib/so-milestones"
+import {
+  canTransitionPaymentMilestone,
+  type PaymentMilestoneStatus,
+} from "@/lib/payment-milestone-lifecycle"
 
 export type PaymentMilestoneRow = typeof paymentMilestones.$inferSelect
 
@@ -127,11 +131,9 @@ export type FunnelMilestoneUpdateInput = {
   amount?: string | null
   dueDate?: string | null
   status?: string
-  expectedInvoiceMonth?: string | null
-  expectedInvoiceYear?: number | null
 }
 
-type MilestoneStatusValue = (typeof paymentMilestoneStatus.enumValues)[number]
+type MilestoneStatusValue = PaymentMilestoneStatus
 
 function isMilestoneStatus(v: string | undefined): v is MilestoneStatusValue {
   return (
@@ -390,11 +392,11 @@ export async function updateFunnelMilestone(
         const nextStatus = isMilestoneStatus(input.status)
           ? input.status
           : existing.status
-        // Status is forward-only: pending → invoiced → paid.
+        // Only Won → Invoiced is a user-controlled transition. Closed Won
+        // propagation is owned by the stage service and may set live rows Won.
         if (
           nextStatus !== existing.status &&
-          paymentMilestoneStatus.enumValues.indexOf(nextStatus) <
-            paymentMilestoneStatus.enumValues.indexOf(existing.status)
+          !canTransitionPaymentMilestone(existing.status, nextStatus)
         ) {
           throw new Error("Milestone status cannot move backward.")
         }
@@ -416,14 +418,6 @@ export async function updateFunnelMilestone(
               input.dueDate === undefined
                 ? existing.dueDate
                 : input.dueDate || null,
-            expectedInvoiceMonth:
-              input.expectedInvoiceMonth === undefined
-                ? existing.expectedInvoiceMonth
-                : input.expectedInvoiceMonth || null,
-            expectedInvoiceYear:
-              input.expectedInvoiceYear === undefined
-                ? existing.expectedInvoiceYear
-                : input.expectedInvoiceYear ?? null,
             status: nextStatus,
             updatedAt: new Date(),
           })

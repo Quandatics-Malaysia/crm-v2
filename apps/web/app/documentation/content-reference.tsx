@@ -70,7 +70,7 @@ flowchart TD
         head={["Role", "Tier", "Summary"]}
         rows={[
           ["Owner / Admin", "100 / 90", "Everything (wildcard grant, kept in sync with the catalog)."],
-          ["Manager", "60", "Rep powers + approvals (stage advances, sales orders), send/accept/delete quotes, tax & funnel config, audit, intercompany, finance.manage."],
+          ["Manager", "60", "Rep powers + approvals (stage advances, quotation approval, sales orders), send/accept/delete quotes, tax & funnel config, audit, intercompany, finance.manage."],
           ["Senior Rep", "40", "Rep powers + send quotations; advances stages without approval (above the default bypass tier)."],
           ["Rep", "20", "Create/update CRM + sales records; gated stage advances require upline approval."],
           ["Viewer", "10", "Read-only across the workspace (view permissions + records.view_all)."],
@@ -79,7 +79,9 @@ flowchart TD
       <P>
         <Code>approval_bypass_tier</Code> decides which tiers skip
         stage-approval gates. Custom roles are freely editable per tenant in
-        Team &amp; roles.
+        Team &amp; roles. Assign <Code>quotation.approve</Code> explicitly to
+        members who may approve or reject pending quotations; quotation-create
+        permission is separate.
       </P>
 
       <H2>Membership & entity switches</H2>
@@ -127,8 +129,8 @@ export const settingsReferencePage: DocPage = {
         head={["Setting", "Default", "Effect"]}
         rows={[
           [<Code key="s">entity_name / entity_code</Code>, "—", "Display name + the prefix minted into project and finance-document numbers."],
-          [<Code key="s">default_currency</Code>, "MYR", "Prefill for new pipelines/quotes/projects."],
-          [<Code key="s">currencies / payment_terms</Code>, "built-ins", "Picklists for money fields and SO submission."],
+          [<Code key="s">default_currency</Code>, "MYR", "Fallback for required Account currency and new sales records."],
+          [<Code key="s">currencies / payment_terms</Code>, "built-ins", "Configured ISO-currency and payment-term picklists; Account currency is never free text."],
           [<Code key="s">fiscal_year_start_month</Code>, "1", "FY windows on /forecast."],
           [<Code key="s">tax_inclusive</Code>, "off", "Quotation math treats unit prices as tax-inclusive."],
           [<Code key="s">approval_bypass_tier</Code>, "40", "Role tiers ≥ this skip stage-approval gates."],
@@ -144,6 +146,7 @@ export const settingsReferencePage: DocPage = {
           [<Code key="s">industries</Code>, "Account form"],
           [<Code key="s">countries</Code>, "Address country selects"],
           [<Code key="s">product_types / product_codes</Code>, "Project natures (codes drive project numbering)"],
+          [<Code key="s">product_codes</Code>, "Nested product taxonomy: category code/name with owned subcategories and dependent Product selectors."],
           [<Code key="s">lead_sources</Code>, "Lead form"],
           [<Code key="s">loss_reasons</Code>, "Deal-lost + lead-disqualify dialogs"],
           [<Code key="s">so_document_kinds</Code>, "Sales-order submission"],
@@ -164,17 +167,27 @@ export const settingsReferencePage: DocPage = {
         ]}
       />
 
+      <H2>Sales configuration</H2>
+      <DocTable
+        head={["Setting", "Default", "Effect"]}
+        rows={[
+          [<Code key="s">quote_default_notes</Code>, "blank", "Copied into each new quotation as an editable snapshot (max 2,000 characters)."],
+          [<Code key="s">quote_default_delivery</Code>, "blank", "Copied into each new quotation and exposed to built-in/external templates (max 500 characters)."],
+          [<Code key="s">quote_default_payment_term</Code>, "blank", "Copied into each new quotation as editable free text (max 120 characters)."],
+          [<Code key="s">default Sales Funnel</Code>, "Sales Funnel / 0E", "New conversion paths use the single default funnel and first open stage; pipeline management is read-only."],
+          [<Code key="s">saved views</Code>, "none", "Per-member named filters, sorting, visibility, page size and optional default for each shared list."],
+        ]}
+      />
+
       <H2>Automation & behavior</H2>
       <DocTable
         head={["Setting", "Default", "Effect"]}
         rows={[
-          [<Code key="s">auto_win_on_quote_accept</Code>, "off", "Accepted primary quote moves the funnel to Won (bypasses the Won approval gate)."],
-          [<Code key="s">auto_create_project_on_accept</Code>, "off", "Accepted quote creates the delivery project + seeds the milestone template."],
-          [<Code key="s">milestone_template</Code>, "—", "Percent split seeded onto new projects with a value."],
+          [<Code key="s">quotation acceptance</Code>, "customer decision only", "Accept/Reject is allowed from Sent and never changes Funnel stage or creates a Project."],
+          [<Code key="s">milestone_template</Code>, "—", "Percent split seeds new Project planning records; it does not create invoice documents."],
           [<Code key="s">follow_up_due_days</Code>, "7", 'Dashboard "due soon" window.'],
           [<Code key="s">stale_deal_days</Code>, "off", "Dashboard stale-funnel nudges."],
           [<Code key="s">lead_follow_up_days</Code>, "off", 'Auto "First contact" follow-up on new leads.'],
-          [<Code key="s">auto_complete_project_on_paid</Code>, "off", "All milestones paid → project Completed (finance-gated switch)."],
           [<Code key="s">interco_auto_mirror</Code>, "on", "Auto-draft the intercompany invoice pair (finance-gated switch)."],
           [<Code key="s">documentation_module</Code>, "on", "Show /documentation to members holding docs.view."],
           [<Code key="s">allow_password_login</Code>, "on", "Permit email+password sign-in (vs SSO only)."],
@@ -261,11 +274,11 @@ erDiagram
   QUOTATIONS ||--o{ QUOTATION_LINE_ITEMS : lines
   OPPORTUNITIES ||--o{ PROJECTS : delivers
   QUOTATIONS |o--o{ PROJECTS : "value source"
-  PROJECTS ||--o{ PAYMENT_MILESTONES : split
+  FUNNELS |o--o{ PAYMENT_MILESTONES : "optional funnel owner"
+  PROJECTS |o--o{ PAYMENT_MILESTONES : "optional project owner"
   PROJECTS ||--o{ SALES_ORDERS : approval
   SALES_ORDERS ||--o{ FINANCE_DOCS : "chain root"
   FINANCE_DOCS |o--o{ FINANCE_DOCS : "parent chain"
-  PAYMENT_MILESTONES |o--o| FINANCE_DOCS : "one live invoice"
   OPPORTUNITIES |o--o| INTERCOMPANY_DEALS : mirror
   INTERCOMPANY_DEALS ||--o{ INTERCOMPANY_DEAL_RESPONSES : handshake
 `}
@@ -336,6 +349,27 @@ docker compose up -d --build   # full stack; migrate runs automatically`}</Pre>
         before starting the app. <Code>{'column "…" does not exist'}</Code> always
         means a pending migration.
       </Callout>
+
+      <H2>Sales-lifecycle migrations</H2>
+      <P>
+        Apply the additive sequence in order:{" "}
+        <Code>0076 saved views → 0077 Account currency → 0078 Opportunity naming/project-code timing → 0079 product taxonomy and quotation defaults → 0080 quotation content → 0081 quotation approval → 0082 quotation revisions → 0083 Payment Milestone decoupling</Code>. The journal and filenames must remain aligned; deploy runs migrations, RLS, views and permission synchronization together.
+      </P>
+      <P>
+        Rollback is application-level: stop new writes, deploy the compatible
+        prior application, and retain additive columns, saved views, revision
+        lineage and deprecated milestone invoice fields for reads. Do not
+        delete legacy pipeline or finance history. Reapply forward migrations
+        after the incident is resolved; direct destructive SQL rollback is not
+        supported.
+      </P>
+
+      <H2>Maintenance</H2>
+      <Ul>
+        <Li>Run the full web tests, lint, typecheck and production build before a release.</Li>
+        <Li>Run migration-journal/fixture checks; PostgreSQL-bound fixtures require <Code>TEST_DATABASE_ADMIN_URL</Code> and <Code>TEST_DATABASE_URL</Code>.</Li>
+        <Li>After deployment, verify Account currency, Lead conversion, PPVVC sync, quotation approval/revision, stage rollback and Won/Invoiced milestone behavior in a tenant-safe smoke test.</Li>
+      </Ul>
 
       <H2>Environment variables</H2>
       <DocTable
@@ -592,8 +626,8 @@ export const changelogPage: DocPage = {
         <Li>
           <B>Behavior:</B> lead convert, stage approvals with role tiers,
           quotation math (absolute discounts, tax inclusive/exclusive),
-          milestone reconciliation to project value, SO approval minting the
-          SO number, record-level owner + managed-subtree scoping.
+          payment-milestone planning, SO approval minting the SO number,
+          record-level owner + managed-subtree scoping.
         </Li>
       </Ul>
 
@@ -638,7 +672,6 @@ export const changelogPage: DocPage = {
           logo_storage_key</Code>), <Code>lead_sources</Code>,{" "}
           <Code>loss_reasons</Code>, <Code>so_document_kinds</Code>,{" "}
           <Code>milestone_template</Code>,{" "}
-          <Code>auto_create_project_on_accept</Code>,{" "}
           <Code>default_country / phone_prefix</Code>,{" "}
           <Code>stale_deal_days / lead_follow_up_days /
           follow_up_due_days</Code>; <Code>pg_trgm</Code> extension for fuzzy
@@ -646,8 +679,8 @@ export const changelogPage: DocPage = {
         </Li>
         <Li>
           <B>Behavior:</B> quote letterhead from the company profile,
-          SO submit captures document kind + payment term, auto project on
-          accept (+ milestone template seeding, last row absorbs rounding),
+          SO submit captures document kind + payment term, manual Project
+          creation with milestone template seeding,
           create-form presets, duplicate guards (exact + trigram warn-only),
           dashboard stale-funnel and follow-up nudges, standardized{" "}
           <Code>StatusBadge</Code> + shared <Code>PicklistCard</Code>,
@@ -681,15 +714,13 @@ export const changelogPage: DocPage = {
           <B>Schema:</B> <Code>finance_docs.reminder_stage /
           last_reminder_at / intercompany_deal_id / counterpart_doc_id</Code>;{" "}
           <Code>tenant_settings.invoice_reminder_days / invoice_due_days /
-          auto_complete_project_on_paid / interco_auto_mirror</Code>;{" "}
+          interco_auto_mirror</Code>;{" "}
           <Code>finance_doc</Code> added to the attachable + activity enums.
         </Li>
         <Li>
           <B>Behavior:</B> document detail pages (chain, attachments,
-          activity), project Billing tab with one-click milestone invoicing,
-          proof-gated receipts/payments, in-app reminder stages, intercompany
-          invoice auto-mirror, auto-complete project on fully paid, billed
-          margin on the forecast.
+          activity), proof-gated receipts/payments, in-app reminder stages,
+          intercompany invoice auto-mirror, and billed margin on the forecast.
         </Li>
       </Ul>
 
@@ -697,16 +728,15 @@ export const changelogPage: DocPage = {
       <Ul>
         <Li>
           <B>Schema:</B> <Code>finance_docs.counterpart_number</Code>{" "}
-          (denormalized — RLS blocks the cross-tenant join);{" "}
-          <Code>finance_docs_live_milestone_uq</Code> partial unique index
-          (one live invoice per milestone).
+          (denormalized — RLS blocks the cross-tenant join); historical
+          milestone invoice-compatibility fields remain nullable and read-only.
         </Li>
         <Li>
           <B>Behavior (post adversarial review):</B> compare-and-set status
           transitions; payments must be &gt; 0 against an issued parent;
           settlement only when cumulative payments cover the amount (partial
-          payments tracked); manual settle runs the milestone/project side
-          effects; cancel compensation (milestone freed / parent un-settled);
+          payments tracked); cancel compensation restores the parent document
+          state;
           atomic interco mirror with partner-module + declined-handshake
           checks and a visible failure trail; payment-proof deletion blocked;
           source-list endpoint tightened to <Code>finance.manage</Code>;
@@ -765,6 +795,30 @@ export const changelogPage: DocPage = {
           (<Code>runAction</Code>) now resolve and name a contact — the
           user&apos;s manager or an Owner/Admin — instead of surfacing a raw{" "}
           <Code>FORBIDDEN: ...</Code> string.
+        </Li>
+      </Ul>
+
+      <H2>v5 — CRM sales lifecycle customization (0076–0083)</H2>
+      <Ul>
+        <Li>
+          <B>Schema:</B> per-member saved views and required Account currency;
+          generated Opportunity code/name and 4A project-code timing; nested
+          Product taxonomy and quotation Notes/Delivery/Payment Term/Attention;
+          approval metadata, revision lineage and compatibility milestone
+          status migration.
+        </Li>
+        <Li>
+          <B>Behavior:</B> new records use the default Sales Funnel and 0E;
+          PPVVC is authoritative on Opportunities and syncs live child Funnels;
+          nonterminal stage rollback skips gates while terminal stages lock;
+          quotations require approval before send, revisions start Draft, and
+          customer acceptance never moves a Funnel; milestones are Won/Invoiced
+          planning records with no invoice or Project side effect.
+        </Li>
+        <Li>
+          <B>Operations:</B> apply 0076 through 0083 in journal order. Roll back
+          at the application layer and preserve legacy pipeline, finance and
+          deprecated milestone history.
         </Li>
       </Ul>
 

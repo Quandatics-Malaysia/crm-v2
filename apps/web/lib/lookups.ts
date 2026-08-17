@@ -19,9 +19,10 @@ import {
   DEFAULT_LEAD_SOURCES,
   DEFAULT_LOSS_REASONS,
 } from "@/lib/tenant-defaults"
+import type { ProductCategory } from "@/app/(app)/settings/constants"
 
 export type MemberOption = { memberId: string; name: string; email: string }
-export type Option = { id: string; name: string }
+export type Option = { id: string; name: string; currency?: string }
 
 /** Members of the active tenant — for owner / assignee selects. */
 export async function listMembers(): Promise<MemberOption[]> {
@@ -38,7 +39,7 @@ export async function listAccountOptions(): Promise<Option[]> {
   return runInTenant(ctx.tenantId, async (tx) => {
     const visible = await visibleMemberIds(tx, ctx)
     return tx
-      .select({ id: accounts.id, name: accounts.name })
+      .select({ id: accounts.id, name: accounts.name, currency: accounts.currency })
       .from(accounts)
       .where(
         and(
@@ -249,7 +250,7 @@ export async function listCustomFunnelFields(): Promise<
  * Tenant-managed product-code picklist (code + display name) for product lines.
  * Standardised products reference one of these. Read from tenant_settings.
  */
-export async function listProductCodes(): Promise<{ code: string; name: string }[]> {
+export async function listProductCodes(): Promise<ProductCategory[]> {
   const ctx = await requireContext()
   const [s] = await runInTenant(ctx.tenantId, (tx) =>
     tx

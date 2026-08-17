@@ -939,6 +939,7 @@ function FunnelStagesCard({
         <DataTable
           columns={columns}
           data={rows}
+          tableId="settings-funnel-stages"
           emptyMessage="No stages yet."
           toolbar={
             <div className="flex items-center gap-2">

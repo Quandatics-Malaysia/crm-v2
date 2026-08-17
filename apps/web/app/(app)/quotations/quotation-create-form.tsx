@@ -42,28 +42,43 @@ import {
   headerDiscountSchema,
 } from "@/lib/validation-quotation"
 import { computeQuotation } from "@/server/services/quotation-math"
+import {
+  QUOTATION_CONTENT_LIMITS,
+  snapshotQuotationLineDescription,
+} from "@/lib/quotation-content"
 import type { ProductOption } from "@/lib/lookups"
-import { createQuotation, type QuotationRow, type TaxOption } from "./actions"
+import {
+  createQuotation,
+  getQuotationFormMeta,
+  type QuotationContactOption,
+  type QuotationRow,
+  type TaxOption,
+} from "./actions"
 
 const NO_TAX = "__none__"
 /** Sentinel: leave project nature to the funnel's default (server inherits it). */
 const INHERIT_PROJECT_NATURE = "__inherit__"
 /** Sentinel: a free-text line with no linked product. */
 const NO_PRODUCT = "__custom__"
+const NO_CONTACT = "__none__"
 
 const schema = z.object({
   funnelId: z.string().trim().min(1, "Select a funnel"),
+  currency: z.string().min(1, "Currency is required"),
   taxSettingId: z.string(),
   projectNatureCode: z.string(),
   validUntil: z.string(),
-  notes: z.string(),
+  notes: z.string().max(QUOTATION_CONTENT_LIMITS.notes, "Notes must be 2000 characters or fewer"),
+  delivery: z.string().max(QUOTATION_CONTENT_LIMITS.delivery, "Delivery must be 500 characters or fewer"),
+  paymentTerm: z.string().max(QUOTATION_CONTENT_LIMITS.paymentTerm, "Payment term must be 120 characters or fewer"),
+  attentionContactId: z.string(),
   headerDiscount: headerDiscountSchema,
   lines: z.array(quotationLineSchema).min(1, "Add at least one line item"),
 })
 
 type FormValues = z.infer<typeof schema>
 
-export type OpportunityOption = { id: string; name: string }
+export type OpportunityOption = { id: string; name: string; currency?: string }
 export type ProjectNatureOption = { code: string; name: string }
 
 /**
@@ -80,8 +95,12 @@ export function QuotationCreateForm({
   funnels,
   funnelId,
   defaultOpportunityId,
-  currency = "MYR",
+  currency,
+  currencies = [],
   defaultValidUntil,
+  contacts = [],
+  defaultAttentionContactId = null,
+  quoteDefaults = { notes: null, delivery: null, paymentTerm: null },
   submitLabel = "Create quotation",
   onCancel,
   onCreated,
@@ -99,8 +118,12 @@ export function QuotationCreateForm({
   /** Pre-selected funnel in the picker (picker stays visible/editable). */
   defaultOpportunityId?: string
   currency?: string
+  currencies?: string[]
   /** Prefill for "Valid until" (tenant default validity), YYYY-MM-DD. */
   defaultValidUntil?: string | null
+  contacts?: QuotationContactOption[]
+  defaultAttentionContactId?: string | null
+  quoteDefaults?: { notes: string | null; delivery: string | null; paymentTerm: string | null }
   submitLabel?: string
   onCancel?: () => void
   onCreated?: (quotation: QuotationRow) => void
@@ -116,10 +139,18 @@ export function QuotationCreateForm({
     mode: "onBlur",
     defaultValues: {
       funnelId: funnelId ?? defaultOpportunityId ?? "",
+      currency:
+        funnels?.find((funnel) => funnel.id === (funnelId ?? defaultOpportunityId))?.currency ??
+        currency ??
+        currencies[0] ??
+        "MYR",
       taxSettingId: defaultTaxId,
       projectNatureCode: INHERIT_PROJECT_NATURE,
       validUntil: defaultValidUntil ?? "",
-      notes: "",
+      notes: quoteDefaults.notes ?? "",
+      delivery: quoteDefaults.delivery ?? "",
+      paymentTerm: quoteDefaults.paymentTerm ?? "",
+      attentionContactId: defaultAttentionContactId ?? NO_CONTACT,
       headerDiscount: "0",
       lines: [
         {
@@ -140,6 +171,33 @@ export function QuotationCreateForm({
     name: "lines",
   })
 
+  const watchedFunnelId = useWatch({ control: form.control, name: "funnelId" })
+  const [availableContacts, setAvailableContacts] = React.useState(contacts)
+  const renderedContacts = watchedFunnelId ? availableContacts : []
+
+  React.useEffect(() => {
+    let active = true
+    if (!watchedFunnelId) {
+      form.setValue("attentionContactId", NO_CONTACT)
+      return () => {
+        active = false
+      }
+    }
+    React.startTransition(() => {
+      void getQuotationFormMeta(watchedFunnelId).then((meta) => {
+        if (!active) return
+        setAvailableContacts(meta.contacts)
+        const currentContactId = form.getValues("attentionContactId")
+        if (!meta.contacts.some((contact) => contact.id === currentContactId)) {
+          form.setValue("attentionContactId", meta.defaultAttentionContactId ?? NO_CONTACT)
+        }
+      })
+    })
+    return () => {
+      active = false
+    }
+  }, [form, watchedFunnelId])
+
   // Product picker items + a helper that fills a line from the chosen product.
   const productItems = React.useMemo(
     () => [
@@ -157,9 +215,13 @@ export function QuotationCreateForm({
       const p = products.find((x) => x.id === productId)
       if (!p) return
       form.setValue(`lines.${index}.productId`, p.id)
-      form.setValue(`lines.${index}.description`, p.description || p.name, {
+      form.setValue(
+        `lines.${index}.description`,
+        snapshotQuotationLineDescription({ productDescription: p.description, productName: p.name }),
+        {
         shouldValidate: true,
-      })
+        }
+      )
       form.setValue(
         `lines.${index}.unitPrice`,
         Number(p.standardPrice).toString(),
@@ -200,6 +262,7 @@ export function QuotationCreateForm({
     setBusy(true)
     const res = await createQuotation({
       funnelId: values.funnelId,
+      currency: values.currency,
       taxSettingId:
         values.taxSettingId === NO_TAX ? null : values.taxSettingId,
       projectNatureCode:
@@ -208,6 +271,12 @@ export function QuotationCreateForm({
           : values.projectNatureCode,
       validUntil: values.validUntil || null,
       notes: values.notes || null,
+      delivery: values.delivery || null,
+      paymentTerm: values.paymentTerm || null,
+      attentionContactId:
+        values.attentionContactId === NO_CONTACT
+          ? null
+          : values.attentionContactId || null,
       headerDiscount: values.headerDiscount || "0",
       lines: values.lines.map((l) => ({
         productId: l.productId || null,
@@ -252,7 +321,17 @@ export function QuotationCreateForm({
                   <FormControl>
                     <Combobox
                       value={field.value}
-                      onChange={field.onChange}
+                      onChange={(value) => {
+                        field.onChange(value)
+                        if (!form.formState.dirtyFields.currency) {
+                          form.setValue(
+                            "currency",
+                            funnels?.find((funnel) => funnel.id === value)?.currency ??
+                              currencies[0] ??
+                              "MYR"
+                          )
+                        }
+                      }}
                       options={(funnels ?? []).map((o) => ({
                         value: o.id,
                         label: o.name,
@@ -268,6 +347,35 @@ export function QuotationCreateForm({
               )}
             />
           ) : null}
+
+          <FormField
+            control={form.control}
+            name="currency"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel required>Currency</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  items={currencies.map((value) => ({ value, label: value }))}
+                >
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Pick a currency…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {currencies.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}
@@ -366,6 +474,42 @@ export function QuotationCreateForm({
 
           <FormField
             control={form.control}
+            name="attentionContactId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Attention</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={(value) => field.onChange(value ?? NO_CONTACT)}
+                  items={[
+                    { value: NO_CONTACT, label: "No contact" },
+                    ...renderedContacts.map((contact) => ({
+                      value: contact.id,
+                      label: `${contact.name}${contact.isPrimary ? " (Primary)" : ""}`,
+                    })),
+                  ]}
+                >
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select contact…" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value={NO_CONTACT}>No contact</SelectItem>
+                    {renderedContacts.map((contact) => (
+                      <SelectItem key={contact.id} value={contact.id}>
+                        {contact.name}{contact.isPrimary ? " (Primary)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name="headerDiscount"
             render={({ field }) => (
               <FormItem>
@@ -387,7 +531,44 @@ export function QuotationCreateForm({
                 <FormControl>
                   <Textarea
                     rows={2}
+                    maxLength={QUOTATION_CONTENT_LIMITS.notes}
                     placeholder="Optional notes for the customer…"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="delivery"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Delivery</FormLabel>
+                <FormControl>
+                  <Input
+                    maxLength={QUOTATION_CONTENT_LIMITS.delivery}
+                    placeholder="e.g. 14 days"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="paymentTerm"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Payment term</FormLabel>
+                <FormControl>
+                  <Input
+                    maxLength={QUOTATION_CONTENT_LIMITS.paymentTerm}
+                    placeholder="e.g. 30 days"
                     {...field}
                   />
                 </FormControl>

@@ -5,7 +5,6 @@ import { PageBody } from "@/components/page-header"
 import { formatMoney } from "@/lib/format"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { listMilestoneFinanceDocs } from "@/app/(app)/billing/actions"
 import { getPaymentMilestone } from "../actions"
 import { PaymentMilestoneDetailBody } from "../payment-milestone-detail-body"
 
@@ -15,10 +14,8 @@ export default async function PaymentMilestoneDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [milestone, financeDocs, ctx] = await Promise.all([
+  const [milestone, ctx] = await Promise.all([
     getPaymentMilestone(id),
-    // Empty when the finance module is off (or user lacks finance.view).
-    listMilestoneFinanceDocs(id).catch(() => []),
     requireContext(),
   ])
   if (!milestone) notFound()
@@ -51,7 +48,6 @@ export default async function PaymentMilestoneDetailPage({
 
         <PaymentMilestoneDetailBody
           milestone={milestone}
-          financeDocs={financeDocs}
           canManage={canManage}
         />
       </PageBody>

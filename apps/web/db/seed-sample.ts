@@ -7,6 +7,10 @@ import * as schema from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { COMPILED_MODULE_MAP } from "@/lib/module-registry"
+import {
+  normalizeProductCategories,
+} from "@/app/(app)/settings/constants"
+import { allocateProductSubcategoryCode } from "@/server/services/product-taxonomy-seed"
 
 /**
  * Idempotent sample-data seed for role-play / demos.
@@ -665,7 +669,7 @@ async function main() {
       title: string
       amount: string
       due: string
-      status: "pending" | "invoiced" | "paid"
+      status: "won" | "invoiced"
       sort: number
     }[]
   }[] = [
@@ -675,7 +679,7 @@ async function main() {
       quote: "stark-accepted",
       items: [
         { k: "deposit", title: "Deposit", amount: "20140.00", due: "2026-06-15", status: "invoiced", sort: 0 },
-        { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "pending", sort: 1 },
+        { k: "completion", title: "On completion", amount: "20140.00", due: "2026-12-15", status: "won", sort: 1 },
       ],
     },
     {
@@ -683,7 +687,7 @@ async function main() {
       funnel: "initech-mssp",
       quote: "initech-mssp-accepted",
       items: [
-        { k: "initech-mssp-deposit", title: "Deposit", amount: "44000.00", due: "2026-06-20", status: "paid", sort: 0 },
+        { k: "initech-mssp-deposit", title: "Deposit", amount: "44000.00", due: "2026-06-20", status: "invoiced", sort: 0 },
         { k: "initech-mssp-completion", title: "On completion", amount: "44000.00", due: "2026-12-20", status: "invoiced", sort: 1 },
       ],
     },
@@ -804,7 +808,39 @@ async function main() {
     // was WORKSHOP — a short instructor-led session is training
     { k: "workshop-ai", name: "Workshop - AI for Business", productCode: "TRAINING", subcategory: "Data Analytics", uom: "Day", price: "9000.00", description: "1-day executive AI workshop" },
   ]
+
+  const [taxonomySettings] = await db
+    .select({ productCodes: tenantSettings.productCodes })
+    .from(tenantSettings)
+    .where(eq(tenantSettings.organizationId, TENANT_ID))
+    .limit(1)
+  const taxonomyDraft = (taxonomySettings?.productCodes ?? []).map((category) => ({
+    ...category,
+    subcategories: [...category.subcategories],
+  }))
+  for (const product of productValues) {
+    const category = taxonomyDraft.find((value) => value.code === product.productCode)
+    if (!category) continue
+    const name = product.subcategory.trim()
+    if (category.subcategories.some((value) => value.name.toLowerCase() === name.toLowerCase())) {
+      continue
+    }
+    category.subcategories.push({
+      code: allocateProductSubcategoryCode(taxonomyDraft, category.code, name),
+      name,
+    })
+  }
+  const taxonomy = normalizeProductCategories(taxonomyDraft)
+  await db
+    .update(tenantSettings)
+    .set({ productCodes: taxonomy })
+    .where(eq(tenantSettings.organizationId, TENANT_ID))
+
   for (const p of productValues) {
+    const category = taxonomy.find((value) => value.code === p.productCode)
+    const subcategory = category?.subcategories.find(
+      (value) => value.name.toLowerCase() === p.subcategory.toLowerCase()
+    )
     await db
       .insert(products)
       .values({
@@ -812,7 +848,7 @@ async function main() {
         tenantId: TENANT_ID,
         name: p.name,
         productCode: p.productCode,
-        subcategory: p.subcategory,
+        subcategory: subcategory?.code ?? p.subcategory,
         uom: p.uom,
         currency: DEMO_CURRENCY,
         standardPrice: p.price,

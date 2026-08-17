@@ -1,5 +1,5 @@
 import "server-only"
-import { and, eq, ne } from "drizzle-orm"
+import { and, eq, isNull, ne } from "drizzle-orm"
 import { runInTenant, type Tx } from "@/db"
 import {
   funnels,
@@ -15,7 +15,10 @@ import {
   tenantSettings,
   paymentMilestones,
 } from "@/db/schema"
-import { recomputeOpportunityTotal } from "@/server/services/opportunity-container"
+import {
+  ensureOpportunityProjectCode,
+  recomputeOpportunityTotal,
+} from "@/server/services/opportunity-container"
 import { opportunityNetValue } from "@/server/services/value"
 import { milestoneName } from "@/lib/so-milestones"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -27,11 +30,10 @@ import {
   stagesEnteredBy,
   requiredKeysForStages,
   isPresetFieldKey,
-  isTerminalKind,
   assertTransitionAllowed,
+  isRollbackTransition,
   canBypassApproval,
   entersMilestoneAutoCreateStage,
-  entersMilestoneDeleteStage,
   type CustomFunnelField,
   type StageGateState,
 } from "@/lib/stage-gate"
@@ -61,6 +63,11 @@ function kindToStatus(kind: string): "open" | "won" | "lost" | "on_hold" {
     default:
       return "open"
   }
+}
+
+/** Project codes are minted only when a child funnel first enters 4A. */
+export function shouldAllocateOpportunityProjectCode(stageCode: string): boolean {
+  return stageCode.trim().toLowerCase() === "4a"
 }
 
 async function memberHasPermission(
@@ -206,6 +213,93 @@ async function createApprovalRequest(
   return { approvalRequestId: req.id }
 }
 
+async function cancelPendingApprovalRequests(
+  tx: Tx,
+  ctx: ServerContext,
+  funnelId: string
+): Promise<void> {
+  const pending = await tx
+    .select({ id: stageApprovalRequests.id })
+    .from(stageApprovalRequests)
+    .where(
+      and(
+        eq(stageApprovalRequests.funnelId, funnelId),
+        eq(stageApprovalRequests.status, "pending")
+      )
+    )
+    .for("update")
+
+  for (const request of pending) {
+    const cancelled = await tx
+      .update(stageApprovalRequests)
+      .set({
+        status: "cancelled",
+        decidedAt: new Date(),
+        decisionNote: "Request cancelled because the funnel moved back.",
+      })
+      .where(
+        and(
+          eq(stageApprovalRequests.id, request.id),
+          eq(stageApprovalRequests.status, "pending")
+        )
+      )
+      .returning({ id: stageApprovalRequests.id })
+    if (cancelled.length === 0) continue
+    await writeAudit(tx, ctx, {
+      action: "approval.cancelled",
+      entityType: "stage_approval_request",
+      entityId: request.id,
+      after: { reason: "funnel moved back" },
+    })
+  }
+}
+
+function stageGateState(
+  opp: OppRow,
+  container: typeof opportunities.$inferSelect
+): StageGateState {
+  return {
+    hasEstimate:
+      opp.estimatedAmount != null && Number(opp.estimatedAmount) > 0,
+    hasCloseDate: !!opp.expectedCloseDate,
+    hasContact: !!opp.primaryPersonId,
+    hasNature:
+      Array.isArray(opp.projectNatures) && opp.projectNatures.length > 0,
+    hasQuote: !!opp.primaryQuotationId,
+    hasVision: !!container.vision?.trim(),
+    hasPain: !!container.pain?.trim(),
+    hasOwnerContact: !!container.ownerContactId,
+    hasOwnerBudgetLimit:
+      container.ownerBudgetLimit != null && Number(container.ownerBudgetLimit) > 0,
+    hasOppEstimatedBudget:
+      container.estimatedBudget != null && Number(container.estimatedBudget) > 0,
+    hasOppEstimatedCloseDate: !!container.estimatedCloseDate,
+    hasValue: !!container.value?.trim(),
+    hasPowerSponsorContact: !!container.powerSponsorContactId,
+    hasPowerSponsorBudgetLimit:
+      container.powerSponsorBudgetLimit != null &&
+      Number(container.powerSponsorBudgetLimit) > 0,
+    hasProcurementStage: !!opp.procurementStage?.trim(),
+    hasNegotiationDone: !!opp.negotiationDone,
+    hasNegotiationDate: !!opp.negotiationDate,
+    hasExpectedInvoice:
+      !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
+  }
+}
+
+function requiredKeysForTransition(
+  allStages: StageRow[],
+  from: StageRow,
+  target: StageRow,
+  customFieldDefs: CustomFunnelField[]
+): string[] {
+  const customKeys = new Set(customFieldDefs.map((field) => field.key))
+  return requiredKeysForStages(
+    stagesEnteredBy(allStages, from.id, target.id),
+    { skipPpvvcForWonTransition: target.kind === "WON" }
+  ).filter((key) => customKeys.has(key) || isPresetFieldKey(key))
+}
+
 /**
  * Salesforce "Create New Project Item List Records in Renewal, 4A and Closed
  * Won" flow: auto-seed the funnel's default full-value payment milestone the
@@ -269,32 +363,12 @@ async function autoCreateMilestoneOnStageEntry(
   })
 }
 
-/**
- * Salesforce "Delete Project Item List and Payment Milestones on Funnel When
- * Closed Lost and KIV" flow. Blind-spot guard the client explicitly asked
- * for: a milestone whose status is `invoiced` or `paid` is a billed row and
- * must never be deleted here — only `pending` milestones are removed.
- */
-async function deletePendingMilestonesOnClose(
-  tx: Tx,
-  opp: OppRow
-): Promise<void> {
-  await tx
-    .delete(paymentMilestones)
-    .where(
-      and(
-        eq(paymentMilestones.funnelId, opp.id),
-        eq(paymentMilestones.status, "pending")
-      )
-    )
-}
-
 async function applyStageMove(
   tx: Tx,
   ctx: ServerContext,
   opp: OppRow,
   toStage: StageRow,
-  source: "manual" | "approval" | "quote_accept" | "reopen",
+  source: "manual" | "approval" | "quote_accept",
   approvalRequestId?: string | null,
   reason?: string | null
 ): Promise<void> {
@@ -325,6 +399,10 @@ async function applyStageMove(
     })
     .where(eq(funnels.id, opp.id))
 
+  if (shouldAllocateOpportunityProjectCode(toStage.code)) {
+    await ensureOpportunityProjectCode(tx, opp.opportunityId, ctx)
+  }
+
   // ── Salesforce "Closed Won" automations (core) ─────────────────────────────
   if (status === "won") {
     const wonSet: Partial<typeof funnels.$inferInsert> = {}
@@ -342,16 +420,20 @@ async function applyStageMove(
       .where(and(eq(accounts.id, opp.accountId), eq(accounts.isCustomer, false)))
     // Estimated amount may have changed → refresh the container rollup.
     await recomputeOpportunityTotal(tx, ctx.tenantId, opp.opportunityId)
+
+    // Closed Won is the only automatic milestone status transition. It is
+    // intentionally independent of Finance and never creates or links an
+    // invoice.
+    await tx
+      .update(paymentMilestones)
+      .set({ status: "won", updatedAt: new Date() })
+      .where(eq(paymentMilestones.funnelId, opp.id))
   }
 
-  // ── Salesforce "Project Item List" (payment milestone) lifecycle ─────────
-  // Create on entering 4A/Won (renewal funnels included — same trigger, no
-  // separate "Renewal" stage exists here); delete PENDING-only milestones on
-  // entering Lost/KIV, leaving invoiced/paid rows untouched.
+  // Milestone planning rows may be created before close. Preserve the
+  // existing 4A/Won default-seed behavior, but keep it independent of Finance.
   if (entersMilestoneAutoCreateStage(toStage)) {
     await autoCreateMilestoneOnStageEntry(tx, ctx, opp)
-  } else if (entersMilestoneDeleteStage(toStage.kind)) {
-    await deletePendingMilestonesOnClose(tx, opp)
   }
 
   await tx.insert(funnelStageHistory).values({
@@ -411,8 +493,9 @@ export async function requestStageAdvance(
     const [opp] = await tx
       .select()
       .from(funnels)
-      .where(eq(funnels.id, input.funnelId))
+      .where(and(eq(funnels.id, input.funnelId), isNull(funnels.deletedAt)))
       .limit(1)
+      .for("update")
     if (!opp) throw new Error("Funnel not found")
 
     // The SF-parity validation rules read the parent Opportunity CONTAINER's
@@ -421,7 +504,12 @@ export async function requestStageAdvance(
     const [container] = await tx
       .select()
       .from(opportunities)
-      .where(eq(opportunities.id, opp.opportunityId))
+      .where(
+        and(
+          eq(opportunities.id, opp.opportunityId),
+          isNull(opportunities.deletedAt)
+        )
+      )
       .limit(1)
     if (!container) throw new Error("Opportunity not found")
 
@@ -442,6 +530,7 @@ export async function requestStageAdvance(
 
     // Enforce the stage state machine before anything else.
     assertTransitionAllowed(from, target)
+    const rollback = isRollbackTransition(from, target)
 
     const [settings] = await tx
       .select()
@@ -466,54 +555,24 @@ export async function requestStageAdvance(
     // stage" gate). Authoritative — the dialog pre-checks the same rules.
     // Presets read real columns; custom fields read the merged values. A
     // multi-stage jump (e.g. 0e→4a) must satisfy every stage it passes through.
-    const presets: StageGateState = {
-      hasEstimate:
-        opp.estimatedAmount != null && Number(opp.estimatedAmount) > 0,
-      hasCloseDate: !!opp.expectedCloseDate,
-      hasContact: !!opp.primaryPersonId,
-      hasNature:
-        Array.isArray(opp.projectNatures) && opp.projectNatures.length > 0,
-      hasQuote: !!opp.primaryQuotationId,
-      hasVision: !!container.vision?.trim(),
-      hasPain: !!container.pain?.trim(),
-      hasOwnerContact: !!container.ownerContactId,
-      hasOwnerBudgetLimit:
-        container.ownerBudgetLimit != null && Number(container.ownerBudgetLimit) > 0,
-      hasOppEstimatedBudget:
-        container.estimatedBudget != null && Number(container.estimatedBudget) > 0,
-      hasOppEstimatedCloseDate: !!container.estimatedCloseDate,
-      hasValue: !!container.value?.trim(),
-      hasPowerSponsorContact: !!container.powerSponsorContactId,
-      hasPowerSponsorBudgetLimit:
-        container.powerSponsorBudgetLimit != null &&
-        Number(container.powerSponsorBudgetLimit) > 0,
-      hasProcurementStage: !!opp.procurementStage?.trim(),
-      hasNegotiationDone: !!opp.negotiationDone,
-      hasNegotiationDate: !!opp.negotiationDate,
-      hasExpectedInvoice: !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
-    }
     const stageGate = buildStageGate(
-      presets,
+      stageGateState(opp, container),
       mergedCustom,
       customFieldDefs
     )
-    // Requirements are either a tenant custom field OR a current preset key —
-    // anything else is a stale/orphaned key (e.g. left over from a renamed
-    // preset) and is dropped so it can't silently block a move.
-    const customKeys = new Set(
-      customFieldDefs.map((f) => f.key)
+    const requiredKeys = requiredKeysForTransition(
+      allStages,
+      from,
+      target,
+      customFieldDefs
     )
-    const requiredKeys = requiredKeysForStages(
-      stagesEnteredBy(allStages, from.id, target.id),
-      { skipPpvvcForWonTransition: target.kind === "WON" }
-    ).filter((k) => customKeys.has(k) || isPresetFieldKey(k))
-    const missing = missingFromKeys(requiredKeys, stageGate)
-    if (missing.length > 0) {
+    const missing = rollback ? [] : missingFromKeys(requiredKeys, stageGate)
+    if (!rollback && missing.length > 0) {
       throw new Error(
         `Add ${missing.map((m) => m.label).join(", ")} before moving to ${target.name}.`
       )
     }
-    if (requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
+    if (!rollback && requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
       throw new Error(
         `${closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
       )
@@ -529,9 +588,10 @@ export async function requestStageAdvance(
     }
 
     const gated =
-      target.requiresApprovalToEnter && !canBypassApproval(ctx)
+      !rollback && target.requiresApprovalToEnter && !canBypassApproval(ctx)
 
     if (!gated) {
+      if (rollback) await cancelPendingApprovalRequests(tx, ctx, opp.id)
       await applyStageMove(
         tx,
         ctx,
@@ -618,63 +678,6 @@ export async function winOpportunity(
 }
 
 /**
- * Explicitly reopen a closed deal: a PARKED (KIV) or LOST opportunity is moved
- * back to a chosen OPEN stage, which clears `closedAt`/`actualCloseDate` and
- * resets `status` to "open" (via applyStageMove). This is the only sanctioned
- * way out of a terminal state — `assertTransitionAllowed` otherwise freezes
- * closed deals forever. WON is intentionally NOT reopenable here because it has
- * downstream accepted quotes/projects/sales orders that depend on the win.
- * Permission (`stage.advance`) and record-scope are enforced by the caller.
- */
-export async function reopenOpportunity(
-  ctx: ServerContext,
-  input: { funnelId: string; targetStageId: string; reason?: string }
-): Promise<void> {
-  return runInTenant(ctx.tenantId, async (tx) => {
-    const [opp] = await tx
-      .select()
-      .from(funnels)
-      .where(eq(funnels.id, input.funnelId))
-      .limit(1)
-      .for("update")
-    if (!opp) throw new Error("Funnel not found")
-    if (opp.status === "open") throw new Error("This funnel is already open")
-
-    const [from] = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, opp.currentStageId))
-      .limit(1)
-    if (!from) throw new Error("Current stage not found")
-    if (from.kind !== "PARKED" && from.kind !== "LOST")
-      throw new Error("Only parked or lost pipelines can be reopened")
-
-    const [target] = await tx
-      .select()
-      .from(pipelineStages)
-      .where(eq(pipelineStages.id, input.targetStageId))
-      .limit(1)
-    if (!target) throw new Error("Stage not found")
-    if (target.pipelineId !== opp.pipelineId)
-      throw new Error("Stage does not belong to this funnel")
-    if (target.kind !== "OPEN")
-      throw new Error("A reopened funnel must move to an open stage")
-
-    // The `reopen` source already marks this move as a reopen, so the reason is
-    // stored verbatim (no "Reopened:" prefix needed).
-    await applyStageMove(
-      tx,
-      ctx,
-      opp,
-      target,
-      "reopen",
-      null,
-      input.reason?.trim() || null
-    )
-  })
-}
-
-/**
  * Outcome of a decision. `status` is the request's resolved status — note the
  * extra `"obsolete"` value: an approve that could no longer be applied because
  * the funnel had already moved past/closed the target stage (the request is
@@ -685,6 +688,37 @@ export async function reopenOpportunity(
 export type DecisionOutcome = {
   status: "approved" | "rejected" | "cancelled" | "obsolete"
   message: string
+}
+
+async function resolveApprovalAsObsolete(
+  tx: Tx,
+  ctx: ServerContext,
+  requestId: string,
+  note: string
+): Promise<DecisionOutcome> {
+  const resolved = await tx
+    .update(stageApprovalRequests)
+    .set({
+      status: "rejected",
+      approverMemberId: ctx.memberId,
+      decidedAt: new Date(),
+      decisionNote: note,
+    })
+    .where(
+      and(
+        eq(stageApprovalRequests.id, requestId),
+        eq(stageApprovalRequests.status, "pending")
+      )
+    )
+    .returning({ id: stageApprovalRequests.id })
+  if (resolved.length === 0) throw new Error("Request already decided")
+  await writeAudit(tx, ctx, {
+    action: "approval.obsolete",
+    entityType: "stage_approval_request",
+    entityId: requestId,
+    after: { reason: note },
+  })
+  return { status: "obsolete", message: note }
 }
 
 /** Approve (performs the move), reject (no change), or cancel (requester only). */
@@ -699,13 +733,13 @@ export async function decideApproval(
   return runInTenant(ctx.tenantId, async (tx) => {
     // Lock the request row so concurrent decisions serialize: a second caller
     // blocks here until this tx commits, then sees status != 'pending'.
-    const [req] = await tx
+    const [initialReq] = await tx
       .select()
       .from(stageApprovalRequests)
       .where(eq(stageApprovalRequests.id, input.requestId))
       .limit(1)
-      .for("update")
-    if (!req) throw new Error("Request not found")
+    if (!initialReq) throw new Error("Request not found")
+    let req = initialReq
     if (req.status !== "pending") throw new Error("Request already decided")
 
     if (input.decision === "cancelled") {
@@ -775,6 +809,15 @@ export async function decideApproval(
       .limit(1)
       .for("update")
     if (!opp) throw new Error("Funnel or stage missing")
+    const [lockedReq] = await tx
+      .select()
+      .from(stageApprovalRequests)
+      .where(eq(stageApprovalRequests.id, req.id))
+      .limit(1)
+      .for("update")
+    if (!lockedReq || lockedReq.status !== "pending")
+      throw new Error("Request already decided")
+    req = lockedReq
     const [from] = await tx
       .select()
       .from(pipelineStages)
@@ -787,48 +830,83 @@ export async function decideApproval(
       .limit(1)
     if (!from || !target) throw new Error("Funnel or stage missing")
 
-    // If the move is no longer applicable — the funnel already sits in the
-    // target stage, has been closed (Won/Lost/KIV), or advanced past an open
-    // target — DON'T throw + roll back (that would leave the request stuck
-    // 'pending' forever, never leaving the queue). Instead resolve it
-    // gracefully: record it as decided with a clear "obsolete" note and commit,
-    // so it leaves the pending queue with an honest history trail.
-    const obsolete =
+    // A request represents one exact transition. Resolve it as obsolete if
+    // current state can no longer perform that forward move. This path must
+    // commit the request decision, otherwise stale requests remain pending.
+    const transitionStillAllowed = (() => {
+      try {
+        assertTransitionAllowed(from, target)
+        return true
+      } catch {
+        return false
+      }
+    })()
+    const staleTransition =
+      !transitionStillAllowed ||
       from.id === target.id ||
-      isTerminalKind(from.kind) ||
-      (target.kind === "OPEN" && target.sortOrder <= from.sortOrder)
-    if (obsolete) {
+      target.pipelineId !== opp.pipelineId ||
+      req.fromStageId !== from.id ||
+      isRollbackTransition(from, target)
+    if (staleTransition) {
       const closeNote =
-        "This funnel already moved past the requested stage; request closed."
+        "This funnel no longer has the requested forward transition; request closed."
       const note = input.note?.trim()
         ? `${input.note.trim()} — ${closeNote}`
         : closeNote
-      const resolved = await tx
-        .update(stageApprovalRequests)
-        .set({
-          // No "obsolete" value exists in the approval_status enum, so persist
-          // as 'rejected' (a terminal, non-pending status) with an explanatory
-          // note; the returned outcome distinguishes it as "obsolete".
-          status: "rejected",
-          approverMemberId: ctx.memberId,
-          decidedAt: new Date(),
-          decisionNote: note,
-        })
-        .where(
-          and(
-            eq(stageApprovalRequests.id, req.id),
-            eq(stageApprovalRequests.status, "pending")
-          )
+      return resolveApprovalAsObsolete(tx, ctx, req.id, note)
+    }
+
+    const [container] = await tx
+      .select()
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.id, opp.opportunityId),
+          isNull(opportunities.deletedAt)
         )
-        .returning({ id: stageApprovalRequests.id })
-      if (resolved.length === 0) throw new Error("Request already decided")
-      await writeAudit(tx, ctx, {
-        action: "approval.obsolete",
-        entityType: "stage_approval_request",
-        entityId: req.id,
-        after: { reason: "funnel already moved past requested stage" },
-      })
-      return { status: "obsolete", message: closeNote }
+      )
+      .limit(1)
+      .for("update")
+    const [settings] = await tx
+      .select()
+      .from(tenantSettings)
+      .where(eq(tenantSettings.organizationId, ctx.tenantId))
+      .limit(1)
+    const allStages = await tx
+      .select()
+      .from(pipelineStages)
+      .where(eq(pipelineStages.pipelineId, opp.pipelineId))
+    if (!container) {
+      return resolveApprovalAsObsolete(
+        tx,
+        ctx,
+        req.id,
+        "Current funnel data is unavailable; request closed."
+      )
+    }
+    const customFieldDefs = settings?.customFunnelFields ?? []
+    const requiredKeys = requiredKeysForTransition(
+      allStages,
+      from,
+      target,
+      customFieldDefs
+    )
+    const missing = missingFromKeys(
+      requiredKeys,
+      buildStageGate(
+        stageGateState(opp, container),
+        (opp.customFields ?? {}) as Record<string, unknown>,
+        customFieldDefs
+      )
+    )
+    if (missing.length > 0) {
+      const closeNote = `Current requirements are no longer satisfied: ${missing
+        .map((field) => field.label)
+        .join(", ")}. Request closed.`
+      const note = input.note?.trim()
+        ? `${input.note.trim()} — ${closeNote}`
+        : closeNote
+      return resolveApprovalAsObsolete(tx, ctx, req.id, note)
     }
 
     const claimed = await tx

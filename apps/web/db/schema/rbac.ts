@@ -15,6 +15,13 @@ import {
 import { organization, member } from "./auth"
 import { timestamps } from "./_helpers"
 
+export type ProductSubcategory = { code: string; name: string }
+export type ProductCategory = {
+  code: string
+  name: string
+  subcategories: ProductSubcategory[]
+}
+
 export const orgStatus = pgEnum("org_status", ["active", "suspended"])
 export const memberStatus = pgEnum("member_status", ["active", "invited", "disabled"])
 
@@ -56,9 +63,15 @@ export const tenantSettings = pgTable("tenant_settings", {
    * Distinct from projectNatures (which drive project codes).
    */
   productCodes: jsonb("product_codes")
-    .$type<{ code: string; name: string }[]>()
+    .$type<ProductCategory[]>()
     .notNull()
     .default([]),
+  /** Default Notes text copied into new quotations. */
+  quoteDefaultNotes: text("quote_default_notes"),
+  /** Default Delivery text copied into new quotations. */
+  quoteDefaultDelivery: text("quote_default_delivery"),
+  /** Default Payment Term text copied into new quotations. */
+  quoteDefaultPaymentTerm: text("quote_default_payment_term"),
   /**
    * Tenant-defined custom funnel fields. Each is a stable `key` + display
    * `label`; salespeople fill them on the funnel (stored in
@@ -97,7 +110,7 @@ export const tenantSettings = pgTable("tenant_settings", {
    */
   intercompanyPartnerIds: jsonb("intercompany_partner_ids").$type<string[]>(),
   /**
-   * Tenant-managed ISO-4217 currency picklist for deal/quote forms.
+   * Tenant-managed ISO-4217 currency picklist for accounts, deals, and quotes.
    * NULL/empty = the built-in default set (lib/tenant-defaults.ts).
    */
   currencies: jsonb("currencies").$type<string[]>(),

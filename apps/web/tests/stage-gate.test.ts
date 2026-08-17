@@ -6,12 +6,19 @@ import {
   missingFromKeys,
   stagesEnteredBy,
   requiredKeysForStages,
+  applyPpvvcToStageGate,
   requiresCloseRemarks,
   entersMilestoneAutoCreateStage,
-  entersMilestoneDeleteStage,
+  isRollbackTransition,
+  transitionDirection,
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
 } from "@/lib/stage-gate"
+import {
+  canTransition,
+  stagePathActionLabel,
+  stagePathInstruction,
+} from "@/app/(app)/funnel/stage-transitions"
 import { PERMISSIONS } from "@/lib/permissions"
 
 const stage = (id: string, kind: string, sortOrder: number) => ({
@@ -23,11 +30,13 @@ const stage = (id: string, kind: string, sortOrder: number) => ({
 describe("assertTransitionAllowed — stage state machine", () => {
   const open1 = stage("s1", "OPEN", 1)
   const open2 = stage("s2", "OPEN", 2)
+  const parked = stage("p", "PARKED", 99)
   const won = stage("w", "WON", 99)
   const lost = stage("l", "LOST", 98)
 
-  it("allows forward OPEN→OPEN and OPEN→terminal", () => {
+  it("allows forward and backward OPEN moves plus OPEN→terminal", () => {
     expect(() => assertTransitionAllowed(open1, open2)).not.toThrow()
+    expect(() => assertTransitionAllowed(open2, open1)).not.toThrow()
     expect(() => assertTransitionAllowed(open1, won)).not.toThrow()
     expect(() => assertTransitionAllowed(open1, lost)).not.toThrow()
   })
@@ -36,14 +45,61 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(() => assertTransitionAllowed(open1, open1)).toThrow(/already in this stage/)
   })
 
-  it("rejects any move out of a terminal stage (won, lost, parked)", () => {
+  it("allows reversible KIV moves but rejects immutable Won/Lost moves", () => {
     expect(() => assertTransitionAllowed(won, open2)).toThrow(/closed/)
     expect(() => assertTransitionAllowed(lost, open1)).toThrow(/closed/)
-    expect(() => assertTransitionAllowed(stage("p", "PARKED", 97), open2)).toThrow(/closed/)
+    expect(() => assertTransitionAllowed(parked, open2)).not.toThrow()
+    expect(() => assertTransitionAllowed(open2, parked)).not.toThrow()
   })
 
-  it("rejects backward OPEN→OPEN moves", () => {
-    expect(() => assertTransitionAllowed(open2, open1)).toThrow(/advance forward/)
+  it("uses the same rule for the client transition helper", () => {
+    expect(canTransition(open2, open1)).toBe(true)
+    expect(canTransition(parked, open1)).toBe(true)
+    expect(canTransition(open1, parked)).toBe(true)
+    expect(canTransition(won, open1)).toBe(false)
+    expect(canTransition(lost, open1)).toBe(false)
+    expect(canTransition(open1, open1)).toBe(false)
+  })
+
+  it("classifies ordinary rollback by order but PARKED transitions by status", () => {
+    expect(isRollbackTransition(open2, open1)).toBe(true)
+    expect(isRollbackTransition(parked, open1)).toBe(true)
+    expect(isRollbackTransition(open2, parked)).toBe(false)
+    expect(isRollbackTransition(open2, won)).toBe(false)
+    expect(isRollbackTransition(parked, won)).toBe(false)
+    expect(isRollbackTransition(open2, lost)).toBe(false)
+    expect(isRollbackTransition(won, open1)).toBe(false)
+
+    const parkedBeforeLadder = stage("parked-before", "PARKED", -100)
+    const openAfterParked = stage("open-after", "OPEN", 100)
+    expect(transitionDirection(open2, parkedBeforeLadder)).toBe("forward")
+    expect(isRollbackTransition(open2, parkedBeforeLadder)).toBe(false)
+    expect(transitionDirection(parkedBeforeLadder, openAfterParked)).toBe("rollback")
+    expect(isRollbackTransition(parkedBeforeLadder, openAfterParked)).toBe(true)
+    expect(transitionDirection(parkedBeforeLadder, won)).toBe("forward")
+  })
+
+  it("uses the same classifier for StagePath labels and hints", () => {
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, { ...open1, name: "Prospect" }))
+      .toBe("Move back to Prospect")
+    expect(stagePathActionLabel({ ...open1, name: "Prospect" }, { ...open2, name: "Qualified" }))
+      .toBe("Advance to Qualified")
+
+    const parkedBeforeLadder = { ...stage("parked-before", "PARKED", -100), name: "KIV" }
+    const openAfterParked = { ...stage("open-after", "OPEN", 100), name: "Reopened" }
+    const lostBeforeLadder = { ...stage("lost-before", "LOST", -200), name: "Lost" }
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, parkedBeforeLadder))
+      .toBe("Advance to KIV")
+    expect(stagePathActionLabel(parkedBeforeLadder, openAfterParked))
+      .toBe("Move back to Reopened")
+    expect(stagePathActionLabel({ ...open2, name: "Qualified" }, lostBeforeLadder))
+      .toBe("Advance to Lost")
+    expect(stagePathInstruction({ ...open2, name: "Qualified" }, [parkedBeforeLadder]))
+      .toBe("Click a stage to Advance.")
+    expect(stagePathInstruction(parkedBeforeLadder, [openAfterParked]))
+      .toBe("Click a stage to Move back.")
+    expect(stagePathInstruction({ ...open2, name: "Qualified" }, [{ ...open1, name: "Prospect" }, parkedBeforeLadder]))
+      .toBe("Click a stage to Move back or Advance.")
   })
 })
 
@@ -106,6 +162,24 @@ describe("buildStageGate + missingFromKeys — entry requirements", () => {
     const gate = buildStageGate(presets(true), null, [])
     expect(missingFromKeys([...REQUIRABLE_FIELD_KEYS], gate)).toEqual([])
   })
+
+  it("updates PPVVC-backed gate flags immediately after a successful save", () => {
+    const gate = buildStageGate(presets(false), null, [])
+    const live = applyPpvvcToStageGate(gate, {
+      pain: "Business pain",
+      power: null,
+      vision: "Target state",
+      value: "Measured value",
+      control: null,
+    })
+
+    expect(live.satisfied).toMatchObject({
+      objective: true,
+      vision: true,
+      value: true,
+    })
+    expect(live.satisfied.estimate).toBe(false)
+  })
 })
 
 describe("stagesEnteredBy — a skip still collects intermediate requirements", () => {
@@ -137,8 +211,26 @@ describe("stagesEnteredBy — a skip still collects intermediate requirements", 
     ])
   })
 
-  it("a terminal LOST/PARKED target enters only itself", () => {
+  it("a forward move into LOST/PARKED enters only the terminal target", () => {
     expect(stagesEnteredBy(ladder, "a", "lost").map((s) => s.id)).toEqual(["lost"])
+  })
+
+  it("a backward rollback enters no stages, so it bypasses entry requirements", () => {
+    expect(stagesEnteredBy(ladder, "c", "a")).toEqual([])
+    expect(requiredKeysForStages(stagesEnteredBy(ladder, "c", "a"))).toEqual([])
+  })
+
+  it("leaving PARKED enters no stages even when its sort order is first", () => {
+    const parked = { id: "parked", kind: "PARKED", sortOrder: -1, requiredFields: ["closeDate"] }
+    const reopened = { id: "reopened", kind: "OPEN", sortOrder: 9, requiredFields: ["estimate"] }
+    expect(stagesEnteredBy([parked, reopened], parked.id, reopened.id)).toEqual([])
+  })
+
+  it("a forward move after rollback re-enters every stage and revalidates requirements", () => {
+    const rollback = stagesEnteredBy(ladder, "c", "a")
+    expect(rollback).toEqual([])
+    const forward = stagesEnteredBy(ladder, "a", "c")
+    expect(requiredKeysForStages(forward)).toEqual(["contact", "quote", "estimate"])
   })
 
   it("unknown stage ids yield no entered stages", () => {
@@ -172,10 +264,4 @@ describe("milestone lifecycle triggers (SF 'Project Item List' flows)", () => {
     expect(entersMilestoneAutoCreateStage({ code: "kiv", kind: "PARKED" })).toBe(false)
   })
 
-  it("entering Lost or KIV triggers the pending-only delete", () => {
-    expect(entersMilestoneDeleteStage("LOST")).toBe(true)
-    expect(entersMilestoneDeleteStage("PARKED")).toBe(true)
-    expect(entersMilestoneDeleteStage("WON")).toBe(false)
-    expect(entersMilestoneDeleteStage("OPEN")).toBe(false)
-  })
 })

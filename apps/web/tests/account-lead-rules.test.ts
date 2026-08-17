@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { resolveAccountCurrency } from "@/app/(app)/accounts/actions"
-import { resolveOpportunityCurrency } from "@/app/(app)/funnel/actions"
 import { normalizeLeadInput, type LeadInput } from "@/app/(app)/leads/actions"
-import { resolveQuotationCurrency } from "@/app/(app)/quotations/actions"
 import { resolveDefaultSalesFunnel } from "@/server/services/conversion"
 import {
   resolveAccountCurrencyBackfill,
   resolveConfiguredCurrency,
+  resolveCurrencyOverride,
 } from "@/server/services/tenant-currency"
 
 describe("account persistence currency rules", () => {
@@ -31,15 +30,19 @@ describe("account persistence currency rules", () => {
 
 describe("opportunity and quotation currency persistence", () => {
   it("defaults opportunity creation from the account and validates overrides", () => {
-    expect(resolveOpportunityCurrency(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
-    expect(() => resolveOpportunityCurrency("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
+    expect(resolveCurrencyOverride(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(resolveCurrencyOverride("   ", "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(resolveCurrencyOverride(undefined, "EUR", ["MYR", "USD"], "USD")).toBe("USD")
+    expect(() => resolveCurrencyOverride("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
       /configured currencies/
     )
   })
 
   it("defaults quotation creation from its funnel and validates overrides", () => {
-    expect(resolveQuotationCurrency(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
-    expect(() => resolveQuotationCurrency("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
+    expect(resolveCurrencyOverride(undefined, "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(resolveCurrencyOverride("\t", "USD", ["MYR", "USD"], "MYR")).toBe("USD")
+    expect(resolveCurrencyOverride(undefined, "EUR", ["MYR", "USD"], "USD")).toBe("USD")
+    expect(() => resolveCurrencyOverride("EUR", "USD", ["MYR", "USD"], "MYR")).toThrow(
       /configured currencies/
     )
   })
@@ -53,6 +56,8 @@ describe("tenant currency migration behavior", () => {
 
   it("falls back to MYR when settings have no valid currencies", () => {
     expect(resolveAccountCurrencyBackfill("EUR", [])).toBe("MYR")
+    expect(resolveAccountCurrencyBackfill("EUR", { currencies: ["USD"] } as never)).toBe("MYR")
+    expect(resolveAccountCurrencyBackfill("EUR", "USD" as never)).toBe("MYR")
   })
 
   it("uses the first configured currency when tenant default is invalid", () => {
@@ -108,5 +113,21 @@ describe("lead conversion defaults", () => {
         [{ id: "stage", pipelineId: "legacy", code: "0e", kind: "OPEN", sortOrder: 0 }]
       )
     ).toThrow(/default Sales Funnel/)
+  })
+
+  it("keeps conversion resolution tenant-scoped when inputs contain another tenant", () => {
+    expect(
+      resolveDefaultSalesFunnel(
+        [
+          { id: "other-default", tenantId: "other", isDefault: true },
+          { id: "current-default", tenantId: "current", isDefault: true },
+        ],
+        [
+          { id: "other-stage", tenantId: "other", pipelineId: "other-default", code: "0e", kind: "OPEN", sortOrder: 0 },
+          { id: "current-stage", tenantId: "current", pipelineId: "current-default", code: "0e", kind: "OPEN", sortOrder: 0 },
+        ],
+        "current"
+      )
+    ).toEqual({ pipelineId: "current-default", stageId: "current-stage" })
   })
 })

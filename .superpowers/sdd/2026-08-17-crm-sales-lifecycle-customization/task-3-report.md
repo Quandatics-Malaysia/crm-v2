@@ -93,3 +93,47 @@ Result: 2 files passed, 14 tests passed.
 - `lib/api-readers.ts` and `app/(app)/opportunities/[id]/page.tsx`: pass Account currency into nested creation.
 - `db/migrations/0077_account_currency.sql`: Settings normalization and consistent Account backfill.
 - `tests/account-lead-rules.test.ts` and `tests/migration-journal.test.ts`: executable fix-round coverage.
+
+## Fix round 2/5
+
+### Findings addressed
+
+- Added explicit-vs-inherited currency resolution. Nonblank user overrides are strict and reject currencies outside Settings; blank/whitespace values inherit Account/Funnel currency, while invalid inherited legacy values fall back to configured default, first configured currency, or MYR.
+- Applied the same production resolver to `updateOpportunity`, including the primary-quotation lock path.
+- Added tenant-scoped conversion resolution inputs to the production funnel/stage resolver; actual conversion remains tenant-filtered in its database queries.
+- Added `jsonb_typeof(...)= 'array'` guards and safe CASE inputs around every 0077 `jsonb_array_elements_text` call, so malformed scalar/object Settings cannot abort migration.
+- Removed action-module test re-exports. Tests now import the shared production currency service directly; the service is called by Account, Opportunity, Quotation, conversion, and migration-related paths.
+
+### Fix-round TDD
+
+RED command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/account-lead-rules.test.ts --reporter verbose
+```
+
+Result: new failures covered missing explicit/inherited resolver behavior and tenant-aware conversion inputs before production fixes were applied.
+
+GREEN command:
+
+```text
+rtk pnpm --filter web exec vitest run tests/account-lead-rules.test.ts tests/migration-journal.test.ts --reporter verbose
+```
+
+Result: 2 files passed, 15 tests passed.
+
+### Fix-round verification
+
+- Full web suite: `49 passed`, `4 skipped`; `478 passed`, `37 skipped`.
+- Typecheck: `TypeScript: No errors found`.
+- Lint: passed cleanly.
+- Migration journal tests: included in focused run, 3 passed.
+- `rtk git diff --check`: passed.
+
+### Fix-round coverage and residual
+
+- `account-lead-rules.test.ts` covers explicit invalid Account create/update, explicit invalid Opportunity/Quotation overrides, inherited valid/invalid currency, blank/whitespace inheritance, malformed Settings input, and tenant-isolated conversion inputs.
+- `migration-journal.test.ts` covers the executable backfill seam and malformed-settings fallback; journal identity remains checked structurally.
+- No live database was available in this run, so direct SQL execution of 0077 remains a deployment-time residual. The production backfill rule and malformed JSON branch are covered without source-text behavior assertions.
+
+Final post-cleanup rerun: focused tests `2 files / 15 passed`; full web suite `49 passed / 4 skipped`, `478 passed / 37 skipped`; typecheck, lint, and diff check all passed.

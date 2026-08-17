@@ -7,9 +7,10 @@ import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 export function configuredCurrencies(
   currencies: readonly string[] | null | undefined
 ): string[] {
+  const configured = Array.isArray(currencies) ? currencies : null
   const values = Array.from(
     new Set(
-      (currencies?.length ? currencies : DEFAULT_CURRENCIES)
+      (configured?.length ? configured : DEFAULT_CURRENCIES)
         .map((currency) => currency.trim().toUpperCase())
         .filter((currency) => /^[A-Z]{3}$/.test(currency))
     )
@@ -37,28 +38,25 @@ export function resolveAccountCurrencyBackfill(
   tenantDefault: string | null | undefined,
   currencies: readonly string[] | null | undefined
 ): string {
-  if (!currencies?.length) return "MYR"
+  if (!Array.isArray(currencies) || !currencies.length) return "MYR"
   const allowed = configuredCurrencies(currencies)
   const candidate = (tenantDefault ?? "").trim().toUpperCase()
   return allowed.includes(candidate) ? candidate : allowed[0] ?? "MYR"
 }
 
-export function resolveOpportunityCurrency(
+export function resolveCurrencyOverride(
   requested: string | null | undefined,
-  accountCurrency: string | null | undefined,
+  inheritedCurrency: string | null | undefined,
   currencies: readonly string[] | null | undefined,
   tenantDefault: string | null | undefined
 ): string {
-  return resolveConfiguredCurrency(requested ?? accountCurrency, currencies, tenantDefault)
-}
-
-export function resolveQuotationCurrency(
-  requested: string | null | undefined,
-  funnelCurrency: string | null | undefined,
-  currencies: readonly string[] | null | undefined,
-  tenantDefault: string | null | undefined
-): string {
-  return resolveConfiguredCurrency(requested ?? funnelCurrency, currencies, tenantDefault)
+  const explicit = (requested ?? "").trim()
+  if (explicit) return resolveConfiguredCurrency(explicit, currencies, tenantDefault)
+  const inherited = (inheritedCurrency ?? "").trim().toUpperCase()
+  const allowed = configuredCurrencies(currencies)
+  return allowed.includes(inherited)
+    ? inherited
+    : resolveConfiguredCurrency(undefined, currencies, tenantDefault)
 }
 
 async function tenantCurrencySettings(tx: Tx, tenantId: string) {
@@ -81,6 +79,21 @@ export async function tenantConfiguredCurrency(
   const settings = await tenantCurrencySettings(tx, tenantId)
   return resolveConfiguredCurrency(
     requested,
+    settings?.currencies,
+    settings?.defaultCurrency
+  )
+}
+
+export async function tenantCurrencyForRecord(
+  tx: Tx,
+  tenantId: string,
+  requested: string | null | undefined,
+  inheritedCurrency: string | null | undefined
+): Promise<string> {
+  const settings = await tenantCurrencySettings(tx, tenantId)
+  return resolveCurrencyOverride(
+    requested,
+    inheritedCurrency,
     settings?.currencies,
     settings?.defaultCurrency
   )

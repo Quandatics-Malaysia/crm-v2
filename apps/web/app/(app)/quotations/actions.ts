@@ -30,8 +30,7 @@ import {
 } from "@/db/schema"
 import type { ProductOption } from "@/lib/lookups"
 import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
-import { resolveQuotationCurrency } from "@/server/services/tenant-currency"
-export { resolveQuotationCurrency } from "@/server/services/tenant-currency"
+import { tenantCurrencyForRecord } from "@/server/services/tenant-currency"
 import { computeQuotation } from "@/server/services/quotation-math"
 import { syncOpportunityAmount, quoteNet } from "@/server/services/value"
 import { syncFunnelProductsFromQuote } from "@/server/services/quote-sync"
@@ -493,12 +492,6 @@ export async function createQuotation(input: {
     if (!opp) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, opp.ownerMemberId))
       throw new Error("FORBIDDEN")
-    const [currencySettings] = await tx
-      .select({ currencies: tenantSettings.currencies })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.organizationId, ctx.tenantId))
-      .limit(1)
-
     // Inherit the funnel's project nature as the default when the user didn't
     // pick one; the quotation keeps it editable from here on.
     const projectNatureCode =
@@ -523,11 +516,11 @@ export async function createQuotation(input: {
       taxInclusive,
     })
 
-    const currency = resolveQuotationCurrency(
+    const currency = await tenantCurrencyForRecord(
+      tx,
+      ctx.tenantId,
       input.currency,
       opp.currency,
-      currencySettings?.currencies,
-      null
     )
 
     const { quoteNumber, version } = await nextQuoteNumber(tx, ctx, input.funnelId)

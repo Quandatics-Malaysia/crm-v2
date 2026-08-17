@@ -8,15 +8,21 @@ UPDATE "tenant_settings" AS ts
 SET "default_currency" = COALESCE(
   (
     SELECT upper(trim(ts."default_currency"))::char(3)
-    FROM jsonb_array_elements_text(COALESCE(ts."currencies", '[]'::jsonb)) AS c(value)
-    WHERE upper(trim(c.value)) = upper(trim(ts."default_currency"))
+    FROM jsonb_array_elements_text(
+      CASE WHEN jsonb_typeof(ts."currencies") = 'array' THEN ts."currencies" ELSE '[]'::jsonb END
+    ) AS c(value)
+    WHERE jsonb_typeof(ts."currencies") = 'array'
+      AND upper(trim(c.value)) = upper(trim(ts."default_currency"))
       AND upper(trim(c.value)) ~ '^[A-Z]{3}$'
     LIMIT 1
   ),
   (
     SELECT upper(trim(c.value))::char(3)
-    FROM jsonb_array_elements_text(COALESCE(ts."currencies", '[]'::jsonb)) WITH ORDINALITY AS c(value, ordinal)
-    WHERE upper(trim(c.value)) ~ '^[A-Z]{3}$'
+    FROM jsonb_array_elements_text(
+      CASE WHEN jsonb_typeof(ts."currencies") = 'array' THEN ts."currencies" ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS c(value, ordinal)
+    WHERE jsonb_typeof(ts."currencies") = 'array'
+      AND upper(trim(c.value)) ~ '^[A-Z]{3}$'
     ORDER BY c.ordinal
     LIMIT 1
   ),

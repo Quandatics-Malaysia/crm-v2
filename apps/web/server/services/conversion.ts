@@ -11,7 +11,10 @@ import {
   funnelStageHistory,
 } from "@/db/schema"
 import { FIRST_STAGE_CODE } from "@/lib/funnel-stages"
-import { tenantConfiguredCurrency } from "./tenant-currency"
+import {
+  tenantConfiguredCurrency,
+  tenantCurrencyForRecord,
+} from "./tenant-currency"
 import {
   createOpportunityContainer,
   recomputeOpportunityTotal,
@@ -32,21 +35,27 @@ export type ConversionResult = {
 }
 
 export function resolveDefaultSalesFunnel(
-  pipelines: readonly { id: string; isDefault: boolean }[],
+  pipelines: readonly { id: string; isDefault: boolean; tenantId?: string }[],
   stages: readonly {
     id: string
     pipelineId: string
     code: string
     kind: string
     sortOrder: number
-  }[]
+    tenantId?: string
+  }[],
+  tenantId?: string
 ): { pipelineId: string; stageId: string } {
-  const funnel = pipelines.find((pipeline) => pipeline.isDefault)
+  const funnel = pipelines.find(
+    (pipeline) =>
+      pipeline.isDefault && (!tenantId || !pipeline.tenantId || pipeline.tenantId === tenantId)
+  )
   if (!funnel) throw new Error("No default Sales Funnel configured")
   const stage = stages
     .filter(
       (candidate) =>
         candidate.pipelineId === funnel.id &&
+        (!tenantId || !candidate.tenantId || candidate.tenantId === tenantId) &&
         candidate.code === FIRST_STAGE_CODE &&
         candidate.kind === "OPEN"
     )
@@ -194,7 +203,12 @@ export async function convertLead(
     let containerId: string | null = null
     if (input.createOpportunity) {
       const [defaultFunnel] = await tx
-        .select({ id: pipelines.id, name: pipelines.name, isDefault: pipelines.isDefault })
+        .select({
+          id: pipelines.id,
+          name: pipelines.name,
+          isDefault: pipelines.isDefault,
+          tenantId: pipelines.tenantId,
+        })
         .from(pipelines)
         .where(and(eq(pipelines.tenantId, ctx.tenantId), eq(pipelines.isDefault, true)))
         .limit(1)
@@ -213,7 +227,8 @@ export async function convertLead(
         : []
       const resolved = resolveDefaultSalesFunnel(
         defaultFunnel ? [defaultFunnel] : [],
-        stages
+        stages,
+        ctx.tenantId
       )
       const stage = stages.find((candidate) => candidate.id === resolved.stageId)!
       const dealName =
@@ -224,9 +239,10 @@ export async function convertLead(
         .from(accounts)
         .where(eq(accounts.id, accountId))
         .limit(1)
-      const currency = await tenantConfiguredCurrency(
+      const currency = await tenantCurrencyForRecord(
         tx,
         ctx.tenantId,
+        undefined,
         account?.currency
       )
       const ownerMemberId = lead.ownerMemberId ?? ctx.memberId ?? ""

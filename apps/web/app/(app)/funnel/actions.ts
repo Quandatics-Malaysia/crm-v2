@@ -30,9 +30,8 @@ import { writeAudit } from "@/server/audit"
 import { logActivity } from "@/server/services/activity"
 import { recordChanges } from "@/server/services/changes/record"
 import {
-  tenantConfiguredCurrency,
+  tenantCurrencyForRecord,
 } from "@/server/services/tenant-currency"
-export { resolveOpportunityCurrency } from "@/server/services/tenant-currency"
 import {
   deriveOriginRecognizedPercent,
   validatePartyShares,
@@ -460,10 +459,11 @@ export async function createOpportunity(
         .from(accounts)
         .where(eq(accounts.id, containerAccountId))
         .limit(1)
-      const currency = await tenantConfiguredCurrency(
+      const currency = await tenantCurrencyForRecord(
         tx,
         ctx.tenantId,
-        input.currency || account?.currency
+        input.currency,
+        account?.currency
       )
       if (!input.opportunityId) {
         const c = await createOpportunityContainer(tx, ctx, {
@@ -570,6 +570,12 @@ export async function updateOpportunity(
     if (!existing) throw new Error("Funnel not found")
     if (!canManageAllRecords(ctx) && !ownsOrManages(visible, existing.ownerMemberId))
       throw new Error("FORBIDDEN: not permitted on this Funnel")
+    const resolvedCurrency = await tenantCurrencyForRecord(
+      tx,
+      ctx.tenantId,
+      input.currency,
+      existing.currency
+    )
 
     // The primary quotation freezes its currency at creation and is never
     // re-snapshotted, so a divergent opportunity currency would have the same
@@ -577,8 +583,8 @@ export async function updateOpportunity(
     // forecast/pipeline views). Reject a currency change while a differing,
     // non-deleted primary quotation exists.
     if (
-      input.currency !== undefined &&
-      input.currency !== existing.currency &&
+      !!input.currency?.trim() &&
+      resolvedCurrency !== existing.currency &&
       existing.primaryQuotationId
     ) {
       const [pq] = await tx
@@ -591,7 +597,7 @@ export async function updateOpportunity(
           )
         )
         .limit(1)
-      if (pq && pq.currency !== input.currency)
+      if (pq && pq.currency !== resolvedCurrency)
         throw new Error(
           "Currency is locked while a primary quotation exists. Remove or replace the primary quotation to change it."
         )
@@ -678,7 +684,7 @@ export async function updateOpportunity(
           ? existing.projectYear
           : projectYear,
       isIntercompany: effectiveInterco,
-      currency: input.currency ?? existing.currency,
+      currency: resolvedCurrency,
       projectNatures:
         input.projectNatures === undefined
           ? existing.projectNatures
@@ -725,7 +731,7 @@ export async function updateOpportunity(
     await recomputeOpportunityTotal(tx, ctx.tenantId, existing.opportunityId)
 
     if ((await getEntitledModuleMap()).finance) {
-      await saveParties(tx, id, parties, input.currency ?? existing.currency)
+      await saveParties(tx, id, parties, resolvedCurrency)
     }
 
     await recordChanges(tx, ctx, {

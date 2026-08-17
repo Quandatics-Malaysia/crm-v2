@@ -19,6 +19,7 @@ describe("migration journal", () => {
     expect(resolveAccountCurrencyBackfill("USD", ["MYR", "USD"])).toBe("USD")
     expect(resolveAccountCurrencyBackfill("EUR", ["SGD", "USD"])).toBe("SGD")
     expect(resolveAccountCurrencyBackfill("EUR", [])).toBe("MYR")
+    expect(resolveAccountCurrencyBackfill("EUR", { malformed: true } as never)).toBe("MYR")
   })
 
   it("repairs the drifted contact department column idempotently", async () => {

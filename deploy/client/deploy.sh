@@ -71,6 +71,23 @@ validate_memory_limit() {
     fail "$variable_name must be a valid Compose memory limit"
 }
 
+migrate_public_gateway_port() {
+  if [ "$GATEWAY_HOST_PORT" != "8091" ]; then
+    return
+  fi
+
+  migrated_env=$(mktemp "$temp_dir/gateway-port.XXXXXX") || fail "could not prepare gateway port migration"
+  awk -F= '
+    $1 == "GATEWAY_HOST_PORT" { print "GATEWAY_HOST_PORT=8081"; replaced=1; next }
+    { print }
+    END { if (!replaced) print "GATEWAY_HOST_PORT=8081" }
+  ' "$env_file" >"$migrated_env" || fail "could not migrate gateway port configuration"
+  chmod 0600 "$migrated_env"
+  mv "$migrated_env" "$env_file" || fail "could not persist gateway port configuration"
+  GATEWAY_HOST_PORT=8081
+  echo "migrated public gateway port from 8091 to 8081" >&2
+}
+
 validate_uuid() {
   variable_name=$1
   variable_value=$2
@@ -758,6 +775,7 @@ HEALTHCHECK_INTERVAL_SECONDS=${HEALTHCHECK_INTERVAL_SECONDS:-2}
 HEALTHCHECK_TIMEOUT_SECONDS=${HEALTHCHECK_TIMEOUT_SECONDS:-5}
 DB_HEALTH_ATTEMPTS=${DB_HEALTH_ATTEMPTS:-30}
 DB_HEALTH_INTERVAL_SECONDS=${DB_HEALTH_INTERVAL_SECONDS:-2}
+migrate_public_gateway_port
 BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost}
 APP_URL=${APP_URL:-$BETTER_AUTH_URL}
 BOOTSTRAP_OWNER_EMAIL=${BOOTSTRAP_OWNER_EMAIL:-}
@@ -1069,6 +1087,13 @@ if ! reverify_backup_before_migration; then
   abort_with_database_rollback "$final_backup_failure"
 fi
 compose run --rm --no-deps migrate || fail "migration failed"
+legacy_gateway="${COMPOSE_PROJECT_NAME}-caddy-1"
+legacy_gateway_image=$(docker inspect --format '{{.Config.Image}}' "$legacy_gateway" 2>/dev/null || true)
+if [ -n "$legacy_gateway_image" ]; then
+  [ "$legacy_gateway_image" = "caddy:2-alpine" ] || fail "unexpected legacy gateway container image"
+  docker rm -f "$legacy_gateway" || fail "could not remove legacy gateway container"
+  echo "removed legacy gateway container $legacy_gateway" >&2
+fi
 if ! compose up -d --no-deps --force-recreate web backup gateway agent; then
   abort_with_rollback "runtime service recreation failed"
 fi

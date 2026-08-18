@@ -103,7 +103,10 @@ const sameOriginMutation: MiddlewareHandler<ControlPlaneEnvironment> = async (co
   try {
     requestOrigin = new URL(origin).origin
   } catch {
-    throw forbidden("operator_origin_invalid")
+    if (fetchSite !== "same-origin") {
+      throw forbidden("operator_origin_invalid")
+    }
+    requestOrigin = allowedOrigin
   }
   if (requestOrigin !== allowedOrigin) {
     throw forbidden("operator_origin_mismatch")

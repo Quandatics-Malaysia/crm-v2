@@ -61,6 +61,7 @@ function operatorRequest(
     form?: Record<string, string | readonly string[]>
     json?: Record<string, unknown>
     origin?: string | null
+    fetchSite?: string | null
     jsonGuard?: boolean
     accept?: string
     host?: string
@@ -89,7 +90,9 @@ function operatorRequest(
 
   if (method === "POST" && options.origin !== null) {
     headers.set("Origin", options.origin ?? "https://control.invalid")
-    headers.set("Sec-Fetch-Site", "same-origin")
+    if (options.fetchSite !== null) {
+      headers.set("Sec-Fetch-Site", options.fetchSite ?? "same-origin")
+    }
   }
   if (options.jsonGuard) {
     headers.set("X-Control-Request", "same-origin")
@@ -269,11 +272,23 @@ describe("operator mutation protection and client administration", () => {
       origin: "https://attacker.invalid",
     })).status).toBe(403)
     expect((await operatorRequest("/operator/clients", { method: "POST", form, token: "billing-token" })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey: `opaque-${crypto.randomUUID()}`, displayName: "Opaque origin" },
+      origin: "null",
+      fetchSite: "cross-site",
+    })).status).toBe(403)
+    expect((await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey: `opaque-${crypto.randomUUID()}`, displayName: "Opaque origin" },
+      origin: "null",
+      fetchSite: "same-origin",
+    })).status).toBe(303)
 
     const denialAudits = await env.CONTROL_DB.prepare(
       "SELECT COUNT(*) AS count FROM operator_audit_log WHERE action = 'client.create' AND outcome = 'denied'",
     ).first<{ count: number }>()
-    expect(denialAudits?.count).toBe(3)
+    expect(denialAudits?.count).toBe(4)
 
     const response = await operatorRequest("/operator/clients", { method: "POST", form })
     expect(response.status).toBe(303)
@@ -737,7 +752,7 @@ describe("contract and invoice administration", () => {
     const html = await page.text()
 
     expect(html).toContain("Client portfolio")
-    expect(html).toContain('<p class="summary-value">2</p><p>active client records</p>')
+    expect(html).toContain('<p class="summary-value">3</p><p>active client records</p>')
     expect(html).toContain('<p class="summary-value">1</p><p>deployment</p>')
     expect(html).toContain("Needs attention")
     expect(html).toContain("Contract is past due")

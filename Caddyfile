@@ -1,16 +1,29 @@
 :8081 {
 	encode gzip zstd
 
+	request_body {
+		max_size 16MB
+	}
+
 	@internal_deployment path /api/internal/deployment/*
 	route {
 		respond @internal_deployment 404
-		reverse_proxy web:3000
+		reverse_proxy web:3000 {
+			transport http {
+				dial_timeout 10s
+				response_header_timeout 30s
+				read_timeout 60s
+				write_timeout 30s
+			}
+		}
 	}
 
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		-Server
 	}
 }

@@ -1205,7 +1205,7 @@ describe("operator onboarding workspace", () => {
     }
   })
 
-  it("gives truthful disabled-state guidance without claiming nonexistent reactivation controls", async () => {
+  it("gives truthful disabled-state guidance and offers remote reactivation controls", async () => {
     const input = await fixture()
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare("UPDATE clients SET status = 'disabled' WHERE id = ?").bind(input.clientId),
@@ -1215,13 +1215,14 @@ describe("operator onboarding workspace", () => {
     const response = await workspaceRequest(input.deploymentId)
     const html = await response.text()
 
-    expect(html).toContain("Client is disabled. Reactivation is not available in this workspace.")
-    expect(html).toContain("Deployment is disabled. Reactivation is not available in this workspace.")
+    expect(html).toContain("Client is disabled. Enable it from the client record before continuing deployment setup.")
+    expect(html).toContain("Deployment is disabled. Enable it from the lifecycle card below to continue.")
     expect(html).toContain(`href="/operator/clients/${input.clientId}"`)
     expect(html).not.toContain("Reactivate client")
     expect(html).not.toContain("Reactivate deployment")
     expect(html).toContain("progress-step-blocked")
-    expect(html).not.toContain('<form')
+    expect(html).toContain("Remote control")
+    expect(html).toContain("Enable deployment")
   })
 
   it.each(OPERATOR_ROLES)("allows %s to read the deployment workspace", async (role) => {

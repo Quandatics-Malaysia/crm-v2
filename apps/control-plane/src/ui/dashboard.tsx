@@ -261,6 +261,42 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
     <OperatorLayout title="Contract" operatorEmail={props.operatorEmail}>
       <PageHeader eyebrow="Billing" title="Contract" description={`${contract.startsAt} to ${contract.endsAt}; ${contract.seatLimit} seats; ${contract.totalCents} cents.`} />
       <NoticePanel notice={props.notice} />
+      <section class="workspace-section" aria-labelledby="contract-terms-heading">
+        <h2 id="contract-terms-heading">Contract terms</h2>
+        <Card title="Edit commercial terms">
+          <p>Changing terms bumps the entitlement revision, so the deployment must receive a freshly signed entitlement version.</p>
+          <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/edit`}>
+            <div class="field"><label for="contract-plan-id">Plan ID</label><input id="contract-plan-id" name="planId" required placeholder="plan-basic" value={contract.planId} /></div>
+            <div class="field"><label for="contract-status-edit">Status</label><select id="contract-status-edit" name="status">{(["active", "past_due", "suspended", "cancelled"] as const).map((status) => <option value={status} selected={contract.status === status}>{status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
+            <div class="field"><label for="starts-at-edit">Starts on</label><input id="starts-at-edit" name="startsAt" required type="date" value={contract.startsAt} /></div>
+            <div class="field"><label for="ends-at-edit">Ends on</label><input id="ends-at-edit" name="endsAt" required type="date" value={contract.endsAt} /></div>
+            <div class="field"><label for="seat-limit-edit">Seat limit</label><input id="seat-limit-edit" name="seatLimit" required type="number" min="1" max="100000" step="1" value={contract.seatLimit} /></div>
+            <div class="field"><label for="monthly-seat-price-edit">Monthly seat price, cents</label><input id="monthly-seat-price-edit" name="monthlySeatPriceCents" required type="number" min="0" step="1" value={contract.monthlySeatPriceCents} /></div>
+            <div class="field"><label for="tax-basis-points-edit">Tax, basis points</label><input id="tax-basis-points-edit" name="taxBasisPoints" required type="number" min="0" max="10000" step="1" value={contract.taxBasisPoints} /></div>
+            <div class="field"><label for="collection-frequency-edit">Collection frequency</label><select id="collection-frequency-edit" name="collectionFrequency">{(["monthly", "upfront"] as const).map((frequency) => <option value={frequency} selected={contract.collectionFrequency === frequency}>{frequency}</option>)}</select></div>
+            <fieldset class="module-fieldset">
+              <legend>Modules</legend>
+              <p class="field-hint">Select the modules covered by this contract.</p>
+              {Object.entries(MODULE_CATALOG).map(([moduleId, module]) => <label><input type="checkbox" name="moduleIds" value={moduleId} checked={contract.modules.some((item) => item.id === moduleId)} /> {module.displayName}</label>)}
+            </fieldset>
+            <div><button type="submit">Save contract terms</button></div>
+          </form>
+        </Card>
+      </section>
+      <section class="workspace-section" aria-labelledby="entitlement-controls-heading">
+        <h2 id="entitlement-controls-heading">Entitlement controls</h2>
+        <Card title="Subscription control">
+          <p>Changes here also bump the entitlement revision and are picked up by the renewal cycle.</p>
+          <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/entitlement-controls`}>
+            <div class="field"><label for="contract-status-control">Subscription status</label><select id="contract-status-control" name="status">{(["active", "past_due", "suspended", "cancelled"] as const).map((status) => <option value={status} selected={contract.status === status}>{status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
+            <div class="field"><label for="renewal-policy">Renewal policy</label><select id="renewal-policy" name="renewalPolicy">{(["auto_renew", "non_renewing"] as const).map((policy) => <option value={policy} selected={contract.renewalPolicy === policy}>{policy.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
+            <div class="field"><label for="suspension-at">Schedule suspension at</label><input id="suspension-at" name="suspensionAt" type="datetime-local" /><p class="field-hint">Leave empty to clear a scheduled suspension.</p></div>
+            <div class="field"><label for="seat-limit-control">Seat limit</label><input id="seat-limit-control" name="seatLimit" type="number" min="1" max="100000" step="1" value={contract.scheduledSeatLimit ?? contract.seatLimit} /><p class="field-hint">A lower limit applies immediately; a higher limit requires the current heartbeat to confirm enough free seats.</p></div>
+            <div class="field"><label for="seat-limit-effective-at">Effective at (UTC)</label><input id="seat-limit-effective-at" name="effectiveAt" type="datetime-local" /><p class="field-hint">Optional future-dated change. Leave empty to apply now.</p></div>
+            <div><button type="submit">Save entitlement controls</button></div>
+          </form>
+        </Card>
+      </section>
       <section class="workspace-section" aria-labelledby="invoices-heading">
         <h2 id="invoices-heading">Invoices</h2>
         <Card title="Issue invoice">

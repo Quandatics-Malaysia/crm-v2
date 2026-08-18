@@ -19,9 +19,19 @@ import {
   parseNamedPagination,
   parsePagination,
 } from "../repos/clients"
-import { createContract, getContractDetail } from "../repos/contracts"
+import { createContract, getContractDetail, updateContract } from "../repos/contracts"
 import { createInvoice } from "../repos/invoices"
+import {
+  revokeInstallTokens,
+  setDeploymentStatus,
+} from "../repos/deployments-ops"
 import { issueInstallToken } from "../repos/deployments"
+import {
+  createOperator,
+  listOperators,
+  setOperatorRoles,
+  setOperatorStatus,
+} from "../repos/operators"
 import { getDeploymentWorkspace } from "../repos/onboarding"
 import {
   assignEntitlementSchedule,
@@ -30,6 +40,7 @@ import {
 } from "../repos/entitlements"
 import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
 import { DeploymentPage, EntitlementReviewPage, InstallTokenResultPage } from "../ui/deployment"
+import { OperatorRosterPage } from "../ui/operators"
 import { OPERATOR_STYLES } from "../ui/styles"
 
 type OperatorContext = Context<ControlPlaneEnvironment>
@@ -44,6 +55,13 @@ const OPERATOR_NOTICES = {
   contract_created: { tone: "success", title: "Contract created", message: "Create deployment when commercial terms are confirmed." },
   invoice_created: { tone: "success", title: "Invoice issued", message: "Collection milestones are ready for review." },
   entitlement_schedule_updated: { tone: "success", title: "Entitlement schedule updated", message: "Configuration changes are ready for the deployment." },
+  operator_created: { tone: "success", title: "Operator added", message: "The account is active and can sign in through Cloudflare Access." },
+  operator_status_updated: { tone: "success", title: "Operator status updated", message: "The account access change is applied." },
+  operator_roles_updated: { tone: "success", title: "Operator roles updated", message: "The role set is applied immediately." },
+  deployment_status_updated: { tone: "success", title: "Deployment status updated", message: "The deployment lifecycle change is applied." },
+  install_token_revoked: { tone: "success", title: "Install token revoked", message: "Pending install tokens for this deployment are superseded." },
+  entitlement_controls_updated: { tone: "success", title: "Entitlement controls updated", message: "Contract entitlement controls are applied." },
+  contract_updated: { tone: "success", title: "Contract updated", message: "Commercial terms are updated and an entitlement re-issue is required." },
   changes_saved: { tone: "success", title: "Changes saved", message: "The requested update completed." },
 } as const satisfies Record<string, OperatorNotice>
 
@@ -161,8 +179,32 @@ function mutationDescriptor(pathname: string): {
   if (installToken) {
     return { action: "install_token.issue", targetType: "deployment", targetId: installToken[1]! }
   }
-  if (/^\/operator\/contracts\/[^/]+\/entitlement-controls$/.test(pathname)) {
-    return { action: "entitlement.controls.update", targetType: "contract", targetId: "request-target" }
+  const entitlementControls = /^\/operator\/contracts\/([^/]+)\/entitlement-controls$/.exec(pathname)
+  if (entitlementControls) {
+    return { action: "entitlement.controls.update", targetType: "contract", targetId: entitlementControls[1]! }
+  }
+  const contractEdit = /^\/operator\/contracts\/([^/]+)\/edit$/.exec(pathname)
+  if (contractEdit) {
+    return { action: "contract.update", targetType: "contract", targetId: contractEdit[1]! }
+  }
+  if (pathname === "/operator/operators") {
+    return { action: "operator.create", targetType: "operator_user", targetId: "request-target" }
+  }
+  const operatorStatus = /^\/operator\/operators\/([^/]+)\/status$/.exec(pathname)
+  if (operatorStatus) {
+    return { action: "operator.status.update", targetType: "operator_user", targetId: operatorStatus[1]! }
+  }
+  const operatorRoles = /^\/operator\/operators\/([^/]+)\/roles$/.exec(pathname)
+  if (operatorRoles) {
+    return { action: "operator.roles.update", targetType: "operator_user", targetId: operatorRoles[1]! }
+  }
+  const deploymentStatus = /^\/operator\/deployments\/([^/]+)\/status$/.exec(pathname)
+  if (deploymentStatus) {
+    return { action: "deployment.status.update", targetType: "deployment", targetId: deploymentStatus[1]! }
+  }
+  const tokenRevoke = /^\/operator\/deployments\/([^/]+)\/install-tokens\/revoke$/.exec(pathname)
+  if (tokenRevoke) {
+    return { action: "install_token.revoke", targetType: "deployment", targetId: tokenRevoke[1]! }
   }
   return { action: "operator.mutation", targetType: "operator_route", targetId: "unmatched" }
 }
@@ -258,6 +300,19 @@ function htmlSuccessRedirect(context: OperatorContext): string {
   if (scheduleMutation) {
     return withNotice(`/operator/deployments/${scheduleMutation[1]}`, "entitlement_schedule_updated")
   }
+  if (pathname === "/operator/operators") return withNotice("/operator/operators", "operator_created")
+  const operatorStatus = /^\/operator\/operators\/([^/]+)\/status$/.exec(pathname)
+  if (operatorStatus) return withNotice("/operator/operators", "operator_status_updated")
+  const operatorRoles = /^\/operator\/operators\/([^/]+)\/roles$/.exec(pathname)
+  if (operatorRoles) return withNotice("/operator/operators", "operator_roles_updated")
+  const deploymentStatus = /^\/operator\/deployments\/([^/]+)\/status$/.exec(pathname)
+  if (deploymentStatus) return withNotice(`/operator/deployments/${deploymentStatus[1]}`, "deployment_status_updated")
+  const tokenRevoke = /^\/operator\/deployments\/([^/]+)\/install-tokens\/revoke$/.exec(pathname)
+  if (tokenRevoke) return withNotice(`/operator/deployments/${tokenRevoke[1]}`, "install_token_revoked")
+  const contractEdit = /^\/operator\/contracts\/([^/]+)\/edit$/.exec(pathname)
+  if (contractEdit) return withNotice(`/operator/contracts/${contractEdit[1]}`, "contract_updated")
+  const entitlementControls = /^\/operator\/contracts\/([^/]+)\/entitlement-controls$/.exec(pathname)
+  if (entitlementControls) return withNotice(`/operator/contracts/${entitlementControls[1]}`, "entitlement_controls_updated")
   return withNotice("/operator/clients", "changes_saved")
 }
 
@@ -356,6 +411,16 @@ export function createOperatorRoutes() {
       parseNamedPagination(context.req.url, "invoices"),
     )
     return context.html(<ContractPage contract={contract} operatorEmail={context.get("operator").email} notice={requestNotice(context)} />)
+  })
+  routes.get("/operators", requireOperatorRole("vendor_owner"), async (context) => {
+    const operator = context.get("operator")
+    const operators = await listOperators(context.env.CONTROL_DB)
+    return context.html(<OperatorRosterPage
+      operators={operators}
+      currentOperatorId={operator.operatorId}
+      operatorEmail={operator.email}
+      notice={requestNotice(context)}
+    />)
   })
   routes.get("/deployments/:deploymentId", async (context) => {
     const workspace = await getDeploymentWorkspace(
@@ -520,7 +585,83 @@ export function createOperatorRoutes() {
         seatLimit,
         effectiveAt: data.effectiveAt === undefined || data.effectiveAt === "" ? undefined : String(data.effectiveAt),
       }, actor(context))
-      return context.json({ id: contractId }, 200)
+      if (isJson(context)) return context.json({ id: contractId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+
+  routes.post(
+    "/operators",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner"),
+    (context) => runMutation(
+      context,
+      (data) => createOperator(context.env.CONTROL_DB, data as never, actor(context)),
+    ),
+  )
+  routes.post(
+    "/operators/:operatorId/status",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const operatorId = context.req.param("operatorId")
+      const data = await mutationData(context)
+      if (data.status === "disabled" && data.confirmation !== "disable_operator") throw badRequest()
+      await setOperatorStatus(context.env.CONTROL_DB, operatorId, data.status, actor(context))
+      if (isJson(context)) return context.json({ id: operatorId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/operators/:operatorId/roles",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner"),
+    async (context) => {
+      const operatorId = context.req.param("operatorId")
+      const data = await mutationData(context)
+      await setOperatorRoles(context.env.CONTROL_DB, operatorId, data.roles, actor(context))
+      if (isJson(context)) return context.json({ id: operatorId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+
+  routes.post(
+    "/contracts/:contractId/edit",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "billing_operator"),
+    async (context) => {
+      const contractId = context.req.param("contractId")
+      const data = await mutationData(context)
+      await updateContract(context.env.CONTROL_DB, contractId, data as never, actor(context))
+      if (isJson(context)) return context.json({ id: contractId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+
+  routes.post(
+    "/deployments/:deploymentId/status",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "vendor_support"),
+    async (context) => {
+      const deploymentId = context.req.param("deploymentId")
+      const data = await mutationData(context)
+      if (data.status === "disabled" && data.confirmation !== "disable_deployment") throw badRequest()
+      await setDeploymentStatus(context.env.CONTROL_DB, deploymentId, data.status, actor(context))
+      if (isJson(context)) return context.json({ id: deploymentId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/install-tokens/revoke",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "vendor_support"),
+    async (context) => {
+      const deploymentId = context.req.param("deploymentId")
+      const data = await mutationData(context)
+      if (data.confirmation !== "revoke_install_tokens") throw badRequest()
+      await revokeInstallTokens(context.env.CONTROL_DB, deploymentId, actor(context))
+      if (isJson(context)) return context.json({ id: deploymentId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
     },
   )
 

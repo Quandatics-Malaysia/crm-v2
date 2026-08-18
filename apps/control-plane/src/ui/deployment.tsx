@@ -52,7 +52,7 @@ function actionFor(action: OnboardingNextAction, workspace: DeploymentWorkspace)
   if (workspace.client.status !== "active") {
     return {
       title: "Client disabled",
-      description: "Client is disabled. Reactivation is not available in this workspace. Contact a vendor owner, then review the client record for status changes.",
+      description: "Client is disabled. Enable it from the client record, then review the deployment status.",
       href: `/operator/clients/${workspace.client.id}`,
       linkLabel: "Review client record",
     }
@@ -60,9 +60,9 @@ function actionFor(action: OnboardingNextAction, workspace: DeploymentWorkspace)
   if (workspace.deployment.status !== "active") {
     return {
       title: "Deployment disabled",
-      description: "Deployment is disabled. Reactivation is not available in this workspace. Contact a vendor owner, then review the client deployment list for status changes.",
-      href: `/operator/clients/${workspace.client.id}#deployments-heading`,
-      linkLabel: "Review deployment record",
+      description: "Deployment is disabled. Enable it from the lifecycle card below to restore heartbeat and licence renewal.",
+      href: "#lifecycle-heading",
+      linkLabel: "Review deployment lifecycle",
     }
   }
 
@@ -205,8 +205,8 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
         { term: "Environment", details: titleCase(workspace.deployment.environment) },
         { term: "Registration", details: <StatusBadge tone={statusTone(registrationStatus.toLowerCase().replaceAll(" ", "_"))}>{registrationStatus}</StatusBadge> },
       ]} />
-      {workspace.client.status !== "active" ? <p class="field-hint">Client is disabled. Reactivation is not available in this workspace. Contact a vendor owner and review the client record.</p> : null}
-      {workspace.deployment.status !== "active" ? <p class="field-hint">Deployment is disabled. Reactivation is not available in this workspace. Contact a vendor owner and review the deployment record.</p> : null}
+      {workspace.client.status !== "active" ? <p class="field-hint">Client is disabled. Enable it from the client record before continuing deployment setup.</p> : null}
+      {workspace.deployment.status !== "active" ? <p class="field-hint">Deployment is disabled. Enable it from the lifecycle card below to continue.</p> : null}
       <details class="field-hint">
         <summary>Advanced identifiers</summary>
         <DataList items={[
@@ -228,6 +228,40 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
       <section class="workspace-section" aria-label="Required action">
         <Card title={nextAction.title} footer={nextAction.href ? <a class="button-link" href={nextAction.href}>{nextAction.linkLabel}</a> : undefined}>
           <p>{nextAction.description}</p>
+        </Card>
+      </section>
+
+      {workspace.onboarding.licenceState === "grace" || workspace.onboarding.licenceState === "read_only" ? (
+        <section class="workspace-section" aria-labelledby="licence-repair-heading">
+          <h2 id="licence-repair-heading">Licence repair</h2>
+          <Card title="Restore write access">
+            <ol class="repair-steps">
+              <li>Confirm deployment status is active and heartbeat is not stale.</li>
+              <li>Review current contract and entitlement configuration.</li>
+              <li>Issue a new signed entitlement version.</li>
+              <li>Wait for the deployment agent heartbeat to apply it.</li>
+            </ol>
+            <p class="field-hint">If write access stays blocked, inspect agent/web logs for <code>unknown_key</code>, <code>trust_set_invalid</code>, or <code>expired_lease</code>. Key errors require updating the web deployment trust set before issuing again.</p>
+          </Card>
+        </section>
+      ) : null}
+
+      <section class="workspace-section" aria-labelledby="lifecycle-heading">
+        <h2 id="lifecycle-heading">Deployment lifecycle</h2>
+        <Card title="Remote control">
+          <div class="inline-actions">
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/status`}>
+              <input type="hidden" name="status" value={workspace.deployment.status === "active" ? "disabled" : "active"} />
+              {workspace.deployment.status === "active" ? <label class="field-hint"><input type="checkbox" name="confirmation" value="disable_deployment" required /> Confirm disable</label> : null}
+              <button type="submit">{workspace.deployment.status === "active" ? "Disable deployment" : "Enable deployment"}</button>
+            </form>
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/install-tokens/revoke`}>
+              <label class="field-hint"><input type="checkbox" name="confirmation" value="revoke_install_tokens" required /> Confirm revoke</label>
+              <button type="submit">Revoke pending install tokens</button>
+            </form>
+          </div>
+          <p class="field-hint">Disabling stops the deployment agent from authenticating, which freezes licence renewal. Enabling restores normal heartbeat and renewal.</p>
+          <p class="field-hint">Deployment-key rotation requires an agent-state reset on the customer host. Remote key rotation ships with the signed command channel.</p>
         </Card>
       </section>
 

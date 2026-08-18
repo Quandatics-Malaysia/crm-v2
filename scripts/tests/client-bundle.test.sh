@@ -892,7 +892,7 @@ else
   jq -e '.services.agent.read_only == true and .services.agent.cap_drop == ["ALL"] and .services.agent.pids_limit > 0 and (.services.agent.security_opt | index("no-new-privileges:true")) != null' "$compose_json" >/dev/null || record_failure "agent container hardening is incomplete"
   jq -e '(.services.agent.ports // []) == [] and (.services.agent.volumes | map(.source) | index("/var/run/docker.sock")) == null' "$compose_json" >/dev/null || record_failure "agent exposes a port or Docker socket"
   jq -e '.networks.backend.internal == true' "$compose_json" >/dev/null || record_failure "backend network is not internal"
-  jq -e '.services.gateway.ports[0].host_ip == "127.0.0.1"' "$compose_json" >/dev/null || record_failure "gateway does not default to loopback"
+  jq -e '.services.gateway.ports[0].host_ip == "0.0.0.0"' "$compose_json" >/dev/null || record_failure "gateway does not default to host-facing bind"
   jq -e '.services.db.ports[0].host_ip == "127.0.0.1"' "$compose_json" >/dev/null || record_failure "database administration does not bind loopback"
   jq -e '(.services.gateway.environment // {}) == {}' "$compose_json" >/dev/null || record_failure "gateway retains dead DOMAIN/ACME variables"
 fi

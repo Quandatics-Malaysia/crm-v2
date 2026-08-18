@@ -459,6 +459,17 @@ describe("operator mutation protection and client administration", () => {
     secondClientId = (await guarded.json() as { id: string }).id
   })
 
+  it("normalizes equivalent same-origin ports", async () => {
+    const clientKey = `port-${crypto.randomUUID()}`
+    const response = await operatorRequest("/operator/clients", {
+      method: "POST",
+      form: { clientKey, displayName: "Default port origin" },
+      origin: "https://control.invalid:443",
+    })
+    expect(response.status).toBe(303)
+    await env.CONTROL_DB.prepare("DELETE FROM clients WHERE client_key = ?").bind(clientKey).run()
+  })
+
   it("creates unlimited client organisations with stable keys unique within each client", async () => {
     for (const organisationKey of ["hq", "delivery"] as const) {
       expect((await operatorRequest(`/operator/clients/${clientId}/organisations`, {

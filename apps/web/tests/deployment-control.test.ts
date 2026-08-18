@@ -140,12 +140,19 @@ beforeEach(() => {
 })
 
 describe("applySignedEntitlement", () => {
-  it("verifies and persists exact canonical last-known-good bytes", async () => {
-    const service = createDeploymentControlService({
-      persistence,
-      trustSet: trustSet(),
-      now: () => new Date(issuedAt),
+  const applySignedService = (input?: {
+    persistence?: DeploymentControlPersistence
+    trustSet?: VendorEntitlementTrustSet
+    now?: () => Date
+  }) =>
+    createDeploymentControlService({
+      persistence: input?.persistence ?? persistence,
+      trustSet: input?.trustSet ?? trustSet(),
+      now: input?.now ?? (() => new Date(issuedAt)),
     })
+
+  it("verifies and persists exact canonical last-known-good bytes", async () => {
+    const service = applySignedService()
     const envelope = await signed()
 
     await expect(service.applySignedEntitlement(envelope, deploymentId)).resolves.toMatchObject({
@@ -164,7 +171,7 @@ describe("applySignedEntitlement", () => {
   })
 
   it("rejects unknown keys, key-ID substitution, tampering, wrong deployments, and strict-schema failures", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = applySignedService()
     const valid = await signed()
     await service.applySignedEntitlement(valid, deploymentId)
 
@@ -285,7 +292,7 @@ describe("applySignedEntitlement", () => {
   })
 
   it("rejects dependency-incomplete modules but accepts the complete known module catalog", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = applySignedService()
     await expect(service.applySignedEntitlement(
       await signed(lease({ moduleIds: ["finance"] })), deploymentId,
     )).resolves.toMatchObject({ outcome: "rejected", reason: "invalid_modules" })
@@ -296,7 +303,7 @@ describe("applySignedEntitlement", () => {
   })
 
   it("rejects downgrades and conflicting same revisions but permits byte-identical replay", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = applySignedService()
     const revisionTwo = await signed(lease({ revision: 2, leaseId: "lease-002" }))
     await service.applySignedEntitlement(revisionTwo, deploymentId)
 
@@ -313,7 +320,7 @@ describe("applySignedEntitlement", () => {
   })
 
   it("serializes concurrent revisions and retains the highest accepted revision", async () => {
-    const service = createDeploymentControlService({ persistence, trustSet: trustSet() })
+    const service = applySignedService()
     const revisions = await Promise.all([2, 4, 3].map(async (revision) =>
       service.applySignedEntitlement(await signed(lease({ revision, leaseId: `lease-${revision}` })), deploymentId)))
 

@@ -127,8 +127,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
-    cap_drop:
-      - ALL
     pids_limit: 128
     healthcheck:
       test: ["CMD", "/usr/local/bin/agent-health"]

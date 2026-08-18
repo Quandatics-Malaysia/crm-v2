@@ -17,6 +17,8 @@ describe("public ingress internal deployment denial", () => {
     expect(caddyfile).toContain("max_size 16MB")
     expect(caddyfile).toContain("dial_timeout 10s")
     expect(caddyfile).toContain("response_header_timeout 30s")
+    expect(caddyfile).not.toContain("read_timeout")
+    expect(caddyfile).not.toContain("write_timeout")
     expect(caddyfile).toContain("Content-Security-Policy")
     expect(caddyfile).toContain("Permissions-Policy")
   })

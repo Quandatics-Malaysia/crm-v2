@@ -1073,6 +1073,9 @@ if ! compose up -d --no-deps --force-recreate web backup gateway agent; then
   abort_with_rollback "runtime service recreation failed"
 fi
 if ! run_healthcheck; then
+  printf 'gateway diagnostics: host_port=%s healthcheck_url=%s\n' "$GATEWAY_HOST_PORT" "$HEALTHCHECK_URL" >&2
+  compose ps --all >&2 || true
+  compose logs --no-color --tail=80 gateway >&2 || true
   abort_with_rollback "health check failed"
 fi
 if ! wait_for_agent; then

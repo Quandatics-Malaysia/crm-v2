@@ -135,6 +135,14 @@ services:
       - caddyconfig:/config
     depends_on:
       - web
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
     mem_limit: 128m
     logging: *default-logging
     restart: unless-stopped

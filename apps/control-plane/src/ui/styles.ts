@@ -110,6 +110,9 @@ export const OPERATOR_STYLES = `
 .data-table thead th { background: #eef2f7; color: var(--operator-colour-muted); font-size: 0.8125rem; letter-spacing: 0.02em; text-transform: uppercase; }
 .data-table tbody tr:last-child :is(th, td) { border-block-end: 0; }
 .secondary-section { border-block-start: var(--operator-border); padding-block-start: var(--operator-space-8); }
+.inline-actions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-4); margin-block-end: var(--operator-space-3); }
+.inline-actions button.button-link { border: 0; background: transparent; color: var(--operator-colour-accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.sr-only { block-size: 1px; clip: rect(0 0 0 0); clip-path: inset(50%); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap; }
 
 @media (max-width: 42rem) {
   .operator-shell-bar { align-items: flex-start; flex-direction: column; }

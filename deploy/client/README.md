@@ -65,14 +65,20 @@ Compose separates networks:
 - `web` bridges frontend/backend and a separate internal `agent-web` network.
 - `agent` joins only `agent-web` and its outbound control-plane network. It has no published port, database network, database credential, Docker socket, or application-source mount. Its only volume is private agent state.
 
-Both PostgreSQL administration and Caddy bind to host loopback. Host Nginx must terminate public TLS on TCP `:443`, apply the public security/firewall policy, and proxy only to `http://127.0.0.1:${GATEWAY_HOST_PORT}`. Do not expose port 8081 through a host firewall or load balancer. Minimal Nginx location:
+Both PostgreSQL administration and Caddy bind to host loopback. Host Nginx must terminate public TLS on TCP `:443`, apply the public security/firewall policy, and proxy only to `http://127.0.0.1:${GATEWAY_HOST_PORT}`. Do not expose port 8081 through a host firewall or load balancer. Add `limit_req_zone` in Nginx `http` context, then apply stricter limits to authentication, API, and upload routes. Minimal Nginx configuration:
 
 ```nginx
+limit_req_zone $binary_remote_addr zone=crm_public:10m rate=30r/m;
+
 server {
     listen 443 ssl http2;
     server_name crm.example.com;
     # ssl_certificate and ssl_certificate_key are host-managed.
+    client_max_body_size 16m;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
     location / {
+        limit_req zone=crm_public burst=60 nodelay;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

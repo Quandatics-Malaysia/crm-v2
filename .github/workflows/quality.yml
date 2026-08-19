@@ -70,4 +70,4 @@ jobs:
           TEST_DATABASE_URL: postgres://crm_app:crm_app_test@localhost:5432/crm
       - run: pnpm run test:workflows
       - run: pnpm run build
-        if: ${{ github.event_name != 'workflow_call' || inputs.run_build }}
+        if: ${{ inputs.run_build }}

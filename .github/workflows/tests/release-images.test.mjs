@@ -60,8 +60,8 @@ test("release quality skips only the duplicate application build", () => {
   assert.ok(qualityBuild, "quality workflow must retain the application build step")
   assert.match(
     qualityBuild.if ?? "",
-    /github\.event_name\s*!=\s*['"]workflow_call['"]\s*\|\|\s*inputs\.run_build/,
-    "standalone build must remain enabled for pushes and pull requests",
+/inputs\.run_build/,
+    "standalone build must be gated by inputs.run_build — true on PRs/pushes, false from release",
   )
 
   const releaseQuality = workflow.jobs?.quality

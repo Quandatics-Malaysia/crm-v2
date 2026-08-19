@@ -292,6 +292,8 @@ jobs:
         run: |
           set -euo pipefail
           cosign sign-blob --yes \
+            --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/${TARGET_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             --bundle client-deployment-bundle.sigstore.json \
             client-deployment-bundle.tar.gz
       - name: Upload client deployment bundle

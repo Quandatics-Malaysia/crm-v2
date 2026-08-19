@@ -101,6 +101,7 @@ jobs:
           cosign verify-blob \
             --bundle "$TEMP_DIR/bundle/client-deployment-bundle.sigstore.json" \
             --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/${RELEASE_TAG}" \
+            --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/heads/main" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "$TEMP_DIR/bundle/client-deployment-bundle.tar.gz"
           mkdir "$TEMP_DIR/verified"

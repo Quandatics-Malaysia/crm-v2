@@ -15,6 +15,12 @@ import {
   type DeploymentAccess,
 } from "@/lib/deployment-control"
 
+// Used for operator alerts when entitlement mismatches are detected.
+// Import from the underlying service rather than the "use server" action wrapper,
+// to avoid pulling in type-re-export machinery that Turbopack can't handle in
+// server-only modules.
+import { writeOperatorAlert } from "@/server/services/operator-alerts"
+
 export class ModuleAccessDeniedError extends Error {
   readonly moduleId: ModuleId
 
@@ -46,16 +52,12 @@ export function createEntitledModuleGate(
       const detail = `Signed entitlement owns module(s) [${missing.join(", ")}], but the image omits ${missing.length === 1 ? "it" : "them"}. Running with those modules disabled.`
       console.error("[module-gate]", detail)
       // Fire-and-forget alert so the vendor sees the mismatch without blocking.
-      import("@/app/(app)/_shared/operator-alert-actions")
-        .then(({ reportIncident }) =>
-          reportIncident({
-            severity: "error",
-            summary: "Module entitlement mismatch in production image",
-            detail,
-            source: "module_gate",
-          }).catch(() => {})
-        )
-        .catch(() => {})
+      writeOperatorAlert({
+        severity: "error",
+        summary: "Module entitlement mismatch in production image",
+        detail,
+        source: "module_gate",
+      }).catch(() => {})
     }
     return createModuleMap(access.moduleIds, compiled)
   }

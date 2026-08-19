@@ -7,8 +7,8 @@ import {
 import { ModuleIdSchema, StrictSemverSchema } from "@crm/control-protocol"
 import {
   CommandAckSchema,
+  CommandEnvelopeSchema,
   DeploymentHeartbeatSchema,
-  type CommandEnvelope,
   type DeploymentHeartbeat,
 } from "@crm/control-protocol"
 import { z } from "zod"
@@ -33,6 +33,8 @@ export type DeploymentClientIdentity = {
   privateJwk: { kty: "OKP"; crv: "Ed25519"; x: string; d: string }
 }
 
+export type ClaimedCommand = z.infer<typeof claimedCommandSchema>
+
 const MAX_RESPONSE_BYTES = 131_072
 const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 const timestampSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
@@ -48,6 +50,16 @@ const migrationVersionSchema = z.string().regex(/^[0-9]{4}$/)
 const decimalRevisionSchema = z.string().regex(/^[1-9]\d{0,9}$/).refine((value) => Number(value) <= 2_147_483_647)
 
 const registrationResponseSchema = z.object({ deploymentId: uuidSchema, keyId: uuidSchema }).strict()
+const claimedCommandSchema = z.object({
+  id: uuidSchema,
+  deploymentId: uuidSchema,
+  vendorKeyId: opaqueVersionSchema,
+  issuedAt: timestampSchema,
+  expiresAt: timestampSchema,
+  enqueuedAt: timestampSchema,
+  claimedAt: timestampSchema.nullable(),
+  envelope: CommandEnvelopeSchema,
+}).strict()
 const statusResponseSchema = z.object({
   healthState: z.enum(["healthy", "degraded", "unhealthy"]),
   entitlement: z.object({
@@ -351,7 +363,7 @@ export function createDeploymentClient(input: {
       }
     },
 
-    async nextCommand(identity: DeploymentClientIdentity, signal: AbortSignal): Promise<CommandEnvelope | null> {
+async nextCommand(identity: DeploymentClientIdentity, signal: AbortSignal): Promise<ClaimedCommand | null> {
       const path = `/v1/deployments/${input.config.deploymentId}/commands/next`
       const headers = await signedHeaders(identity, "GET", path, new Uint8Array())
       const response = await fetchResponse(
@@ -367,16 +379,11 @@ export function createDeploymentClient(input: {
       const text = await readBounded(response)
       const trimmed = text.trim()
       if (trimmed === "" || trimmed === "null") return null
-      let envelope: unknown
-      try {
-        envelope = JSON.parse(trimmed)
-      } catch {
+      const parsed = claimedCommandSchema.safeParse(JSON.parse(trimmed))
+      if (!parsed.success) {
         throw new AgentRequestError("invalid_response", false)
       }
-      if (typeof envelope !== "object" || envelope === null || !("id" in envelope) || !("envelope" in envelope)) {
-        throw new AgentRequestError("invalid_response", false)
-      }
-      return envelope as CommandEnvelope
+      return parsed.data
     },
 
     async acknowledgeCommand(

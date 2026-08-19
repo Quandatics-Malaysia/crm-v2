@@ -3,6 +3,7 @@ import { useId, type Child } from "hono/jsx"
 
 export type StatusTone = "neutral" | "success" | "warning" | "error"
 export type NoticeTone = "info" | "success" | "warning" | "error"
+export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost"
 
 function identifier(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
@@ -56,39 +57,75 @@ export function ProgressSteps(props: {
 export function Field(props: {
   label: string
   name: string
-  type?: "date" | "email" | "number" | "password" | "search" | "text" | "url"
+  type?: "date" | "email" | "number" | "password" | "search" | "text" | "url" | "datetime-local"
   value?: string
   required?: boolean
-  hint?: string
+  hint?: Child
   error?: string
+  placeholder?: string
+  pattern?: string
+  maxLength?: number
+  min?: number
+  max?: number
+  step?: number
+  options?: readonly { value: string; label: string }[]
+  textarea?: boolean
+  checkbox?: boolean
+  checkboxValue?: string
+  hidden?: boolean
+  defaultValue?: string
+  title?: string
+  rows?: number
 }) {
   const id = `field-${identifier(props.name)}-${identifier(useId())}`
   const hintId = `${id}-hint`
   const errorId = `${id}-error`
   const describedBy = [props.hint ? hintId : null, props.error ? errorId : null].filter(Boolean).join(" ")
+  const shared = {
+    id,
+    name: props.name,
+    required: props.required,
+    "aria-describedby": describedBy || undefined,
+    "aria-invalid": props.error ? "true" : undefined,
+  }
+  let control: Child
+  if (props.hidden) {
+    control = <input type="hidden" name={props.name} value={props.value ?? props.defaultValue} />
+  } else if (props.checkbox) {
+    control = (
+      <label class="checkbox-field" for={id}>
+        <input {...shared} type="checkbox" value={props.checkboxValue ?? "yes"} checked={props.value === "yes" || props.defaultValue === "yes"} />
+        {props.label}
+        {props.required ? <span aria-hidden="true"> *</span> : null}
+      </label>
+    )
+  } else if (props.textarea) {
+    control = <textarea {...shared} rows={props.rows} defaultValue={props.defaultValue}>{props.value}</textarea>
+  } else if (props.options) {
+    control = (
+      <select {...shared}>
+        {props.options.map((option) => <option value={option.value} selected={props.value === option.value}>{option.label}</option>)}
+      </select>
+    )
+  } else {
+    control = <input {...shared} type={props.type ?? "text"} value={props.value} placeholder={props.placeholder} pattern={props.pattern} maxLength={props.maxLength} min={props.min} max={props.max} step={props.step} title={props.title} />
+  }
   return (
     <div class="field">
-      <label for={id}>{props.label}{props.required ? <span aria-hidden="true"> *</span> : null}</label>
-      <input
-        id={id}
-        name={props.name}
-        type={props.type ?? "text"}
-        value={props.value}
-        required={props.required}
-        aria-describedby={describedBy || undefined}
-        aria-invalid={props.error ? "true" : undefined}
-      />
+      {!props.checkbox && !props.hidden ? <label for={id}>{props.label}{props.required ? <span aria-hidden="true"> *</span> : null}</label> : null}
+      {control}
       {props.hint ? <p id={hintId} class="field-hint">{props.hint}</p> : null}
       {props.error ? <p id={errorId} class="field-error" role="alert">{props.error}</p> : null}
     </div>
   )
 }
 
-export function Card(props: { title: string; children: Child; footer?: Child }) {
+export function Card(props: { title: string; children: Child; footer?: Child; headingLevel?: 2 | 3 | 4 }) {
   const headingId = `card-${identifier(props.title)}-${identifier(useId())}`
+  const Heading = `h${props.headingLevel ?? 2}` as const
   return (
     <section class="card" aria-labelledby={headingId}>
-      <h2 id={headingId}>{props.title}</h2>
+      <Heading id={headingId}>{props.title}</Heading>
       <div class="card-content">{props.children}</div>
       {props.footer ? <footer class="card-footer">{props.footer}</footer> : null}
     </section>
@@ -116,6 +153,30 @@ export function Notice(props: { tone: NoticeTone; title: string; children: Child
       <h2 id={headingId}>{props.title}</h2>
       <p>{props.children}</p>
     </section>
+  )
+}
+
+export interface OperatorNotice {
+  tone: NoticeTone
+  title: string
+  message: string
+}
+
+export function NoticePanel(props: { notice?: OperatorNotice }) {
+  return props.notice ? <Notice tone={props.notice.tone} title={props.notice.title}>{props.notice.message}</Notice> : null
+}
+
+export function Button(props: {
+  variant?: ButtonVariant
+  children: Child
+  type?: "button" | "submit"
+  id?: string
+}) {
+  const variant = props.variant ?? "primary"
+  return (
+    <button id={props.id} type={props.type ?? "submit"} class={`button button-${variant}`}>
+      {props.children}
+    </button>
   )
 }
 

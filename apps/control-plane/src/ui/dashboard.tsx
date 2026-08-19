@@ -1,28 +1,14 @@
 /** @jsxImportSource hono/jsx */
 import { MODULE_CATALOG, type ContractDetail } from "../repos/contracts"
 import type { ClientDetail, ClientListItem, DashboardSummary, PageResult } from "../repos/clients"
-import { Card, DataList, EmptyState, Notice, PageHeader, ProgressSteps, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { Button, Card, DataList, EmptyState, Field, NoticePanel, PageHeader, ProgressSteps, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { statusTone, titleCase } from "./presenters"
 import { OperatorLayout } from "./layout"
 
 export interface OperatorNotice {
   tone: NoticeTone
   title: string
   message: string
-}
-
-function statusTone(status: string): StatusTone {
-  if (status === "active") return "success"
-  if (status === "past_due") return "warning"
-  if (status === "suspended" || status === "cancelled" || status === "disabled") return "error"
-  return "neutral"
-}
-
-function statusLabel(status: string): string {
-  return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-function NoticePanel(props: { notice?: OperatorNotice }) {
-  return props.notice ? <Notice tone={props.notice.tone} title={props.notice.title}>{props.notice.message}</Notice> : null
 }
 
 export function Dashboard(props: { operatorEmail: string; summary: DashboardSummary; notice?: OperatorNotice }) {
@@ -88,17 +74,9 @@ export function ClientList(props: {
         <Card title="Create client">
           <p>Start each onboarding flow with the customer account.</p>
           <form class="form-grid" method="post" action="/operator/clients">
-            <div class="field">
-              <label for="client-key">Stable key</label>
-              <input id="client-key" name="clientKey" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="acme" title="Lowercase letters, numbers, underscores, and hyphens only." />
-              <p class="field-hint">Example: <code>acme</code>. Used in internal references and cannot be changed later.</p>
-            </div>
-            <div class="field">
-              <label for="client-display-name">Display name</label>
-              <input id="client-display-name" name="displayName" required maxLength={160} placeholder="Acme Services" />
-              <p class="field-hint">Name operators recognise in this control plane.</p>
-            </div>
-            <div><button type="submit">Create client</button></div>
+            <Field name="clientKey" label="Stable key" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="acme" title="Lowercase letters, numbers, underscores, and hyphens only." hint={<>Example: <code>acme</code>. Used in internal references and cannot be changed later.</>} />
+            <Field name="displayName" label="Display name" required maxLength={160} placeholder="Acme Services" hint="Name operators recognise in this control plane." />
+            <div><Button type="submit">Create client</Button></div>
           </form>
         </Card>
       </section>
@@ -117,7 +95,7 @@ export function ClientList(props: {
                   <tr>
                     <th scope="row"><a href={`/operator/clients/${client.id}`}>{client.displayName}</a></th>
                     <td><code>{client.clientKey}</code></td>
-                    <td><StatusBadge tone={statusTone(client.status)}>{statusLabel(client.status)}</StatusBadge></td>
+                    <td><StatusBadge tone={statusTone(client.status)}>{titleCase(client.status)}</StatusBadge></td>
                   </tr>
                 ))}
               </tbody>
@@ -167,7 +145,7 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
         eyebrow="Client workspace"
         title={client.displayName}
         description={`Stable key: ${client.clientKey}`}
-        actions={<StatusBadge tone={statusTone(client.status)}>{statusLabel(client.status)}</StatusBadge>}
+        actions={<StatusBadge tone={statusTone(client.status)}>{titleCase(client.status)}</StatusBadge>}
       />
       <NoticePanel notice={props.notice} />
       <ProgressSteps
@@ -181,23 +159,23 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
 
       <section class="workspace-section" aria-labelledby="contracts-heading">
         <h2 id="contracts-heading">Contracts</h2>
-        <Card title="Add contract">
+        <Card title="Add contract" headingLevel={3}>
           <p>Set commercial terms before configuring deployment access.</p>
           <form class="form-grid" method="post" action={`/operator/clients/${client.id}/contracts`}>
-            <div class="field"><label for="plan-id">Plan ID</label><input id="plan-id" name="planId" required placeholder="plan-basic" /><p class="field-hint">Use an existing plan identifier.</p></div>
-            <div class="field"><label for="contract-status">Status</label><select id="contract-status" name="status"><option>active</option><option>past_due</option><option>suspended</option><option>cancelled</option></select></div>
-            <div class="field"><label for="starts-at">Starts on</label><input id="starts-at" name="startsAt" required type="date" /></div>
-            <div class="field"><label for="ends-at">Ends on</label><input id="ends-at" name="endsAt" required type="date" /></div>
-            <div class="field"><label for="seat-limit">Seat limit</label><input id="seat-limit" name="seatLimit" required type="number" min="1" max="100000" step="1" placeholder="25" /></div>
-            <div class="field"><label for="monthly-seat-price">Monthly seat price, cents</label><input id="monthly-seat-price" name="monthlySeatPriceCents" required type="number" min="0" step="1" placeholder="25000" /></div>
-            <div class="field"><label for="tax-basis-points">Tax, basis points</label><input id="tax-basis-points" name="taxBasisPoints" required type="number" min="0" max="10000" step="1" placeholder="600" /></div>
-            <div class="field"><label for="collection-frequency">Collection frequency</label><select id="collection-frequency" name="collectionFrequency"><option>monthly</option><option>upfront</option></select></div>
+            <Field name="planId" label="Plan ID" required placeholder="plan-basic" hint="Use an existing plan identifier." />
+            <Field name="status" label="Status" required options={["active", "past_due", "suspended", "cancelled"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="startsAt" label="Starts on" required type="date" />
+            <Field name="endsAt" label="Ends on" required type="date" />
+            <Field name="seatLimit" label="Seat limit" required type="number" min={1} max={100000} step={1} placeholder="25" />
+            <Field name="monthlySeatPriceCents" label="Monthly seat price, cents" required type="number" min={0} step={1} placeholder="25000" />
+            <Field name="taxBasisPoints" label="Tax, basis points" required type="number" min={0} max={10000} step={1} placeholder="600" />
+            <Field name="collectionFrequency" label="Collection frequency" required options={["monthly", "upfront"].map((value) => ({ value, label: titleCase(value) }))} />
             <fieldset class="module-fieldset">
               <legend>Modules</legend>
               <p class="field-hint">Select the modules covered by this contract.</p>
               {Object.entries(MODULE_CATALOG).map(([moduleId, module]) => <label><input type="checkbox" name="moduleIds" value={moduleId} /> {module.displayName}</label>)}
             </fieldset>
-            <div><button type="submit">Add contract</button></div>
+            <div><Button type="submit">Add contract</Button></div>
           </form>
         </Card>
         {!client.contracts.hasAny ? (
@@ -205,20 +183,20 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
         ) : client.contracts.items.length === 0 ? (
           <p class="field-hint">No contracts on this page.</p>
         ) : (
-          <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Term</th><th scope="col">Seats</th><th scope="col">Status</th></tr></thead><tbody>{client.contracts.items.map((item) => <tr><th scope="row"><a href={`/operator/contracts/${item.id}`}>{item.startsAt} to {item.endsAt}</a></th><td>{item.seatLimit}</td><td><StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Term</th><th scope="col">Seats</th><th scope="col">Status</th></tr></thead><tbody>{client.contracts.items.map((item) => <tr><th scope="row"><a href={`/operator/contracts/${item.id}`}>{item.startsAt} to {item.endsAt}</a></th><td>{item.seatLimit}</td><td><StatusBadge tone={statusTone(item.status)}>{titleCase(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
         )}
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="contracts" collection={client.contracts} preserved={childPagination} />
       </section>
 
       <section class="workspace-section" aria-labelledby="deployments-heading">
         <h2 id="deployments-heading">Deployments</h2>
-        <Card title="Add deployment">
+        <Card title="Add deployment" headingLevel={3}>
           <p>Connect this client to an environment after its contract is in place.</p>
           <form class="form-grid" method="post" action={`/operator/clients/${client.id}/deployments`}>
-            <div class="field"><label for="deployment-key">Deployment key</label><input id="deployment-key" name="deploymentKey" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="acme-production" title="Lowercase letters, numbers, underscores, and hyphens only." /><p class="field-hint">Example: <code>acme-production</code>. This key is unique across deployments.</p></div>
-            <div class="field"><label for="deployment-environment">Environment</label><select id="deployment-environment" name="environment"><option>development</option><option>staging</option><option>production</option></select></div>
-            <div class="field"><label for="deployment-status">Status</label><select id="deployment-status" name="status"><option>active</option><option>disabled</option></select></div>
-            <div><button type="submit">Add deployment</button></div>
+            <Field name="deploymentKey" label="Deployment key" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="acme-production" title="Lowercase letters, numbers, underscores, and hyphens only." hint={<>Example: <code>acme-production</code>. This key is unique across deployments.</>} />
+            <Field name="environment" label="Environment" required options={["development", "staging", "production"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="status" label="Status" required options={["active", "disabled"].map((value) => ({ value, label: titleCase(value) }))} />
+            <div><Button type="submit">Add deployment</Button></div>
           </form>
         </Card>
         {!client.deployments.hasAny ? (
@@ -226,7 +204,7 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
         ) : client.deployments.items.length === 0 ? (
           <p class="field-hint">No deployments on this page.</p>
         ) : (
-          <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Deployment</th><th scope="col">Environment</th><th scope="col">Status</th></tr></thead><tbody>{client.deployments.items.map((item) => <tr><th scope="row"><a href={item.href}>{item.deploymentKey}</a></th><td>{item.environment}</td><td><StatusBadge tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Deployment</th><th scope="col">Environment</th><th scope="col">Status</th></tr></thead><tbody>{client.deployments.items.map((item) => <tr><th scope="row"><a href={item.href}>{item.deploymentKey}</a></th><td>{item.environment}</td><td><StatusBadge tone={statusTone(item.status)}>{titleCase(item.status)}</StatusBadge></td></tr>)}</tbody></table></div>
         )}
         <CollectionPager basePath={`/operator/clients/${client.id}`} name="deployments" collection={client.deployments} preserved={childPagination} />
       </section>
@@ -234,12 +212,12 @@ export function ClientPage(props: { client: ClientDetail; operatorEmail: string;
       <section class="workspace-section secondary-section" aria-labelledby="organisations-heading">
         <h2 id="organisations-heading">Organisations</h2>
         <p class="section-description">Optional organisation details do not block contract or deployment onboarding.</p>
-        <Card title="Add organisation">
+        <Card title="Add organisation" headingLevel={3}>
           <form class="form-grid" method="post" action={`/operator/clients/${client.id}/organisations`}>
-            <div class="field"><label for="organisation-key">Organisation key</label><input id="organisation-key" name="organisationKey" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="hq" title="Lowercase letters, numbers, underscores, and hyphens only." /><p class="field-hint">Example: <code>hq</code>.</p></div>
-            <div class="field"><label for="organisation-display-name">Display name</label><input id="organisation-display-name" name="displayName" required maxLength={160} placeholder="Headquarters" /></div>
-            <div class="field"><label for="organisation-metadata">Metadata JSON</label><textarea id="organisation-metadata" name="metadataJson" required>{"{}"}</textarea><p class="field-hint">Provide one JSON object, for example <code>{'{"region":"my"}'}</code>.</p></div>
-            <div><button type="submit">Add organisation</button></div>
+            <Field name="organisationKey" label="Organisation key" required maxLength={64} pattern="[a-z0-9][a-z0-9_-]*" placeholder="hq" title="Lowercase letters, numbers, underscores, and hyphens only." hint={<>Example: <code>hq</code>.</>} />
+            <Field name="displayName" label="Display name" required maxLength={160} placeholder="Headquarters" />
+            <Field name="metadataJson" label="Metadata JSON" textarea required defaultValue="{}" hint={<>Provide one JSON object, for example <code>{'{"region":"my"}'}</code>.</>} />
+            <div><Button type="submit">Add organisation</Button></div>
           </form>
         </Card>
         {!client.organisations.hasAny ? (
@@ -263,37 +241,37 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
       <NoticePanel notice={props.notice} />
       <section class="workspace-section" aria-labelledby="contract-terms-heading">
         <h2 id="contract-terms-heading">Contract terms</h2>
-        <Card title="Edit commercial terms">
+        <Card title="Edit commercial terms" headingLevel={3}>
           <p>Changing terms bumps the entitlement revision, so the deployment must receive a freshly signed entitlement version.</p>
           <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/edit`}>
-            <div class="field"><label for="contract-plan-id">Plan ID</label><input id="contract-plan-id" name="planId" required placeholder="plan-basic" value={contract.planId} /></div>
-            <div class="field"><label for="contract-status-edit">Status</label><select id="contract-status-edit" name="status">{(["active", "past_due", "suspended", "cancelled"] as const).map((status) => <option value={status} selected={contract.status === status}>{status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
-            <div class="field"><label for="starts-at-edit">Starts on</label><input id="starts-at-edit" name="startsAt" required type="date" value={contract.startsAt} /></div>
-            <div class="field"><label for="ends-at-edit">Ends on</label><input id="ends-at-edit" name="endsAt" required type="date" value={contract.endsAt} /></div>
-            <div class="field"><label for="seat-limit-edit">Seat limit</label><input id="seat-limit-edit" name="seatLimit" required type="number" min="1" max="100000" step="1" value={contract.seatLimit} /></div>
-            <div class="field"><label for="monthly-seat-price-edit">Monthly seat price, cents</label><input id="monthly-seat-price-edit" name="monthlySeatPriceCents" required type="number" min="0" step="1" value={contract.monthlySeatPriceCents} /></div>
-            <div class="field"><label for="tax-basis-points-edit">Tax, basis points</label><input id="tax-basis-points-edit" name="taxBasisPoints" required type="number" min="0" max="10000" step="1" value={contract.taxBasisPoints} /></div>
-            <div class="field"><label for="collection-frequency-edit">Collection frequency</label><select id="collection-frequency-edit" name="collectionFrequency">{(["monthly", "upfront"] as const).map((frequency) => <option value={frequency} selected={contract.collectionFrequency === frequency}>{frequency}</option>)}</select></div>
+            <Field name="planId" label="Plan ID" required placeholder="plan-basic" value={contract.planId} />
+            <Field name="status" label="Status" required options={["active", "past_due", "suspended", "cancelled"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="startsAt" label="Starts on" required type="date" value={contract.startsAt} />
+            <Field name="endsAt" label="Ends on" required type="date" value={contract.endsAt} />
+            <Field name="seatLimit" label="Seat limit" required type="number" min={1} max={100000} step={1} value={contract.seatLimit} />
+            <Field name="monthlySeatPriceCents" label="Monthly seat price, cents" required type="number" min={0} step={1} value={contract.monthlySeatPriceCents} />
+            <Field name="taxBasisPoints" label="Tax, basis points" required type="number" min={0} max={10000} step={1} value={contract.taxBasisPoints} />
+            <Field name="collectionFrequency" label="Collection frequency" required options={["monthly", "upfront"].map((value) => ({ value, label: titleCase(value) }))} />
             <fieldset class="module-fieldset">
               <legend>Modules</legend>
               <p class="field-hint">Select the modules covered by this contract.</p>
               {Object.entries(MODULE_CATALOG).map(([moduleId, module]) => <label><input type="checkbox" name="moduleIds" value={moduleId} checked={contract.modules.some((item) => item.id === moduleId)} /> {module.displayName}</label>)}
             </fieldset>
-            <div><button type="submit">Save contract terms</button></div>
+            <div><Button type="submit">Save contract terms</Button></div>
           </form>
         </Card>
       </section>
       <section class="workspace-section" aria-labelledby="entitlement-controls-heading">
         <h2 id="entitlement-controls-heading">Entitlement controls</h2>
-        <Card title="Subscription control">
+        <Card title="Subscription control" headingLevel={3}>
           <p>Changes here also bump the entitlement revision and are picked up by the renewal cycle.</p>
           <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/entitlement-controls`}>
-            <div class="field"><label for="contract-status-control">Subscription status</label><select id="contract-status-control" name="status">{(["active", "past_due", "suspended", "cancelled"] as const).map((status) => <option value={status} selected={contract.status === status}>{status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
-            <div class="field"><label for="renewal-policy">Renewal policy</label><select id="renewal-policy" name="renewalPolicy">{(["auto_renew", "non_renewing"] as const).map((policy) => <option value={policy} selected={contract.renewalPolicy === policy}>{policy.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></div>
-            <div class="field"><label for="suspension-at">Schedule suspension at</label><input id="suspension-at" name="suspensionAt" type="datetime-local" /><p class="field-hint">Leave empty to clear a scheduled suspension.</p></div>
-            <div class="field"><label for="seat-limit-control">Seat limit</label><input id="seat-limit-control" name="seatLimit" type="number" min="1" max="100000" step="1" value={contract.scheduledSeatLimit ?? contract.seatLimit} /><p class="field-hint">A lower limit applies immediately; a higher limit requires the current heartbeat to confirm enough free seats.</p></div>
-            <div class="field"><label for="seat-limit-effective-at">Effective at (UTC)</label><input id="seat-limit-effective-at" name="effectiveAt" type="datetime-local" /><p class="field-hint">Optional future-dated change. Leave empty to apply now.</p></div>
-            <div><button type="submit">Save entitlement controls</button></div>
+            <Field name="status" label="Subscription status" required options={["active", "past_due", "suspended", "cancelled"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="renewalPolicy" label="Renewal policy" required options={["auto_renew", "non_renewing"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="suspensionAt" label="Schedule suspension at" type="datetime-local" hint="Leave empty to clear a scheduled suspension." />
+            <Field name="seatLimit" label="Seat limit" type="number" min={1} max={100000} step={1} value={contract.scheduledSeatLimit ?? contract.seatLimit} hint="A lower limit applies immediately; a higher limit requires the current heartbeat to confirm enough free seats." />
+            <Field name="effectiveAt" label="Effective at (UTC)" type="datetime-local" hint="Optional future-dated change. Leave empty to apply now." />
+            <div><Button type="submit">Save entitlement controls</Button></div>
           </form>
         </Card>
       </section>
@@ -301,20 +279,20 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
         <h2 id="invoices-heading">Invoices</h2>
         <Card title="Issue invoice">
           <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/invoices`}>
-            <div class="field"><label for="invoice-number">Invoice number</label><input id="invoice-number" name="invoiceNumber" required placeholder="INV-2026-001" /></div>
-            <div class="field"><label for="invoice-status">Status</label><select id="invoice-status" name="status"><option>draft</option><option>issued</option><option>paid</option><option>void</option></select></div>
-            <div class="field"><label for="issued-at">Issued at</label><input id="issued-at" name="issuedAt" required placeholder="2026-08-10T00:00:00.000Z" /></div>
-            <div class="field"><label for="due-at">Due at</label><input id="due-at" name="dueAt" required placeholder="2026-08-31T00:00:00.000Z" /></div>
-            <div class="field"><label for="invoice-currency">Currency</label><input id="invoice-currency" name="currency" required maxLength={3} value="MYR" pattern="[A-Z]{3}" /></div>
-            <div class="field"><label for="invoice-total">Total, cents</label><input id="invoice-total" name="totalCents" required type="number" min="0" step="1" placeholder="75000" /></div>
-            <div class="field"><label for="invoice-frequency">Collection frequency</label><select id="invoice-frequency" name="collectionFrequency"><option>monthly</option><option>upfront</option></select></div>
-            <div class="field"><label for="billing-periods">Billing periods</label><input id="billing-periods" name="billingPeriods" required type="number" min="1" max="1200" step="1" placeholder="3" /></div>
-            <div class="field"><label for="first-due-at">First due date</label><input id="first-due-at" name="firstDueAt" required type="date" /></div>
-            <div class="field"><label for="invoice-weights">Period weights</label><input id="invoice-weights" name="weights" required placeholder="1,1,1" /><p class="field-hint">One positive weight per billing period.</p></div>
-            <div><button type="submit">Issue invoice</button></div>
+            <Field name="invoiceNumber" label="Invoice number" required placeholder="INV-2026-001" />
+            <Field name="status" label="Status" required options={["draft", "issued", "paid", "void"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="issuedAt" label="Issued at" required placeholder="2026-08-10T00:00:00.000Z" />
+            <Field name="dueAt" label="Due at" required placeholder="2026-08-31T00:00:00.000Z" />
+            <Field name="currency" label="Currency" required maxLength={3} value="MYR" pattern="[A-Z]{3}" />
+            <Field name="totalCents" label="Total, cents" required type="number" min={0} step={1} placeholder="75000" />
+            <Field name="collectionFrequency" label="Collection frequency" required options={["monthly", "upfront"].map((value) => ({ value, label: titleCase(value) }))} />
+            <Field name="billingPeriods" label="Billing periods" required type="number" min={1} max={1200} step={1} placeholder="3" />
+            <Field name="firstDueAt" label="First due date" required type="date" />
+            <Field name="weights" label="Period weights" required placeholder="1,1,1" hint="One positive weight per billing period." />
+            <div><Button type="submit">Issue invoice</Button></div>
           </form>
         </Card>
-        {contract.invoices.items.length === 0 ? <EmptyState title="No invoices yet">Issue an invoice when this contract is ready for collection.</EmptyState> : <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Invoice</th><th scope="col">Total</th><th scope="col">Status</th></tr></thead><tbody>{contract.invoices.items.map((invoice) => <tr><th scope="row">{invoice.invoiceNumber}</th><td>{invoice.totalCents} {invoice.currency} cents</td><td><StatusBadge tone={statusTone(invoice.status)}>{statusLabel(invoice.status)}</StatusBadge></td></tr>)}</tbody></table></div>}
+        {contract.invoices.items.length === 0 ? <EmptyState title="No invoices yet">Issue an invoice when this contract is ready for collection.</EmptyState> : <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Invoice</th><th scope="col">Total</th><th scope="col">Status</th></tr></thead><tbody>{contract.invoices.items.map((invoice) => <tr><th scope="row">{invoice.invoiceNumber}</th><td>{invoice.totalCents} {invoice.currency} cents</td><td><StatusBadge tone={statusTone(invoice.status)}>{titleCase(invoice.status)}</StatusBadge></td></tr>)}</tbody></table></div>}
         <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />
       </section>
     </OperatorLayout>

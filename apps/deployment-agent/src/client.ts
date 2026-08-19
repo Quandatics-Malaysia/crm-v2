@@ -6,9 +6,11 @@ import {
 } from "@crm/control-protocol/deployment-auth"
 import { ModuleIdSchema, StrictSemverSchema } from "@crm/control-protocol"
 import {
+  CommandAckSchema,
   DeploymentHeartbeatSchema,
+  type CommandEnvelope,
   type DeploymentHeartbeat,
-} from "@crm/control-protocol/heartbeat"
+} from "@crm/control-protocol"
 import { z } from "zod"
 
 export type DeploymentClientConfig = {
@@ -87,6 +89,13 @@ const applyResponseSchema = z.object({
   revision: z.number().int().min(1),
   mode: z.enum(["active", "grace", "read_only"]),
 }).strict()
+
+const commandAckResponseSchema = z.object({
+  id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+  completedAt: z.string(),
+}).strict()
+
+export type CommandAckResult = z.infer<typeof commandAckResponseSchema>
 
 export type WebDeploymentStatus = z.infer<typeof statusResponseSchema>
 
@@ -340,6 +349,60 @@ export function createDeploymentClient(input: {
       if (result.revision !== expectedVersion) {
         throw new AgentRequestError("entitlement_not_accepted", false)
       }
+    },
+
+    async nextCommand(identity: DeploymentClientIdentity, signal: AbortSignal): Promise<CommandEnvelope | null> {
+      const path = `/v1/deployments/${input.config.deploymentId}/commands/next`
+      const headers = await signedHeaders(identity, "GET", path, new Uint8Array())
+      const response = await fetchResponse(
+        fetchImplementation,
+        `${input.config.controlPlaneUrl}${path}`,
+        { headers, signal },
+        now,
+      )
+      if (response.status === 204) return null
+      if (response.status !== 200) {
+        throw new AgentRequestError(`http_${response.status}`, response.status >= 500 || response.status === 429)
+      }
+      const text = await readBounded(response)
+      const trimmed = text.trim()
+      if (trimmed === "" || trimmed === "null") return null
+      let envelope: unknown
+      try {
+        envelope = JSON.parse(trimmed)
+      } catch {
+        throw new AgentRequestError("invalid_response", false)
+      }
+      if (typeof envelope !== "object" || envelope === null || !("id" in envelope) || !("envelope" in envelope)) {
+        throw new AgentRequestError("invalid_response", false)
+      }
+      return envelope as CommandEnvelope
+    },
+
+    async acknowledgeCommand(
+      identity: DeploymentClientIdentity,
+      commandId: string,
+      ack: unknown,
+      signal: AbortSignal,
+    ): Promise<CommandAckResult> {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(commandId)) {
+        throw new AgentRequestError("command_id_invalid", false)
+      }
+      const path = `/v1/deployments/${input.config.deploymentId}/commands/${commandId}/ack`
+      const body = JSON.stringify(ack)
+      const bytes = new TextEncoder().encode(body)
+      const headers = await signedHeaders(identity, "POST", path, bytes)
+      headers.set("Content-Type", "application/json")
+      const response = await fetchResponse(
+        fetchImplementation,
+        `${input.config.controlPlaneUrl}${path}`,
+        { method: "POST", headers, body, signal },
+        now,
+      )
+      if (response.status !== 200) {
+        throw new AgentRequestError(`http_${response.status}`, response.status >= 500 || response.status === 429)
+      }
+      return parseJson(response, commandAckResponseSchema)
     },
   }
 }

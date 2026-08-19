@@ -1040,4 +1040,83 @@ describe("deployment agent flow", () => {
     await agent.stop(500)
     expect(aborted).toBe(true)
   })
+
+  it("pollCommands fetches one command and acks with status=ok for echo kind", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const commandId = "88888888-4888-4888-8888-888888888888"
+    const envelope = {
+      id: commandId,
+      deploymentId,
+      vendorKeyId: "vendor-key",
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      enqueuedAt: new Date().toISOString(),
+      claimedAt: new Date().toISOString(),
+      envelope: {
+        keyId: "vendor-key",
+        payload: {
+          schemaVersion: 1,
+          id: commandId,
+          deploymentId,
+          payload: { kind: "echo", message: "ping" },
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          agentVersionMin: null,
+        },
+        signature: "agent-test-signature-placeholder-padding-padding-padding-padding-padding",
+      },
+    }
+    const requests: { method: string; path: string }[] = []
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url
+      const method = init?.method ?? "GET"
+      requests.push({ method, path: url })
+      if (url.endsWith("/commands/next")) {
+        return new Response(JSON.stringify(envelope), { status: 200, headers: { "Content-Type": "application/json" } })
+      }
+      if (url.includes(`/commands/${commandId}/ack`)) {
+        const raw = typeof init?.body === "string" ? init.body : ""
+        const body = JSON.parse(raw) as { status: string; errorCode: string | null }
+        expect(body.status).toBe("ok")
+        expect(body.errorCode).toBeNull()
+        return new Response(JSON.stringify({ id: commandId, completedAt: new Date().toISOString() }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      return new Response(null, { status: 503 })
+    })
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 60_000,
+    })
+    await agent.initialize()
+    await agent.pollCommands({ maxAttempts: 1 })
+    expect(requests.some((request) => request.path.endsWith("/commands/next"))).toBe(true)
+    expect(requests.some((request) => request.path.includes(`/commands/${commandId}/ack`))).toBe(true)
+  })
+
+  it("pollCommands is a no-op when next endpoint returns no pending command", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }))
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 60_000,
+    })
+    await agent.initialize()
+    await agent.pollCommands({ maxAttempts: 1 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
 })

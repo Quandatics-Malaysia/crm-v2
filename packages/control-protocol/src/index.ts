@@ -9,6 +9,23 @@ export {
   type CollectionMilestone,
   type MonthlyBillingPeriod,
 } from "./billing.js"
+export {
+  CommandAckSchema,
+  CommandEnvelopePayloadSchema,
+  CommandEnvelopeSchema,
+  CommandPayloadSchema,
+  DEFAULT_COMMAND_TTL_MS,
+  MAX_COMMAND_TTL_MS,
+  commandTtlBounds,
+  isCommandExpired,
+  signCommandEnvelope,
+  verifyCommandEnvelope,
+  type CommandAck,
+  type CommandEnvelope,
+  type CommandEnvelopePayload,
+  type CommandPayload,
+  type SignedCommandEnvelope,
+} from "./command.js"
 export { signEnvelope, verifyEnvelope, type SignedEnvelope, type SigningKey } from "./crypto.js"
 export {
   EntitlementLeaseSchema,

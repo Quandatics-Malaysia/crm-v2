@@ -17,7 +17,12 @@ export function isValidPhoneInput(value: string): boolean {
   const v = trimOrEmpty(value)
   if (!v) return true
   if (v.length > 64) return false
-  return PHONE_RE.test(v)
+  // Must be shaped like a phone number and carry enough real digits to stand up.
+  // This closes the gap where the UI's E.164 check rejects "12345" but the old
+  // regex accepted it — while still tolerating national-format input (no "+").
+  if (!PHONE_RE.test(v)) return false
+  const digits = v.replace(/\D/g, "")
+  return digits.length >= 6
 }
 
 export function isValidUrlInput(value: string): boolean {

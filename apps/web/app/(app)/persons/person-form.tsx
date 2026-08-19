@@ -33,20 +33,27 @@ import { Combobox } from "@/components/ui/combobox"
 import { AccountQuickCreate } from "@/components/quick-create-account"
 import type { Option } from "@/lib/lookups"
 import { createPerson, updatePerson, type PersonRow } from "./actions"
+import { isValidPhoneE164, toPhoneE164 } from "@/lib/phone-validation"
 
-const schema = z.object({
+const schema = (country: string) => z.object({
   accountId: z.string().min(1, "Account is required"),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().optional(),
   title: z.string().optional(),
   department: z.string().optional(),
   email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
-  phone: z.string().optional(),
+  phone: z
+    .string()
+    .optional()
+    .refine(
+      (v) => isValidPhoneE164(v, country),
+      { message: "Enter a valid phone number for the selected country." }
+    ),
   defaultCountry: z.string().optional(),
   isPrimary: z.boolean(),
 })
 
-type FormValues = z.infer<typeof schema>
+type FormValues = z.infer<ReturnType<typeof schema>>
 
 export function PersonForm({
   accounts,
@@ -79,7 +86,7 @@ export function PersonForm({
   const editing = !!person
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema(defaultCountry ?? "MY")),
     mode: "onBlur",
     defaultValues: {
       accountId: person?.accountId ?? presetAccountId ?? "",
@@ -129,7 +136,7 @@ export function PersonForm({
       title: values.title || null,
       department: values.department || null,
       email: values.email || null,
-      phone: values.phone || null,
+      phone: toPhoneE164(values.phone, values.defaultCountry) || null,
       isPrimary: values.isPrimary,
     }
     const res = editing

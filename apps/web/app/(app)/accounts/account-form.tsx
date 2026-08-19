@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Combobox } from "@/components/ui/combobox"
 import { PhoneInput } from "@/components/phone-input"
+import { isValidPhoneE164, toPhoneE164 } from "@/lib/phone-validation"
 import { AccountQuickCreate } from "@/components/quick-create-account"
 import {
   Form,
@@ -56,8 +57,8 @@ const ACCOUNT_TYPE_ITEMS = [
   { value: "reseller", label: "Reseller (channel)" },
 ]
 
-const schema = z
-  .object({
+const schema = (country: string) =>
+  z.object({
     name: z.string().min(1, "Name is required"),
     currency: z.string().length(3, "Currency is required"),
     code: z
@@ -74,7 +75,13 @@ const schema = z
     website: z
       .union([z.string().url("Invalid URL"), z.literal("")])
       .optional(),
-    phone: z.string().optional(),
+    phone: z
+      .string()
+      .optional()
+      .refine(
+        (v) => isValidPhoneE164(v, country),
+        { message: "Enter a valid phone number for the selected country." }
+      ),
     defaultCountry: z.string().optional(),
     line1: z.string().optional(),
     line2: z.string().optional(),
@@ -93,7 +100,7 @@ const schema = z
     }
   })
 
-type FormValues = z.infer<typeof schema>
+type FormValues = z.infer<ReturnType<typeof schema>>
 
 function addr(account?: AccountRow): BillingAddress {
   return (account?.billingAddress as BillingAddress | null) ?? {}
@@ -170,7 +177,7 @@ export function AccountForm({
   const editing = !!account
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema(presets?.defaultCountry ?? "MY")),
     defaultValues: defaults(account, presets, currencies),
   })
 
@@ -257,7 +264,7 @@ export function AccountForm({
           : null,
       industry: values.industry || null,
       website: values.website || null,
-      phone: values.phone || null,
+      phone: toPhoneE164(values.phone, values.defaultCountry ?? presets?.defaultCountry) || null,
       billingAddress,
     }
     const res = editing

@@ -87,7 +87,7 @@ jobs:
             .conclusion == "success" and
             .event == "workflow_dispatch" and
             .path == ".github/workflows/release-images.yml" and
-            .head_branch == $tag
+            (.head_branch == "main" or .head_branch == $tag)
           ' >/dev/null || { echo "release bundle did not come from a successful vendor tag workflow" >&2; exit 1; }
 
           TEMP_DIR="$(mktemp -d)"

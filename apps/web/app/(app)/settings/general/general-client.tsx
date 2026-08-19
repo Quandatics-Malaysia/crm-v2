@@ -55,6 +55,7 @@ import {
 } from "@/app/(app)/settings/actions"
 import { DEFAULT_CURRENCIES } from "@/lib/tenant-defaults"
 import { Textarea } from "@/components/ui/textarea"
+import { PhoneInput } from "@/components/phone-input"
 
 // ─── General ─────────────────────────────────────────────────────────────────
 
@@ -627,9 +628,11 @@ function GeneralForm({
 function CompanyProfileCard({
   profile,
   hasLogo,
+  defaultCountry,
 }: {
   profile: CompanyProfile
   hasLogo: boolean
+  defaultCountry?: string
 }) {
   const router = useRouter()
   const [values, setValues] = React.useState<CompanyProfile>(profile)
@@ -759,11 +762,11 @@ function CompanyProfileCard({
             />
           </div>
           <div className="grid gap-1.5">
-            <label className="text-xs text-muted-foreground">Phone</label>
-            <Input
+            <PhoneInput
               value={values.phone}
-              onChange={set("phone")}
-              placeholder="+60 3-1234 5678"
+              onChange={(v) => setValues((prev) => ({ ...prev, phone: v }))}
+              placeholder="03 1234 5678"
+              defaultCountry={defaultCountry || "MY"}
             />
           </div>
           <div className="grid gap-1.5">
@@ -916,6 +919,7 @@ export function GeneralClient({
       <CompanyProfileCard
         profile={settings.companyProfile}
         hasLogo={settings.hasLogo}
+        defaultCountry={settings.defaultCountry || "MY"}
       />
 
       <PicklistCard

@@ -32,6 +32,7 @@ export default async function LeadsPage() {
           leadSources={leadSources}
           lossReasons={lossReasons}
           phonePrefix={presets.phonePrefix}
+          defaultCountry={presets.defaultCountry || "MY"}
         />
       </PageBody>
     </>

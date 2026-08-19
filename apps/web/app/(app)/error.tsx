@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Forbidden } from "@/components/forbidden"
+import { reportIncident } from "@/app/(app)/_shared/operator-alert-actions"
 
 export default function AppError({
   error,
@@ -21,10 +22,24 @@ export default function AppError({
   reset: () => void
 }) {
   // Authorization failures bubble up as Error("FORBIDDEN: missing <key>") from
-  // assertCan. They are an expected outcome of reaching a page by URL that the
-  // role can't access — render a friendly access-denied state (never the raw
-  // permission key) instead of the generic crash boundary.
+  // assertCan. Show a friendly access-denied state instead of the crash boundary.
   const isForbidden = error.message?.startsWith("FORBIDDEN") ?? false
+
+  // Automatically report unexpected errors to the operator alert log so the
+  // vendor can investigate before the user reports it.  Fire-and-forget so the
+  // alert never blocks or alters the render.
+  useEffect(() => {
+    if (!isForbidden) {
+      reportIncident({
+        severity: "error",
+        summary: `App error: ${error.message}`,
+        detail: error.stack ?? error.message,
+        source: "app_error_boundary",
+        errorMessage: error.message,
+        errorDigest: error.digest,
+      }).catch(() => {})
+    }
+  }, [error, isForbidden])
 
   useEffect(() => {
     if (!isForbidden) console.error(error)

@@ -31,7 +31,7 @@ export function SettingsNav({
     items: group.items.filter(
       (i) =>
         (!i.superadminOnly || isSuperadmin) &&
-        (!i.permission || perms.has(i.permission))
+        (!i.permission || isSuperadmin || perms.has(i.permission))
     ),
   })).filter((group) => group.items.length > 0)
 

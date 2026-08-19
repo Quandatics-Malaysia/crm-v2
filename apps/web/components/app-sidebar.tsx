@@ -30,6 +30,8 @@ import {
   PlusIcon,
 } from "lucide-react"
 
+import { toast } from "sonner"
+
 import {
   Sidebar,
   SidebarContent,
@@ -53,6 +55,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { CreateEntityDialog } from "@/components/create-entity-dialog"
+import { ManageOrganizationsDialog } from "@/components/manage-organizations-dialog"
+import { OperatorAlertsDialog } from "@/components/operator-alerts-dialog"
 import { authClient } from "@/lib/auth-client"
 import { PERMISSIONS } from "@/lib/permissions"
 import type { ModuleId } from "@/lib/module-registry"
@@ -149,6 +153,8 @@ export function AppSidebar({
   const router = useRouter()
   const perms = React.useMemo(() => new Set(permissions), [permissions])
   const [createOpen, setCreateOpen] = React.useState(false)
+  const [manageOrgsOpen, setManageOrgsOpen] = React.useState(false)
+  const [alertsOpen, setAlertsOpen] = React.useState(false)
 
   const sections = NAV_SECTIONS.map((s) => ({
     ...s,
@@ -161,15 +167,20 @@ export function AppSidebar({
 
   async function switchTenant(id: string) {
     if (id === activeTenant?.id) return
-    if (isSuperadmin) {
-      const response = await fetch("/api/superadmin/active-organization", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ organizationId: id }),
-      })
-      if (!response.ok) throw new Error("Unable to switch organization")
-    } else {
-      await authClient.organization.setActive({ organizationId: id })
+    try {
+      if (isSuperadmin) {
+        const response = await fetch("/api/superadmin/active-organization", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ organizationId: id }),
+        })
+        if (!response.ok) throw new Error("Unable to switch organization")
+      } else {
+        await authClient.organization.setActive({ organizationId: id })
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to switch organization")
+      return
     }
     // Land on the dashboard rather than refreshing the current URL: a record
     // deep-link (e.g. /projects/<id>) belongs to the previous tenant and would
@@ -233,6 +244,14 @@ export function AppSidebar({
                 </DropdownMenuGroup>
                 {isSuperadmin ? <>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setAlertsOpen(true)}>
+                    <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    Operator alerts
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setManageOrgsOpen(true)}>
+                    <Building2Icon className="size-4" />
+                    Manage organizations
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setCreateOpen(true)}>
                     <PlusIcon className="size-4" />
                     Create customer organization
@@ -328,6 +347,8 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarFooter>
 
+      {isSuperadmin ? <OperatorAlertsDialog open={alertsOpen} onOpenChange={setAlertsOpen} /> : null}
+      {isSuperadmin ? <ManageOrganizationsDialog open={manageOrgsOpen} onOpenChange={setManageOrgsOpen} /> : null}
       {isSuperadmin ? <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} /> : null}
     </Sidebar>
   )

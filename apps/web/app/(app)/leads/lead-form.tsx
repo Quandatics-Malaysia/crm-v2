@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { DialogClose } from "@/components/ui/dialog"
 import { Combobox } from "@/components/ui/combobox"
+import { PhoneInput } from "@/components/phone-input"
 import type { Lead, LeadInput } from "./actions"
 
 /** Sentinel: no source picked. */
@@ -36,6 +37,7 @@ const leadSchema = z.object({
   companyName: z.string().trim().min(1, "Company is required"),
   email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
   phone: z.string().trim().min(1, "Phone is required"),
+  defaultCountry: z.string().optional(),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
 })
@@ -46,6 +48,7 @@ export function LeadForm({
   lead,
   sources = [],
   phonePrefix = "",
+  defaultCountry,
   onSubmit,
   submitLabel = "Save",
 }: {
@@ -54,6 +57,7 @@ export function LeadForm({
   sources?: string[]
   /** Tenant dialing prefix prefilled into the phone field on create. */
   phonePrefix?: string
+  defaultCountry?: string
   onSubmit: (values: LeadInput) => Promise<void>
   submitLabel?: string
 }) {
@@ -77,6 +81,7 @@ export function LeadForm({
       phone: lead ? lead.phone ?? "" : phonePrefix,
       source: lead?.source ?? "",
       status: lead?.status ?? "new",
+      defaultCountry: defaultCountry ?? "MY",
     },
   })
 
@@ -146,13 +151,14 @@ export function LeadForm({
             control={form.control}
             name="phone"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel required>Phone</FormLabel>
-                <FormControl>
-                  <Input placeholder="+60 12-345 6789" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+              <PhoneInput
+                value={field.value}
+                onChange={field.onChange}
+                label="Phone"
+                required
+                placeholder="012 345 6789"
+                defaultCountry={form.getValues("defaultCountry") as string}
+              />
             )}
           />
         </div>

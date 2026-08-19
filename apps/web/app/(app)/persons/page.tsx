@@ -19,6 +19,7 @@ export default async function PersonsPage() {
           data={persons}
           accounts={accounts}
           phonePrefix={presets.phonePrefix}
+          defaultCountry={presets.defaultCountry || "MY"}
         />
       </PageBody>
     </>

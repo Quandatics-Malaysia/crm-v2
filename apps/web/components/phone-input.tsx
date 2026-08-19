@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { normalizePhoneCountry } from "@/lib/phone-validation"
 import "react-phone-number-input/style.css"
 
 // ─── Country data ───────────────────────────────────────────────────────────
@@ -121,7 +122,8 @@ export function PhoneInput({
   className?: string
   disabled?: boolean
 }) {
-  const [country, setCountry] = React.useState<string>(defaultCountry)
+  const initialCountry = normalizePhoneCountry(defaultCountry) ?? "MY"
+  const [country, setCountry] = React.useState<string>(initialCountry)
   const [touched, setTouched] = React.useState(false)
 
   // Detect country from incoming E.164 value and sync to state.
@@ -129,15 +131,43 @@ export function PhoneInput({
   React.useEffect(() => {
     if (prevValueRef.current === value) return
     prevValueRef.current = value
-    const detected = detectCountry(value ?? "")
+    const detected = normalizePhoneCountry(detectCountry(value ?? ""))
     if (detected && detected !== country) {
       setCountry(detected) // eslint-disable-line react-hooks/set-state-in-effect -- intentionally syncing derived country state from incoming E.164 value
     }
   }, [value, country])
 
-  const isEmpty = !value || value.trim() === ""
+  const displayValue = React.useMemo(() => {
+    if (!value) return value
+    try {
+      const parsed = parsePhoneNumber(value, country as Parameters<typeof parsePhoneNumber>[1])
+      return parsed?.country === country ? parsed.nationalNumber : value
+    } catch {
+      return value
+    }
+  }, [country, value])
+
+  const handleCountryChange = React.useCallback(
+    (nextCountry: string) => {
+      const normalized = normalizePhoneCountry(nextCountry) ?? "MY"
+      setCountry(normalized)
+      // Keep the number and selector in sync: retain the national digits while
+      // changing the selected country/calling-code box.
+      if (value && onChange) {
+        try {
+          const parsed = parsePhoneNumber(value, country as Parameters<typeof parsePhoneNumber>[1])
+          onChange(parsed?.nationalNumber ?? value)
+        } catch {
+          // Keep the user text if it cannot be parsed yet.
+        }
+      }
+    },
+    [country, onChange, value]
+  )
+
+  const isEmpty = !displayValue || displayValue.trim() === ""
   const isValid = isEmpty || isValidPhoneNumber(
-    value ?? "",
+    displayValue ?? "",
     country as Parameters<typeof isValidPhoneNumber>[1]
   )
   const hasError = touched && !isEmpty && !isValid
@@ -152,10 +182,10 @@ export function PhoneInput({
       )}
       <FormControl>
         <PhoneInputInner
-          value={value}
+          value={displayValue}
           onChange={onChange}
           country={country}
-          onCountryChange={setCountry}
+          onCountryChange={handleCountryChange}
           placeholder={placeholder}
           disabled={disabled}
           hasError={hasError || !!error}
@@ -245,7 +275,7 @@ export function PhoneInputInner({
           onBlur={onBlur}
           disabled={disabled}
         />
-        <DropdownMenuContent align="start" className="w-72 p-1.5">
+        <DropdownMenuContent side="bottom" sideOffset={4} align="start" className="w-72 p-1.5">
           <div className="relative mb-1.5">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -254,6 +284,7 @@ export function PhoneInputInner({
               placeholder="Search country…"
               className="h-8 pl-7 pr-7 text-sm"
               autoFocus
+              onKeyDown={(event) => event.stopPropagation()}
             />
             {countryQuery ? (
               <button

@@ -1,9 +1,68 @@
 import {
+  isSupportedCountry,
   isValidPhoneNumber,
   parsePhoneNumber,
 } from "react-phone-number-input"
 
 export type PhoneCountryCode = Parameters<typeof isValidPhoneNumber>[1]
+
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  malaysia: "MY",
+  "united states": "US",
+  usa: "US",
+  "united kingdom": "GB",
+  britain: "GB",
+  australia: "AU",
+  singapore: "SG",
+  india: "IN",
+  indonesia: "ID",
+  thailand: "TH",
+  philippines: "PH",
+  vietnam: "VN",
+  china: "CN",
+  "hong kong": "HK",
+  japan: "JP",
+  "south korea": "KR",
+  korea: "KR",
+  taiwan: "TW",
+  "united arab emirates": "AE",
+  uae: "AE",
+  "saudi arabia": "SA",
+  germany: "DE",
+  france: "FR",
+  netherlands: "NL",
+  belgium: "BE",
+  switzerland: "CH",
+  italy: "IT",
+  spain: "ES",
+  portugal: "PT",
+  poland: "PL",
+  sweden: "SE",
+  norway: "NO",
+  denmark: "DK",
+  finland: "FI",
+  austria: "AT",
+  ireland: "IE",
+  "new zealand": "NZ",
+  canada: "CA",
+  mexico: "MX",
+  brazil: "BR",
+  argentina: "AR",
+  "south africa": "ZA",
+  egypt: "EG",
+  nigeria: "NG",
+  kenya: "KE",
+}
+
+/** Convert an ISO code or account/display country name to a libphonenumber ISO code. */
+export function normalizePhoneCountry(value: string | null | undefined): string | undefined {
+  const raw = (value ?? "").trim()
+  if (!raw) return undefined
+  const candidate = raw.toUpperCase()
+  if (/^[A-Z]{2}$/.test(candidate) && isSupportedCountry(candidate)) return candidate
+  const name = raw.toLowerCase().replace(/\s*\([^)]*\)\s*$/, "").trim()
+  return COUNTRY_NAME_ALIASES[name]
+}
 
 /**
  * Verify a phone value as a valid international number for the given country.
@@ -19,7 +78,8 @@ export function isValidPhoneE164(
   const v = (value ?? "").trim()
   if (!v) return true
   try {
-    return isValidPhoneNumber(v, country as PhoneCountryCode)
+    const normalizedCountry = normalizePhoneCountry(country) ?? "MY"
+    return isValidPhoneNumber(v, normalizedCountry as PhoneCountryCode)
   } catch {
     return false
   }
@@ -37,7 +97,8 @@ export function toPhoneE164(
   const v = (value ?? "").trim()
   if (!v) return ""
   try {
-    return parsePhoneNumber(v, country as PhoneCountryCode)?.number ?? v
+    const normalizedCountry = normalizePhoneCountry(country) ?? "MY"
+    return parsePhoneNumber(v, normalizedCountry as PhoneCountryCode)?.number ?? v
   } catch {
     return v
   }

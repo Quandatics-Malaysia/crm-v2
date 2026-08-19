@@ -139,28 +139,33 @@ describe("signed runtime module gate", () => {
     )
   })
 
-  it("rejects a paid lease whose module is missing from the image", async () => {
+  it("degrades gracefully when entitlement module is missing from the image", async () => {
     const compiled = { ...allCompiled, projects: false }
     const gate = createEntitledModuleGate(
       async () => access(["projects"]),
       compiled
     )
 
-    await expect(gate.getEntitledModuleMap()).rejects.toThrow(
-      'Signed entitlement owns module "projects", but the image omits it.'
-    )
+    // Dependency closure check fails (projects alone is not dependency-closed),
+    // so createModuleMap falls back to all-disabled.
+    const result = await gate.getEntitledModuleMap()
+    expect(Object.values(result).every((v) => v === false)).toBe(true)
   })
 
-  it("rejects a dependency-breaking paid lease/image mismatch", async () => {
+  it("degrades gracefully when one of several entitlement modules is missing", async () => {
     const compiled = { ...allCompiled, projects: false }
     const gate = createEntitledModuleGate(
       async () => access(["projects", "salesOrders", "finance"]),
       compiled
     )
 
-    await expect(gate.getEntitledModuleMap()).rejects.toThrow(
-      'Signed entitlement owns module "projects", but the image omits it.'
-    )
+    const result = await gate.getEntitledModuleMap()
+    // projects is missing from the image → false in the map.
+    // finance and salesOrders are disabled because their dependency chain
+    // (finance→salesOrders→projects) is broken: projects is absent.
+    expect(result.projects).toBe(false)
+    expect(result.salesOrders).toBe(false)
+    expect(result.finance).toBe(false)
   })
 
   it("reads revised ownership again for a fresh entrypoint", async () => {

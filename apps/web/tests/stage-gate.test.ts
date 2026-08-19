@@ -130,7 +130,7 @@ const presets = (v: boolean): StageGateState =>
       "hasEstimate", "hasCloseDate", "hasContact", "hasNature", "hasQuote",
       "hasVision", "hasPain", "hasOwnerContact", "hasOwnerBudgetLimit",
       "hasOppEstimatedBudget", "hasOppEstimatedCloseDate", "hasValue",
-      "hasPowerSponsorContact", "hasPowerSponsorBudgetLimit",
+      "hasPowerSponsorContact", "hasPowerSponsorBudgetLimit", "hasControl",
       "hasProcurementStage", "hasNegotiationDone", "hasNegotiationDate",
       "hasExpectedInvoice",
     ].map((k) => [k, v])
@@ -178,7 +178,36 @@ describe("buildStageGate + missingFromKeys — entry requirements", () => {
       vision: true,
       value: true,
     })
+    // power and control remain false when null
+    expect(live.satisfied.powerSponsorContact).toBe(false)
+    expect(live.satisfied.powerSponsorBudgetLimit).toBe(false)
+    expect(live.satisfied.control).toBe(false)
     expect(live.satisfied.estimate).toBe(false)
+  })
+
+  it("satisfies powerSponsorContact + powerSponsorBudgetLimit when power is filled", () => {
+    const gate = buildStageGate(presets(false), null, [])
+    const live = applyPpvvcToStageGate(gate, {
+      pain: null,
+      power: "Budget holder with authority",
+      vision: null,
+      value: null,
+      control: null,
+    })
+    expect(live.satisfied.powerSponsorContact).toBe(true)
+    expect(live.satisfied.powerSponsorBudgetLimit).toBe(true)
+  })
+
+  it("satisfies control when control field is filled", () => {
+    const gate = buildStageGate(presets(false), null, [])
+    const live = applyPpvvcToStageGate(gate, {
+      pain: null,
+      power: null,
+      vision: null,
+      value: null,
+      control: "Mitigation plan in place",
+    })
+    expect(live.satisfied.control).toBe(true)
   })
 })
 

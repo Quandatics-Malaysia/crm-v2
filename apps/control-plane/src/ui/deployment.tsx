@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import type { DeploymentWorkspace, OnboardingNextAction } from "../repos/onboarding"
-import { Card, DataList, EmptyState, Notice, PageHeader, ProgressSteps, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { Button, Card, DataList, EmptyState, Field, NoticePanel, PageHeader, ProgressSteps, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { connectivityLabel, formatUtc, licenceLabel, statusTone, titleCase } from "./presenters"
 import { OperatorLayout } from "./layout"
 
 type StepState = "blocked" | "complete" | "current" | "upcoming"
@@ -16,36 +17,6 @@ interface DeploymentNotice {
   tone: NoticeTone
   title: string
   message: string
-}
-
-function titleCase(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-function formatUtc(value: string | null): string {
-  if (value === null) return "Not available"
-  const timestamp = Date.parse(value)
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "Not available"
-}
-
-function statusTone(status: string): StatusTone {
-  if (["active", "healthy", "online"].includes(status)) return "success"
-  if (["grace", "stale", "past_due", "unsigned"].includes(status)) return "warning"
-  if (["disabled", "read_only", "unhealthy", "never_connected"].includes(status)) return "error"
-  return "neutral"
-}
-
-function licenceLabel(state: DeploymentWorkspace["onboarding"]["licenceState"]): string {
-  if (state === "active") return "Active licence"
-  if (state === "grace") return "Grace period"
-  if (state === "read_only") return "Read-only licence"
-  return "Unsigned entitlement"
-}
-
-function connectivityLabel(state: DeploymentWorkspace["onboarding"]["connectivityState"]): string {
-  if (state === "online") return "Online"
-  if (state === "stale") return "Stale connection"
-  return "Never connected"
 }
 
 function actionFor(action: OnboardingNextAction, workspace: DeploymentWorkspace): NextAction {
@@ -198,7 +169,7 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
         description={`${workspace.client.displayName} · ${titleCase(workspace.deployment.environment)} environment`}
         actions={<><StatusBadge tone={statusTone(workspace.onboarding.licenceState)}>{licenceLabel(workspace.onboarding.licenceState)}</StatusBadge><StatusBadge tone={statusTone(workspace.onboarding.connectivityState)}>{connectivityLabel(workspace.onboarding.connectivityState)}</StatusBadge></>}
       />
-      {props.notice ? <Notice tone={props.notice.tone} title={props.notice.title}>{props.notice.message}</Notice> : null}
+      <NoticePanel notice={props.notice} />
 
       <DataList items={[
         { term: "Client", details: workspace.client.displayName },
@@ -248,16 +219,16 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
 
       <section class="workspace-section" aria-labelledby="lifecycle-heading">
         <h2 id="lifecycle-heading">Deployment lifecycle</h2>
-        <Card title="Remote control">
+        <Card title="Remote control" headingLevel={3}>
           <div class="inline-actions">
             <form method="post" action={`/operator/deployments/${workspace.deployment.id}/status`}>
               <input type="hidden" name="status" value={workspace.deployment.status === "active" ? "disabled" : "active"} />
-              {workspace.deployment.status === "active" ? <label class="field-hint"><input type="checkbox" name="confirmation" value="disable_deployment" required /> Confirm disable</label> : null}
-              <button type="submit">{workspace.deployment.status === "active" ? "Disable deployment" : "Enable deployment"}</button>
+              {workspace.deployment.status === "active" ? <Field name="confirmation" label="Confirm disable" checkbox checkboxValue="disable_deployment" required /> : null}
+              <Button variant={workspace.deployment.status === "active" ? "danger" : "primary"}>{workspace.deployment.status === "active" ? "Disable deployment" : "Enable deployment"}</Button>
             </form>
             <form method="post" action={`/operator/deployments/${workspace.deployment.id}/install-tokens/revoke`}>
-              <label class="field-hint"><input type="checkbox" name="confirmation" value="revoke_install_tokens" required /> Confirm revoke</label>
-              <button type="submit">Revoke pending install tokens</button>
+              <Field name="confirmation" label="Confirm revoke" checkbox checkboxValue="revoke_install_tokens" required />
+              <Button variant="danger">Revoke pending install tokens</Button>
             </form>
           </div>
           <p class="field-hint">Disabling stops the deployment agent from authenticating, which freezes licence renewal. Enabling restores normal heartbeat and renewal.</p>
@@ -267,7 +238,7 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
 
       <section id="install-token" class="workspace-section" aria-labelledby="install-token-heading">
         <h2 id="install-token-heading">Install registration</h2>
-        <Card title="Install token status">
+        <Card title="Install token status" headingLevel={3}>
           <DataList items={[
             { term: "Token status", details: <StatusBadge tone={statusTone(tokenStatus.includes("awaiting") ? "stale" : tokenStatus.includes("used") ? "active" : "disabled")}>{tokenStatus}</StatusBadge> },
             { term: "Registered", details: registrationStatus },
@@ -278,19 +249,21 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
           ]} />
           {canIssueInstallToken ? <form action={`/operator/deployments/${workspace.deployment.id}/install-tokens`} method="post">
             <input type="hidden" name="idempotencyKey" value={crypto.randomUUID()} />
-            <div class="field">
-              <label for="install-token-expires-at">Token expiry (UTC)</label>
-              <input id="install-token-expires-at" name="expiresAt" type="datetime-local" required />
-              <p class="field-hint">Choose an expiry within the next 24 hours. The token is shown once and cannot be recovered.</p>
-            </div>
-            <button type="submit">Issue install token</button>
+            <Field
+              name="expiresAt"
+              label="Token expiry (UTC)"
+              type="datetime-local"
+              required
+              hint="Choose an expiry within the next 24 hours. The token is shown once and cannot be recovered."
+            />
+            <Button type="submit">Issue install token</Button>
           </form> : <p class="field-hint">Install tokens can be issued only for an active deployment that has not yet registered.</p>}
         </Card>
       </section>
 
       <section id="entitlement-configuration" class="workspace-section" aria-labelledby="entitlement-configuration-heading">
         <h2 id="entitlement-configuration-heading">Entitlement configuration</h2>
-        <Card title="Configuration status">
+        <Card title="Configuration status" headingLevel={3}>
           {workspace.schedule === null ? <p>No compatible entitlement configuration is ready.</p> : <DataList items={[
             { term: "Configuration version", details: workspace.schedule.configurationVersion },
             { term: "Channel", details: titleCase(workspace.schedule.releaseChannel) },
@@ -300,33 +273,24 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
             { term: "Updated at (UTC)", details: formatUtc(workspace.schedule.updatedAt) },
           ]} />}
           {canConfigureSchedule ? <form class="form-grid" method="post" action={`/operator/deployments/${workspace.deployment.id}/entitlements/schedule`}>
-            <div class="field">
-              <label for="entitlement-contract">Contract</label>
-              <select id="entitlement-contract" name="contractId" required>
-                {workspace.compatibleContracts.map((contract) => <option value={contract.id} selected={workspace.schedule?.contractId === contract.id}>{contract.id} — {contract.seatLimit} seats</option>)}
-              </select>
-              <p class="field-hint">Only active, current contracts for this client are available.</p>
-            </div>
-            <div class="field">
-              <label for="configuration-version">Configuration version</label>
-              <input id="configuration-version" name="configurationVersion" required maxLength={128} value={workspace.schedule?.configurationVersion ?? ""} placeholder="configuration-2026-08" />
-            </div>
-            <div class="field">
-              <label for="release-channel">Channel</label>
-              <select id="release-channel" name="releaseChannel" required>
-                {(["stable", "beta", "canary"] as const).map((channel) => <option value={channel} selected={(workspace.schedule?.releaseChannel ?? "stable") === channel}>{titleCase(channel)}</option>)}
-              </select>
-            </div>
-            <div class="field">
-              <label for="minimum-app-version">Minimum app version</label>
-              <input id="minimum-app-version" name="minimumSupportedAppVersion" required maxLength={64} value={workspace.schedule?.minimumSupportedAppVersion ?? ""} placeholder="2.3.0" />
-            </div>
-            <div class="field">
-              <label for="approved-image-digest">Optional SHA-256 image digest</label>
-              <input id="approved-image-digest" name="approvedImageDigest" maxLength={71} pattern="sha256:[a-f0-9]{64}" value={workspace.schedule?.approvedImageDigest ?? ""} placeholder={`sha256:${"a".repeat(64)}`} />
-              <p class="field-hint">Leave empty when deployment image is not pinned. Use lowercase hexadecimal.</p>
-            </div>
-            <div><button type="submit">Save entitlement configuration</button></div>
+            <Field
+              name="contractId"
+              label="Contract"
+              required
+              hint="Only active, current contracts for this client are available."
+              options={workspace.compatibleContracts.map((contract) => ({ value: contract.id, label: `${contract.id} — ${contract.seatLimit} seats` }))}
+            />
+            <Field name="configurationVersion" label="Configuration version" required maxLength={128} value={workspace.schedule?.configurationVersion ?? ""} placeholder="configuration-2026-08" />
+            <Field
+              name="releaseChannel"
+              label="Channel"
+              required
+              value={workspace.schedule?.releaseChannel ?? "stable"}
+              options={(["stable", "beta", "canary"] as const).map((channel) => ({ value: channel, label: titleCase(channel) }))}
+            />
+            <Field name="minimumSupportedAppVersion" label="Minimum app version" required maxLength={64} value={workspace.schedule?.minimumSupportedAppVersion ?? ""} placeholder="2.3.0" />
+            <Field name="approvedImageDigest" label="Optional SHA-256 image digest" maxLength={71} pattern="sha256:[a-f0-9]{64}" value={workspace.schedule?.approvedImageDigest ?? ""} placeholder={`sha256:${"a".repeat(64)}`} hint="Leave empty when deployment image is not pinned. Use lowercase hexadecimal." />
+            <div><Button type="submit">Save entitlement configuration</Button></div>
           </form> : <p class="field-hint">Configuration requires an active client and deployment, completed registration, and a current compatible contract.</p>}
         </Card>
       </section>
@@ -418,10 +382,8 @@ export function EntitlementReviewPage(props: {
               <input type="hidden" name="expectedContractRevision" value={contract.entitlementRevision} />
               <input type="hidden" name="expectedScheduleRevision" value={schedule.stateRevision} />
               <input type="hidden" name="idempotencyKey" value={props.idempotencyKey} />
-              <div class="field">
-                <label><input type="checkbox" name="confirmation" value="issue_entitlement" required /> I confirm these current terms and want to issue an immutable signed entitlement version.</label>
-              </div>
-              <button type="submit">{buttonLabel}</button>
+              <Field name="confirmation" label="I confirm these current terms and want to issue an immutable signed entitlement version." checkbox checkboxValue="issue_entitlement" required />
+              <Button type="submit">{buttonLabel}</Button>
             </form>
           </Card>
         </section>
@@ -461,7 +423,7 @@ export function InstallTokenResultPage(props: {
         <Card title="One-time install token">
           <p>Expires at (UTC): {formatUtc(props.expiresAt)}</p>
           <p><code id="install-token-value">{props.token}</code></p>
-          <button id="copy-install-token" type="button">Copy install token</button>
+          <Button type="button" variant="secondary" id="copy-install-token">Copy install token</Button>
           <p class="field-hint">This token cannot be recovered. If copying is unavailable, select the value above and copy it manually.</p>
           <script src="/operator/install-token-copy.js" defer></script>
         </Card>

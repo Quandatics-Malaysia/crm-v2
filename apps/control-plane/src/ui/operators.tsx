@@ -1,19 +1,14 @@
 /** @jsxImportSource hono/jsx */
 import { OPERATOR_ROLES, type OperatorRole } from "../auth/rbac"
 import type { OperatorUser } from "../repos/operators"
-import { Card, DataList, EmptyState, Notice, PageHeader, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { Button, Card, DataList, EmptyState, Field, NoticePanel, PageHeader, StatusBadge, type NoticeTone, type StatusTone } from "./components"
+import { statusTone, titleCase } from "./presenters"
 import { OperatorLayout } from "./layout"
 
 export interface OperatorNotice {
   tone: NoticeTone
   title: string
   message: string
-}
-
-function statusTone(status: string): StatusTone {
-  if (status === "active") return "success"
-  if (status === "disabled") return "error"
-  return "neutral"
 }
 
 export function OperatorRosterPage(props: {
@@ -29,24 +24,21 @@ export function OperatorRosterPage(props: {
         title="Operators"
         description="Manage who can sign into the vendor console and which roles each account holds."
       />
-      {props.notice ? <Notice tone={props.notice.tone} title={props.notice.title}>{props.notice.message}</Notice> : null}
+      <NoticePanel notice={props.notice} />
 
       <section id="new-operator" class="form-section" aria-label="Add operator">
         <Card title="Add operator">
           <p>Invite a vendor team member by email. They sign in through Cloudflare Access once the account is active.</p>
           <form class="form-grid" method="post" action="/operator/operators">
-            <div class="field">
-              <label for="operator-email">Email</label>
-              <input id="operator-email" name="email" type="email" required maxLength={254} placeholder="ops@quandatics.com" />
-            </div>
+            <Field name="email" label="Email" type="email" required maxLength={254} placeholder="ops@quandatics.com" />
             <fieldset class="module-fieldset">
               <legend>Roles</legend>
               <p class="field-hint">Select at least one role.</p>
               {OPERATOR_ROLES.map((role) => (
-                <label><input type="checkbox" name="roles" value={role} /> {role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</label>
+                <label><input type="checkbox" name="roles" value={role} /> {titleCase(role)}</label>
               ))}
             </fieldset>
-            <div><button type="submit">Add operator</button></div>
+            <div><Button type="submit">Add operator</Button></div>
           </form>
         </Card>
       </section>
@@ -65,14 +57,14 @@ export function OperatorRosterPage(props: {
                   return (
                     <tr>
                       <th scope="row">{operator.email}{isSelf ? <span class="field-hint"> (you)</span> : null}</th>
-                      <td>{operator.roles.length === 0 ? <span class="field-hint">No roles</span> : operator.roles.map((role) => <StatusBadge tone="neutral">{role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</StatusBadge>)}</td>
-                      <td><StatusBadge tone={statusTone(operator.status)}>{operator.status}</StatusBadge></td>
+                      <td>{operator.roles.length === 0 ? <span class="field-hint">No roles</span> : operator.roles.map((role) => <StatusBadge tone="neutral">{titleCase(role)}</StatusBadge>)}</td>
+                      <td><StatusBadge tone={statusTone(operator.status)}>{titleCase(operator.status)}</StatusBadge></td>
                       <td>
                         {isSelf ? <span class="field-hint">Self-editing locked</span> : (
                           <form class="inline-actions" method="post" action={`/operator/operators/${operator.id}/status`}>
                             <input type="hidden" name="status" value={operator.status === "active" ? "disabled" : "active"} />
-                            {operator.status === "active" ? <label class="field-hint"><input type="checkbox" name="confirmation" value="disable_operator" required /> Confirm disable</label> : null}
-                            <button type="submit" class="button-link">{operator.status === "active" ? "Disable" : "Enable"}</button>
+                            {operator.status === "active" ? <Field name="confirmation" label="Confirm disable" checkbox checkboxValue="disable_operator" required /> : null}
+                            <Button type="submit" variant={operator.status === "active" ? "danger" : "primary"}>{operator.status === "active" ? "Disable" : "Enable"}</Button>
                           </form>
                         )}
                       </td>
@@ -94,17 +86,17 @@ export function OperatorRosterPage(props: {
             <article class="attention-item">
               <div>
                 <h3>{operator.email}</h3>
-                <p>Account {operator.status}</p>
+                <p>Account {titleCase(operator.status)}</p>
               </div>
               {operator.id === props.currentOperatorId ? <p class="field-hint">Self-editing locked</p> : (
                 <form class="inline-actions" method="post" action={`/operator/operators/${operator.id}/roles`}>
                   <fieldset class="module-fieldset">
                     <legend class="sr-only">Roles for {operator.email}</legend>
                     {OPERATOR_ROLES.map((role) => (
-                      <label><input type="checkbox" name="roles" value={role} checked={operator.roles.includes(role as OperatorRole)} /> {role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</label>
+                      <label><input type="checkbox" name="roles" value={role} checked={operator.roles.includes(role as OperatorRole)} /> {titleCase(role)}</label>
                     ))}
                   </fieldset>
-                  <button type="submit">Save roles</button>
+                  <Button type="submit">Save roles</Button>
                 </form>
               )}
             </article>

@@ -35,6 +35,14 @@ export const OPERATOR_STYLES = `
 .operator-shell :is(button, input:not([type="checkbox"]):not([type="radio"]), select, textarea) { min-block-size: 2.75rem; }
 .operator-shell :is(a, button, input, select, textarea):focus-visible { outline: 0.1875rem solid var(--operator-colour-accent); outline-offset: 0.1875rem; }
 .operator-shell button { border: 0; border-radius: var(--operator-radius); background: var(--operator-colour-accent); color: #fff; cursor: pointer; font: inherit; font-weight: 700; padding-inline: var(--operator-space-4); }
+.operator-shell .button-primary { background: var(--operator-colour-accent); color: #fff; }
+.operator-shell .button-primary:hover { background: var(--operator-colour-accent-strong); }
+.operator-shell .button-secondary { background: var(--operator-colour-surface); border: var(--operator-border); color: var(--operator-colour-ink); }
+.operator-shell .button-secondary:hover { background: #eef2f7; }
+.operator-shell .button-danger { background: var(--operator-colour-danger); color: #fff; }
+.operator-shell .button-danger:hover { background: #912018; }
+.operator-shell .button-ghost { background: transparent; color: var(--operator-colour-accent); }
+.operator-shell .button-ghost:hover { background: #e8efff; }
 .operator-shell input, .operator-shell select, .operator-shell textarea { border: var(--operator-border); border-radius: 0.375rem; color: inherit; font: inherit; padding: var(--operator-space-2) var(--operator-space-3); width: 100%; }
 .operator-shell textarea { min-block-size: 6rem; }
 .operator-shell :is(input[type="checkbox"], input[type="radio"]) { block-size: 1.25rem; inline-size: 1.25rem; margin: 0; width: auto; }
@@ -75,6 +83,9 @@ export const OPERATOR_STYLES = `
 .progress-step-blocked::before { background: #fee4e2; color: var(--operator-colour-danger); content: "!"; }
 .field { display: grid; gap: var(--operator-space-2); }
 .field label { font-weight: 700; }
+.operator-shell .checkbox-field { align-items: flex-start; display: flex; gap: var(--operator-space-2); min-block-size: 2.75rem; padding-inline: 0; font-weight: 500; }
+.operator-shell .checkbox-field input { margin-block-start: 0.25rem; }
+.repair-steps { display: grid; gap: var(--operator-space-2); margin: 0; padding-inline-start: var(--operator-space-6); }
 .field-error { color: var(--operator-colour-danger); font-size: 0.875rem; }
 .card, .empty-state, .notice { border: var(--operator-border); border-radius: var(--operator-radius); background: var(--operator-colour-surface); padding: var(--operator-space-6); }
 .card { display: grid; gap: var(--operator-space-4); }
@@ -111,7 +122,6 @@ export const OPERATOR_STYLES = `
 .data-table tbody tr:last-child :is(th, td) { border-block-end: 0; }
 .secondary-section { border-block-start: var(--operator-border); padding-block-start: var(--operator-space-8); }
 .inline-actions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-4); margin-block-end: var(--operator-space-3); }
-.inline-actions button.button-link { border: 0; background: transparent; color: var(--operator-colour-accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
 .sr-only { block-size: 1px; clip: rect(0 0 0 0); clip-path: inset(50%); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap; }
 
 @media (max-width: 42rem) {

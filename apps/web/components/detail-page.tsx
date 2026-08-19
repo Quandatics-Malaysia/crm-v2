@@ -144,20 +144,17 @@ export function FieldRow({
   className?: string
   children: React.ReactNode
 }) {
-  if (inline) {
-    return (
-      <div
-        className={cn("grid grid-cols-[9rem_1fr] items-start gap-2", className)}
-      >
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <span className="min-w-0 text-sm">{children}</span>
-      </div>
-    )
-  }
   return (
-    <div className={cn("grid min-w-0 gap-1", className)}>
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-sm">{children}</span>
+    <div
+      className={cn(
+        "grid min-w-0 grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)] items-start gap-x-4 gap-y-1",
+        "max-sm:grid-cols-1 max-sm:gap-1",
+        inline && "grid-cols-[minmax(7rem,9rem)_minmax(0,1fr)]",
+        className
+      )}
+    >
+      <span className="text-sm leading-5 text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-sm leading-5">{children}</span>
     </div>
   )
 }

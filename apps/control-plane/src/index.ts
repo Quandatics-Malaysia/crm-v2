@@ -8,6 +8,7 @@ import {
 import { verifyControlDatabase } from "./db/client"
 import { acceptsOperatorHtml, isOperatorRequest, safeErrorResponse } from "./http/errors"
 import { requestId } from "./http/request-id"
+import { createCommandRoutes } from "./routes/commands"
 import { createDeploymentRoutes } from "./routes/deployments"
 import { createEntitlementRoutes } from "./routes/entitlements"
 import { createOperatorRoutes } from "./routes/operator"
@@ -84,6 +85,7 @@ export function createApp(dependencies: ControlPlaneDependencies = {}) {
   app.route("/operator", createOperatorRoutes())
   app.route("/v1/deployments", createDeploymentRoutes())
   app.route("/v1/deployments", createEntitlementRoutes())
+  app.route("/v1/deployments", createCommandRoutes())
   app.get("/", (context) => {
     return context.redirect("/operator", 302)
   })

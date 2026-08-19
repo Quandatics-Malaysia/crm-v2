@@ -176,6 +176,45 @@ export function createDeploymentAgent(input: {
     await withApplyLock(() => applyLatest(webRevision, signal))
   }
 
+  async function pollCommandsOnce(signal: AbortSignal): Promise<void> {
+    if (identity === null || !await input.store.isRegistered(identity)) throw new Error("Agent is not initialized")
+    const envelopeRecord = await client.nextCommand(identity, signal)
+    if (envelopeRecord === null) return
+    const ack = await executeCommand(identity, envelopeRecord, signal)
+    await client.acknowledgeCommand(identity, envelopeRecord.id, ack, signal)
+  }
+
+  async function executeCommand(
+    identity: AgentIdentity,
+    envelopeRecord: unknown,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const record = envelopeRecord as { id: string; envelope: { payload: { payload: { kind: string } } } }
+    const ackTemplate = {
+      commandId: record.id,
+      deploymentId: input.config.deploymentId,
+      status: "ok" as const,
+      outcome: "completed" as const,
+      output: null,
+      errorCode: null,
+      errorMessage: null,
+      artifact: null,
+      completedAt: now().toISOString(),
+      agentVersion: input.config.agentVersion,
+    }
+    const kind = record.envelope?.payload?.payload?.kind
+    if (kind === "echo") {
+      return { ...ackTemplate, output: { received: "echo" } }
+    }
+    return {
+      ...ackTemplate,
+      status: "error",
+      outcome: "skipped",
+      errorCode: "command_not_implemented",
+      errorMessage: `command kind ${kind ?? "unknown"} is not implemented in this agent build`,
+    }
+  }
+
   async function cycle(signal: AbortSignal): Promise<void> {
     if (identity === null || !await input.store.isRegistered(identity)) throw new Error("Agent is not initialized")
     let runtime = await input.store.loadRuntime()
@@ -259,6 +298,17 @@ export function createDeploymentAgent(input: {
     }
   }
 
+  async function runCommandPollOnce(options: AttemptOptions = {}): Promise<void> {
+    if (repairRequired) throw new Error("Agent requires operator repair")
+    try {
+      await attempt(pollCommandsOnce, options)
+      logger.info("deployment_command_poll_succeeded")
+    } catch (error) {
+      logger.error(`deployment_command_poll_failed code=${errorCode(error)}`)
+      throw error
+    }
+  }
+
   function schedule(): void {
     if (stopped) return
     timer = setTimeout(() => {
@@ -320,6 +370,7 @@ export function createDeploymentAgent(input: {
     initialize,
     runOnce,
     pollOnce: runPollOnce,
+    pollCommands: runCommandPollOnce,
     start,
     stop,
     get repairRequired() { return repairRequired },

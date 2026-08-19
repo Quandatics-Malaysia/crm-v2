@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { PhoneNumberDisplay } from "@/components/phone-input"
 import { showActionError } from "@/lib/show-action-error"
 import {
   DropdownMenu,
@@ -247,7 +248,7 @@ export function PersonsTable({
       {
         accessorKey: "phone",
         header: "Phone",
-        cell: ({ row }) => row.original.phone ?? "—",
+        cell: ({ row }) => <PhoneNumberDisplay value={row.original.phone} />,
       },
       {
         id: "primary",

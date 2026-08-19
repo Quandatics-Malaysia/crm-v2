@@ -127,15 +127,7 @@ export default async function ProjectDetailPage({
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {project.name}
-            </h2>
-            <p className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
-              {project.projectCode}
-              <span className="rounded bg-muted px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {project.codeNature === "manual" ? "Manual" : "Auto"}
-              </span>
-            </p>
+            <h2 className="text-lg font-semibold tracking-tight">{project.name}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canUpdate ? (

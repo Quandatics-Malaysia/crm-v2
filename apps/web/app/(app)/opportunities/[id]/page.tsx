@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
-import { Badge } from "@/components/ui/badge"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { getEntitledModuleMap } from "@/lib/modules.server"
@@ -94,12 +93,7 @@ export default async function OpportunityDetailPage({
         ]}
       />
       <PageBody>
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold tracking-tight">{o.name}</h2>
-          <Badge variant="outline" className="font-mono font-normal">
-            {o.code}
-          </Badge>
-        </div>
+        <h2 className="text-lg font-semibold tracking-tight">{o.name}</h2>
         <OpportunityDetailBody
           detail={detail}
           documents={documents}

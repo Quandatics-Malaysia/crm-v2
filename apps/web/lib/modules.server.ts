@@ -40,11 +40,12 @@ export function createEntitledModuleGate(
     const missing = (access.moduleIds ?? []).filter((id: ModuleId) => !compiled[id])
     if (missing.length > 0) {
       // Graceful degradation: keep the app alive by running with those modules
-      // disabled.  The operator/developer must either update the image or adjust
-      // the signed entitlement so they match.
+      // disabled (createModuleMap handles missing compiled entries → false).
+      // The operator/developer must either update the image or adjust the
+      // signed entitlement so they match.
       const detail = `Signed entitlement owns module(s) [${missing.join(", ")}], but the image omits ${missing.length === 1 ? "it" : "them"}. Running with those modules disabled.`
       console.error("[module-gate]", detail)
-      // Fire-and-forget alert so the vendor sees the mismatch without blocking the render.
+      // Fire-and-forget alert so the vendor sees the mismatch without blocking.
       import("@/app/(app)/_shared/operator-alert-actions")
         .then(({ reportIncident }) =>
           reportIncident({
@@ -55,10 +56,6 @@ export function createEntitledModuleGate(
           }).catch(() => {})
         )
         .catch(() => {})
-      return createModuleMap(
-        (access.moduleIds ?? []).filter((id) => compiled[id]),
-        compiled
-      )
     }
     return createModuleMap(access.moduleIds, compiled)
   }

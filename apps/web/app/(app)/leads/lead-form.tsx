@@ -31,18 +31,27 @@ import type { Lead, LeadInput } from "./actions"
 const NO_SOURCE = "__none__"
 
 import { LEAD_STATUS_OPTIONS as STATUS_OPTIONS } from "@/lib/status-meta"
+import { isValidPhoneE164, toPhoneE164 } from "@/lib/phone-validation"
 
-const leadSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  companyName: z.string().trim().min(1, "Company is required"),
-  email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
-  phone: z.string().trim().min(1, "Phone is required"),
-  defaultCountry: z.string().optional(),
+const leadSchema = (country: string) =>
+  z.object({
+    name: z.string().trim().min(1, "Name is required"),
+    companyName: z.string().trim().min(1, "Company is required"),
+    email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
+    phone: z
+      .string()
+      .trim()
+      .min(1, "Phone is required")
+      .refine(
+        (v) => isValidPhoneE164(v, country),
+        { message: "Enter a valid phone number for the selected country." }
+      ),
+    defaultCountry: z.string().optional(),
   source: z.string().trim().optional(),
   status: z.enum(["new", "contacted", "qualified", "disqualified", "converted"]),
 })
 
-export type LeadFormValues = z.infer<typeof leadSchema>
+export type LeadFormValues = z.infer<ReturnType<typeof leadSchema>>
 
 export function LeadForm({
   lead,
@@ -73,7 +82,7 @@ export function LeadForm({
   }, [sources, lead?.source])
 
   const form = useForm<LeadFormValues>({
-    resolver: zodResolver(leadSchema),
+    resolver: zodResolver(leadSchema(defaultCountry ?? "MY")),
     defaultValues: {
       name: lead?.name ?? "",
       companyName: lead?.companyName ?? "",
@@ -92,7 +101,7 @@ export function LeadForm({
         name: values.name,
         companyName: values.companyName || null,
         email: values.email || null,
-        phone: values.phone || null,
+        phone: toPhoneE164(values.phone, values.defaultCountry) || null,
         source: values.source || null,
         status: values.status,
       })

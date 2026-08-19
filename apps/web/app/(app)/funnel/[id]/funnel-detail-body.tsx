@@ -34,7 +34,6 @@ import {
   FieldRow,
 } from "@/components/detail-page"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
 import { PpvvcEditor } from "@/components/ppvvc-editor"
 import { InlineValue } from "@/components/inline-value"
@@ -1097,9 +1096,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 <CountTab value="approvals" count={approvalHistory.length}>
                   Approval history
                 </CountTab>
-                <CountTab value="changes" count={changes.length}>
-                  History
-                </CountTab>
                 <CountTab value="documents" count={documents.length}>
                   Documents
                 </CountTab>
@@ -1224,18 +1220,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                 </TabsContent>
               ) : null}
 
-              <TabsContent value="history" className="mt-4">
-                <DataTable
-                  columns={historyColumns}
-                  data={history}
-                  tableId="funnel-history"
-                  searchColumn="toStageName"
-                  searchPlaceholder="Search stage history…"
-                  emptyMessage="No stage changes recorded."
-                  pageSize={5}
-                />
-              </TabsContent>
-
               <TabsContent value="approvals" className="mt-4">
                 {approvalHistory.length === 0 ? (
                   <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -1248,10 +1232,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     ))}
                   </div>
                 )}
-              </TabsContent>
-
-              <TabsContent value="changes" className="mt-4">
-                <ChangeHistory items={changes} />
               </TabsContent>
 
               <TabsContent value="documents" className="mt-4">

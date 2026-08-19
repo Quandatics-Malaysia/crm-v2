@@ -7,7 +7,6 @@ import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection, type SectionDocument } from "@/components/documents-section"
 import {
   CountTab,
@@ -274,9 +273,6 @@ export function LeadDetailBody({
         <TabsCard value={tab} onValueChange={setTab}>
           <TabsList>
             <CountTab value="activity">Activity</CountTab>
-            <CountTab value="changes" count={changes.length}>
-              History
-            </CountTab>
             <CountTab value="documents" count={files.length}>
               Documents
             </CountTab>
@@ -289,10 +285,6 @@ export function LeadDetailBody({
               items={activity}
               revalidate={revalidate}
             />
-          </TabsContent>
-
-          <TabsContent value="changes" className="mt-4">
-            <ChangeHistory items={changes} />
           </TabsContent>
 
           <TabsContent value="documents" className="mt-4">

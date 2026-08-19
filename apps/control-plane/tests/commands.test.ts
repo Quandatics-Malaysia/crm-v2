@@ -17,7 +17,7 @@ import {
   getCommandHistory,
 } from "../src/repos/commands"
 
-import { conflict, type MutationActor } from "../src/repos/clients"
+import { type MutationActor } from "../src/repos/clients"
 
 const DAY_MS = 24 * 60 * 60 * 1_000
 

@@ -1,6 +1,6 @@
 import type { DeploymentHeartbeat } from "@crm/control-protocol/heartbeat"
 
-import { AgentRequestError, createDeploymentClient } from "./client.js"
+import { AgentRequestError, createDeploymentClient, type ClaimedCommand } from "./client.js"
 import type { AgentConfig } from "./config.js"
 import {
   assertIdentityMatches,
@@ -186,12 +186,11 @@ export function createDeploymentAgent(input: {
 
   async function executeCommand(
     identity: AgentIdentity,
-    envelopeRecord: unknown,
+    envelopeRecord: ClaimedCommand,
     signal: AbortSignal,
   ): Promise<unknown> {
-    const record = envelopeRecord as { id: string; envelope: { payload: { payload: { kind: string } } } }
     const ackTemplate = {
-      commandId: record.id,
+      commandId: envelopeRecord.id,
       deploymentId: input.config.deploymentId,
       status: "ok" as const,
       outcome: "completed" as const,
@@ -202,7 +201,7 @@ export function createDeploymentAgent(input: {
       completedAt: now().toISOString(),
       agentVersion: input.config.agentVersion,
     }
-    const kind = record.envelope?.payload?.payload?.kind
+    const kind = envelopeRecord.envelope.payload.payload.kind
     if (kind === "echo") {
       return { ...ackTemplate, output: { received: "echo" } }
     }

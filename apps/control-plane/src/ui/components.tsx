@@ -58,7 +58,7 @@ export function Field(props: {
   label: string
   name: string
   type?: "date" | "email" | "number" | "password" | "search" | "text" | "url" | "datetime-local"
-  value?: string
+  value?: string | number
   required?: boolean
   hint?: Child
   error?: string

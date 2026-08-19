@@ -20,6 +20,7 @@ import {
   useSaveField,
 } from "@/components/detail-page"
 import { InlineValue } from "@/components/inline-value"
+import { PhoneNumberDisplay } from "@/components/phone-input"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { type ProgressStep } from "@/components/stage-progress"
@@ -171,8 +172,14 @@ export function LeadDetailBody({
                       ) : (
                         <InlineValue
                           value={record[key] ?? ""}
-                          display={record[key] || "—"}
-                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          display={
+                            key === "phone" ? (
+                              <PhoneNumberDisplay value={record[key]} />
+                            ) : (
+                              record[key] || "—"
+                            )
+                          }
+                            title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // Name + email are required on leads — ignore an emptied draft.
                             if (key === "name" || key === "email") {

@@ -46,7 +46,7 @@ export default async function PersonDetailPage({
   const contactInformation: PersonDetailSection["fields"] = [
     { label: "First name", value: person.firstName, editKey: "firstName" },
     { label: "Last name", value: person.lastName ?? "—", editKey: "lastName" },
-    { label: "Title", value: person.title ?? "—", editKey: "title" },
+    { label: "Designation", value: person.title ?? "—", editKey: "title" },
     { label: "Department", value: person.department ?? "—", editKey: "department" },
     {
       label: "Email",

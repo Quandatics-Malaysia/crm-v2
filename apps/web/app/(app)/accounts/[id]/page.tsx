@@ -235,27 +235,7 @@ export default async function AccountDetailPage({
       />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {account.name}
-            </h2>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline">
-                {isReseller ? "Reseller" : "Client"}
-              </Badge>
-              {isReseller && endUserAccount ? (
-                <span>
-                  End user:{" "}
-                  <Link
-                    href={`/accounts/${endUserAccount.id}`}
-                    className="link"
-                  >
-                    {endUserAccount.name}
-                  </Link>
-                </span>
-              ) : null}
-            </div>
-          </div>
+          <h2 className="text-lg font-semibold tracking-tight">{account.name}</h2>
           <div className="flex flex-wrap items-center gap-2">
             <AccountEditButton
               account={account}

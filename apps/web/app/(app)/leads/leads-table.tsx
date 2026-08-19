@@ -10,6 +10,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { DataTable, SortableHeader, linkCell } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { PhoneNumberDisplay } from "@/components/phone-input"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { showActionError } from "@/lib/show-action-error"
@@ -165,7 +166,7 @@ export function LeadsTable({
         header: "Mobile",
         cell: ({ row }) =>
           row.original.phone ? (
-            <span className="tabular-nums">{row.original.phone}</span>
+            <PhoneNumberDisplay value={row.original.phone} />
           ) : (
             <span className="text-muted-foreground">—</span>
           ),

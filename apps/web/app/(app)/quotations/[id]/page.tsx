@@ -80,31 +80,7 @@ export default async function QuotationDetailPage({
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {detail.quotation.quoteNumber}
-            </h2>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
-              {detail.container ? (
-                <Link href={`/opportunities/${detail.container.id}`} className="link">
-                  {detail.container.name}
-                </Link>
-              ) : null}
-              {detail.opportunityName ? (
-                <>
-                  {detail.container ? (
-                    <span className="text-muted-foreground">/</span>
-                  ) : null}
-                  <Link
-                    href={`/funnel/${detail.quotation.funnelId}`}
-                    className="link"
-                  >
-                    {detail.opportunityName}
-                  </Link>
-                </>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
+            <h2 className="text-lg font-semibold tracking-tight">{detail.quotation.quoteNumber}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge

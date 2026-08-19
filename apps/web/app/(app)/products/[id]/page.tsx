@@ -6,7 +6,6 @@ import { listProductCodes, listCurrencies } from "@/lib/lookups"
 import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { formatMoney } from "@/lib/format"
 import { getProduct, listProductUsage, listProductDeals } from "../actions"
 import { ProductForm } from "../product-form"
 import { ProductDetailBody } from "../product-detail-body"
@@ -43,13 +42,7 @@ export default async function ProductDetailPage({
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {product.name}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {formatMoney(product.standardPrice, product.currency)}
-              {product.uom ? ` / ${product.uom}` : ""}
-            </p>
+            <h2 className="text-lg font-semibold tracking-tight">{product.name}</h2>
           </div>
           {canUpdate ? (
             <ProductForm

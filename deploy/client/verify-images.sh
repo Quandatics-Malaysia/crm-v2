@@ -48,7 +48,7 @@ validate_vendor_image BACKUP_IMAGE "$BACKUP_IMAGE" "$BACKUP_REPOSITORY"
 validate_vendor_image AGENT_IMAGE "$AGENT_IMAGE" "$AGENT_REPOSITORY"
 
 if ! command -v cosign >/dev/null 2>&1; then
-  fail "cosign is required but not installed; use the pinned, checksum-verified installation in README.md"
+  fail "cosign is required but not installed; use the pinned, checksum-verified installation in https://github.com/Super-ERP/docs/blob/main/archive/operations/deploy-client-README.md"
 fi
 
 certificate_identity="https://github.com/$SIGNING_REPOSITORY/.github/workflows/$SIGNING_WORKFLOW@refs/tags/$RELEASE_TAG"

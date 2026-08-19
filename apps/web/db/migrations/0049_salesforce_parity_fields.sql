@@ -1,6 +1,6 @@
 -- Salesforce field parity (phase-1 core objects). Additive, nullable columns
 -- so the client's existing data imports 1:1. See
--- docs/superpowers/specs/2026-07-08-backend-hardening-design.md (migration notes)
+-- https://github.com/Super-ERP/docs/blob/main/archive/specs/2026-07-08-backend-hardening-design.md (migration notes)
 -- and the field-parity gap analysis.
 ALTER TABLE "persons" ADD COLUMN "owner_member_id" text;
 ALTER TABLE "persons" ADD CONSTRAINT "persons_owner_member_id_member_id_fk"

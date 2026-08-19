@@ -2,7 +2,8 @@
 # but targets a separate server checkout (~/crm-v2-staging) and Compose project
 # (crm-staging), in its own concurrency group so it never fights the prod deploy.
 #
-# One-time server setup (see OPERATIONS.md → "Staging environment"):
+# One-time server setup (see the "Staging environment" runbook in
+# https://github.com/Super-ERP/docs/blob/main/archive/operations/OPERATIONS.md):
 #   git clone <repo> ~/crm-v2-staging && cd ~/crm-v2-staging && git checkout <sha>
 #   cp .env.staging.example .env.staging   # then fill in fresh secrets
 name: deploy-staging
@@ -13,9 +14,6 @@ on:
     paths-ignore:
       - "docs/**"
       - "README.md"
-      - "CONTRIBUTING.md"
-      - "MODULES.md"
-      - "OPERATIONS.md"
 
 concurrency:
   group: deploy-staging

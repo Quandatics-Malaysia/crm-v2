@@ -1,7 +1,6 @@
 /**
  * Pure helpers for the Opportunity container + Funnel naming (Salesforce-aligned
- * two-level model — see docs/superpowers/specs/2026-07-07-opportunity-funnel-
- * remodel-design.md). No IO, no `server-only`, so they are unit-testable and
+ * two-level model — see https://github.com/Super-ERP/docs/blob/main/archive/specs/2026-07-07-opportunity-funnel-remodel-design.md). No IO, no `server-only`, so they are unit-testable and
  * safe to import anywhere.
  */
 

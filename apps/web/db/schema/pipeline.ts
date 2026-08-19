@@ -21,8 +21,8 @@ import { accounts, persons } from "./crm"
 import { timestamps, softDelete } from "./_helpers"
 
 /**
- * TWO-LEVEL SALES MODEL (Salesforce-aligned, see docs/superpowers/specs/
- * 2026-07-07-opportunity-funnel-remodel-design.md):
+ * TWO-LEVEL SALES MODEL (Salesforce-aligned, see
+ * https://github.com/Super-ERP/docs/blob/main/archive/specs/2026-07-07-opportunity-funnel-remodel-design.md):
  *
  *   opportunities  (CONTAINER)  ── the pursuit: per-year id, PPVVC analysis,
  *                                  rolls up Total Estimated Funnel Amount.

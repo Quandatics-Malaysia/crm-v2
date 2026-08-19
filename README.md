@@ -15,8 +15,8 @@ architecture directory.
 | [Module directory](https://github.com/Super-ERP/docs/tree/main/pages/product/module-directory.mdx) | Every capability and its code map |
 | [External developer guide](https://github.com/Super-ERP/docs/tree/main/pages/external-developers/overview.mdx) | API integration and public contribution path |
 | [Add a module](https://github.com/Super-ERP/docs/tree/main/pages/extensibility/adding-a-module.mdx) | Placement and integration checklist |
-| [Contributing](./CONTRIBUTING.md) | Local setup and review rules |
-| [Operations](./OPERATIONS.md) | Canonical operator runbook; never store secrets in it |
+| [Contributing](https://github.com/Super-ERP/docs/blob/main/pages/contributing.md) | Local setup and review rules |
+| [Operations](https://github.com/Super-ERP/docs/blob/main/pages/operations.mdx) | Deploy flow, runbooks, and operator workspace |
 | [Release log](./docs/operations/release-log.md) | Signed immutable release record |
 
 ## Module map
@@ -71,15 +71,20 @@ conversion, PPVVC, quotations, stage rollback, and milestones.
 ```text
 crm-v2/
 ├── apps/
-│   └── web/                 Next.js application, routes, services, and database
-├── docs/                   Canonical docs moved to Super-ERP/docs (Zudoku app)
+│   ├── web/                 Next.js application, routes, services, and database
+│   ├── control-plane/       Vendor-operated Cloudflare Worker (operator console,
+│   │                        entitlements, heartbeats, deployment identity)
+│   └── deployment-agent/    Client-hosted agent (registration, heartbeat,
+│                            entitlement apply, remote commands)
+├── packages/
+│   └── control-protocol/    Signed envelope + command contract, shared by
+│                            control-plane and deployment-agent
 ├── docs/
-│   └── superpowers/         Architecture specs and implementation plans
+│   └── operations/          Release log (machine-appended; runbooks live in Super-ERP/docs)
 ├── ops/                     Operational scripts and operator notes
+├── deploy/client/           Pull-only, Cosign-verified production bundle
 ├── .github/                 CI, production, and staging workflows
-├── CONTRIBUTING.md          Development and review workflow
-├── MODULES.md               Optional-plugin contract
-└── OPERATIONS.md            Canonical operator runbook
+└── AGENTS.md                Rules for AI coding agents
 ```
 
 The app itself lives in `apps/web` (a pnpm workspace under the repo root). Local-dev
@@ -140,7 +145,7 @@ docs/operations/release-log.md
 ## Production
 
 Production uses the pull-only, Cosign-verified bundle in `deploy/client/`.
-Follow [`deploy/client/README.md`](./deploy/client/README.md); do not build the
+Follow the [client deployment runbook](https://github.com/Super-ERP/docs/blob/main/archive/operations/deploy-client-README.md); do not build the
 source Compose stack on a client production host.
 
 ## Operator workspace
@@ -150,7 +155,7 @@ control-plane UI. Create the client, current contract, and deployment; open the
 deployment workspace; issue its one-time install token; then register, configure,
 review, sign, and verify its heartbeat. Use the same workspace to issue a new
 immutable signed version after a contract, configuration, or approved-release
-change. See [operator onboarding, signing, and recovery](./OPERATIONS.md#operator-workspace-client-onboarding-and-signing).
+change. See [operator onboarding, signing, and recovery](https://github.com/Super-ERP/docs/blob/main/archive/operations/OPERATIONS.md#operator-workspace-client-onboarding-and-signing).
 
 This is an operator workflow, not a customer or integration-partner interface.
 No documentation update records a live deployment or signed release; only

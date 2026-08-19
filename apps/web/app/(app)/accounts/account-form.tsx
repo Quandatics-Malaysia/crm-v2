@@ -21,6 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Combobox } from "@/components/ui/combobox"
+import { PhoneInput } from "@/components/phone-input"
 import { AccountQuickCreate } from "@/components/quick-create-account"
 import {
   Form,
@@ -74,6 +75,7 @@ const schema = z
       .union([z.string().url("Invalid URL"), z.literal("")])
       .optional(),
     phone: z.string().optional(),
+    defaultCountry: z.string().optional(),
     line1: z.string().optional(),
     line2: z.string().optional(),
     city: z.string().optional(),
@@ -100,8 +102,8 @@ function addr(account?: AccountRow): BillingAddress {
 /** Tenant presets (Settings → General) prefilled on CREATE only. */
 export type AccountFormPresets = {
   defaultCountry?: string
-  defaultCurrency?: string
   phonePrefix?: string
+  defaultCurrency?: string
 }
 
 function defaults(
@@ -384,13 +386,13 @@ export function AccountForm({
                 control={form.control}
                 name="phone"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Office phone</FormLabel>
-                    <FormControl>
-                      <Input placeholder="03-2782 2100" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                  <PhoneInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    label="Office phone"
+                    placeholder="012 345 6789"
+                    defaultCountry={form.getValues("defaultCountry") as string}
+                  />
                 )}
               />
             </div>

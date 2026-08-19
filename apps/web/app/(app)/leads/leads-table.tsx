@@ -67,6 +67,7 @@ export function LeadsTable({
   leadSources = [],
   lossReasons = [],
   phonePrefix = "",
+  defaultCountry,
 }: {
   data: Lead[]
   pipelines: FunnelWithStages[]
@@ -76,6 +77,7 @@ export function LeadsTable({
   lossReasons?: string[]
   /** Tenant dialing prefix prefilled on create. */
   phonePrefix?: string
+  defaultCountry?: string
 }) {
   const router = useRouter()
   const perms = usePermissions()
@@ -399,6 +401,7 @@ export function LeadsTable({
                 <LeadForm
                   sources={leadSources}
                   phonePrefix={phonePrefix}
+                  defaultCountry={defaultCountry}
                   onSubmit={handleCreate}
                   submitLabel="Create lead"
                 />

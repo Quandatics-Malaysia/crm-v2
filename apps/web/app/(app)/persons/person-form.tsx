@@ -28,6 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { PhoneInput } from "@/components/phone-input"
 import { Combobox } from "@/components/ui/combobox"
 import { AccountQuickCreate } from "@/components/quick-create-account"
 import type { Option } from "@/lib/lookups"
@@ -41,6 +42,7 @@ const schema = z.object({
   department: z.string().optional(),
   email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
   phone: z.string().optional(),
+  defaultCountry: z.string().optional(),
   isPrimary: z.boolean(),
 })
 
@@ -51,6 +53,7 @@ export function PersonForm({
   person,
   presetAccountId,
   phonePrefix,
+  defaultCountry,
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -64,6 +67,7 @@ export function PersonForm({
   presetAccountId?: string
   /** Tenant dialing prefix prefilled into the phone field on create. */
   phonePrefix?: string
+  defaultCountry?: string
   /** Render-prop trigger. Omit when controlling open externally. */
   trigger?: React.ReactNode
   /** Controlled open state (when no trigger is provided). */
@@ -86,6 +90,7 @@ export function PersonForm({
       email: person?.email ?? "",
       phone: person ? person.phone ?? "" : phonePrefix ?? "",
       isPrimary: person?.isPrimary ?? false,
+      defaultCountry: defaultCountry ?? "MY",
     },
   })
 
@@ -100,6 +105,7 @@ export function PersonForm({
         email: person?.email ?? "",
         phone: person ? person.phone ?? "" : phonePrefix ?? "",
         isPrimary: person?.isPrimary ?? false,
+        defaultCountry: defaultCountry ?? "MY",
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,13 +269,13 @@ export function PersonForm({
                 control={form.control}
                 name="phone"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone</FormLabel>
-                    <FormControl>
-                      <Input placeholder="+60 12-345 6789" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                  <PhoneInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    label="Phone"
+                    placeholder="012 345 6789"
+                    defaultCountry={form.getValues("defaultCountry") as string}
+                  />
                 )}
               />
             </div>

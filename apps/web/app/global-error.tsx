@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect } from "react"
+import { AlertTriangle, RotateCw } from "lucide-react"
 
-import "./globals.css"
+import { Button } from "@/components/ui/button"
+import { reportIncident } from "@/app/(app)/_shared/operator-alert-actions"
 
 export default function GlobalError({
   error,
@@ -11,6 +13,18 @@ export default function GlobalError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // Report the crash to the operator log so the vendor is notified.
+  useEffect(() => {
+    reportIncident({
+      severity: "critical",
+      summary: `Global crash: ${error.message}`,
+      detail: error.stack ?? error.message,
+      source: "global_error_boundary",
+      errorMessage: error.message,
+      errorDigest: error.digest,
+    }).catch(() => {})
+  }, [error])
+
   useEffect(() => {
     console.error(error)
   }, [error])
@@ -20,6 +34,9 @@ export default function GlobalError({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full">
         <div className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertTriangle className="size-6" />
+          </div>
           <div className="grid gap-1">
             <h1 className="text-lg font-semibold tracking-tight">
               Something went wrong
@@ -28,17 +45,17 @@ export default function GlobalError({
               The application hit an unexpected error. Please try again.
             </p>
           </div>
-          <button
-            onClick={() => reset()}
-            className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
-          >
-            Try again
-          </button>
-          {error.digest ? (
-            <p className="text-xs text-muted-foreground">
-              Reference: {error.digest}
-            </p>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <Button onClick={() => reset()}>
+              <RotateCw />
+              Try again
+            </Button>
+            {error.digest ? (
+              <p className="text-xs text-muted-foreground">
+                Reference: {error.digest}
+              </p>
+            ) : null}
+          </div>
         </div>
       </body>
     </html>

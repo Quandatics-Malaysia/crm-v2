@@ -725,9 +725,11 @@ function TypedFilter<TData, TValue>({
             }
           />
           <DropdownMenuContent align="start" className="w-64 space-y-2 p-2">
-            <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
-              {title}
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
+                {title}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <OperatorSelect
               value={operator}
               options={filterOperators(definition.operators, ["contains", "equals", "starts-with"])}
@@ -796,9 +798,11 @@ function TypedFilter<TData, TValue>({
             }
           />
           <DropdownMenuContent align="start" className="w-64 space-y-2 p-2">
-            <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
-              {title}
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
+                {title}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <OperatorSelect
               value={operator}
               options={filterOperators(definition.operators, ["equals", "greater-than", "less-than", "between"])}
@@ -858,9 +862,11 @@ function TypedFilter<TData, TValue>({
             }
           />
           <DropdownMenuContent align="start" className="w-64 space-y-2 p-2">
-            <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
-              {title}
-            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">
+                {title}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <OperatorSelect
               value={operator}
               options={filterOperators(definition.operators, ["on", "before", "after", "between"])}
@@ -901,7 +907,9 @@ function TypedFilter<TData, TValue>({
             }
           />
           <DropdownMenuContent align="start" className="w-40 p-2">
-            <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">{title}</DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">{title}</DropdownMenuLabel>
+            </DropdownMenuGroup>
             <OperatorSelect
               value={typed?.value == null ? "any" : String(typed.value)}
               options={["any", "true", "false"]}
@@ -972,7 +980,9 @@ function OptionFilter({
         }
       />
       <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-auto p-2">
-        <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">{title}</DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">{title}</DropdownMenuLabel>
+        </DropdownMenuGroup>
         {definition.type === "relation" ? (
           <Input
             value={query}

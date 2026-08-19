@@ -391,7 +391,7 @@ export function AccountDetailBody(props: AccountDetailData) {
                           value={record[scalarKey] ?? ""}
                           display={
                             scalarKey === "phone" ? (
-                              <PhoneNumberDisplay value={record[scalarKey]} defaultCountry={record.billingAddress?.country} />
+                              <PhoneNumberDisplay value={record[scalarKey]} defaultCountry={record.billingAddress?.country} compact />
                             ) : (
                               record[scalarKey] || "—"
                             )

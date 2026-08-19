@@ -204,9 +204,12 @@ export function PhoneInput({
 export function PhoneNumberDisplay({
   value,
   defaultCountry,
+  compact = false,
 }: {
   value?: string | null
   defaultCountry?: string | null
+  /** Render as plain inline text (no pill/border) — suitable for detail panels. */
+  compact?: boolean
 }) {
   const raw = value?.trim() ?? ""
   if (!raw) return <span className="text-muted-foreground">—</span>
@@ -223,6 +226,13 @@ export function PhoneNumberDisplay({
     // Keep the stored text when an older value cannot be parsed.
   }
   const code = callingCodeOf(country)
+  if (compact) {
+    return (
+      <span className="tabular-nums">
+        {FLAG_EMOJI[country] ?? "🌐"}{" +"}{code}{" "}{national}
+      </span>
+    )
+  }
   return (
     <span className="inline-flex max-w-full items-center overflow-hidden rounded-md border border-input bg-background align-middle text-sm">
       <span className="inline-flex shrink-0 items-center gap-1 border-r border-input bg-muted/50 px-2 py-1 font-medium tabular-nums">

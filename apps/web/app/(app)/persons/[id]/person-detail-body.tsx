@@ -207,7 +207,7 @@ export function PersonDetailBody({
                           value={record[key] ?? ""}
                           display={
                             key === "phone" ? (
-                              <PhoneNumberDisplay value={record[key]} />
+                              <PhoneNumberDisplay value={record[key]} compact />
                             ) : (
                               record[key] || "—"
                             )

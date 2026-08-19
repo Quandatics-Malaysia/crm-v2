@@ -130,7 +130,8 @@ function defaults(
     industry: account?.industry ?? "",
     website: account?.website ?? "",
     // Presets apply only to a NEW account — an existing blank stays blank.
-    phone: account ? account.phone ?? "" : presets?.phonePrefix ?? "",
+    phone: account ? account.phone ?? "" : "",
+    defaultCountry: account ? a.country ?? "" : presets?.defaultCountry ?? "",
     line1: a.line1 ?? "",
     line2: a.line2 ?? "",
     city: a.city ?? "",

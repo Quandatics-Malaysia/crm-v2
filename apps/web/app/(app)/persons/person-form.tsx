@@ -59,7 +59,6 @@ export function PersonForm({
   accounts,
   person,
   presetAccountId,
-  phonePrefix,
   defaultCountry,
   trigger,
   open: controlledOpen,
@@ -72,8 +71,6 @@ export function PersonForm({
   person?: PersonRow
   /** Lock the contact to this account (e.g. on an account detail page). */
   presetAccountId?: string
-  /** Tenant dialing prefix prefilled into the phone field on create. */
-  phonePrefix?: string
   defaultCountry?: string
   /** Render-prop trigger. Omit when controlling open externally. */
   trigger?: React.ReactNode
@@ -95,7 +92,7 @@ export function PersonForm({
       title: person?.title ?? "",
       department: person?.department ?? "",
       email: person?.email ?? "",
-      phone: person ? person.phone ?? "" : phonePrefix ?? "",
+      phone: person ? person.phone ?? "" : "",
       isPrimary: person?.isPrimary ?? false,
       defaultCountry: defaultCountry ?? "MY",
     },
@@ -110,7 +107,7 @@ export function PersonForm({
         title: person?.title ?? "",
         department: person?.department ?? "",
         email: person?.email ?? "",
-        phone: person ? person.phone ?? "" : phonePrefix ?? "",
+        phone: person ? person.phone ?? "" : "",
         isPrimary: person?.isPrimary ?? false,
         defaultCountry: defaultCountry ?? "MY",
       })

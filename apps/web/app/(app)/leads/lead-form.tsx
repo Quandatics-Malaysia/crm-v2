@@ -56,7 +56,6 @@ export type LeadFormValues = z.infer<ReturnType<typeof leadSchema>>
 export function LeadForm({
   lead,
   sources = [],
-  phonePrefix = "",
   defaultCountry,
   onSubmit,
   submitLabel = "Save",
@@ -64,8 +63,6 @@ export function LeadForm({
   lead?: Lead
   /** Tenant lead-source picklist (Settings); empty falls back to free text. */
   sources?: string[]
-  /** Tenant dialing prefix prefilled into the phone field on create. */
-  phonePrefix?: string
   defaultCountry?: string
   onSubmit: (values: LeadInput) => Promise<void>
   submitLabel?: string
@@ -87,7 +84,7 @@ export function LeadForm({
       name: lead?.name ?? "",
       companyName: lead?.companyName ?? "",
       email: lead?.email ?? "",
-      phone: lead ? lead.phone ?? "" : phonePrefix,
+      phone: lead ? lead.phone ?? "" : "",
       source: lead?.source ?? "",
       status: lead?.status ?? "new",
       defaultCountry: defaultCountry ?? "MY",

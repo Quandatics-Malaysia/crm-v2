@@ -169,13 +169,10 @@ function RowActions({
 export function PersonsTable({
   data,
   accounts,
-  phonePrefix = "",
   defaultCountry,
 }: {
   data: PersonListItem[]
   accounts: Option[]
-  /** Tenant dialing prefix prefilled on create. */
-  phonePrefix?: string
   defaultCountry?: string
 }) {
   const router = useRouter()
@@ -286,8 +283,7 @@ export function PersonsTable({
         canCreate ? (
           <PersonForm
             accounts={accounts}
-            phonePrefix={phonePrefix}
-            defaultCountry={defaultCountry}
+                        defaultCountry={defaultCountry}
             trigger={
               <Button size="sm">
                 <Plus className="size-4" />
@@ -308,8 +304,7 @@ export function PersonsTable({
         canCreate ? (
           <PersonForm
             accounts={accounts}
-            phonePrefix={phonePrefix}
-            defaultCountry={defaultCountry}
+                        defaultCountry={defaultCountry}
             open={newOpen}
             onOpenChange={setNewOpen}
             trigger={

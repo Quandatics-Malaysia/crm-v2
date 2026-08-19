@@ -405,23 +405,6 @@ function GeneralForm({
             />
             <FormField
               control={form.control}
-              name="phonePrefix"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Phone prefix</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="+60 " maxLength={8} />
-                  </FormControl>
-                  <FormDescription>
-                    Prefilled into empty phone fields (leads, contacts,
-                    accounts).
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
               name="approvalBypassTier"
               render={({ field }) => (
                 <FormItem>

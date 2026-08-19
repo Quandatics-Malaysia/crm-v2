@@ -66,7 +66,6 @@ export function LeadsTable({
   members,
   leadSources = [],
   lossReasons = [],
-  phonePrefix = "",
   defaultCountry,
 }: {
   data: Lead[]
@@ -75,8 +74,6 @@ export function LeadsTable({
   /** Tenant picklists (Settings); empty = free-text fallbacks. */
   leadSources?: string[]
   lossReasons?: string[]
-  /** Tenant dialing prefix prefilled on create. */
-  phonePrefix?: string
   defaultCountry?: string
 }) {
   const router = useRouter()
@@ -400,8 +397,7 @@ export function LeadsTable({
                 </DialogHeader>
                 <LeadForm
                   sources={leadSources}
-                  phonePrefix={phonePrefix}
-                  defaultCountry={defaultCountry}
+                                    defaultCountry={defaultCountry}
                   onSubmit={handleCreate}
                   submitLabel="Create lead"
                 />

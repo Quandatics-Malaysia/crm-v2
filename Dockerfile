@@ -31,7 +31,7 @@ COPY --from=deps /app/packages/control-protocol/node_modules ./packages/control-
 COPY . .
 RUN pnpm --filter @crm/control-protocol run build
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter web run build
+RUN pnpm --filter web run build --turbopack
 
 # ---- compile architecture-neutral migrate/seed assets on the native runner ----
 FROM --platform=$BUILDPLATFORM node:22-alpine AS migrator-base
@@ -53,7 +53,7 @@ COPY --from=migrator-deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY --from=migrator-deps /app/packages/control-protocol/node_modules ./packages/control-protocol/node_modules
 COPY . .
 RUN pnpm --filter @crm/control-protocol run build
-RUN pnpm --filter web run build:migrator
+RUN pnpm --filter web run build:migrator --turbopack
 
 # ---- source-free privileged migrate/seed job image ----
 FROM base AS migrator

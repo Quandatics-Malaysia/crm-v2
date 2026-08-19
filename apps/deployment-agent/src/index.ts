@@ -8,7 +8,7 @@ export async function main(arguments_: string[] = process.argv.slice(2)): Promis
   const store = await createStateStore(AGENT_STATE_DIRECTORY)
   if (arguments_[0] === "health") return await readHealth(store) ? 0 : 1
 
-  const agent = createDeploymentAgent({ config: loadAgentConfig(), store })
+  const agent = createDeploymentAgent({ config: loadAgentConfig(), store, entitlementPollMs: loadAgentConfig().entitlementPollMs })
   await agent.initialize()
   agent.start()
   await new Promise<void>((resolve) => {

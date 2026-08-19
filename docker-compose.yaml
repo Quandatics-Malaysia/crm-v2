@@ -4,7 +4,7 @@
 #
 # Log rotation is on by default (below). Resource limits default to db 2g /
 # web 1g / caddy 128m / backup 256m — tune `mem_limit:` to your host.
-# See OPERATIONS.md → Hardening.
+# See https://github.com/Super-ERP/docs/blob/main/archive/operations/OPERATIONS.md → Hardening.
 
 x-logging: &default-logging
   driver: json-file
@@ -18,7 +18,8 @@ services:
     # Localhost-only publish on 5433 so it never clashes with a host Postgres on
     # 5432 and is never internet-exposed. Reach it from a workstation with a SQL
     # client (VeloxDB / DBeaver / TablePlus) via an SSH tunnel — see
-    # OPERATIONS.md → "Connect a SQL client (VeloxDB / DBeaver)".
+    # OPERATIONS.md → "Connect a SQL client (VeloxDB / DBeaver)" (archived:
+    # https://github.com/Super-ERP/docs/blob/main/archive/operations/OPERATIONS.md).
     ports:
       - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     environment:
@@ -158,7 +159,8 @@ services:
       - appfiles:/data/uploads:ro
       - backups:/backups
       # Uncomment when using BACKUP_RSYNC_TARGET: SSH key + known_hosts for the
-      # target host (id_ed25519 with 600 perms). See ops/README.md.
+      # target host (id_ed25519 with 600 perms). See ops/README.md (archived:
+      # https://github.com/Super-ERP/docs/blob/main/archive/operations/ops-README.md).
       # - ./ops/ssh:/root/.ssh:ro
     depends_on:
       db:

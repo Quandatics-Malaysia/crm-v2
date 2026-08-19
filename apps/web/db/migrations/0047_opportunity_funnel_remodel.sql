@@ -1,5 +1,5 @@
 -- Two-level Opportunity → Funnel re-model (Salesforce-aligned).
--- See docs/superpowers/specs/2026-07-07-opportunity-funnel-remodel-design.md
+-- See https://github.com/Super-ERP/docs/blob/main/archive/specs/2026-07-07-opportunity-funnel-remodel-design.md
 -- Runs on a schema created by 0000–0046 (deal=opportunities, template=funnels).
 -- No production data exists yet, so the ADD ... NOT NULL columns are safe.
 

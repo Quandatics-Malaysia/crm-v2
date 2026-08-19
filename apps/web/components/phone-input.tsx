@@ -10,9 +10,11 @@ import {
   ChevronDownIcon,
   CheckCircle2Icon,
   XCircleIcon,
+  SearchIcon,
 } from "lucide-react"
 
 import { FormControl, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,6 +77,14 @@ function CountryOption({ code }: { code: string }) {
       <span className="ml-1 text-muted-foreground">+{callingCode}</span>
     </DropdownMenuRadioItem>
   )
+}
+
+function callingCodeOf(country: string): string {
+  try {
+    return String(getCountryCallingCode(country as Parameters<typeof getCountryCallingCode>[0]))
+  } catch {
+    return ""
+  }
 }
 
 function detectCountry(value: string): string | undefined {
@@ -191,6 +201,22 @@ export function PhoneInputInner({
     value ?? "",
     country as Parameters<typeof isValidPhoneNumber>[1]
   )
+  const callingCode = callingCodeOf(country)
+  const [countryQuery, setCountryQuery] = React.useState("")
+  const filteredCodes = React.useMemo(() => {
+    const q = countryQuery.trim().toLowerCase()
+    if (!q) return ORDERED_CODES
+    return ORDERED_CODES.filter((code) => {
+      const label = (COUNTRY_LABELS[code] ?? "").toLowerCase()
+      const cc = callingCodeOf(code)
+      return (
+        label.includes(q) ||
+        code.toLowerCase().includes(q) ||
+        cc === q ||
+        `+${cc}` === `+${q}`
+      )
+    })
+  }, [countryQuery])
 
   return (
     <div
@@ -208,21 +234,57 @@ export function PhoneInputInner({
           render={
             <button
               type="button"
-              className="flex items-center gap-1.5 border-r border-input bg-muted/50 px-3 py-2 text-sm font-medium hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer rounded-l-md"
+              className="flex items-center gap-1 border-r border-input bg-muted/50 px-2.5 py-2 text-sm font-medium hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer rounded-l-md"
+              aria-label={`Selected country: ${COUNTRY_LABELS[country] ?? country}`}
             >
-              <span aria-hidden="true">{flag}</span>
+              <span aria-hidden="true" className="text-base leading-none">{flag}</span>
+              <span className="tabular-nums text-muted-foreground">+{callingCode}</span>
               <ChevronDownIcon className="size-3 text-muted-foreground" />
             </button>
           }
           onBlur={onBlur}
           disabled={disabled}
         />
-        <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto w-60">
-          <DropdownMenuRadioGroup value={country} onValueChange={onCountryChange}>
-            {ORDERED_CODES.map((code) => (
-              <CountryOption key={code} code={code} />
-            ))}
-          </DropdownMenuRadioGroup>
+        <DropdownMenuContent align="start" className="w-72 p-1.5">
+          <div className="relative mb-1.5">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={countryQuery}
+              onChange={(e) => setCountryQuery(e.target.value)}
+              placeholder="Search country…"
+              className="h-8 pl-7 pr-7 text-sm"
+              autoFocus
+            />
+            {countryQuery ? (
+              <button
+                type="button"
+                aria-label="Clear country search"
+                onClick={() => setCountryQuery("")}
+                className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <XCircleIcon className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {filteredCodes.length === 0 ? (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                No countries found
+              </p>
+            ) : (
+              <DropdownMenuRadioGroup
+                value={country}
+                onValueChange={(code) => {
+                  onCountryChange(code)
+                  setCountryQuery("")
+                }}
+              >
+                {filteredCodes.map((code) => (
+                  <CountryOption key={code} code={code} />
+                ))}
+              </DropdownMenuRadioGroup>
+            )}
+          </div>
         </DropdownMenuContent>
       </DropdownMenu>
 

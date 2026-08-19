@@ -18,8 +18,7 @@ export default async function PersonsPage() {
         <PersonsTable
           data={persons}
           accounts={accounts}
-          phonePrefix={presets.phonePrefix}
-          defaultCountry={presets.defaultCountry || "MY"}
+                    defaultCountry={presets.defaultCountry || "MY"}
         />
       </PageBody>
     </>

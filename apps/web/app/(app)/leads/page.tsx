@@ -31,8 +31,7 @@ export default async function LeadsPage() {
           members={members}
           leadSources={leadSources}
           lossReasons={lossReasons}
-          phonePrefix={presets.phonePrefix}
-          defaultCountry={presets.defaultCountry || "MY"}
+                    defaultCountry={presets.defaultCountry || "MY"}
         />
       </PageBody>
     </>

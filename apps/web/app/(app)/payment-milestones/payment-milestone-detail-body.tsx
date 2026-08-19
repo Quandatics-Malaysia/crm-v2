@@ -6,7 +6,6 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   DetailAside,
-  DetailCardHeader,
   FieldRow,
   FieldSection,
   RelatedCard,
@@ -58,11 +57,10 @@ export function PaymentMilestoneDetailBody({
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       <DetailAside>
         <Card>
-          <DetailCardHeader
-            kind="milestone"
-            eyebrow="Payment Milestone"
-            title="Amount"
-          />
+          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
+            <span className="text-xs text-muted-foreground">Payment Milestone</span>
+            <span className="text-base font-medium">Amount</span>
+          </CardHeader>
           <CardContent className="grid gap-3">
             {canEditAmount ? (
               <InlineValue

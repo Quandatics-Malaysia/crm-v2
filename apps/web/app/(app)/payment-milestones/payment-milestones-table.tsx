@@ -7,7 +7,6 @@ import type { ColumnDef } from "@tanstack/react-table"
 
 import { DataTable, SortableHeader } from "@/components/data-table"
 import { StatusBadge } from "@/components/status-badge"
-import { ObjectTile } from "@/components/object-tile"
 import { formatMoney } from "@/lib/format"
 import type { PaymentMilestoneListItem } from "./actions"
 
@@ -24,15 +23,12 @@ export function PaymentMilestonesTable({
           <SortableHeader column={column} title="Payment Milestone Name" />
         ),
         cell: ({ row }) => (
-          <div className="flex items-center gap-2.5">
-            <ObjectTile kind="milestone" className="size-7" iconClassName="size-4" />
-            <Link
-              href={`/payment-milestones/${row.original.id}`}
-              className="font-medium link"
-            >
-              {row.original.title}
-            </Link>
-          </div>
+          <Link
+            href={`/payment-milestones/${row.original.id}`}
+            className="font-medium link"
+          >
+            {row.original.title}
+          </Link>
         ),
       },
       {

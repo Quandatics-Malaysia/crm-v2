@@ -5,7 +5,6 @@ import * as React from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TabsContent, TabsList } from "@/components/ui/tabs"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
-import { ChangeHistory } from "@/components/activity/change-history"
 import { DocumentsSection } from "@/components/documents-section"
 import {
   DetailAside,
@@ -176,9 +175,6 @@ export function ProjectDetailBody({
             </CountTab>
           ) : null}
           <CountTab value="activity">Activity</CountTab>
-          <CountTab value="changes" count={changes.length}>
-            History
-          </CountTab>
           <CountTab value="documents" count={documents.length}>
             Documents
           </CountTab>
@@ -220,10 +216,6 @@ export function ProjectDetailBody({
             items={activity}
             revalidate={revalidate}
           />
-        </TabsContent>
-
-        <TabsContent value="changes" className="mt-4">
-          <ChangeHistory items={changes} />
         </TabsContent>
 
         <TabsContent value="documents" className="mt-4">

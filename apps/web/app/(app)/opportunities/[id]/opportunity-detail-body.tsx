@@ -28,7 +28,6 @@ import {
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
-import { ChangeHistory } from "@/components/activity/change-history"
 import { PpvvcEditor } from "@/components/ppvvc-editor"
 import type { ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import { formatMoney, formatDate } from "@/lib/format"
@@ -363,7 +362,6 @@ export function OpportunityDetailBody({
                     {documents.length}
                   </Badge>
                 </TabsTrigger>
-                <CountTab value="history">History</CountTab>
               </TabsList>
 
               <TabsContent value="funnels" className="mt-4">
@@ -595,10 +593,6 @@ export function OpportunityDetailBody({
                   documents={documents}
                   revalidate={revalidate}
                 />
-              </TabsContent>
-
-              <TabsContent value="history" className="mt-4">
-                <ChangeHistory items={changes} />
               </TabsContent>
       </DetailTabs>
     </div>

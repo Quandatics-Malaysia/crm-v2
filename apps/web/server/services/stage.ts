@@ -279,6 +279,7 @@ function stageGateState(
     hasPowerSponsorBudgetLimit:
       container.powerSponsorBudgetLimit != null &&
       Number(container.powerSponsorBudgetLimit) > 0,
+    hasControl: !!container.control?.trim(),
     hasProcurementStage: !!opp.procurementStage?.trim(),
     hasNegotiationDone: !!opp.negotiationDone,
     hasNegotiationDate: !!opp.negotiationDate,

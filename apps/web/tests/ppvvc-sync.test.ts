@@ -78,6 +78,7 @@ describe("PPVVC metadata", () => {
       { key: "pain", number: 1, label: "Pain" },
       { key: "power", number: 2, label: "Power" },
       { key: "vision", number: 3, label: "Vision" },
+      { key: "control", number: 5, label: "Control" },
     ])
   })
 

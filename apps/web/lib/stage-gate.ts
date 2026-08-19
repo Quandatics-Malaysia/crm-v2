@@ -34,6 +34,7 @@ export type StageGateState = {
   hasValue: boolean
   hasPowerSponsorContact: boolean
   hasPowerSponsorBudgetLimit: boolean
+  hasControl: boolean
   // 4A fields — read from the funnel itself.
   hasProcurementStage: boolean
   hasNegotiationDone: boolean
@@ -52,11 +53,19 @@ export function applyPpvvcToStageGate(
   if (values && Object.prototype.hasOwnProperty.call(values, "pain")) {
     satisfied.objective = present(values.pain)
   }
+  if (values && Object.prototype.hasOwnProperty.call(values, "power")) {
+    const ok = present(values.power)
+    satisfied.powerSponsorContact = ok
+    satisfied.powerSponsorBudgetLimit = ok
+  }
   if (values && Object.prototype.hasOwnProperty.call(values, "vision")) {
     satisfied.vision = present(values.vision)
   }
   if (values && Object.prototype.hasOwnProperty.call(values, "value")) {
     satisfied.value = present(values.value)
+  }
+  if (values && Object.prototype.hasOwnProperty.call(values, "control")) {
+    satisfied.control = present(values.control)
   }
   return {
     satisfied,
@@ -143,6 +152,7 @@ export type PresetFieldKey =
   | "value"
   | "powerSponsorContact"
   | "powerSponsorBudgetLimit"
+  | "control"
   | "procurementStage"
   | "negotiationDone"
   | "negotiationDate"
@@ -179,6 +189,7 @@ export const REQUIRABLE_FIELDS: Record<
     stateKey: "hasPowerSponsorBudgetLimit",
     label: "Power Sponsor Budget Limit",
   },
+  control: { stateKey: "hasControl", label: "Control" },
   procurementStage: { stateKey: "hasProcurementStage", label: "Procurement Process Stage" },
   negotiationDone: { stateKey: "hasNegotiationDone", label: "Negotiation Done?" },
   negotiationDate: { stateKey: "hasNegotiationDate", label: "Negotiation Date" },

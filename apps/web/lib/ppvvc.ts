@@ -20,6 +20,7 @@ const PPVVC_FIELD_BY_REQUIRED_KEY: Record<string, PpvvcField> = {
   powerSponsorBudgetLimit: "power",
   value: "value",
   vision: "vision",
+  control: "control",
 }
 
 function present(value: string | null | undefined): boolean {

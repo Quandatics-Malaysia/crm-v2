@@ -909,4 +909,135 @@ describe("deployment agent flow", () => {
     expect(output).not.toContain(secret)
     expect(output).not.toContain(identity.privateJwk.d)
   })
+
+  it("exposes a pollOnce method that applies a newer entitlement between heartbeats", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const envelope = { keyId: "vendor-key", payload: { revision: 8 }, signature: "signed-envelope" }
+    const responses = [
+      Response.json(status("8", {
+        entitlement: { revision: "8", configurationVersion: "config-9", mode: "active", enabledModuleIds: [] },
+        activeUserCount: 9,
+      })),
+      Response.json({ keyId: "vendor-key", payload: { revision: 8 }, signature: "signed-envelope" }),
+      Response.json({ outcome: "accepted", revision: 8, mode: "active" }),
+    ]
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => responses.shift()!)
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 60_000,
+    })
+    await agent.initialize()
+    await agent.pollOnce({ maxAttempts: 1 })
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(8)
+  })
+
+  it("pollOnce leaves runtime untouched when web revision is unchanged", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    await store.saveRuntime({
+      schemaVersion: 1,
+      lastAppliedEntitlementVersion: 4,
+      lastAppliedConfigurationVersion: null,
+      hasAppliedValidEntitlement: true,
+      lastHeartbeatSucceededAt: null,
+      lastErrorCode: null,
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(status("4", {
+      entitlement: { revision: "4", configurationVersion: null, mode: "active", enabledModuleIds: [] },
+      activeUserCount: 1,
+    })))
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 60_000,
+    })
+    await agent.initialize()
+    await agent.pollOnce({ maxAttempts: 1 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(4)
+  })
+
+  it("repeated pollOnce on the same revision never reapplies the entitlement", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    const envelope = { keyId: "vendor-key", payload: { revision: 8 }, signature: "signed-envelope" }
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url
+      if (url.includes("/api/internal/deployment/status")) {
+        return Response.json(status("8", {
+          entitlement: { revision: "8", configurationVersion: "config-9", mode: "active", enabledModuleIds: [] },
+          activeUserCount: 9,
+        }))
+      }
+      if (url.includes("/entitlement/")) {
+        return Response.json(envelope)
+      }
+      if (url.includes("/api/internal/deployment/entitlement")) {
+        return Response.json({ outcome: "accepted", revision: 8, mode: "active" })
+      }
+      return new Response(null, { status: 503 })
+    })
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 60_000,
+    })
+    await agent.initialize()
+    await agent.pollOnce({ maxAttempts: 1 })
+    await agent.pollOnce({ maxAttempts: 1 })
+    await agent.pollOnce({ maxAttempts: 1 })
+    const applyCalls = fetch.mock.calls.filter(([input]) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url
+      return url.includes("/api/internal/deployment/entitlement")
+    })
+    expect(applyCalls).toHaveLength(1)
+    expect((await store.loadRuntime()).lastAppliedEntitlementVersion).toBe(8)
+  })
+
+  it("start() schedules and stop() aborts the entitlement poll cleanly", async () => {
+    const directory = await stateDirectory()
+    const store = await createStateStore(directory)
+    const identity = await generateIdentity(config(), store)
+    await store.markRegistered(identity)
+    let fetchStarted = false
+    let aborted = false
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      fetchStarted = true
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true
+          reject(new DOMException("Aborted", "AbortError"))
+        })
+      })
+    }
+    const agent = createDeploymentAgent({
+      config: config(),
+      store,
+      fetch,
+      random: () => 0,
+      entitlementPollMs: 250,
+    })
+    await agent.initialize()
+    agent.start()
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(fetchStarted).toBe(true)
+    expect(aborted).toBe(false)
+    await agent.stop(500)
+    expect(aborted).toBe(true)
+  })
 })

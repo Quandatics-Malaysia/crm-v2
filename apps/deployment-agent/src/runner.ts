@@ -12,12 +12,23 @@ import {
 
 const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1_000
 const RETRY_CAP_MS = 5 * 60 * 1_000
+const DEFAULT_ENTITLEMENT_POLL_MS = 60 * 1_000
+const MIN_ENTITLEMENT_POLL_MS = 100
+const MAX_ENTITLEMENT_POLL_MS = Math.floor(HEARTBEAT_INTERVAL_MS / 2)
 
 type Logger = { info(message: string): void; error(message: string): void }
 type AttemptOptions = { maxAttempts?: number }
 
 export function heartbeatDelayMs(random: () => number = Math.random): number {
   return Math.round(HEARTBEAT_INTERVAL_MS * (0.85 + 0.3 * Math.min(1, Math.max(0, random()))))
+}
+
+export function entitlementPollDelayMs(
+  intervalMs: number,
+  random: () => number = Math.random,
+): number {
+  const basis = Math.max(MIN_ENTITLEMENT_POLL_MS, intervalMs)
+  return Math.round(basis * (0.85 + 0.3 * Math.min(1, Math.max(0, random()))))
 }
 
 export function backoffDelayMs(attempt: number, random: () => number = Math.random): number {
@@ -54,11 +65,13 @@ export function createDeploymentAgent(input: {
   randomBytes?: (length: number) => Uint8Array<ArrayBuffer>
   sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>
   logger?: Logger
+  entitlementPollMs?: number
 }) {
   const now = input.now ?? (() => new Date())
   const random = input.random ?? Math.random
   const logger = input.logger ?? console
   const sleep = input.sleep ?? defaultSleep
+  const entitlementPollMs = clampEntitlementPollMs(input.entitlementPollMs ?? DEFAULT_ENTITLEMENT_POLL_MS)
   const client = createDeploymentClient({
     config: input.config,
     fetch: input.fetch,
@@ -69,6 +82,10 @@ export function createDeploymentAgent(input: {
   let currentAbort: AbortController | null = null
   let currentWork: Promise<void> | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
+  let pollAbort: AbortController | null = null
+  let pollWork: Promise<void> | null = null
+  let applyTail: Promise<void> = Promise.resolve()
   let stopped = false
   let repairRequired = false
 
@@ -125,6 +142,40 @@ export function createDeploymentAgent(input: {
     }
   }
 
+  async function applyLatest(version: number, signal: AbortSignal): Promise<void> {
+    const candidate = await client.entitlement(identity!, version, signal)
+    await client.applyEntitlement(candidate.raw, version, signal)
+    const runtime = await input.store.loadRuntime()
+    await input.store.saveRuntime({
+      ...runtime,
+      lastAppliedEntitlementVersion: version,
+      hasAppliedValidEntitlement: true,
+      lastErrorCode: null,
+    })
+  }
+
+  function withApplyLock<T>(work: () => Promise<T>): Promise<T> {
+    const previous = applyTail
+    let release!: () => void
+    applyTail = new Promise<void>((resolve) => { release = resolve })
+    return previous
+      .catch(() => undefined)
+      .then(() => work())
+      .finally(() => { release() })
+  }
+
+  async function pollOnceInternal(signal: AbortSignal): Promise<void> {
+    if (identity === null || !await input.store.isRegistered(identity)) throw new Error("Agent is not initialized")
+    const statusResult = await client.status(signal)
+    const webRevision = statusResult.entitlement.revision === null
+      ? null
+      : Number(statusResult.entitlement.revision)
+    if (webRevision === null) return
+    const runtime = await input.store.loadRuntime()
+    if (webRevision === runtime.lastAppliedEntitlementVersion) return
+    await withApplyLock(() => applyLatest(webRevision, signal))
+  }
+
   async function cycle(signal: AbortSignal): Promise<void> {
     if (identity === null || !await input.store.isRegistered(identity)) throw new Error("Agent is not initialized")
     let runtime = await input.store.loadRuntime()
@@ -179,15 +230,7 @@ export function createDeploymentAgent(input: {
       throw new AgentRequestError("control_entitlement_regressed", false)
     }
     if (webRevision === version) return
-    const candidate = await client.entitlement(identity, version, signal)
-    await client.applyEntitlement(candidate.raw, version, signal)
-    runtime = {
-      ...runtime,
-      lastAppliedEntitlementVersion: version,
-      hasAppliedValidEntitlement: true,
-      lastErrorCode: null,
-    }
-    await input.store.saveRuntime(runtime)
+    await withApplyLock(() => applyLatest(version, signal))
   }
 
   async function runOnce(options: AttemptOptions = {}): Promise<void> {
@@ -203,6 +246,19 @@ export function createDeploymentAgent(input: {
     }
   }
 
+  async function runPollOnce(options: AttemptOptions = {}): Promise<void> {
+    if (repairRequired) throw new Error("Agent requires operator repair")
+    try {
+      await attempt(pollOnceInternal, options)
+      logger.info("deployment_entitlement_poll_succeeded")
+    } catch (error) {
+      const runtime = await input.store.loadRuntime()
+      await input.store.saveRuntime({ ...runtime, lastErrorCode: errorCode(error) }).catch(() => undefined)
+      logger.error(`deployment_entitlement_poll_failed code=${errorCode(error)}`)
+      throw error
+    }
+  }
+
   function schedule(): void {
     if (stopped) return
     timer = setTimeout(() => {
@@ -213,12 +269,25 @@ export function createDeploymentAgent(input: {
     }, heartbeatDelayMs(random))
   }
 
+  function schedulePoll(): void {
+    if (stopped) return
+    pollTimer = setTimeout(() => {
+      pollAbort = new AbortController()
+      pollWork = runPollOnce().catch(() => undefined).finally(() => {
+        pollWork = null
+        pollAbort = null
+        schedulePoll()
+      })
+    }, entitlementPollDelayMs(entitlementPollMs, random))
+  }
+
   function start(): void {
     if (currentWork !== null || timer !== null) return
     stopped = false
     currentWork = runOnce().catch(() => undefined).finally(() => {
       currentWork = null
       schedule()
+      schedulePoll()
     })
   }
 
@@ -226,7 +295,10 @@ export function createDeploymentAgent(input: {
     stopped = true
     if (timer !== null) clearTimeout(timer)
     timer = null
+    if (pollTimer !== null) clearTimeout(pollTimer)
+    pollTimer = null
     currentAbort?.abort()
+    pollAbort?.abort()
     const work = currentWork
     if (work !== null) {
       await Promise.race([
@@ -234,15 +306,32 @@ export function createDeploymentAgent(input: {
         new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, timeoutMs))),
       ])
     }
+    const poll = pollWork
+    if (poll !== null) {
+      await Promise.race([
+        poll,
+        new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, timeoutMs))),
+      ])
+    }
+    await applyTail.catch(() => undefined)
   }
 
   return {
     initialize,
     runOnce,
+    pollOnce: runPollOnce,
     start,
     stop,
     get repairRequired() { return repairRequired },
   }
+}
+
+function clampEntitlementPollMs(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_ENTITLEMENT_POLL_MS
+  const rounded = Math.round(value)
+  if (rounded < MIN_ENTITLEMENT_POLL_MS) return MIN_ENTITLEMENT_POLL_MS
+  if (rounded > MAX_ENTITLEMENT_POLL_MS) return MAX_ENTITLEMENT_POLL_MS
+  return rounded
 }
 
 export async function readHealth(store: AgentStateStore): Promise<boolean> {

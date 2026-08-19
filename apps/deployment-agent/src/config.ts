@@ -24,6 +24,7 @@ const rawConfigSchema = z.object({
   AGENT_VERSION: StrictSemverSchema,
   IMAGE_DIGEST: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   MIGRATION_VERSION: z.string().regex(migrationVersionPattern),
+  ENTITLEMENT_POLL_MS: z.string().regex(/^[1-9][0-9]*$/).optional(),
 }).strict()
 
 export type AgentConfig = {
@@ -37,6 +38,7 @@ export type AgentConfig = {
   agentVersion: string
   imageDigest: string
   migrationVersion: string
+  entitlementPollMs?: number
 }
 
 function parseBaseUrl(value: string, protocols: readonly string[]): string {
@@ -67,12 +69,16 @@ export function loadAgentConfig(environment: Record<string, string | undefined> 
       AGENT_VERSION: environment.AGENT_VERSION,
       IMAGE_DIGEST: environment.IMAGE_DIGEST,
       MIGRATION_VERSION: environment.MIGRATION_VERSION,
+      ENTITLEMENT_POLL_MS: environment.ENTITLEMENT_POLL_MS || undefined,
     })
     const controlPlaneUrl = parseBaseUrl(
       parsed.CONTROL_PLANE_URL,
       parsed.DEPLOYMENT_ENV === "development" ? ["http:", "https:"] : ["https:"],
     )
     const webInternalUrl = parseBaseUrl(parsed.WEB_INTERNAL_URL, ["http:", "https:"])
+    const entitlementPollMs = parsed.ENTITLEMENT_POLL_MS === undefined
+      ? undefined
+      : Number(parsed.ENTITLEMENT_POLL_MS)
     return {
       controlPlaneUrl,
       deploymentId: parsed.DEPLOYMENT_ID,
@@ -84,6 +90,7 @@ export function loadAgentConfig(environment: Record<string, string | undefined> 
       agentVersion: parsed.AGENT_VERSION,
       imageDigest: parsed.IMAGE_DIGEST,
       migrationVersion: parsed.MIGRATION_VERSION,
+      entitlementPollMs,
     }
   } catch {
     throw new TypeError("Invalid deployment agent configuration")

@@ -200,6 +200,40 @@ export function PhoneInput({
   )
 }
 
+/** Compact read-only phone presentation used by Salesforce-style detail panels. */
+export function PhoneNumberDisplay({
+  value,
+  defaultCountry,
+}: {
+  value?: string | null
+  defaultCountry?: string | null
+}) {
+  const raw = value?.trim() ?? ""
+  if (!raw) return <span className="text-muted-foreground">—</span>
+  const selected = normalizePhoneCountry(defaultCountry) ?? "MY"
+  let country = selected
+  let national = raw
+  try {
+    const parsed = parsePhoneNumber(raw, selected as Parameters<typeof parsePhoneNumber>[1])
+    if (parsed) {
+      country = parsed.country ?? selected
+      national = parsed.nationalNumber
+    }
+  } catch {
+    // Keep the stored text when an older value cannot be parsed.
+  }
+  const code = callingCodeOf(country)
+  return (
+    <span className="inline-flex max-w-full items-center overflow-hidden rounded-md border border-input bg-background align-middle text-sm">
+      <span className="inline-flex shrink-0 items-center gap-1 border-r border-input bg-muted/50 px-2 py-1 font-medium tabular-nums">
+        <span aria-hidden="true">{FLAG_EMOJI[country] ?? "🌐"}</span>
+        <span>+{code}</span>
+      </span>
+      <span className="min-w-0 truncate px-2 py-1 tabular-nums">{national}</span>
+    </span>
+  )
+}
+
 // ─── PhoneInputInner (raw input, no FormItem) ───────────────────────────────
 
 export function PhoneInputInner({

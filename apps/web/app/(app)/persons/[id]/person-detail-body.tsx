@@ -28,6 +28,7 @@ import {
   RelatedCard,
   useSaveField,
 } from "@/components/detail-page"
+import { PhoneNumberDisplay } from "@/components/phone-input"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { StageBadge } from "@/app/(app)/funnel/stage-badge"
@@ -205,7 +206,13 @@ export function PersonDetailBody({
                       ) : (
                         <InlineValue
                           value={record[key] ?? ""}
-                          display={record[key] || "—"}
+                          display={
+                            key === "phone" ? (
+                              <PhoneNumberDisplay value={record[key]} />
+                            ) : (
+                              record[key] || "—"
+                            )
+                          }
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // First name is required — ignore an emptied draft.

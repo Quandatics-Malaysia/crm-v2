@@ -30,6 +30,7 @@ import {
   RelatedCard,
   useSaveField,
 } from "@/components/detail-page"
+import { PhoneNumberDisplay } from "@/components/phone-input"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import type { MemberOption } from "@/lib/lookups"
@@ -389,7 +390,13 @@ export function AccountDetailBody(props: AccountDetailData) {
                       ) : scalarKey ? (
                         <InlineValue
                           value={record[scalarKey] ?? ""}
-                          display={record[scalarKey] || "—"}
+                          display={
+                            scalarKey === "phone" ? (
+                              <PhoneNumberDisplay value={record[scalarKey]} defaultCountry={record.billingAddress?.country} />
+                            ) : (
+                              record[scalarKey] || "—"
+                            )
+                          }
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // Name is required — ignore an emptied draft.

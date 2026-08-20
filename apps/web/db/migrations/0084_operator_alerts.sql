@@ -23,5 +23,11 @@ CREATE INDEX IF NOT EXISTS operator_alerts_severity_idx ON operator_alerts (seve
 CREATE INDEX IF NOT EXISTS operator_alerts_created_idx ON operator_alerts (created_at DESC);
 CREATE INDEX IF NOT EXISTS operator_alerts_tenant_idx ON operator_alerts (tenant_id);
 
--- Grant access to the app role (RLS is bypassed by the superuser but we grant explicitly)
-GRANT SELECT, INSERT ON operator_alerts TO crm_app;
+-- Grant access when the app role exists (fresh test databases create it later).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crm_app') THEN
+    GRANT SELECT, INSERT ON operator_alerts TO crm_app;
+  END IF;
+END
+$$;

@@ -89,6 +89,8 @@ jobs:
             echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
           fi
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid release tag" >&2; exit 1; }
+          WORKFLOW_IDENTITY="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-images.yml@refs/tags/${RELEASE_TAG}"
+          echo "WORKFLOW_IDENTITY=$WORKFLOW_IDENTITY" >> "$GITHUB_ENV"
           [ -f "$CLIENT_DIR/.env" ] || { echo "protected production env is missing" >&2; exit 1; }
 
           ARTIFACT_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=client-deployment-bundle-${RELEASE_TAG}&per_page=100" \
@@ -116,7 +118,7 @@ jobs:
           command -v cosign >/dev/null 2>&1 || { echo "cosign is required" >&2; exit 1; }
           cosign verify-blob \
             --bundle "$TEMP_DIR/bundle/client-deployment-bundle.sigstore.json" \
-            --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/heads/main" \
+            --certificate-identity "$WORKFLOW_IDENTITY" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "$TEMP_DIR/bundle/client-deployment-bundle.tar.gz"
           mkdir "$TEMP_DIR/verified"

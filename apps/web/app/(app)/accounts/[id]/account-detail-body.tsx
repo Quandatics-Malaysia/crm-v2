@@ -29,7 +29,7 @@ import {
   RelatedCard,
   useSaveField,
 } from "@/components/detail-page"
-import { PhoneNumberDisplay } from "@/components/phone-input"
+import { InlinePhoneValue, PhoneNumberDisplay } from "@/components/phone-input"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import type { MemberOption } from "@/lib/lookups"
@@ -328,7 +328,7 @@ export function AccountDetailBody(props: AccountDetailData) {
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
-                        d.value
+                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} compact /> : d.value
                       ) : addressSub ? (
                         addressSub === "country" ? (
                           <InlineCombobox
@@ -380,16 +380,17 @@ export function AccountDetailBody(props: AccountDetailData) {
                           emptyMessage="No currencies configured."
                           title="Click to change currency"
                         />
+                      ) : scalarKey === "phone" ? (
+                        <InlinePhoneValue
+                          value={record.phone}
+                          defaultCountry={record.billingAddress?.country}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          onSave={(next) => saveField({ phone: next || null })}
+                        />
                       ) : scalarKey ? (
                         <InlineValue
                           value={record[scalarKey] ?? ""}
-                          display={
-                            scalarKey === "phone" ? (
-                              <PhoneNumberDisplay value={record[scalarKey]} defaultCountry={record.billingAddress?.country} compact />
-                            ) : (
-                              record[scalarKey] || "—"
-                            )
-                          }
+                          display={record[scalarKey] || "—"}
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // Name is required — ignore an emptied draft.

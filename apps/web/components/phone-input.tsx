@@ -10,6 +10,7 @@ import {
   ChevronDownIcon,
   CheckCircle2Icon,
   XCircleIcon,
+  PencilIcon,
   SearchIcon,
 } from "lucide-react"
 
@@ -23,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { normalizePhoneCountry } from "@/lib/phone-validation"
+import { normalizePhoneCountry, toPhoneE164 } from "@/lib/phone-validation"
 import "react-phone-number-input/style.css"
 
 // ─── Country data ───────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ export function PhoneInput({
   className,
   disabled,
   standalone = false,
+  onCountryChange,
 }: {
   value?: string
   onChange?: (value: string) => void
@@ -124,6 +126,7 @@ export function PhoneInput({
   disabled?: boolean
   /** Render without react-hook-form context for controlled standalone usage. */
   standalone?: boolean
+  onCountryChange?: (country: string) => void
 }) {
   const initialCountry = normalizePhoneCountry(defaultCountry) ?? "MY"
   const [country, setCountry] = React.useState<string>(initialCountry)
@@ -154,6 +157,7 @@ export function PhoneInput({
     (nextCountry: string) => {
       const normalized = normalizePhoneCountry(nextCountry) ?? "MY"
       setCountry(normalized)
+      onCountryChange?.(normalized)
       // Keep the number and selector in sync: retain the national digits while
       // changing the selected country/calling-code box.
       if (value && onChange) {
@@ -165,7 +169,7 @@ export function PhoneInput({
         }
       }
     },
-    [country, onChange, value]
+    [country, onChange, onCountryChange, value]
   )
 
   const isEmpty = !displayValue || displayValue.trim() === ""
@@ -253,7 +257,7 @@ export function PhoneNumberDisplay({
   if (compact) {
     return (
       <span className="tabular-nums">
-        {FLAG_EMOJI[country] ?? "🌐"}{" +"}{code}{" "}{national}
+        +{code} {national}
       </span>
     )
   }
@@ -265,6 +269,73 @@ export function PhoneNumberDisplay({
       </span>
       <span className="min-w-0 truncate px-2 py-1 tabular-nums">{national}</span>
     </span>
+  )
+}
+
+/** Inline phone editor with country-code selection and national-number input. */
+export function InlinePhoneValue({
+  value,
+  defaultCountry,
+  title,
+  onSave,
+}: {
+  value?: string | null
+  defaultCountry?: string | null
+  title?: string
+  onSave: (next: string) => Promise<void> | void
+}) {
+  const raw = value?.trim() ?? ""
+  const initialCountry = normalizePhoneCountry(defaultCountry) ?? detectCountry(raw) ?? "MY"
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(raw)
+  const [country, setCountry] = React.useState(initialCountry)
+  const [, startTransition] = React.useTransition()
+
+  function start() {
+    setDraft(raw)
+    setCountry(normalizePhoneCountry(defaultCountry) ?? detectCountry(raw) ?? "MY")
+    setEditing(true)
+  }
+
+  function commit() {
+    const next = toPhoneE164(draft, country)
+    setEditing(false)
+    if (next === raw) return
+    startTransition(async () => onSave(next))
+  }
+
+  if (editing) {
+    return (
+      <div className="grid min-w-0 gap-2">
+        <PhoneInput
+          value={draft}
+          onChange={setDraft}
+          defaultCountry={country}
+          onCountryChange={setCountry}
+          standalone
+        />
+        <div className="flex gap-2">
+          <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+          <button type="button" className="text-xs font-medium text-primary hover:underline" onClick={commit}>
+            Save
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={start}
+      title={title}
+      className="group inline-flex items-center gap-1 text-left hover:underline decoration-dotted underline-offset-2"
+    >
+      <PhoneNumberDisplay value={raw} defaultCountry={defaultCountry} compact />
+      <PencilIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />
+    </button>
   )
 }
 

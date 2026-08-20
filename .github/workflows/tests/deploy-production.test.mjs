@@ -7,10 +7,12 @@ const updater = readFileSync(new URL("../../../deploy/client/apply-release-manif
 
 test("production deploy uses only a signed source-free release bundle", () => {
   assert.match(workflow, /workflow_dispatch:/)
+  assert.match(workflow, /workflow_run:/)
+  assert.match(workflow, /workflows: \[release-images\]/)
   assert.match(workflow, /environment: production/)
   assert.match(workflow, /client-deployment-bundle-/)
   assert.match(workflow, /gh run download/)
-  assert.match(workflow, /if: inputs\.operation == 'deploy'/)
+  assert.match(workflow, /workflow_run.*inputs\.operation == 'deploy'/s)
   assert.doesNotMatch(workflow, /ARTIFACT_ID/)
   assert.doesNotMatch(workflow, /\\bunzip\\b/)
   assert.match(workflow, /docker login ghcr\.io/)

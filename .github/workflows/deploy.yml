@@ -16,6 +16,9 @@ on:
         description: Signed strict SemVer release, for example v1.2.20
         required: true
         type: string
+  workflow_run:
+    workflows: [release-images]
+    types: [completed]
 
 permissions:
   actions: read
@@ -28,12 +31,14 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: self-hosted
     environment: production
     env:
       GH_TOKEN: ${{ github.token }}
       CLIENT_DIR: /home/internalops/quandatics-client
       RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
       - name: Inspect protected release state
         if: inputs.operation == 'inspect'
@@ -70,17 +75,29 @@ jobs:
           printf '%s\n' 'BACKUP_PRODUCER_CANDIDATES_END'
 
       - name: Download verified source-free release bundle
-        if: inputs.operation == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.operation == 'deploy'
         shell: bash
         run: |
           set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            ARTIFACT_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}/artifacts?per_page=100")"
+            RELEASE_TAG="$(printf '%s' "$ARTIFACT_JSON" | jq -er '
+              [.artifacts[] | select(.expired == false and (.name | startswith("client-deployment-bundle-v"))) | .name]
+              | if length == 1 then .[0] else error("expected exactly one signed release bundle") end
+              | sub("^client-deployment-bundle-"; "")
+            ')"
+            echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          fi
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid release tag" >&2; exit 1; }
           [ -f "$CLIENT_DIR/.env" ] || { echo "protected production env is missing" >&2; exit 1; }
 
           ARTIFACT_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=client-deployment-bundle-${RELEASE_TAG}&per_page=100" \
             | jq -c '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last')"
           [ "$ARTIFACT_JSON" != "null" ] || { echo "signed release bundle not found" >&2; exit 1; }
-          RELEASE_RUN_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.workflow_run.id')"
+          if [ "$GITHUB_EVENT_NAME" != workflow_run ]; then
+            RELEASE_RUN_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.workflow_run.id')"
+            echo "RELEASE_RUN_ID=$RELEASE_RUN_ID" >> "$GITHUB_ENV"
+          fi
           RELEASE_RUN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}")"
           printf '%s' "$RELEASE_RUN" | jq -e --arg tag "$RELEASE_TAG" '
             .conclusion == "success" and
@@ -152,7 +169,7 @@ jobs:
             "$CLIENT_DIR/backup/.backup-evidence.key"
 
       - name: Apply manifest and deploy signed digests
-        if: inputs.operation == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.operation == 'deploy'
         shell: bash
         run: |
           set -euo pipefail

@@ -369,9 +369,9 @@ export function AccountForm({
                 name="registrationNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Registration number</FormLabel>
+                    <FormLabel>Company registration number</FormLabel>
                     <FormControl>
-                      <Input placeholder="201901234567 (SSM)" {...field} />
+                      <Input {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

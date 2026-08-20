@@ -153,7 +153,7 @@ export default async function AccountDetailPage({
     { label: "Phone", value: account.phone ?? "—", editKey: "phone" },
     { label: "Account manager", value: ownerName ?? "—", editKey: "owner" },
     {
-      label: "Registration number",
+      label: "Company registration number",
       value: account.registrationNumber ?? "—",
       editKey: "registrationNumber" as const,
     },

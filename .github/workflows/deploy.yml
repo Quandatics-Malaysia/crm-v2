@@ -70,7 +70,7 @@ jobs:
           printf '%s\n' 'BACKUP_PRODUCER_CANDIDATES_END'
 
       - name: Download verified source-free release bundle
-        if: inputs.operation != 'inspect'
+        if: inputs.operation == 'deploy'
         shell: bash
         run: |
           set -euo pipefail
@@ -80,7 +80,6 @@ jobs:
           ARTIFACT_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=client-deployment-bundle-${RELEASE_TAG}&per_page=100" \
             | jq -c '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last')"
           [ "$ARTIFACT_JSON" != "null" ] || { echo "signed release bundle not found" >&2; exit 1; }
-          ARTIFACT_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.id')"
           RELEASE_RUN_ID="$(printf '%s' "$ARTIFACT_JSON" | jq -er '.workflow_run.id')"
           RELEASE_RUN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}")"
           printf '%s' "$RELEASE_RUN" | jq -e --arg tag "$RELEASE_TAG" '

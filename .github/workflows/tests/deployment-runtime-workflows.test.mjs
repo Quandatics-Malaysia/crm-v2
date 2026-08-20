@@ -7,7 +7,7 @@ const workflows = resolve(import.meta.dirname, "..")
 
 test("staging upgrades retained env through a protected trust-set secret before Compose starts", () => {
   const workflow = readFileSync(resolve(workflows, "deploy-staging.yml"), "utf8")
-  assert.match(workflow, /uses: \.\/\.github\/workflows\/quality\.yml/)
+  assert.match(workflow, /workflows:\s*\[quality\]/)
   assert.match(workflow, /branches:\s*\[main\]/)
   assert.match(readFileSync(resolve(workflows, "quality.yml"), "utf8"), /pnpm run test:workflows/)
   assert.match(workflow, /environment:\s*staging/)

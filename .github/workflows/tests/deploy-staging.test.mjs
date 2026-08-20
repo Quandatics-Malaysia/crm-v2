@@ -12,10 +12,11 @@ assert.match(workflow, /Reconcile retained staging database password/);
 assert.match(workflow, /ALTER ROLE postgres PASSWORD/);
 assert.match(workflow, /\^\[0-9a-f\]\{48\}\$/);
 
+assert.match(workflow, /workflows:\s*\[quality\]/);
 assert.match(workflow, /branches:\s*\[main\]/);
 assert.doesNotMatch(workflow, /branches:\s*\[staging\]/);
-assert.match(workflow, /git -C \"\$DIR\" fetch origin main \"\$\{GITHUB_SHA\}\"/);
-assert.match(workflow, /git -C \"\$DIR\" checkout -f \"\$\{GITHUB_SHA\}\"/);
+assert.match(workflow, /git -C \"\$DIR\" fetch origin main \"\$\{DEPLOY_SHA\}\"/);
+assert.match(workflow, /git -C \"\$DIR\" checkout -f \"\$\{DEPLOY_SHA\}\"/);
 
 const pointAuthAtTunnel = workflow.indexOf(
   "- name: Point auth at the tunnel URL and recreate web",

@@ -7,7 +7,7 @@ import { Plus, PencilIcon, ChevronRight, CopyPlus } from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -34,7 +34,6 @@ import {
 } from "@/components/detail-page"
 import { ActivityTimeline } from "@/components/activity/activity-timeline"
 import { DocumentsSection } from "@/components/documents-section"
-import { PpvvcEditor } from "@/components/ppvvc-editor"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -43,6 +42,7 @@ import type { Option, MemberOption } from "@/lib/lookups"
 import {
   formatCustomFieldValue,
   groupCustomFields,
+  requirementsFromKeys,
   type StageGate,
   type CustomFunnelField,
 } from "@/lib/stage-gate"
@@ -158,16 +158,7 @@ export type FunnelDetailData = {
   accountName: string | null
   /** Every account, for the inline Account picker. */
   accountOptions: Option[]
-  container: {
-    id: string
-    code: string
-    name: string
-    pain: string | null
-    power: string | null
-    vision: string | null
-    value: string | null
-    control: string | null
-  } | null
+  container: OpportunityDetail["container"]
   ownerMemberId: string
   ownerName: string | null
   /** Every tenant member, for the inline Owner picker. */
@@ -175,7 +166,13 @@ export type FunnelDetailData = {
   personId: string | null
   personName: string | null
   /** Every person (with account), for the inline Contact picker — filtered client-side to `accountId`. */
-  persons: { id: string; name: string; accountId: string }[]
+  persons: {
+    id: string
+    name: string
+    accountId: string
+    designation: string | null
+    department: string | null
+  }[]
   /** Quoted amount (from the primary quotation). */
   quotedAmount: string | null
   /** Estimated Funnel Amount (manual) — drives the forecast. */
@@ -502,6 +499,195 @@ export function FunnelDetailBody(props: FunnelDetailData) {
 
   const milestoneValueCeiling = quotedAmount ?? estimatedAmount ?? null
 
+  const currentStage = stages.find((stage) => stage.id === currentStageId)
+  const stageRequirements = requirementsFromKeys(
+    currentStage?.requiredFields,
+    gate
+  )
+  const missingStageRequirements = stageRequirements.filter((requirement) => !requirement.ok)
+  const customFieldByKey = new Map(customFieldDefs.map((field) => [field.key, field]))
+  const powerSponsor = persons.find(
+    (person) => person.id === container?.powerSponsorContactId
+  )
+  const ownerContact = persons.find(
+    (person) => person.id === container?.ownerContactId
+  )
+
+  function stageField(key: string, label: string): React.ReactNode {
+    const value = (content: React.ReactNode) => (
+      <FieldRow label={label} inline>
+        {content}
+      </FieldRow>
+    )
+
+    switch (key) {
+      case "estimate":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={estimatedAmount ?? ""}
+              display={estimatedAmount ? formatMoney(estimatedAmount, currency) : "—"}
+              formatDraft={(next) => formatMoney(next || "0", currency)}
+              type="number"
+              title="Click to edit estimated funnel amount"
+              onSave={(next) => saveField({ estimatedAmount: next || null })}
+            />
+          ) : estimatedAmount ? (
+            formatMoney(estimatedAmount, currency)
+          ) : (
+            "—"
+          )
+        )
+      case "closeDate":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={expectedCloseDate ?? ""}
+              display={formatDate(expectedCloseDate)}
+              formatDraft={(next) => (next ? formatDate(next) : "—")}
+              type="date"
+              title="Click to edit expected close date"
+              onSave={(next) => saveField({ expectedCloseDate: next || null })}
+            />
+          ) : (
+            formatDate(expectedCloseDate)
+          )
+        )
+      case "contact":
+        return value(
+          canEdit ? (
+            <InlineCombobox
+              value={personId ?? ""}
+              display={personName ?? "—"}
+              options={contactOptions}
+              onSave={(next) => saveField({ primaryPersonId: next || null })}
+              placeholder="Optional"
+              searchPlaceholder="Search contacts…"
+              emptyMessage="No contacts for this account."
+              title="Click to change primary contact"
+            />
+          ) : (
+            personName ?? "—"
+          )
+        )
+      case "nature":
+        return value(projectNatureNames.length ? projectNatureNames.join(", ") : "—")
+      case "quote":
+        return value(quoteNumber ?? "—")
+      case "vision":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.vision ?? ""}
+              display={container?.vision || "—"}
+              title="Click to edit vision"
+              onSave={(next) => saveField({ vision: next || null })}
+            />
+          ) : (
+            container?.vision || "—"
+          )
+        )
+      case "objective":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.pain ?? ""}
+              display={container?.pain || "—"}
+              title="Click to edit objective"
+              onSave={(next) => saveField({ pain: next || null })}
+            />
+          ) : (
+            container?.pain || "—"
+          )
+        )
+      case "value":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.value ?? ""}
+              display={container?.value || "—"}
+              title="Click to edit value"
+              onSave={(next) => saveField({ value: next || null })}
+            />
+          ) : (
+            container?.value || "—"
+          )
+        )
+      case "control":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.control ?? ""}
+              display={container?.control || "—"}
+              title="Click to edit control"
+              onSave={(next) => saveField({ control: next || null })}
+            />
+          ) : (
+            container?.control || "—"
+          )
+        )
+      case "powerSponsorContact":
+        return value(powerSponsor?.name ?? "—")
+      case "powerSponsorBudgetLimit":
+        return value(formatMoney(container?.powerSponsorBudgetLimit, currency))
+      case "ownerContact":
+        return value(ownerContact?.name ?? "—")
+      case "ownerBudgetLimit":
+        return value(formatMoney(container?.ownerBudgetLimit, currency))
+      case "oppEstimatedBudget":
+        return value(formatMoney(container?.estimatedBudget, currency))
+      case "oppEstimatedCloseDate":
+        return value(formatDate(container?.estimatedCloseDate))
+      case "procurementStage":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={procurementStage ?? ""}
+              display={procurementStage || "—"}
+              title="Click to edit procurement process stage"
+              onSave={(next) => saveField({ procurementStage: next || null })}
+            />
+          ) : (
+            procurementStage || "—"
+          )
+        )
+      case "negotiationDone":
+        return value(
+          canEdit ? (
+            <Switch
+              checked={negotiationDone}
+              onCheckedChange={(next) => saveField({ negotiationDone: next })}
+            />
+          ) : negotiationDone ? (
+            "Yes"
+          ) : (
+            "No"
+          )
+        )
+      case "negotiationDate":
+        return value(formatDate(negotiationDate))
+      case "expectedInvoice":
+        return value(
+          expectedInvoiceMonth && expectedInvoiceYear
+            ? `${expectedInvoiceMonth} ${expectedInvoiceYear}`
+            : "—"
+        )
+      default: {
+        const custom = customFieldByKey.get(key)
+        if (!custom) return value("—")
+        return value(
+          <CustomFieldValue
+            def={custom}
+            value={customValues[key] ?? ""}
+            canEdit={canEdit}
+            onSave={(next) =>
+              saveField({ customFields: { ...customValues, [key]: next } })
+            }
+          />
+        )
+      }
+    }
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
@@ -986,22 +1172,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       {/* Right column — stage path + tabbed related lists */}
       <div className="grid gap-4 lg:col-span-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">PPVVC analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <PpvvcEditor
-              values={container}
-              editable={canEdit && !!container}
-              onSave={container ? (values) => updateOpportunity(funnelId, values) : undefined}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Stage</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4 pt-6">
             <StagePath
               funnelId={funnelId}
               currentStageId={currentStageId}
@@ -1013,6 +1184,48 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               ppvvc={container}
               canEditPpvvc={canEdit}
             />
+            <p className="text-sm font-semibold">Sales Stage: {stageName}</p>
+            <div className="grid gap-6 border-t pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.95fr)]">
+              <section className="grid gap-3">
+                <h2 className="text-base font-semibold">Key Fields</h2>
+                {stageRequirements.length > 0 ? (
+                  <div className="grid gap-0 divide-y rounded-md border px-3">
+                    {stageRequirements.map((requirement) => (
+                      <React.Fragment key={requirement.key}>
+                        {stageField(requirement.key, requirement.label)}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No additional fields configured for this stage.
+                  </p>
+                )}
+              </section>
+              <section className="grid content-start gap-3 lg:border-l lg:pl-6">
+                <h2 className="text-base font-semibold">Guidance for Success</h2>
+                {currentStage?.kind === "WON" && missingStageRequirements.length === 0 ? (
+                  <p className="text-sm">
+                    Great work! You&apos;ve closed a successful deal.
+                  </p>
+                ) : missingStageRequirements.length > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      In order to proceed to this stage, fill in the following fields:
+                    </p>
+                    <ul className="list-disc space-y-1 pl-5 text-sm">
+                      {missingStageRequirements.map((requirement) => (
+                        <li key={requirement.key}>{requirement.label}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Required fields complete. This stage is ready for the next step.
+                  </p>
+                )}
+              </section>
+            </div>
           </CardContent>
         </Card>
 

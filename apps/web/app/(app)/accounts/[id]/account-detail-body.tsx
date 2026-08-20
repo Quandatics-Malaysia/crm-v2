@@ -137,12 +137,6 @@ export function AccountDetailBody(props: AccountDetailData) {
   const [tab, setTab] = React.useState("contacts")
   const revalidate = `/accounts/${accountId}`
 
-  // Field-level change log — a subset of the activity timeline (update rows
-  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
-  const changes = React.useMemo(
-    () => activity.filter((a) => a.type === "update"),
-    [activity]
-  )
 
   const saveField = useSaveField((patch: Partial<AccountInput>) =>
     updateAccount(accountId, { ...record, ...patch })

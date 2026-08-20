@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/status-badge"
-import { STAGE_SOURCE_LABELS } from "@/lib/status-meta"
 import { canCreateQuotationRevision } from "@/lib/quotation-revision-policy"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
@@ -216,7 +215,6 @@ export type FunnelDetailData = {
   stageKind: string
   stageProbability: string
   quotations: OpportunityDetail["quotations"]
-  history: OpportunityDetail["history"]
   projects: OpportunityProjectRow[]
   products: OpportunityProductRow[]
   costs: DealCostRow[]
@@ -298,7 +296,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     stageKind,
     stageProbability,
     quotations,
-    history,
     projects,
     products,
     costs,
@@ -503,53 +500,8 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     []
   )
 
-  const historyColumns = React.useMemo<ColumnDef<(typeof history)[number]>[]>(
-    () => [
-      {
-        accessorKey: "toStageName",
-        header: "Stage",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-1.5 text-sm">
-            {row.original.fromStageName ? (
-              <>
-                <span className="text-muted-foreground">
-                  {row.original.fromStageName}
-                </span>
-                <span className="text-muted-foreground">→</span>
-              </>
-            ) : null}
-            <span className="font-medium">{row.original.toStageName}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "changedAt",
-        header: ({ column }) => <SortableHeader column={column} title="When" />,
-        cell: ({ row }) => formatDate(row.original.changedAt),
-      },
-      {
-        accessorKey: "source",
-        header: "Source",
-        cell: ({ row }) =>
-          STAGE_SOURCE_LABELS[row.original.source] ?? row.original.source,
-      },
-      {
-        accessorKey: "changedByName",
-        header: "By",
-        cell: ({ row }) => row.original.changedByName ?? "—",
-      },
-    ],
-    []
-  )
-
   const milestoneValueCeiling = quotedAmount ?? estimatedAmount ?? null
 
-  // Field-level change log — a subset of the activity timeline (update rows
-  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
-  const changes = React.useMemo(
-    () => activity.filter((a) => a.type === "update"),
-    [activity]
-  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">

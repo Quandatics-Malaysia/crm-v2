@@ -29,7 +29,6 @@ import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { PpvvcEditor } from "@/components/ppvvc-editor"
-import type { ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import { formatMoney, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
@@ -57,7 +56,6 @@ export function OpportunityDetailBody({
   persons,
   canEdit,
   initialTab,
-  changes,
 }: {
   detail: OpportunityContainerDetail
   documents: React.ComponentProps<typeof DocumentsSection>["documents"]
@@ -69,8 +67,6 @@ export function OpportunityDetailBody({
   canEdit: boolean
   /** Deep-linked tab (?tab=analysis from the stage-gate checklist). */
   initialTab?: string
-  /** Field-level change history for this Opportunity container. */
-  changes: ActivityRow[]
 }) {
   const TABS = ["funnels", "quotations", "products", "analysis", "remarks", "documents", "history"]
   const [tab, setTab] = React.useState(

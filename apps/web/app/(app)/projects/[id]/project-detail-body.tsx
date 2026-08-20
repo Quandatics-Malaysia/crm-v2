@@ -74,12 +74,6 @@ export function ProjectDetailBody({
     updateProject(projectId, patch)
   )
 
-  // Field-level change log — a subset of the activity timeline (update rows
-  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
-  const changes = React.useMemo(
-    () => activity.filter((a) => a.type === "update"),
-    [activity]
-  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">

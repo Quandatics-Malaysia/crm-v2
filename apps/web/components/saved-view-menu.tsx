@@ -51,6 +51,7 @@ export function SavedViewMenu({
 }) {
   const [views, setViews] = React.useState<SavedView[]>([])
   const [selectedId, setSelectedId] = React.useState("")
+  const [menuOpen, setMenuOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<DialogMode | null>(null)
   const [dialogName, setDialogName] = React.useState("")
   const [busy, setBusy] = React.useState(false)
@@ -86,6 +87,7 @@ export function SavedViewMenu({
   }, [listKey, refresh])
 
   function openDialog(mode: DialogMode, view?: SavedView) {
+    setMenuOpen(false)
     setDialogMode(mode)
     setDialogName(mode === "save" ? "" : view?.name ?? "")
   }
@@ -103,7 +105,10 @@ export function SavedViewMenu({
             : selected
               ? await duplicateView(selected.id, dialogName)
               : null
-      if (!result) return
+      if (!result) {
+        toast.error("Select a view first")
+        return
+      }
       if (!result.ok) {
         toast.error(result.error)
         return
@@ -115,6 +120,8 @@ export function SavedViewMenu({
       setSelectedId(result.data.id)
       setDialogMode(null)
       toast.success(dialogMode === "rename" ? "View renamed" : "View saved")
+    } catch {
+      toast.error("Could not save view. Please try again.")
     } finally {
       setBusy(false)
     }
@@ -157,7 +164,7 @@ export function SavedViewMenu({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger
           render={
             <Button variant="outline" size="sm" aria-label="Saved views">

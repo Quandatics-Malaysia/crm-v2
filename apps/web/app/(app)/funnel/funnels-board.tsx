@@ -25,7 +25,11 @@ import {
   advanceStageAction,
   type OpportunityListRow,
 } from "./actions"
-import type { CustomFunnelField } from "@/lib/stage-gate"
+import {
+  requiresApprovalForTransition,
+  requiresTransitionReason,
+  type CustomFunnelField,
+} from "@/lib/stage-gate"
 import { StageAdvanceDialog } from "./stage-advance-dialog"
 import { canTransition } from "./stage-transitions"
 
@@ -269,8 +273,11 @@ export function OpportunitiesBoard({
       return
     }
 
-    // Approval-gated target: open dialog. Reason remains optional except Lost/KIV.
-    if (toStage.requiresApprovalToEnter) {
+    // Approval- or reason-gated transition: open dialog before moving.
+    if (
+      requiresApprovalForTransition(fromStage, toStage) ||
+      requiresTransitionReason(fromStage, toStage)
+    ) {
       setGated({
         funnelId,
         currentStageId: fromStageId ?? "",

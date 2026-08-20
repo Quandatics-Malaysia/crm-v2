@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 
 import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { buildFunnelSteps, buildLeadSteps } from "@/components/stage-progress"
 import { listActivities } from "@/app/(app)/_shared/activity-actions"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
@@ -139,13 +138,6 @@ export default async function LeadDetailPage({
               </Badge>
             ) : null}
             {!isConverted ? <LeadDetailActions lead={lead} /> : null}
-            <Button
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/leads" />}
-            >
-              Back to leads
-            </Button>
           </div>
         </div>
 

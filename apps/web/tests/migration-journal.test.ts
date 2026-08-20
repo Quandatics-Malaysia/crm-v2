@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest"
 import { resolveAccountCurrencyBackfill } from "@/server/services/tenant-currency"
 
 describe("migration journal", () => {
-  it("includes the latest payment milestone migration", async () => {
+  it("includes the latest stage transition migration", async () => {
     const journal = JSON.parse(
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 85,
-      tag: "0085_funnel_stage_field_map",
+      idx: 86,
+      tag: "0086_stage_transition_approvals",
     })
   })
 
@@ -20,7 +20,7 @@ describe("migration journal", () => {
       await readFile(path.resolve(process.cwd(), "db/migrations/meta/_journal.json"), "utf8")
     ) as { entries: Array<{ idx: number; tag: string }> }
 
-    expect(journal.entries.slice(-8).map(({ idx, tag }) => ({ idx, tag }))).toEqual([
+    expect(journal.entries.slice(-9).map(({ idx, tag }) => ({ idx, tag }))).toEqual([
       { idx: 78, tag: "0078_opportunity_name_project_code" },
       { idx: 79, tag: "0079_product_taxonomy_quote_defaults" },
       { idx: 80, tag: "0080_quotation_content_fields" },
@@ -29,6 +29,7 @@ describe("migration journal", () => {
       { idx: 83, tag: "0083_payment_milestone_decoupling" },
       { idx: 84, tag: "0084_operator_alerts" },
       { idx: 85, tag: "0085_funnel_stage_field_map" },
+      { idx: 86, tag: "0086_stage_transition_approvals" },
     ])
   })
 

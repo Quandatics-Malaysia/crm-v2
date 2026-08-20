@@ -33,7 +33,6 @@ import {
   listAccountQuotations,
   type BillingAddress,
 } from "../actions"
-import { AccountEditButton } from "./account-edit-button"
 import { AccountDetailBody, type AccountDetailSection } from "./account-detail-body"
 
 export default async function AccountDetailPage({
@@ -227,19 +226,6 @@ export default async function AccountDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <AccountEditButton
-              account={account}
-              parentOptions={parentOptions}
-              endUserOptions={parentOptions}
-              industries={industries}
-              countries={countries}
-              currencies={currencies}
-            />
-          </div>
-        </div>
-
         <AccountDetailBody
           accountId={account.id}
           sections={sections}

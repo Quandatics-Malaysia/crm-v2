@@ -1,8 +1,7 @@
 /**
  * The canonical 8-stage funnel ladder, seeded per tenant.
  * Labels & probabilities are tenant-editable; `kind` semantics are locked and
- * drive all pipeline + forecast logic. `requiresApprovalToEnter` is the default
- * per-stage approval gate (admins can toggle later).
+ * drive all pipeline + forecast logic. Forward stage changes require approval.
  */
 export type StageKindValue = "OPEN" | "WON" | "LOST" | "PARKED"
 export type StageCodeValue =
@@ -26,8 +25,8 @@ export type CanonicalStage = {
 }
 
 export const CANONICAL_STAGES: CanonicalStage[] = [
-  { code: "0e", name: "0e — Identified", probability: 0, kind: "OPEN", sortOrder: 0, requiresApprovalToEnter: false, includeInForecast: true },
-  { code: "1d", name: "1d — Qualified", probability: 25, kind: "OPEN", sortOrder: 1, requiresApprovalToEnter: false, includeInForecast: true },
+  { code: "0e", name: "0e — Identified", probability: 0, kind: "OPEN", sortOrder: 0, requiresApprovalToEnter: true, includeInForecast: true },
+  { code: "1d", name: "1d — Qualified", probability: 25, kind: "OPEN", sortOrder: 1, requiresApprovalToEnter: true, includeInForecast: true },
   { code: "2c", name: "2c — Proposal", probability: 50, kind: "OPEN", sortOrder: 2, requiresApprovalToEnter: true, includeInForecast: true },
   { code: "3b", name: "3b — Negotiation", probability: 75, kind: "OPEN", sortOrder: 3, requiresApprovalToEnter: true, includeInForecast: true },
   { code: "4a", name: "4a — Commit", probability: 90, kind: "OPEN", sortOrder: 4, requiresApprovalToEnter: true, includeInForecast: true },

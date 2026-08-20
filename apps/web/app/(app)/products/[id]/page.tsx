@@ -2,11 +2,9 @@ import { notFound } from "next/navigation"
 
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
-import { listProductCodes, listCurrencies } from "@/lib/lookups"
+import { listProductCodes } from "@/lib/lookups"
 import { PageBody } from "@/components/page-header"
-import { Button } from "@/components/ui/button"
 import { getProduct, listProductUsage, listProductDeals } from "../actions"
-import { ProductForm } from "../product-form"
 import { ProductDetailBody } from "../product-detail-body"
 
 export default async function ProductDetailPage({
@@ -15,10 +13,9 @@ export default async function ProductDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const [product, productCodes, currencies, usage, deals, ctx] = await Promise.all([
+  const [product, productCodes, usage, deals, ctx] = await Promise.all([
     getProduct(id),
     listProductCodes(),
-    listCurrencies(),
     listProductUsage(id),
     listProductDeals(id),
     requireContext(),
@@ -32,17 +29,6 @@ export default async function ProductDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          {canUpdate ? (
-            <ProductForm
-              product={product}
-              productCodes={productCodes}
-              currencies={currencies}
-              trigger={<Button variant="outline">Edit</Button>}
-            />
-          ) : null}
-        </div>
-
         <ProductDetailBody
           product={product}
           codeName={codeName}

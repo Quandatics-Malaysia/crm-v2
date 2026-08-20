@@ -13,10 +13,6 @@ import { getPerson } from "../actions"
 import { PersonEditButton } from "./person-edit-button"
 import { PersonDetailBody, type PersonDetailSection } from "./person-detail-body"
 
-function fullName(p: { firstName: string; lastName: string | null }) {
-  return [p.firstName, p.lastName].filter(Boolean).join(" ")
-}
-
 export default async function PersonDetailPage({
   params,
 }: {
@@ -31,8 +27,6 @@ export default async function PersonDetailPage({
 
   if (!data) notFound()
   const { person, accountName, funnels, projects } = data
-
-  const name = fullName(person) || "Unnamed contact"
 
   const [activity, documents] = await Promise.all([
     listEntityTimeline("person", id),
@@ -108,12 +102,7 @@ export default async function PersonDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            {person.title ? (
-              <p className="text-sm text-muted-foreground">{person.title}</p>
-            ) : null}
-          </div>
+        <div className="flex justify-end">
           <div className="flex flex-wrap items-center gap-2">
             <PersonEditButton person={person} accounts={accounts} />
           </div>

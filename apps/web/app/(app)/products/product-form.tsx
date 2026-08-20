@@ -175,7 +175,7 @@ export function ProductForm({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger render={trigger as React.ReactElement} /> : null}
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editing ? "Edit product" : "New product"}</DialogTitle>
         </DialogHeader>
@@ -183,23 +183,34 @@ export function ProductForm({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="grid max-h-[70vh] gap-4 overflow-y-auto px-1"
+            className="grid max-h-[75vh] gap-5 overflow-y-auto px-1"
           >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel required>Product name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Coaching – Business Intelligence" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <h3 className="text-sm font-medium">Basics</h3>
+                <p className="text-xs text-muted-foreground">Identify this product in the catalogue.</p>
+              </div>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel required>Product name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Coaching – Business Intelligence" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <h3 className="text-sm font-medium">Classification</h3>
+                <p className="text-xs text-muted-foreground">Use your product taxonomy to organise the catalogue.</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="productCode"
@@ -260,9 +271,15 @@ export function ProductForm({
                   </FormItem>
                 )}
               />
-            </div>
+              </div>
+            </section>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <h3 className="text-sm font-medium">Pricing</h3>
+                <p className="text-xs text-muted-foreground">Set the default unit and price used for new quotations.</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
               <FormField
                 control={form.control}
                 name="uom"
@@ -317,31 +334,38 @@ export function ProductForm({
                   </FormItem>
                 )}
               />
-            </div>
+              </div>
+            </section>
 
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={3}
-                      placeholder="HRDF Claimable RM10,500"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <h3 className="text-sm font-medium">Notes</h3>
+                <p className="text-xs text-muted-foreground">Add useful context for your team.</p>
+              </div>
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder="HRDF Claimable RM10,500"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
 
             <FormField
               control={form.control}
               name="isActive"
               render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                <FormItem className="flex items-center justify-between rounded-lg border bg-muted/20 p-4">
                   <div className="grid gap-0.5">
                     <FormLabel>Active</FormLabel>
                     <p className="text-xs text-muted-foreground">
@@ -355,7 +379,7 @@ export function ProductForm({
               )}
             />
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 border-t pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>

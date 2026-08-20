@@ -322,6 +322,23 @@ export function stagesEnteredBy<
     )
 }
 
+/** Fields that must already be complete before entering a forward stage. */
+export function stagesRequiredBefore<
+  T extends { id: string; kind: string; sortOrder: number }
+>(stages: T[], currentStageId: string, targetStageId: string): T[] {
+  const from = stages.find((s) => s.id === currentStageId)
+  const to = stages.find((s) => s.id === targetStageId)
+  if (!from || !to || transitionDirection(from, to) !== "forward") return []
+  if (to.kind === "LOST" || to.kind === "PARKED") return []
+  return [...stages]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .filter(
+      (s) =>
+        (s.kind === "OPEN" || s.kind === "WON") &&
+        s.sortOrder < to.sortOrder
+    )
+}
+
 /** Union (order-preserving, de-duplicated) of requiredFields across stages. */
 export function requiredKeysForStages<
   T extends { requiredFields?: string[] | null }

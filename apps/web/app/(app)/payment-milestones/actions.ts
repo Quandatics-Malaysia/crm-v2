@@ -130,6 +130,9 @@ export type FunnelMilestoneUpdateInput = {
   description?: string | null
   amount?: string | null
   dueDate?: string | null
+  productCategory?: string | null
+  productSubcategory?: string | null
+  soNumber?: string | null
   status?: string
 }
 
@@ -418,6 +421,18 @@ export async function updateFunnelMilestone(
               input.dueDate === undefined
                 ? existing.dueDate
                 : input.dueDate || null,
+            productCategory:
+              input.productCategory === undefined
+                ? existing.productCategory
+                : input.productCategory || null,
+            productSubcategory:
+              input.productSubcategory === undefined
+                ? existing.productSubcategory
+                : input.productSubcategory || null,
+            soNumber:
+              input.soNumber === undefined
+                ? existing.soNumber
+                : input.soNumber || null,
             status: nextStatus,
             updatedAt: new Date(),
           })

@@ -27,7 +27,7 @@ import {
   missingFromKeys,
   requiresCloseRemarks,
   closeRemarksLabel,
-  stagesEnteredBy,
+  stagesRequiredBefore,
   requiredKeysForStages,
   isPresetFieldKey,
   assertTransitionAllowed,
@@ -303,7 +303,7 @@ function requiredKeysForTransition(
 ): string[] {
   const customKeys = new Set(customFieldDefs.map((field) => field.key))
   return requiredKeysForStages(
-    stagesEnteredBy(allStages, from.id, target.id),
+    stagesRequiredBefore(allStages, from.id, target.id),
     {
       skipPpvvcForWonTransition: skipPpvvc || target.kind === "WON",
     }

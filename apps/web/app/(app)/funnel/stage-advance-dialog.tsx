@@ -4,18 +4,14 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { HelpCircleIcon } from "lucide-react"
 import { showActionError } from "@/lib/show-action-error"
 
 import {
   missingFromKeys,
   requiresCloseRemarks,
   closeRemarksLabel,
-  stagesEnteredBy,
+  stagesRequiredBefore,
   requiredKeysForStages,
-  groupCustomFields,
-  applyPpvvcToStageGate,
-  isPresetFieldKey,
   isRollbackTransition,
   type StageGate,
   type CustomFunnelField,
@@ -24,12 +20,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -46,19 +36,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
-import { FileDropzone } from "@/components/file-dropzone"
-import { Checkbox } from "@/components/ui/checkbox"
 import { AttachmentUpload } from "@/components/attachments/attachment-upload"
-import { uploadEntityAttachment } from "@/app/(app)/_shared/attachment-actions"
 import { formatPercent } from "@/lib/format"
-import { PpvvcEditor } from "@/components/ppvvc-editor"
-import {
-  getPpvvcFieldsForRequiredKeys,
-  type PpvvcPatch,
-} from "@/lib/ppvvc"
+import type { PpvvcPatch } from "@/lib/ppvvc"
 import { StageBadge } from "./stage-badge"
-import { advanceStageAction, updateOpportunity } from "./actions"
+import { advanceStageAction } from "./actions"
 import { selectableTargets } from "./stage-transitions"
 
 // Where each Opportunity-level preset gate field is edited, so a blocked move
@@ -96,12 +78,8 @@ export function StageAdvanceDialog({
   onOpenChange,
   initialTargetStageId,
   gate,
-  customFieldDefs = [],
-  customValues = {},
   opportunityId,
   opportunityName,
-  ppvvc,
-  canEditPpvvc = false,
   skipPpvvc = false,
 }: {
   funnelId: string
@@ -146,16 +124,10 @@ export function StageAdvanceDialog({
     initialTargetStageId ?? ""
   )
   const [reason, setReason] = React.useState("")
-  const [file, setFile] = React.useState<File | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [approvalRequestId, setApprovalRequestId] = React.useState<
     string | null
   >(null)
-  // Live edits to the required custom fields, merged over the funnel's stored
-  // values when the gate is evaluated and sent with the advance.
-  const [values, setValues] = React.useState<Record<string, string>>({})
-  const [savedPpvvc, setSavedPpvvc] = React.useState<PpvvcPatch>({})
-
   const ordered = React.useMemo(
     () => [...stages].sort((a, b) => a.sortOrder - b.sortOrder),
     [stages]
@@ -167,69 +139,22 @@ export function StageAdvanceDialog({
   const rollback = !!from && !!target && isRollbackTransition(from, target)
   const needsApproval = !rollback && (target?.requiresApprovalToEnter ?? false)
 
-  // Merge the dialog's live edits over the funnel's stored custom values.
-  const merged = React.useMemo(
-    () => ({ ...customValues, ...values }),
-    [customValues, values]
-  )
-  // A multi-stage jump must satisfy every stage it passes through, so collect
-  // the union of required keys across all stages this move enters (0e→4a pulls
-  // in 1d/2c/3b too).
-  const enteredStages = React.useMemo(
-    () => (target ? stagesEnteredBy(ordered, currentStageId, target.id) : []),
+  // Advancing to a stage checks every earlier stage, including the current one.
+  const requiredStages = React.useMemo(
+    () => (target ? stagesRequiredBefore(ordered, currentStageId, target.id) : []),
     [ordered, currentStageId, target]
   )
   const requiredKeys = React.useMemo(
     () =>
-      requiredKeysForStages(enteredStages, {
+      requiredKeysForStages(requiredStages, {
         skipPpvvcForWonTransition: skipPpvvc || target?.kind === "WON",
       }),
-    [enteredStages, skipPpvvc, target?.kind]
+    [requiredStages, skipPpvvc, target?.kind]
   )
-  const relevantPpvvcFields = React.useMemo(
-    () => getPpvvcFieldsForRequiredKeys(requiredKeys),
-    [requiredKeys]
+  const missing = missingFromKeys(
+    requiredKeys,
+    gate ?? { satisfied: {}, labels: {} }
   )
-  const livePpvvc = React.useMemo(
-    () => ({ ...(ppvvc ?? {}), ...savedPpvvc }),
-    [ppvvc, savedPpvvc]
-  )
-  // Live gate: keep the server-computed presets, but recompute the custom keys
-  // from the merged values so the checklist/blocked state update as you type.
-  const liveGate = React.useMemo<StageGate>(() => {
-    const base = applyPpvvcToStageGate(
-      gate ?? { satisfied: {}, labels: {} },
-      livePpvvc
-    )
-    const satisfied = { ...base.satisfied }
-    const labels = { ...base.labels }
-    for (const f of customFieldDefs) {
-      const s = (merged[f.key] ?? "").trim()
-      satisfied[f.key] = f.type === "checkbox" ? s === "true" : s !== ""
-      labels[f.key] = f.label
-    }
-    return { satisfied, labels }
-  }, [gate, customFieldDefs, merged, livePpvvc])
-
-  const defByKey = React.useMemo(
-    () => new Map(customFieldDefs.map((f) => [f.key, f])),
-    [customFieldDefs]
-  )
-  // Tenant custom-field requirements get an inline fill-in-here input; preset
-  // requirements (Vision, Opportunity Owner Contact, …) are edited on the
-  // Opportunity/Funnel record itself, not in this dialog — so they're excluded
-  // from `collectFields` (what's rendered) but NOT from `missing` (what blocks
-  // the Advance button) — otherwise the button would look clear while the
-  // server still rejects the move.
-  const collectFields = requiredKeys
-    .map((k) => defByKey.get(k))
-    .filter((f): f is CustomFunnelField => !!f)
-  const missing = missingFromKeys(requiredKeys, liveGate)
-  // Preset fields can't be filled in this dialog (unlike tenant custom fields,
-  // which get inline inputs above) — the checklist points at where each lives:
-  // the parent Opportunity's Analysis tab / Details card, or this Funnel's own
-  // Details panel.
-  const missingPresets = missing.filter((m) => isPresetFieldKey(m.key))
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
   // Only terminal (Lost/KIV) moves require a written reason; approval context is optional.
   const needsReason = !rollback && isTerminal
@@ -248,8 +173,6 @@ export function StageAdvanceDialog({
   function reset() {
     setTargetStageId("")
     setReason("")
-    setFile(null)
-    setValues({})
     setApprovalRequestId(null)
     setSubmitting(false)
   }
@@ -277,7 +200,6 @@ export function StageAdvanceDialog({
         funnelId,
         targetStageId,
         reason: reason.trim() || undefined,
-        customFields: Object.keys(values).length > 0 ? values : undefined,
         skipPpvvc,
       })
       if (!res.ok) {
@@ -293,20 +215,6 @@ export function StageAdvanceDialog({
         router.refresh()
       } else {
         toast.success("Sent for approval")
-        // If a supporting file was picked, attach it to the new request.
-        if (result.approvalRequestId && file) {
-          const fd = new FormData()
-          fd.set("file", file)
-          fd.set("attachableType", "stage_approval_request")
-          fd.set("attachableId", result.approvalRequestId)
-          fd.set("revalidate", `/funnel/${funnelId}`)
-          const up = await uploadEntityAttachment(fd)
-          if (up.ok) {
-            toast.success("Supporting document attached")
-          } else {
-            showActionError(up)
-          }
-        }
         // Keep the dialog open so the requester can attach more files.
         if (result.approvalRequestId) {
           setApprovalRequestId(result.approvalRequestId)
@@ -375,29 +283,7 @@ export function StageAdvanceDialog({
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <div className="flex items-center gap-1.5">
-                <Label>Target stage</Label>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label="What does stage probability do?"
-                          className="text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          <HelpCircleIcon className="size-3.5" />
-                        </button>
-                      }
-                    />
-                    <TooltipContent>
-                      The percentage on each stage is its win probability — it
-                      drives weighted funnel value (amount × probability) in the
-                      forecast.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+              <Label>Target stage</Label>
               <Select
                 value={targetStageId}
                 onValueChange={(v) => setTargetStageId((v as string) ?? "")}
@@ -425,67 +311,11 @@ export function StageAdvanceDialog({
               ) : null}
             </div>
 
-            {!rollback && target && ppvvc && relevantPpvvcFields.length > 0 ? (
-              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
-                <p className="text-xs font-medium text-muted-foreground">
-                  PPVVC requirements — edit inline if needed
-                </p>
-                <PpvvcEditor
-                  values={livePpvvc}
-                  fields={relevantPpvvcFields}
-                  editable={canEditPpvvc}
-                  onSave={
-                    canEditPpvvc
-                      ? async (next) => {
-                          const result = await updateOpportunity(funnelId, next)
-                          if (result.ok) {
-                            setSavedPpvvc((current) => ({ ...current, ...next }))
-                          }
-                          return result
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            ) : null}
-
-            {!rollback && target && collectFields.length > 0 ? (
-              <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {enteredStages.length > 1
-                    ? `Fill in what's required to reach ${target.name}`
-                    : `Required for ${target.name}`}
-                </p>
-                {groupCustomFields(collectFields).map((group) => (
-                  <div
-                    key={group.category ?? "__none__"}
-                    className="grid gap-3"
-                  >
-                    {group.category ? (
-                      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                        {group.category}
-                      </p>
-                    ) : null}
-                    {group.fields.map((f) => (
-                      <CustomFieldControl
-                        key={f.key}
-                        field={f}
-                        value={merged[f.key] ?? ""}
-                        onChange={(v) =>
-                          setValues((prev) => ({ ...prev, [f.key]: v }))
-                        }
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {!rollback && target && missingPresets.length > 0 ? (
+            {!rollback && target && missing.length > 0 ? (
               <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
-                <p className="font-medium">Still needed for {target.name}</p>
+                <p className="font-medium">Complete earlier-stage fields first</p>
                 <ul className="mt-2 grid gap-1.5">
-                  {missingPresets.map((m) => {
+                  {missing.map((m) => {
                     const onAnalysis = OPP_ANALYSIS_KEYS.has(m.key)
                     const onDetails = OPP_DETAILS_KEYS.has(m.key)
                     const href =
@@ -517,7 +347,7 @@ export function StageAdvanceDialog({
                   })}
                 </ul>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Fill these in, then come back and advance.
+                  Fill these in on the Funnel or Opportunity details, then come back and advance.
                 </p>
               </div>
             ) : null}
@@ -549,22 +379,6 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
-            {!rollback ? <div className="grid gap-2">
-              <Label htmlFor="advance-file">
-                Attach supporting document (optional)
-              </Label>
-              <FileDropzone
-                files={file ? [file] : []}
-                onFiles={(fs) => setFile(fs[0] ?? null)}
-                multiple={false}
-                compact
-                busy={submitting}
-              />
-              <p className="text-xs text-muted-foreground">
-                If approval is required, this file is attached to the request.
-              </p>
-            </div> : null}
-
             <DialogFooter>
               <Button
                 type="button"
@@ -588,73 +402,5 @@ export function StageAdvanceDialog({
         )}
       </DialogContent>
     </Dialog>
-  )
-}
-
-/** A single typed custom-field input for the advance dialog. */
-function CustomFieldControl({
-  field,
-  value,
-  onChange,
-}: {
-  field: CustomFunnelField
-  value: string
-  onChange: (value: string) => void
-}) {
-  const id = `advance-cf-${field.key}`
-  const type = field.type ?? "text"
-
-  if (type === "checkbox") {
-    return (
-      <div className="grid gap-1.5">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={id}
-            checked={value === "true"}
-            onCheckedChange={(c) => onChange(c === true ? "true" : "false")}
-          />
-          <Label htmlFor={id} className="font-normal">
-            {field.label}
-          </Label>
-        </div>
-        {field.description ? (
-          <p className="text-xs text-muted-foreground">{field.description}</p>
-        ) : null}
-      </div>
-    )
-  }
-
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={id}>{field.label}</Label>
-      {type === "select" ? (
-        <Select
-          value={value}
-          onValueChange={(v) => onChange((v as string) ?? "")}
-          items={(field.options ?? []).map((o) => ({ value: o, label: o }))}
-        >
-          <SelectTrigger id={id}>
-            <SelectValue placeholder="Select…" />
-          </SelectTrigger>
-          <SelectContent>
-            {(field.options ?? []).map((o) => (
-              <SelectItem key={o} value={o}>
-                {o}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Input
-          id={id}
-          type={type === "number" ? "number" : type === "date" ? "date" : "text"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-      {field.description ? (
-        <p className="text-xs text-muted-foreground">{field.description}</p>
-      ) : null}
-    </div>
   )
 }

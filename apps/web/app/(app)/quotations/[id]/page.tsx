@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { notFound } from "next/navigation"
 import { eq } from "drizzle-orm"
 import { withTenant } from "@/lib/actions"
@@ -8,8 +7,6 @@ import { getEntitledModuleMap } from "@/lib/modules.server"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions, listProjectNatures, listProductOptions } from "@/lib/lookups"
 import { PageBody } from "@/components/page-header"
-import { StatusBadge } from "@/components/status-badge"
-import { Button } from "@/components/ui/button"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
 import { getQuotation, getProjectForQuotation, getQuotationFormMeta } from "../actions"
 import { QuotationForm } from "../quotation-form"
@@ -70,62 +67,6 @@ export default async function QuotationDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge
-              status={detail.quotation.status}
-              className="capitalize"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href={`/quotations/${detail.quotation.id}/preview`} />}
-            >
-              Preview / Print
-            </Button>
-            {detail.accountId ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={`/accounts/${detail.accountId}`} />}
-              >
-                View account
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              render={<Link href={`/funnel/${detail.quotation.funnelId}`} />}
-            >
-              View funnel
-            </Button>
-            {detail.container ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={`/opportunities/${detail.container.id}`} />}
-              >
-                View opportunity
-              </Button>
-            ) : null}
-            {project ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={`/projects/${project.id}`} />}
-              >
-                View project (
-                <span className="font-mono">{project.projectCode}</span>)
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
         <QuotationForm
           detail={detail}
           taxOptions={taxOptions}

@@ -35,12 +35,16 @@ export type PaymentMilestoneRow = typeof paymentMilestones.$inferSelect
 export type PaymentMilestoneListItem = PaymentMilestoneRow & {
   funnelName: string | null
   quoteNumber: string | null
+  quoteStatus: string | null
 }
 
 /** A single milestone plus its resolved funnel name + quote number. */
 export type PaymentMilestoneDetail = PaymentMilestoneRow & {
   funnelName: string | null
   quoteNumber: string | null
+  quoteStatus: string | null
+  quoteTotal: string | null
+  quoteCurrency: string | null
 }
 
 /** Resolve product metadata from the quotation line that owns the milestone.
@@ -89,6 +93,7 @@ export async function listPaymentMilestones(): Promise<
         m: paymentMilestones,
         funnelName: funnels.name,
         quoteNumber: quotations.quoteNumber,
+        quoteStatus: quotations.status,
       })
       .from(paymentMilestones)
       .leftJoin(funnels, eq(paymentMilestones.funnelId, funnels.id))
@@ -99,6 +104,7 @@ export async function listPaymentMilestones(): Promise<
       ...r.m,
       funnelName: r.funnelName,
       quoteNumber: r.quoteNumber,
+      quoteStatus: r.quoteStatus,
     }))
   })
 }
@@ -132,6 +138,9 @@ export async function getPaymentMilestone(
         m: paymentMilestones,
         funnelName: funnels.name,
         quoteNumber: quotations.quoteNumber,
+        quoteStatus: quotations.status,
+        quoteTotal: quotations.total,
+        quoteCurrency: quotations.currency,
       })
       .from(paymentMilestones)
       .leftJoin(funnels, eq(paymentMilestones.funnelId, funnels.id))
@@ -144,6 +153,9 @@ export async function getPaymentMilestone(
       ...row.m,
       funnelName: row.funnelName,
       quoteNumber: row.quoteNumber,
+      quoteStatus: row.quoteStatus,
+      quoteTotal: row.quoteTotal,
+      quoteCurrency: row.quoteCurrency,
       ...product,
     }
   })
@@ -234,15 +246,19 @@ export async function seedDefaultFunnelMilestone(
   const [funnel] = await tx
     .select({
       primaryQuotationId: funnels.primaryQuotationId,
+      quoteNumber: quotations.quoteNumber,
       projectCode: opportunities.projectCode,
     })
     .from(funnels)
     .leftJoin(opportunities, eq(funnels.opportunityId, opportunities.id))
+    .leftJoin(quotations, eq(funnels.primaryQuotationId, quotations.id))
     .where(eq(funnels.id, funnelId))
     .limit(1)
   if (!funnel) return
 
-  const title = "Full Payment"
+  const title = funnel.quoteNumber
+    ? `${funnel.quoteNumber} · Full payment`
+    : "Full Payment"
   const [row] = await tx
     .insert(paymentMilestones)
     .values({

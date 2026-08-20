@@ -13,13 +13,6 @@ import {
   useSaveField,
 } from "@/components/detail-page"
 import { InlineValue } from "@/components/inline-value"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { StatusBadge } from "@/components/status-badge"
 import { StagePathView, type PathStep } from "@/components/stage-path-view"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -100,31 +93,12 @@ export function PaymentMilestoneDetailBody({
                 {formatMoney(milestone.amount)}
               </div>
             )}
-            {canManage ? (
-              <Select
-                value={milestone.status}
-                onValueChange={(value) =>
-                  saveField({ status: value as FunnelMilestoneUpdateInput["status"] })
-                }
-                items={STATUS_ORDER.map((status) => ({
-                  value: status,
-                  label: STATUS_LABELS[status],
-                }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_ORDER.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {STATUS_LABELS[status]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
+            <div className="grid gap-1">
               <StatusBadge status={milestone.status} />
-            )}
+              <p className="text-xs text-muted-foreground">
+                Updated from the quotation and invoice workflow.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
@@ -224,7 +198,7 @@ export function PaymentMilestoneDetailBody({
                       milestone.soNumber ?? "—"
                     )}
                   </FieldRow>
-                  <FieldRow label="Quote">
+            <FieldRow label="Quote">
                     {milestone.quotationId && milestone.quoteNumber ? (
                       <Link href={`/quotations/${milestone.quotationId}`} className="link">
                         {milestone.quoteNumber}
@@ -232,6 +206,18 @@ export function PaymentMilestoneDetailBody({
                     ) : (
                       "—"
                     )}
+            </FieldRow>
+                  <FieldRow label="Quotation status">
+                    {milestone.quoteStatus ? (
+                      <StatusBadge status={milestone.quoteStatus} />
+                    ) : (
+                      "—"
+                    )}
+                  </FieldRow>
+                  <FieldRow label="Quotation total">
+                    {milestone.quoteTotal
+                      ? formatMoney(milestone.quoteTotal, milestone.quoteCurrency ?? undefined)
+                      : "—"}
                   </FieldRow>
                   <FieldRow label="Due date">
                     {canManage ? (

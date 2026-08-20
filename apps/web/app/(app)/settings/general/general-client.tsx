@@ -750,6 +750,7 @@ function CompanyProfileCard({
               onChange={(v) => setValues((prev) => ({ ...prev, phone: v }))}
               placeholder="03 1234 5678"
               defaultCountry={defaultCountry || "MY"}
+              standalone
             />
           </div>
           <div className="grid gap-1.5">

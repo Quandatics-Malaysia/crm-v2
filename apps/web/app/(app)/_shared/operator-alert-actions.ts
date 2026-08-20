@@ -5,8 +5,6 @@ import { getServerContext } from "@/lib/server-context"
 import type { AlertSeverity, OperatorAlertRow } from "@/server/services/operator-alerts-types"
 import { listOperatorAlerts as listAlerts, resolveOperatorAlerts as resolveAlerts } from "@/server/services/operator-alerts"
 
-export type { AlertSeverity, OperatorAlertRow }
-
 // ─── reportIncident ───────────────────────────────────────────────────────────
 
 type IncidentInput = {

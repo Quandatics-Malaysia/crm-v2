@@ -1,0 +1,11 @@
+# Staging override: run the immutable images built by GitHub Actions.
+# The base Compose file keeps source builds for local development and production
+# preview; this file is used only by deploy-staging.yml.
+services:
+  migrate:
+    image: ${MIGRATOR_IMAGE:?MIGRATOR_IMAGE must be set}
+    build: null
+
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE must be set}
+    build: null

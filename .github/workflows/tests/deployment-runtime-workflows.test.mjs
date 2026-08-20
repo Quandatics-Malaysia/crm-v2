@@ -12,6 +12,8 @@ test("staging upgrades retained env through a protected trust-set secret before 
   assert.match(readFileSync(resolve(workflows, "quality.yml"), "utf8"), /pnpm run test:workflows/)
   assert.match(workflow, /environment:\s*staging/)
   assert.match(workflow, /CADDY_HOST_PORT=8092/)
+  assert.match(workflow, /docker-compose\.staging-images\.yaml/)
+  assert.match(workflow, /needs:\s*\[changes, build-images\]/)
   assert.match(workflow, /VENDOR_ENTITLEMENT_TRUST_SET:\s*\$\{\{ secrets\.STAGING_VENDOR_ENTITLEMENT_TRUST_SET \}\}/)
   const provision = workflow.search(/provision-deployment-runtime\.mjs"? --mode staging/)
   assert.notEqual(-1, provision, "staging provisioner is not invoked")

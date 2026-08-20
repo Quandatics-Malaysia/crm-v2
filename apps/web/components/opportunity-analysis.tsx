@@ -5,6 +5,11 @@ import { ChevronDownIcon } from "lucide-react"
 
 import { InlineCombobox } from "@/components/inline-combobox"
 import { InlineValue } from "@/components/inline-value"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from "@/components/ui/card"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { OpportunityContainerDetail, OpportunityContainerUpdateInput } from "@/app/(app)/opportunities/actions"
 
@@ -22,21 +27,27 @@ function AnalysisSection({
   const [open, setOpen] = React.useState(defaultOpen)
 
   return (
-    <section className="overflow-hidden rounded-[3px]">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 bg-muted px-3 py-1.5 text-left text-sm font-medium text-foreground hover:bg-muted/80"
-      >
-        <ChevronDownIcon
-          aria-hidden
-          className={`size-4 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
-        />
-        {title}
-      </button>
-      {open ? <div className="divide-y divide-border">{children}</div> : null}
-    </section>
+    <Card size="sm" className="gap-0 overflow-hidden rounded-lg shadow-none">
+      <CardHeader className="p-0">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex w-full items-center gap-2 bg-muted/60 px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          <ChevronDownIcon
+            aria-hidden
+            className={`size-4 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
+          />
+          <span className="text-sm font-medium">{title}</span>
+        </button>
+      </CardHeader>
+      {open ? (
+        <CardContent className="p-0">
+          <div className="divide-y divide-border">{children}</div>
+        </CardContent>
+      ) : null}
+    </Card>
   )
 }
 
@@ -79,7 +90,7 @@ export function OpportunityAnalysis({
 
   return (
     <div className="border-t border-border bg-background">
-      <div className="grid gap-2 p-3">
+      <div className="grid gap-3 p-3">
         <AnalysisSection title="1-P: Power Sponsor (PS)">
           <AnalysisRow label="Power Sponsor Contact">
             {canEdit ? (

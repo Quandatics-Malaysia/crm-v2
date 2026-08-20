@@ -4,6 +4,14 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { useInlineSave } from "@/components/use-inline-save"
@@ -13,6 +21,7 @@ import {
   getPpvvcCompletion,
   mergePpvvcDraft,
   normalizePpvvcValues,
+  formatPpvvcSectionLabel,
   type PpvvcField,
   type PpvvcPatch,
   type PpvvcValues,
@@ -59,6 +68,7 @@ export function PpvvcEditor({
   const completion = getPpvvcCompletion(draft)
   const visibleKeys = new Set((fields ?? PPVVC_FIELDS).map((field) => field.key))
   const visibleCompletion = completion.filter((field) => visibleKeys.has(field.key))
+  const completeCount = visibleCompletion.filter((field) => field.complete).length
 
   function update(key: keyof PpvvcValues, value: string) {
     setDraft((current) => ({ ...current, [key]: value || null }))
@@ -81,9 +91,10 @@ export function PpvvcEditor({
     })()
   }
 
-  return (
-    <div className={cn("grid gap-3", className)}>
-      <div className="flex flex-wrap items-center gap-1.5">
+  const status = `${completeCount}/${visibleCompletion.length} complete`
+
+  const badges = (
+    <div className="flex flex-wrap items-center gap-1.5">
         {visibleCompletion.map((field) => {
           const badge = (
             <Badge
@@ -93,7 +104,7 @@ export function PpvvcEditor({
               data-ppvvc-badge={field.key}
               className="text-[11px]"
             >
-              {field.number}-{field.label}
+              {formatPpvvcSectionLabel(field)}
             </Badge>
           )
           return compact && editable ? (
@@ -110,22 +121,64 @@ export function PpvvcEditor({
             badge
           )
         })}
-      </div>
+    </div>
+  )
 
-      {expanded ? (
-        <div className="grid gap-3">
+  if (compact && !expanded) {
+    return <div className={cn("grid gap-2", className)}>{badges}</div>
+  }
+
+  return (
+    <Card className={cn("gap-0", className)}>
+      <CardHeader className="border-b bg-muted/30">
+        <div className="flex items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <CardTitle className="text-sm">PPVVC analysis</CardTitle>
+            <CardDescription>
+              Power Sponsor, Pain, Vision, Value, and Control
+            </CardDescription>
+          </div>
+          <Badge variant={completeCount === visibleCompletion.length ? "default" : "secondary"}>
+            {status}
+          </Badge>
+        </div>
+        <div className="pt-1">{badges}</div>
+      </CardHeader>
+      <CardContent className="grid gap-3 pt-4">
+        {expanded ? (
+          <div className="grid gap-3">
           {visibleCompletion.map((field) => (
-            <section key={field.key} className="grid gap-1.5 rounded-md border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <label
-                  htmlFor={`ppvvc-${field.key}`}
-                  className="text-sm font-medium"
+            <section
+              key={field.key}
+              className="grid gap-2 rounded-lg border bg-background p-3 shadow-xs"
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  aria-hidden
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                    field.complete
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  )}
                 >
-                  {field.number}-{field.label}
-                </label>
-                <span className="text-xs text-muted-foreground">
-                  {field.complete ? "Complete" : "Missing"}
-                </span>
+                  {field.number}
+                </div>
+                <div className="grid min-w-0 flex-1 gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <label htmlFor={`ppvvc-${field.key}`} className="text-sm font-medium">
+                      {formatPpvvcSectionLabel(field)}
+                    </label>
+                    <Badge variant={field.complete ? "default" : "outline"}>
+                      {field.complete ? "Complete" : "Missing"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {field.complete
+                      ? "Recorded on the Opportunity"
+                      : "Add this before advancing the stage"}
+                  </p>
+                </div>
               </div>
               {editable ? (
                 <Textarea
@@ -143,20 +196,21 @@ export function PpvvcEditor({
               )}
             </section>
           ))}
-          {editable && onSave ? (
-            <div className="flex items-center justify-end gap-2">
-              {compact ? (
-                <Button type="button" variant="ghost" onClick={() => setExpanded(false)}>
-                  Close
-                </Button>
-              ) : null}
-              <Button type="button" onClick={save} disabled={saving}>
-                {saving ? "Saving…" : "Save PPVVC"}
-              </Button>
-            </div>
-          ) : null}
-        </div>
+          </div>
       ) : null}
-    </div>
+      </CardContent>
+      {editable && onSave ? (
+        <CardFooter className="justify-end gap-2">
+          {compact ? (
+            <Button type="button" variant="ghost" onClick={() => setExpanded(false)}>
+              Close
+            </Button>
+          ) : null}
+          <Button type="button" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save PPVVC"}
+          </Button>
+        </CardFooter>
+      ) : null}
+    </Card>
   )
 }

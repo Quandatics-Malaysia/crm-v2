@@ -1,14 +1,29 @@
 export const PPVVC_FIELDS = [
-  { key: "pain", number: 1, label: "Pain" },
-  { key: "power", number: 2, label: "Power" },
+  { key: "power", number: 1, label: "Power Sponsor (PS)" },
+  { key: "pain", number: 2, label: "Pain (Objective)" },
   { key: "vision", number: 3, label: "Vision" },
   { key: "value", number: 4, label: "Value" },
   { key: "control", number: 5, label: "Control" },
 ] as const
 
+const PPVVC_SECTION_CODES: Record<(typeof PPVVC_FIELDS)[number]["key"], string> = {
+  power: "P",
+  pain: "P",
+  vision: "V",
+  value: "V",
+  control: "C",
+}
+
 export type PpvvcField = (typeof PPVVC_FIELDS)[number]["key"]
 export type PpvvcValues = { [K in PpvvcField]: string | null }
 export type PpvvcPatch = Partial<PpvvcValues>
+
+/** Salesforce-style section heading used consistently across PPVVC surfaces. */
+export function formatPpvvcSectionLabel(
+  field: (typeof PPVVC_FIELDS)[number]
+): string {
+  return `${field.number}-${PPVVC_SECTION_CODES[field.key]}: ${field.label}`
+}
 
 export type PpvvcCompletion = (typeof PPVVC_FIELDS)[number] & {
   complete: boolean

@@ -18,10 +18,10 @@ const values = {
 }
 
 describe("PPVVC metadata", () => {
-  it("keeps the exact numbered Pain, Power, Vision, Value, Control order", () => {
+  it("keeps the exact numbered Power Sponsor, Pain, Vision, Value, Control order", () => {
     expect(PPVVC_FIELDS).toEqual([
-      { key: "pain", number: 1, label: "Pain" },
-      { key: "power", number: 2, label: "Power" },
+      { key: "power", number: 1, label: "Power Sponsor (PS)" },
+      { key: "pain", number: 2, label: "Pain (Objective)" },
       { key: "vision", number: 3, label: "Vision" },
       { key: "value", number: 4, label: "Value" },
       { key: "control", number: 5, label: "Control" },
@@ -38,8 +38,8 @@ describe("PPVVC metadata", () => {
         control: "   ",
       })
     ).toEqual([
-      { key: "pain", number: 1, label: "Pain", complete: true },
-      { key: "power", number: 2, label: "Power", complete: false },
+      { key: "power", number: 1, label: "Power Sponsor (PS)", complete: false },
+      { key: "pain", number: 2, label: "Pain (Objective)", complete: true },
       { key: "vision", number: 3, label: "Vision", complete: false },
       { key: "value", number: 4, label: "Value", complete: true },
       { key: "control", number: 5, label: "Control", complete: false },
@@ -75,8 +75,8 @@ describe("PPVVC metadata", () => {
         "control",
       ])
     ).toEqual([
-      { key: "pain", number: 1, label: "Pain" },
-      { key: "power", number: 2, label: "Power" },
+      { key: "power", number: 1, label: "Power Sponsor (PS)" },
+      { key: "pain", number: 2, label: "Pain (Objective)" },
       { key: "vision", number: 3, label: "Vision" },
       { key: "control", number: 5, label: "Control" },
     ])

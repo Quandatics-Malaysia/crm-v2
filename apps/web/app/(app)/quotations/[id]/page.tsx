@@ -7,7 +7,6 @@ import { PERMISSIONS } from "@/lib/permissions"
 import { getEntitledModuleMap } from "@/lib/modules.server"
 import { tenantSettings } from "@/db/schema"
 import { listTaxOptions, listProjectNatures, listProductOptions } from "@/lib/lookups"
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -70,18 +69,8 @@ export default async function QuotationDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={detail.quotation.quoteNumber}
-        breadcrumbs={[
-          { label: "Quotations", href: "/quotations" },
-          { label: detail.quotation.quoteNumber },
-        ]}
-      />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{detail.quotation.quoteNumber}</h2>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
               status={detail.quotation.status}

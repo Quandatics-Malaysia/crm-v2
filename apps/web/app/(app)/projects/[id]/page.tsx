@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
@@ -117,18 +116,8 @@ export default async function ProjectDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={project.projectCode}
-        breadcrumbs={[
-          { label: "Projects", href: "/projects" },
-          { label: project.projectCode },
-        ]}
-      />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{project.name}</h2>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             {canUpdate ? (
               <ProjectEditButton

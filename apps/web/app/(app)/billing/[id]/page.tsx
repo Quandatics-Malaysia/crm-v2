@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation"
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { requireContext } from "@/lib/server-context"
 import { requireEntitledRoute } from "@/lib/module-guard"
@@ -29,18 +28,9 @@ export default async function FinanceDocPage({
   ])
 
   const meta = FINANCE_KINDS[detail.doc.kind as FinanceDocKind]
-  const backHref = meta.direction === "sale" ? "/billing" : "/purchasing"
-  const backLabel = meta.direction === "sale" ? "Billing" : "Purchasing"
 
   return (
     <>
-      <SiteHeader
-        title={detail.doc.number}
-        breadcrumbs={[
-          { label: backLabel, href: backHref },
-          { label: detail.doc.number },
-        ]}
-      />
       <PageBody>
         <DocDetailBody
           detail={detail}

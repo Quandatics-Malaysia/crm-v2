@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
 import { listProductCodes, listCurrencies } from "@/lib/lookups"
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { getProduct, listProductUsage, listProductDeals } from "../actions"
@@ -32,18 +31,8 @@ export default async function ProductDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={product.name}
-        breadcrumbs={[
-          { label: "Products", href: "/products" },
-          { label: product.name },
-        ]}
-      />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{product.name}</h2>
-          </div>
           {canUpdate ? (
             <ProductForm
               product={product}

@@ -12,6 +12,13 @@ import {
   useSaveField,
 } from "@/components/detail-page"
 import { InlineValue } from "@/components/inline-value"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { StatusBadge } from "@/components/status-badge"
 import { StagePathView, type PathStep } from "@/components/stage-path-view"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -91,7 +98,31 @@ export function PaymentMilestoneDetailBody({
                 {formatMoney(milestone.amount)}
               </div>
             )}
-            <StatusBadge status={milestone.status} />
+            {canManage ? (
+              <Select
+                value={milestone.status}
+                onValueChange={(value) =>
+                  saveField({ status: value as FunnelMilestoneUpdateInput["status"] })
+                }
+                items={STATUS_ORDER.map((status) => ({
+                  value: status,
+                  label: STATUS_LABELS[status],
+                }))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_ORDER.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {STATUS_LABELS[status]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <StatusBadge status={milestone.status} />
+            )}
           </CardContent>
         </Card>
 
@@ -174,12 +205,41 @@ export function PaymentMilestoneDetailBody({
                     )}
                   </FieldRow>
                   <FieldRow label="Product category">
-                    {milestone.productCategory ?? "—"}
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.productCategory ?? ""}
+                        display={milestone.productCategory || "—"}
+                        title="Click to edit product category"
+                        onSave={(next) => saveField({ productCategory: next || null })}
+                      />
+                    ) : (
+                      milestone.productCategory ?? "—"
+                    )}
                   </FieldRow>
                   <FieldRow label="Product subcategory">
-                    {milestone.productSubcategory ?? "—"}
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.productSubcategory ?? ""}
+                        display={milestone.productSubcategory || "—"}
+                        title="Click to edit product subcategory"
+                        onSave={(next) => saveField({ productSubcategory: next || null })}
+                      />
+                    ) : (
+                      milestone.productSubcategory ?? "—"
+                    )}
                   </FieldRow>
-                  <FieldRow label="SO number">{milestone.soNumber ?? "—"}</FieldRow>
+                  <FieldRow label="SO number">
+                    {canManage ? (
+                      <InlineValue
+                        value={milestone.soNumber ?? ""}
+                        display={milestone.soNumber || "—"}
+                        title="Click to edit SO number"
+                        onSave={(next) => saveField({ soNumber: next || null })}
+                      />
+                    ) : (
+                      milestone.soNumber ?? "—"
+                    )}
+                  </FieldRow>
                   <FieldRow label="Quote">
                     {milestone.quotationId && milestone.quoteNumber ? (
                       <Link href={`/quotations/${milestone.quotationId}`} className="link">

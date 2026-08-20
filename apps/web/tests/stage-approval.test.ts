@@ -117,7 +117,7 @@ const early = {
   kind: "OPEN",
   sortOrder: 1,
   probability: "20",
-  requiredFields: [],
+  requiredFields: ["estimate"],
   requiresApprovalToEnter: false,
 }
 

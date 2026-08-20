@@ -5,6 +5,7 @@ import {
   buildStageGate,
   missingFromKeys,
   stagesEnteredBy,
+  stagesRequiredBefore,
   requiredKeysForStages,
   applyPpvvcToStageGate,
   requiresCloseRemarks,
@@ -209,6 +210,30 @@ describe("buildStageGate + missingFromKeys — entry requirements", () => {
       control: "Mitigation plan in place",
     })
     expect(live.satisfied.control).toBe(true)
+  })
+})
+
+describe("stagesRequiredBefore", () => {
+  const stages = [
+    { id: "0e", kind: "OPEN", sortOrder: 0, requiredFields: ["vision"] },
+    { id: "1d", kind: "OPEN", sortOrder: 1, requiredFields: ["objective"] },
+    { id: "2c", kind: "OPEN", sortOrder: 2, requiredFields: ["value"] },
+    { id: "won", kind: "WON", sortOrder: 5, requiredFields: ["awardDate"] },
+  ]
+
+  it("requires the current and all earlier stages, excluding the target", () => {
+    expect(
+      stagesRequiredBefore(stages, "0e", "1d").map((s) => s.id)
+    ).toEqual(["0e"])
+    expect(
+      stagesRequiredBefore(stages, "1d", "2c").map((s) => s.id)
+    ).toEqual(["0e", "1d"])
+  })
+
+  it("collects every earlier ladder stage on a jump", () => {
+    expect(
+      stagesRequiredBefore(stages, "0e", "won").map((s) => s.id)
+    ).toEqual(["0e", "1d", "2c"])
   })
 })
 

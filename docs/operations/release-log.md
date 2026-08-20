@@ -62,3 +62,14 @@ and resume forward; do not run destructive SQL rollback.
 - backup_image: ghcr.io/super-erp/crm-backup@sha256:a25abc3195f57bcb1d686bcd09328465965d456b69486b849ba8f5633696bdda
 - agent_image: ghcr.io/super-erp/crm-deployment-agent@sha256:f6f26e55e5ef2b7928de14ba7f8e8252a503f0ab3477860647400eb76a7afaa6
 
+
+## v1.2.77
+- released_at_utc: 2026-08-20T13:28:00Z
+- source_sha: 18c489b8387af770b0fd1187e045ccc059742bce
+- workflow_run: 32374103236
+- workflow: release-images.yml
+- web_image: ghcr.io/super-erp/crm-web@sha256:ac375035d1ee4dc13229afcf75e89e93a9154ff02acc85714241eaf7e106e8fc
+- migrator_image: ghcr.io/super-erp/crm-migrator@sha256:c2e942cbd0ab21b1acf9b267ba5d4ae7c7ad0a916cd8d55131c5ded347f5dc76
+- backup_image: ghcr.io/super-erp/crm-backup@sha256:dbf1dd9239a7cee407ea18372d8efaf60683d90b57a9794205b437d4574ca48a
+- agent_image: ghcr.io/super-erp/crm-deployment-agent@sha256:77a1fd1534a9b284dddb3ff1742b4cbc321128464041822db60807ea1aa23805
+

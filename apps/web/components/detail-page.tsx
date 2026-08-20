@@ -12,9 +12,9 @@ import {
   type ObjectKind,
   type QuickLink,
 } from "@/components/object-tile"
-import { showActionError } from "@/lib/show-action-error"
 import type { ActionResult } from "@/lib/action-result"
 import { cn } from "@/lib/utils"
+import { useInlineSave } from "@/components/use-inline-save"
 
 /**
  * Shared building blocks for the Salesforce-style record detail template
@@ -181,14 +181,8 @@ export function useSaveField<TPatch>(
   action: (patch: TPatch) => Promise<ActionResult<unknown>>
 ) {
   const router = useRouter()
-  // Deliberately not memoized: `action` closes over the caller's latest
-  // `record` snapshot, and a stale memo would merge outdated fields.
+  const { save } = useInlineSave(action, { onSuccess: () => router.refresh() })
   return async (patch: TPatch) => {
-    const res = await action(patch)
-    if (!res.ok) {
-      showActionError(res)
-      return
-    }
-    router.refresh()
+    await save(patch)
   }
 }

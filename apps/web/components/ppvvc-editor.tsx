@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { useInlineSave } from "@/components/use-inline-save"
 import {
   PPVVC_FIELDS,
   getPpvvcDirtyPatch,
@@ -40,7 +41,12 @@ export function PpvvcEditor({
     normalizePpvvcValues(values)
   )
   const [expanded, setExpanded] = React.useState(!compact)
-  const [saving, startSaving] = React.useTransition()
+  const { save: saveInline, saving } = useInlineSave<PpvvcPatch>(
+    async (patch) => {
+      if (!onSave) return
+      return onSave(patch)
+    }
+  )
   const serverValuesRef = React.useRef(normalizePpvvcValues(values))
 
   React.useEffect(() => {
@@ -60,26 +66,19 @@ export function PpvvcEditor({
 
   function save() {
     if (!onSave) return
-    startSaving(async () => {
-      try {
-        const submitted = normalizePpvvcValues(draft)
-        const patch = getPpvvcDirtyPatch(serverValuesRef.current, submitted)
-        if (Object.keys(patch).length === 0) return
-        const result = await onSave(patch)
-        if (result && !result.ok) {
-          throw new Error(result.error ?? "Could not save PPVVC")
-        }
-        const refreshed = normalizePpvvcValues({
-          ...serverValuesRef.current,
-          ...patch,
-        })
-        serverValuesRef.current = refreshed
-        setDraft((current) => mergePpvvcDraft(submitted, current, refreshed))
-        toast.success("PPVVC saved")
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not save PPVVC")
-      }
-    })
+    void (async () => {
+      const submitted = normalizePpvvcValues(draft)
+      const patch = getPpvvcDirtyPatch(serverValuesRef.current, submitted)
+      if (Object.keys(patch).length === 0) return
+      if (!(await saveInline(patch))) return
+      const refreshed = normalizePpvvcValues({
+        ...serverValuesRef.current,
+        ...patch,
+      })
+      serverValuesRef.current = refreshed
+      setDraft((current) => mergePpvvcDraft(submitted, current, refreshed))
+      toast.success("PPVVC saved")
+    })()
   }
 
   return (

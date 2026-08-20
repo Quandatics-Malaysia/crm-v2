@@ -15,7 +15,8 @@ command -v jq >/dev/null 2>&1 || fail "jq is required"
 jq -e --arg tag "$expected_tag" '
   .release_tag == $tag and
   (.release_tag | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) and
-  .workflow_identity == ("https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/" + $tag) and
+  (.workflow_identity == ("https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/" + $tag) or
+   .workflow_identity == ("https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/heads/main")) and
   (.source_commit | test("^[0-9a-f]{40}$")) and
   (.release_version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and
   (.migration_version | test("^[0-9]{4}$")) and

@@ -379,15 +379,15 @@ export type TransitionDirection = "forward" | "rollback"
 /**
  * The single stage-transition policy shared by the server and client:
  * - no-op moves are rejected;
- * - Closed Won is immutable;
- * - OPEN, LOST, and PARKED stages may move to any other stage, including backward.
+ * - Closed Won and Closed Lost are immutable;
+ * - OPEN and PARKED stages may move to any other stage, including backward.
  */
 export function canTransition(
   from: TransitionStage,
   to: TransitionStage
 ): boolean {
   if (from.id === to.id) return false
-  return from.kind !== "WON"
+  return from.kind !== "WON" && from.kind !== "LOST"
 }
 
 /**
@@ -417,15 +417,15 @@ export function isRollbackTransition(
 /**
  * Enforce the stage state machine for a single move:
  *  - the deal can't move to the stage it's already in,
- *  - Closed Won deals can't move at all,
- *  - OPEN, LOST, and PARKED stages may move backward or forward.
+ *  - Closed Won and Closed Lost deals can't move at all,
+ *  - OPEN and PARKED stages may move backward or forward.
  */
 export function assertTransitionAllowed(
   from: TransitionStage,
   to: TransitionStage
 ): void {
   if (from.id === to.id) throw new Error("This funnel is already in this stage")
-  if (from.kind === "WON")
+  if (isTerminalKind(from.kind))
     throw new Error("This funnel is closed and cannot change its stage.")
 }
 

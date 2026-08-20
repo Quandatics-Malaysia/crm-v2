@@ -176,7 +176,7 @@ export function PersonDetailBody({
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
-                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} compact /> : d.value
+                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} /> : d.value
                       ) : key === "isPrimary" ? (
                         <Switch
                           checked={record.isPrimary ?? false}

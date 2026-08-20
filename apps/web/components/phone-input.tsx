@@ -254,10 +254,17 @@ export function PhoneNumberDisplay({
     // Keep the stored text when an older value cannot be parsed.
   }
   const code = callingCodeOf(country)
+  let formattedNational = national
+  try {
+    const parsed = parsePhoneNumber(raw, country as Parameters<typeof parsePhoneNumber>[1])
+    if (parsed) formattedNational = parsed.formatNational().replace(/^0/, "") || national
+  } catch {
+    // Keep the stored text when an older value cannot be parsed.
+  }
   if (compact) {
     return (
       <span className="tabular-nums">
-        +{code} {national}
+        +{code} {formattedNational}
       </span>
     )
   }
@@ -333,7 +340,7 @@ export function InlinePhoneValue({
       title={title}
       className="group inline-flex items-center gap-1 text-left hover:underline decoration-dotted underline-offset-2"
     >
-      <PhoneNumberDisplay value={raw} defaultCountry={defaultCountry} compact />
+      <PhoneNumberDisplay value={raw} defaultCountry={defaultCountry} />
       <PencilIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/50 group-hover:text-foreground" />
     </button>
   )

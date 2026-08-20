@@ -108,12 +108,7 @@ export default async function PersonDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            {person.title ? (
-              <p className="text-sm text-muted-foreground">{person.title}</p>
-            ) : null}
-          </div>
+        <div className="flex justify-end">
           <div className="flex flex-wrap items-center gap-2">
             <PersonEditButton person={person} accounts={accounts} />
           </div>

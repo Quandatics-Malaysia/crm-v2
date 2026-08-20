@@ -603,6 +603,13 @@
 			"when": 1786975209000,
 			"tag": "0085_funnel_stage_field_map",
 			"breakpoints": true
+		},
+		{
+			"idx": 86,
+			"version": "7",
+			"when": 1786975210000,
+			"tag": "0086_stage_transition_approvals",
+			"breakpoints": true
 		}
 	]
 }

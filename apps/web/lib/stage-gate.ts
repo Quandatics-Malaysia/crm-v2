@@ -371,6 +371,7 @@ export type TransitionStage = {
   id: string
   kind: string
   sortOrder: number
+  requiresApprovalToEnter?: boolean
 }
 
 export type TransitionDirection = "forward" | "rollback"
@@ -378,15 +379,15 @@ export type TransitionDirection = "forward" | "rollback"
 /**
  * The single stage-transition policy shared by the server and client:
  * - no-op moves are rejected;
- * - Closed Won/Lost are immutable;
- * - OPEN and PARKED stages may move to any other stage, including backward.
+ * - Closed Won is immutable;
+ * - OPEN, LOST, and PARKED stages may move to any other stage, including backward.
  */
 export function canTransition(
   from: TransitionStage,
   to: TransitionStage
 ): boolean {
   if (from.id === to.id) return false
-  return !isTerminalKind(from.kind)
+  return from.kind !== "WON"
 }
 
 /**
@@ -416,15 +417,15 @@ export function isRollbackTransition(
 /**
  * Enforce the stage state machine for a single move:
  *  - the deal can't move to the stage it's already in,
- *  - Closed Won/Lost deals can't move at all,
- *  - OPEN and PARKED stages may move backward or forward.
+ *  - Closed Won deals can't move at all,
+ *  - OPEN, LOST, and PARKED stages may move backward or forward.
  */
 export function assertTransitionAllowed(
   from: TransitionStage,
   to: TransitionStage
 ): void {
   if (from.id === to.id) throw new Error("This funnel is already in this stage")
-  if (isTerminalKind(from.kind))
+  if (from.kind === "WON")
     throw new Error("This funnel is closed and cannot change its stage.")
 }
 
@@ -440,6 +441,27 @@ export function canBypassApproval(ctx: {
 /** Terminal stages (Lost / KIV) need a written close reason ("close remarks"). */
 export function requiresCloseRemarks(kind: string): boolean {
   return kind === "LOST" || kind === "PARKED"
+}
+
+/** Approval policy for a legal transition. KIV reopens require approval even
+ * though they are rollback moves; all forward stages use their stage setting. */
+export function requiresApprovalForTransition(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  const direction = transitionDirection(from, to)
+  if (!direction) return false
+  if (direction === "rollback") return from.kind === "PARKED"
+  return !!to.requiresApprovalToEnter
+}
+
+/** Lost deals require a reason when reopened; terminal close moves retain
+ * their existing close-remarks requirement. */
+export function requiresTransitionReason(
+  from: TransitionStage,
+  to: TransitionStage
+): boolean {
+  return requiresCloseRemarks(to.kind) || from.kind === "LOST"
 }
 
 /** Friendly label for the close-remarks field, by terminal kind. */

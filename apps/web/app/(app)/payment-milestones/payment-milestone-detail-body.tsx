@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   DetailAside,
+  DetailCardHeader,
   FieldRow,
   FieldSection,
   RelatedCard,
@@ -64,10 +65,11 @@ export function PaymentMilestoneDetailBody({
     <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
       <DetailAside>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2.5 space-y-0">
-            <span className="text-xs text-muted-foreground">Payment Milestone</span>
-            <span className="text-base font-medium">Amount</span>
-          </CardHeader>
+          <DetailCardHeader
+            kind="milestone"
+            eyebrow="Payment milestone"
+            title={milestone.title}
+          />
           <CardContent className="grid gap-3">
             {canEditAmount ? (
               <InlineValue
@@ -205,28 +207,10 @@ export function PaymentMilestoneDetailBody({
                     )}
                   </FieldRow>
                   <FieldRow label="Product category">
-                    {canManage ? (
-                      <InlineValue
-                        value={milestone.productCategory ?? ""}
-                        display={milestone.productCategory || "—"}
-                        title="Click to edit product category"
-                        onSave={(next) => saveField({ productCategory: next || null })}
-                      />
-                    ) : (
-                      milestone.productCategory ?? "—"
-                    )}
+                    {milestone.productCategory ?? "—"}
                   </FieldRow>
                   <FieldRow label="Product subcategory">
-                    {canManage ? (
-                      <InlineValue
-                        value={milestone.productSubcategory ?? ""}
-                        display={milestone.productSubcategory || "—"}
-                        title="Click to edit product subcategory"
-                        onSave={(next) => saveField({ productSubcategory: next || null })}
-                      />
-                    ) : (
-                      milestone.productSubcategory ?? "—"
-                    )}
+                    {milestone.productSubcategory ?? "—"}
                   </FieldRow>
                   <FieldRow label="SO number">
                     {canManage ? (

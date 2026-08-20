@@ -159,13 +159,7 @@ export default async function OpportunityDetailPage({
   return (
     <>
       <PageBody>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <p className="text-sm text-muted-foreground capitalize">
-              {opp.status.replace(/_/g, " ")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
             {canCreateQuote ? (
               <Button
                 variant="outline"
@@ -219,7 +213,6 @@ export default async function OpportunityDetailPage({
                 canEditPpvvc={canUpdate}
               />
             )}
-          </div>
         </div>
 
         {pendingApproval ? (

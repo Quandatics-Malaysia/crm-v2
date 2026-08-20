@@ -15,6 +15,9 @@ assert.match(workflow, /\^\[0-9a-f\]\{48\}\$/);
 assert.match(workflow, /workflows:\s*\[quality\]/);
 assert.match(workflow, /branches:\s*\[main\]/);
 assert.doesNotMatch(workflow, /branches:\s*\[staging\]/);
+assert.match(workflow, /gh api --paginate/);
+assert.match(workflow, /commits\/\$\{DEPLOY_SHA\}/);
+assert.doesNotMatch(workflow, /Check out the tested commit/);
 assert.match(workflow, /git -C \"\$DIR\" fetch origin main \"\$\{DEPLOY_SHA\}\"/);
 assert.match(workflow, /git -C \"\$DIR\" checkout -f \"\$\{DEPLOY_SHA\}\"/);
 

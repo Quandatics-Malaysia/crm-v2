@@ -48,9 +48,9 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(() => assertTransitionAllowed(open1, open1)).toThrow(/already in this stage/)
   })
 
-  it("allows reversible KIV and Lost moves but rejects immutable Won moves", () => {
+  it("allows reversible KIV moves but rejects immutable Won and Lost moves", () => {
     expect(() => assertTransitionAllowed(won, open2)).toThrow(/closed/)
-    expect(() => assertTransitionAllowed(lost, open1)).not.toThrow()
+    expect(() => assertTransitionAllowed(lost, open1)).toThrow(/closed/)
     expect(() => assertTransitionAllowed(parked, open2)).not.toThrow()
     expect(() => assertTransitionAllowed(open2, parked)).not.toThrow()
   })
@@ -60,7 +60,7 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(canTransition(parked, open1)).toBe(true)
     expect(canTransition(open1, parked)).toBe(true)
     expect(canTransition(won, open1)).toBe(false)
-    expect(canTransition(lost, open1)).toBe(true)
+    expect(canTransition(lost, open1)).toBe(false)
     expect(canTransition(open1, open1)).toBe(false)
   })
 

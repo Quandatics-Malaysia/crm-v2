@@ -56,6 +56,10 @@ import {
   type MilestoneItemBase,
 } from "@/components/milestones-panel"
 import { updateOpportunity } from "../actions"
+import {
+  updateOpportunityContainer,
+  type OpportunityContainerUpdateInput,
+} from "@/app/(app)/opportunities/actions"
 import { createQuotationRevision } from "@/app/(app)/quotations/actions"
 import { showActionError } from "@/lib/show-action-error"
 import type { ApprovalRow } from "@/app/(app)/approvals/actions"
@@ -318,6 +322,12 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   const saveField = useSaveField((patch: Partial<OpportunityInput>) =>
     updateOpportunity(funnelId, patch)
   )
+  const saveContainerField = useSaveField(
+    (patch: Partial<OpportunityContainerUpdateInput>) =>
+      container
+        ? updateOpportunityContainer(container.id, patch)
+        : Promise.resolve({ ok: true, data: undefined })
+  )
 
   const contactOptions = React.useMemo(
     () =>
@@ -517,8 +527,16 @@ export function FunnelDetailBody(props: FunnelDetailData) {
   )
 
   function stageField(key: string, label: string): React.ReactNode {
+    const displayLabel =
+      key === "estimate"
+        ? "Estimated Funnel Amount"
+        : key === "closeDate" || key === "oppEstimatedCloseDate"
+          ? "Estimated Funnel Close Date"
+          : key === "oppEstimatedBudget"
+            ? "Project Budget"
+            : label
     const value = (content: React.ReactNode) => (
-      <FieldRow label={label} inline>
+      <FieldRow label={displayLabel} inline>
         {content}
       </FieldRow>
     )
@@ -630,17 +648,107 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           )
         )
       case "powerSponsorContact":
-        return value(powerSponsor?.name ?? "—")
+        return value(
+          canEdit ? (
+            <InlineCombobox
+              value={container?.powerSponsorContactId ?? ""}
+              display={powerSponsor?.name ?? "—"}
+              options={contactOptions}
+              onSave={(next) =>
+                saveContainerField({ powerSponsorContactId: next || null })
+              }
+              placeholder="Optional"
+              searchPlaceholder="Search contacts…"
+              emptyMessage="No contacts for this account."
+              title="Click to change power sponsor contact"
+            />
+          ) : (
+            powerSponsor?.name ?? "—"
+          )
+        )
       case "powerSponsorBudgetLimit":
-        return value(formatMoney(container?.powerSponsorBudgetLimit, currency))
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.powerSponsorBudgetLimit ?? ""}
+              display={formatMoney(container?.powerSponsorBudgetLimit, currency)}
+              formatDraft={(next) => formatMoney(next || "0", currency)}
+              type="number"
+              title="Click to edit power sponsor budget limit"
+              onSave={(next) =>
+                saveContainerField({ powerSponsorBudgetLimit: next || null })
+              }
+            />
+          ) : (
+            formatMoney(container?.powerSponsorBudgetLimit, currency)
+          )
+        )
       case "ownerContact":
-        return value(ownerContact?.name ?? "—")
+        return value(
+          canEdit ? (
+            <InlineCombobox
+              value={container?.ownerContactId ?? ""}
+              display={ownerContact?.name ?? "—"}
+              options={contactOptions}
+              onSave={(next) =>
+                saveContainerField({ ownerContactId: next || null })
+              }
+              placeholder="Optional"
+              searchPlaceholder="Search contacts…"
+              emptyMessage="No contacts for this account."
+              title="Click to change opportunity owner contact"
+            />
+          ) : (
+            ownerContact?.name ?? "—"
+          )
+        )
       case "ownerBudgetLimit":
-        return value(formatMoney(container?.ownerBudgetLimit, currency))
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.ownerBudgetLimit ?? ""}
+              display={formatMoney(container?.ownerBudgetLimit, currency)}
+              formatDraft={(next) => formatMoney(next || "0", currency)}
+              type="number"
+              title="Click to edit opportunity owner budget limit"
+              onSave={(next) => saveContainerField({ ownerBudgetLimit: next || null })}
+            />
+          ) : (
+            formatMoney(container?.ownerBudgetLimit, currency)
+          )
+        )
       case "oppEstimatedBudget":
-        return value(formatMoney(container?.estimatedBudget, currency))
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.estimatedBudget ?? ""}
+              display={formatMoney(container?.estimatedBudget, currency)}
+              formatDraft={(next) => formatMoney(next || "0", currency)}
+              type="number"
+              title="Click to edit project budget"
+              onSave={(next) => saveContainerField({ estimatedBudget: next || null })}
+            />
+          ) : (
+            formatMoney(container?.estimatedBudget, currency)
+          )
+        )
       case "oppEstimatedCloseDate":
-        return value(formatDate(container?.estimatedCloseDate))
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={container?.estimatedCloseDate ?? ""}
+              display={formatDate(container?.estimatedCloseDate)}
+              formatDraft={(next) => (next ? formatDate(next) : "—")}
+              type="date"
+              title="Click to edit estimated funnel close date"
+              onSave={(next) =>
+                saveContainerField({ estimatedCloseDate: next || null })
+              }
+            />
+          ) : (
+            formatDate(container?.estimatedCloseDate)
+          )
+        )
       case "procurementStage":
         return value(
           canEdit ? (
@@ -670,10 +778,40 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       case "negotiationDate":
         return value(formatDate(negotiationDate))
       case "expectedInvoice":
-        return value(
-          expectedInvoiceMonth && expectedInvoiceYear
-            ? `${expectedInvoiceMonth} ${expectedInvoiceYear}`
-            : "—"
+        return (
+          <>
+            <FieldRow label="Expected Invoice Month" inline>
+              {canEdit ? (
+                <InlineValue
+                  value={expectedInvoiceMonth ?? ""}
+                  display={expectedInvoiceMonth || "—"}
+                  title="Click to edit expected invoice month"
+                  onSave={(next) =>
+                    saveField({ expectedInvoiceMonth: next || null })
+                  }
+                />
+              ) : (
+                expectedInvoiceMonth || "—"
+              )}
+            </FieldRow>
+            <FieldRow label="Expected Invoice Year" inline>
+              {canEdit ? (
+                <InlineValue
+                  value={expectedInvoiceYear?.toString() ?? ""}
+                  display={expectedInvoiceYear?.toString() || "—"}
+                  type="number"
+                  title="Click to edit expected invoice year"
+                  onSave={(next) =>
+                    saveField({
+                      expectedInvoiceYear: next ? Number(next) : null,
+                    })
+                  }
+                />
+              ) : (
+                expectedInvoiceYear?.toString() || "—"
+              )}
+            </FieldRow>
+          </>
         )
       default: {
         const custom = customFieldByKey.get(key)

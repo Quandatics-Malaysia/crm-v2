@@ -134,7 +134,7 @@ jobs:
           install -m 0600 "$BUNDLE_DIR/release-manifest.json" "$CLIENT_DIR/release-manifest.json"
 
       - name: Prepare signed backup evidence for deployed release
-        if: inputs.operation == 'prepare-backup'
+        if: github.event_name == 'workflow_run' || inputs.operation == 'prepare-backup'
         shell: bash
         run: |
           set -euo pipefail

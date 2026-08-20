@@ -13,6 +13,7 @@ test("production deploy uses only a signed source-free release bundle", () => {
   assert.match(workflow, /client-deployment-bundle-/)
   assert.match(workflow, /gh run download/)
   assert.match(workflow, /workflow_run.*inputs\.operation == 'deploy'/s)
+  assert.match(workflow, /github\.event_name == 'workflow_run' \|\| inputs\.operation == 'prepare-backup'/)
   assert.doesNotMatch(workflow, /ARTIFACT_ID/)
   assert.doesNotMatch(workflow, /\\bunzip\\b/)
   assert.match(workflow, /docker login ghcr\.io/)

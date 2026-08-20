@@ -13,6 +13,8 @@ import {
   stagesRequiredBefore,
   requiredKeysForStages,
   isRollbackTransition,
+  requiresApprovalForTransition,
+  requiresTransitionReason,
   type StageGate,
   type CustomFunnelField,
 } from "@/lib/stage-gate"
@@ -137,7 +139,7 @@ export function StageAdvanceDialog({
   const target = ordered.find((s) => s.id === targetStageId)
   const from = ordered.find((s) => s.id === currentStageId)
   const rollback = !!from && !!target && isRollbackTransition(from, target)
-  const needsApproval = !rollback && (target?.requiresApprovalToEnter ?? false)
+  const needsApproval = !!from && !!target && requiresApprovalForTransition(from, target)
 
   // Advancing to a stage checks every earlier stage, including the current one.
   const requiredStages = React.useMemo(
@@ -156,9 +158,8 @@ export function StageAdvanceDialog({
     gate ?? { satisfied: {}, labels: {} }
   )
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
-  // Only terminal (Lost/KIV) moves require a written reason; approval context is optional.
-  const needsReason = !rollback && isTerminal
-  const showReason = !rollback && (needsApproval || isTerminal)
+  const needsReason = !!from && !!target && requiresTransitionReason(from, target)
+  const showReason = needsApproval || needsReason
   const blocked = missing.length > 0 || (needsReason && !reason.trim())
 
   const stageLabel = React.useCallback(
@@ -246,9 +247,11 @@ export function StageAdvanceDialog({
         <DialogHeader>
           <DialogTitle>{rollback ? "Move back" : "Advance stage"}</DialogTitle>
           <DialogDescription>
-            {rollback
-              ? "Move this Funnel back without re-entering stage requirements."
-              : "Move this Funnel to a new stage. Some stages require manager approval before the move takes effect."}
+            {needsApproval
+              ? "This stage change requires approval before it takes effect."
+              : rollback
+                ? "Move this Funnel back to an earlier stage."
+                : "Move this Funnel to a new stage."}
           </DialogDescription>
         </DialogHeader>
 
@@ -357,15 +360,15 @@ export function StageAdvanceDialog({
                 <Label htmlFor="advance-reason">
                   {isTerminal && target
                     ? closeRemarksLabel(target.kind)
-                    : "Reason (optional)"}{" "}
-                  {isTerminal ? <span className="text-destructive">*</span> : null}
+                    : "Reopen reason"}{" "}
+                  {needsReason ? <span className="text-destructive">*</span> : null}
                 </Label>
                 <Textarea
                   id="advance-reason"
                   placeholder={
                     isTerminal
                       ? "Why is this funnel being closed? (recorded on the stage history)"
-                    : "Add context for the approver (optional)"
+                      : "Why is this Closed Lost funnel being reopened?"
                   }
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
@@ -374,7 +377,9 @@ export function StageAdvanceDialog({
                 <p className="text-xs text-muted-foreground">
                   {isTerminal
                     ? "Close remarks are kept on the funnel's stage history."
-                    : "This stage requires approval. Your request is routed to an approver — track its status under Approvals."}
+                    : needsApproval
+                      ? "Your request is routed to an approver — track its status under Approvals."
+                      : "The reason is kept on the funnel's stage history."}
                 </p>
               </div>
             ) : null}
@@ -395,7 +400,7 @@ export function StageAdvanceDialog({
                 onClick={onSubmit}
                 disabled={submitting || blocked}
               >
-                {rollback ? "Move back" : needsApproval ? "Request advance" : "Advance"}
+                {needsApproval ? "Request approval" : rollback ? "Move back" : "Advance"}
               </Button>
             </DialogFooter>
           </div>

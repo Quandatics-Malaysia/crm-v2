@@ -10,6 +10,8 @@ import {
   paymentMilestoneStatus,
   funnels,
   quotations,
+  quotationLineItems,
+  products,
   opportunities,
 } from "@/db/schema"
 import { runAction, type ActionResult } from "@/lib/action-result"
@@ -39,6 +41,39 @@ export type PaymentMilestoneListItem = PaymentMilestoneRow & {
 export type PaymentMilestoneDetail = PaymentMilestoneRow & {
   funnelName: string | null
   quoteNumber: string | null
+}
+
+/** Resolve product metadata from the quotation line that owns the milestone.
+ * A legacy/default full-payment milestone has no line-item foreign key, so a
+ * single-line quotation is unambiguous; multi-line milestones remain blank
+ * until the data model can identify their source line. */
+async function resolveMilestoneProduct(
+  tx: Tx,
+  quotationId: string | null,
+  milestoneTitle: string
+): Promise<{ productCategory: string | null; productSubcategory: string | null }> {
+  if (!quotationId) return { productCategory: null, productSubcategory: null }
+  const lines = await tx
+    .select({
+      description: quotationLineItems.description,
+      productName: products.name,
+      productCategory: products.productCode,
+      productSubcategory: products.subcategory,
+    })
+    .from(quotationLineItems)
+    .leftJoin(products, eq(quotationLineItems.productId, products.id))
+    .where(eq(quotationLineItems.quotationId, quotationId))
+    .orderBy(asc(quotationLineItems.sortOrder))
+  const line =
+    lines.find(
+      (candidate) =>
+        candidate.description === milestoneTitle ||
+        candidate.productName === milestoneTitle
+    ) ?? (lines.length === 1 ? lines[0] : null)
+  return {
+    productCategory: line?.productCategory ?? null,
+    productSubcategory: line?.productSubcategory ?? null,
+  }
 }
 
 /**
@@ -104,10 +139,12 @@ export async function getPaymentMilestone(
       .where(eq(paymentMilestones.id, id))
       .limit(1)
     if (!row) return null
+    const product = await resolveMilestoneProduct(tx, row.m.quotationId, row.m.title)
     return {
       ...row.m,
       funnelName: row.funnelName,
       quoteNumber: row.quoteNumber,
+      ...product,
     }
   })
 }
@@ -130,8 +167,6 @@ export type FunnelMilestoneUpdateInput = {
   description?: string | null
   amount?: string | null
   dueDate?: string | null
-  productCategory?: string | null
-  productSubcategory?: string | null
   soNumber?: string | null
   status?: string
 }
@@ -421,14 +456,6 @@ export async function updateFunnelMilestone(
               input.dueDate === undefined
                 ? existing.dueDate
                 : input.dueDate || null,
-            productCategory:
-              input.productCategory === undefined
-                ? existing.productCategory
-                : input.productCategory || null,
-            productSubcategory:
-              input.productSubcategory === undefined
-                ? existing.productSubcategory
-                : input.productSubcategory || null,
             soNumber:
               input.soNumber === undefined
                 ? existing.soNumber

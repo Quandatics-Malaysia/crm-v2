@@ -32,6 +32,8 @@ import {
   isPresetFieldKey,
   assertTransitionAllowed,
   isRollbackTransition,
+  requiresApprovalForTransition,
+  requiresTransitionReason,
   canBypassApproval,
   entersMilestoneAutoCreateStage,
   type CustomFunnelField,
@@ -585,9 +587,9 @@ export async function requestStageAdvance(
         `Add ${missing.map((m) => m.label).join(", ")} before moving to ${target.name}.`
       )
     }
-    if (!rollback && requiresCloseRemarks(target.kind) && !input.reason?.trim()) {
+    if (requiresTransitionReason(from, target) && !input.reason?.trim()) {
       throw new Error(
-        `${closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
+        `${from.kind === "LOST" && !requiresCloseRemarks(target.kind) ? "Reopen reason" : closeRemarksLabel(target.kind)} is required to move to ${target.name}.`
       )
     }
 
@@ -601,7 +603,7 @@ export async function requestStageAdvance(
     }
 
     const gated =
-      !rollback && target.requiresApprovalToEnter && !canBypassApproval(ctx)
+      requiresApprovalForTransition(from, target) && !canBypassApproval(ctx)
 
     if (!gated) {
       if (rollback) await cancelPendingApprovalRequests(tx, ctx, opp.id)

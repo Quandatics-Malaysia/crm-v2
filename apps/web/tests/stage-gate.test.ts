@@ -11,6 +11,8 @@ import {
   requiresCloseRemarks,
   entersMilestoneAutoCreateStage,
   isRollbackTransition,
+  requiresApprovalForTransition,
+  requiresTransitionReason,
   transitionDirection,
   REQUIRABLE_FIELD_KEYS,
   type StageGateState,
@@ -46,9 +48,9 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(() => assertTransitionAllowed(open1, open1)).toThrow(/already in this stage/)
   })
 
-  it("allows reversible KIV moves but rejects immutable Won/Lost moves", () => {
+  it("allows reversible KIV and Lost moves but rejects immutable Won moves", () => {
     expect(() => assertTransitionAllowed(won, open2)).toThrow(/closed/)
-    expect(() => assertTransitionAllowed(lost, open1)).toThrow(/closed/)
+    expect(() => assertTransitionAllowed(lost, open1)).not.toThrow()
     expect(() => assertTransitionAllowed(parked, open2)).not.toThrow()
     expect(() => assertTransitionAllowed(open2, parked)).not.toThrow()
   })
@@ -58,7 +60,7 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(canTransition(parked, open1)).toBe(true)
     expect(canTransition(open1, parked)).toBe(true)
     expect(canTransition(won, open1)).toBe(false)
-    expect(canTransition(lost, open1)).toBe(false)
+    expect(canTransition(lost, open1)).toBe(true)
     expect(canTransition(open1, open1)).toBe(false)
   })
 
@@ -78,6 +80,20 @@ describe("assertTransitionAllowed — stage state machine", () => {
     expect(transitionDirection(parkedBeforeLadder, openAfterParked)).toBe("rollback")
     expect(isRollbackTransition(parkedBeforeLadder, openAfterParked)).toBe(true)
     expect(transitionDirection(parkedBeforeLadder, won)).toBe("forward")
+  })
+
+  it("requires approval for forward moves and KIV reopens", () => {
+    const open1WithApproval = { ...open1, requiresApprovalToEnter: true }
+    const open2WithApproval = { ...open2, requiresApprovalToEnter: true }
+    expect(requiresApprovalForTransition(open1WithApproval, open2WithApproval)).toBe(true)
+    expect(requiresApprovalForTransition(parked, open1WithApproval)).toBe(true)
+    expect(requiresApprovalForTransition(lost, open1WithApproval)).toBe(false)
+  })
+
+  it("requires a reason when closing or reopening Closed Lost", () => {
+    expect(requiresTransitionReason(open1, lost)).toBe(true)
+    expect(requiresTransitionReason(lost, open1)).toBe(true)
+    expect(requiresTransitionReason(parked, open1)).toBe(false)
   })
 
   it("uses the same classifier for StagePath labels and hints", () => {

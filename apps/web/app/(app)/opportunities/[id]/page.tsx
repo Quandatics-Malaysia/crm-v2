@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation"
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { requireContext } from "@/lib/server-context"
 import { PERMISSIONS } from "@/lib/permissions"
@@ -82,13 +81,6 @@ export default async function OpportunityDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={o.name}
-        breadcrumbs={[
-          { label: "Opportunities", href: "/opportunities" },
-          { label: o.name },
-        ]}
-      />
       <PageBody>
         <OpportunityDetailBody
           detail={detail}

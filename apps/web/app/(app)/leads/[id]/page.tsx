@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -132,18 +131,8 @@ export default async function LeadDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={lead.name}
-        breadcrumbs={[
-          { label: "Leads", href: "/leads" },
-          { label: lead.name },
-        ]}
-      />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{lead.name}</h2>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             {stageName ? (
               <Badge variant="outline" className="font-normal">

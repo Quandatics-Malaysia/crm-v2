@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { SiteHeader } from "@/components/site-header"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { requireContext } from "@/lib/server-context"
@@ -40,18 +39,8 @@ export default async function SalesOrderDetailPage({
 
   return (
     <>
-      <SiteHeader
-        title={title}
-        breadcrumbs={[
-          { label: "Sales orders", href: "/sales-orders" },
-          { label: title },
-        ]}
-      />
       <PageBody>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-          </div>
           <Button
             variant="outline"
             nativeButton={false}

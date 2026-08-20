@@ -174,34 +174,14 @@ async function main() {
       .values({ tenantId: TENANT_ID, name: "Sales Funnel", isDefault: true, isActive: true })
       .returning()
   }
-  // Entry requirements matching the ACTIVE Salesforce validation rules only
-  // (Sales_Stage_to_3B and Sales_Stage_to_Closed_Won are "Not Checked" —
-  // inactive — in the live org, so they stay unrequired here too).
+  // Fields shown in each stage's detail panel; also the stage-entry gate.
   const STAGE_REQUIRED_FIELDS: Partial<Record<string, string[]>> = {
-    "0e": ["vision"],
-    "1d": [
-      "vision",
-      "objective",
-      "ownerBudgetLimit",
-      "oppEstimatedBudget",
-      "oppEstimatedCloseDate",
-      "ownerContact",
-    ],
-    "4a": [
-      "vision",
-      "objective",
-      "ownerBudgetLimit",
-      "oppEstimatedBudget",
-      "oppEstimatedCloseDate",
-      "ownerContact",
-      "value",
-      "procurementStage",
-      "powerSponsorContact",
-      "powerSponsorBudgetLimit",
-      "negotiationDone",
-      "negotiationDate",
-      "expectedInvoice",
-    ],
+    "0e": ["vision", "oppEstimatedCloseDate"],
+    "1d": ["objective", "oppEstimatedBudget", "oppEstimatedCloseDate"],
+    "2c": ["value", "procurementStage"],
+    "3b": ["powerSponsorContact", "powerSponsorBudgetLimit", "procurementStage", "expectedInvoice"],
+    "4a": ["negotiationDone", "negotiationDate", "projectYear", "expectedInvoice"],
+    "won": ["awardDate", "purchaseOrderNumber", "contract"],
   }
   const existingStages = await db
     .select({ id: pipelineStages.id, code: pipelineStages.code, requiredFields: pipelineStages.requiredFields })

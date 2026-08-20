@@ -197,6 +197,9 @@ export type FunnelDetailData = {
   funnelName: string | null
   description: string | null
   projectYear: number | null
+  awardDate: string | null
+  purchaseOrderNumber: string | null
+  contract: string | null
   isIntercompany: boolean
   /** Handling partners on this deal, with live-resolved names. */
   parties: OpportunityDetail["parties"]
@@ -281,6 +284,9 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     funnelName,
     description,
     projectYear,
+    awardDate,
+    purchaseOrderNumber,
+    contract,
     isIntercompany,
     parties,
     partnerResponses,
@@ -776,7 +782,17 @@ export function FunnelDetailBody(props: FunnelDetailData) {
           )
         )
       case "negotiationDate":
-        return value(formatDate(negotiationDate))
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={negotiationDate ?? ""}
+              display={formatDate(negotiationDate)}
+              type="date"
+              title="Click to edit negotiation date"
+              onSave={(next) => saveField({ negotiationDate: next || null })}
+            />
+          ) : formatDate(negotiationDate)
+        )
       case "expectedInvoice":
         return (
           <>
@@ -812,6 +828,52 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               )}
             </FieldRow>
           </>
+        )
+      case "projectYear":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={projectYear == null ? "" : String(projectYear)}
+              display={projectYear ?? "—"}
+              type="number"
+              title="Click to edit project / license year"
+              onSave={(next) => saveField({ projectYear: next ? Number(next) : null })}
+            />
+          ) : projectYear ?? "—"
+        )
+      case "awardDate":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={awardDate ?? ""}
+              display={formatDate(awardDate)}
+              type="date"
+              title="Click to edit award date"
+              onSave={(next) => saveField({ awardDate: next || null })}
+            />
+          ) : formatDate(awardDate)
+        )
+      case "purchaseOrderNumber":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={purchaseOrderNumber ?? ""}
+              display={purchaseOrderNumber || "—"}
+              title="Click to edit purchase order number"
+              onSave={(next) => saveField({ purchaseOrderNumber: next || null })}
+            />
+          ) : purchaseOrderNumber || "—"
+        )
+      case "contract":
+        return value(
+          canEdit ? (
+            <InlineValue
+              value={contract ?? ""}
+              display={contract || "—"}
+              title="Click to edit contract"
+              onSave={(next) => saveField({ contract: next || null })}
+            />
+          ) : contract || "—"
         )
       default: {
         const custom = customFieldByKey.get(key)

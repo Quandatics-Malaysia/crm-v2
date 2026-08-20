@@ -271,6 +271,9 @@ export type OpportunityInput = {
   recognizedPercent?: string | null
   description?: string | null
   projectYear?: number | null
+  awardDate?: string | null
+  purchaseOrderNumber?: string | null
+  contract?: string | null
   isIntercompany?: boolean
   /** Handling partners on this deal (0..MAX_INTERCOMPANY_PARTIES). */
   parties?: PartyInput[] | null
@@ -699,6 +702,16 @@ export async function updateOpportunity(
         input.projectYear === undefined
           ? existing.projectYear
           : projectYear,
+      awardDate:
+        input.awardDate === undefined
+          ? existing.awardDate
+          : normalizeDateInput(input.awardDate, "Award date"),
+      purchaseOrderNumber:
+        input.purchaseOrderNumber === undefined
+          ? existing.purchaseOrderNumber
+          : input.purchaseOrderNumber || null,
+      contract:
+        input.contract === undefined ? existing.contract : input.contract || null,
       isIntercompany: effectiveInterco,
       currency: resolvedCurrency,
       projectNatures:

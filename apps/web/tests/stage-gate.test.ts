@@ -132,7 +132,8 @@ const presets = (v: boolean): StageGateState =>
       "hasOppEstimatedBudget", "hasOppEstimatedCloseDate", "hasValue",
       "hasPowerSponsorContact", "hasPowerSponsorBudgetLimit", "hasControl",
       "hasProcurementStage", "hasNegotiationDone", "hasNegotiationDate",
-      "hasExpectedInvoice",
+      "hasExpectedInvoice", "hasProjectYear", "hasAwardDate",
+      "hasPurchaseOrderNumber", "hasContract",
     ].map((k) => [k, v])
   ) as StageGateState
 

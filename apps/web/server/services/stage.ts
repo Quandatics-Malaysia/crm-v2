@@ -287,6 +287,10 @@ function stageGateState(
     hasNegotiationDate: !!opp.negotiationDate,
     hasExpectedInvoice:
       !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
+    hasProjectYear: opp.projectYear != null,
+    hasAwardDate: !!opp.awardDate,
+    hasPurchaseOrderNumber: !!opp.purchaseOrderNumber?.trim(),
+    hasContract: !!opp.contract?.trim(),
   }
 }
 

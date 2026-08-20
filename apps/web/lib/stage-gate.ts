@@ -40,6 +40,10 @@ export type StageGateState = {
   hasNegotiationDone: boolean
   hasNegotiationDate: boolean
   hasExpectedInvoice: boolean
+  hasProjectYear: boolean
+  hasAwardDate: boolean
+  hasPurchaseOrderNumber: boolean
+  hasContract: boolean
 }
 
 /** Recompute PPVVC-backed gate flags after an inline authoritative save. */
@@ -157,6 +161,10 @@ export type PresetFieldKey =
   | "negotiationDone"
   | "negotiationDate"
   | "expectedInvoice"
+  | "projectYear"
+  | "awardDate"
+  | "purchaseOrderNumber"
+  | "contract"
 
 /** Catalog of preset fields → (the completeness flag it reads, human label). */
 export const REQUIRABLE_FIELDS: Record<
@@ -197,6 +205,13 @@ export const REQUIRABLE_FIELDS: Record<
     stateKey: "hasExpectedInvoice",
     label: "Expected Invoice Month/Year",
   },
+  projectYear: { stateKey: "hasProjectYear", label: "Project / License Year" },
+  awardDate: { stateKey: "hasAwardDate", label: "Award Date" },
+  purchaseOrderNumber: {
+    stateKey: "hasPurchaseOrderNumber",
+    label: "Purchase Order Number",
+  },
+  contract: { stateKey: "hasContract", label: "Contract" },
 }
 
 export const REQUIRABLE_FIELD_KEYS = Object.keys(

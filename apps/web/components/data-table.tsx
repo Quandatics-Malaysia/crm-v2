@@ -979,7 +979,10 @@ function OptionFilter({
           </Button>
         }
       />
-      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-auto p-2">
+      <DropdownMenuContent
+        align="start"
+        className="max-h-[min(28rem,calc(100vh-6rem))] w-[min(22rem,calc(100vw-2rem))] overflow-auto p-2"
+      >
         <DropdownMenuGroup>
           <DropdownMenuLabel className="px-0 text-xs text-muted-foreground">{title}</DropdownMenuLabel>
         </DropdownMenuGroup>
@@ -1000,8 +1003,9 @@ function OptionFilter({
                 key={option.value}
                 checked={selected.has(option.value)}
                 onCheckedChange={() => toggle(option.value)}
+                className="min-h-9 whitespace-normal py-2 pr-10 pl-2 leading-5"
               >
-                {option.label}
+                <FilterOptionLabel label={option.label} />
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuGroup>
@@ -1014,6 +1018,23 @@ function OptionFilter({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function FilterOptionLabel({ label }: { label: string }) {
+  const separator = " — "
+  const splitAt = label.indexOf(separator)
+  if (splitAt < 0) return <span>{label}</span>
+
+  return (
+    <span className="grid min-w-0 grid-cols-[4.25rem_minmax(0,1fr)] items-baseline gap-2">
+      <span className="font-mono text-xs font-medium text-muted-foreground">
+        {label.slice(0, splitAt)}
+      </span>
+      <span className="min-w-0 truncate">
+        {label.slice(splitAt + separator.length)}
+      </span>
+    </span>
   )
 }
 

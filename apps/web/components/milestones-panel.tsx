@@ -9,13 +9,6 @@ import { MilestoneSplitDialog } from "@/components/milestone-split-dialog"
 import { Button } from "@/components/ui/button"
 import { showActionError } from "@/lib/show-action-error"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -38,8 +31,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { formatDate, formatMoney } from "@/lib/format"
-import { MILESTONE_STATUS_OPTIONS } from "@/lib/status-meta"
 import { cn } from "@/lib/utils"
+import { StatusBadge } from "@/components/status-badge"
 import type { ActionResult } from "@/lib/action-result"
 import type { paymentMilestoneStatus } from "@/db/schema"
 
@@ -72,11 +65,6 @@ export type MilestoneUpdateValues = {
   dueDate?: string | null
   status?: string
 }
-
-const STATUS_OPTIONS = MILESTONE_STATUS_OPTIONS as {
-  value: MilestoneStatus
-  label: string
-}[]
 
 /**
  * Inline-editable payment milestone list + add-row form. Used for both
@@ -321,36 +309,7 @@ export function MilestonesPanel({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Select
-                      value={m.status}
-                      onValueChange={(next) =>
-                        run(
-                          () => onUpdate(m.id, { status: String(next) }),
-                          "Milestone updated"
-                        )
-                      }
-                      disabled={!canManage}
-                      items={STATUS_OPTIONS}
-                    >
-                      <SelectTrigger size="sm" className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((o, i) => (
-                          <SelectItem
-                            key={o.value}
-                            value={o.value}
-                            // Forward-only: can't revert to an earlier status.
-                            disabled={
-                              i <
-                              STATUS_OPTIONS.findIndex((s) => s.value === m.status)
-                            }
-                          >
-                            {o.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <StatusBadge status={m.status} />
                   </TableCell>
                   {canManage ? (
                     <TableCell className="text-right">
@@ -483,6 +442,10 @@ export function MilestonesPanel({
           </span>
         )}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Status follows the quotation and invoice workflow. It is shown here for
+        reference and cannot be changed from the milestone schedule.
+      </p>
 
       {onSplit ? (
         <MilestoneSplitDialog

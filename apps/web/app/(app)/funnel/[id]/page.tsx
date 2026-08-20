@@ -125,6 +125,10 @@ export default async function OpportunityDetailPage({
       hasNegotiationDone: !!opp.negotiationDone,
       hasNegotiationDate: !!opp.negotiationDate,
       hasExpectedInvoice: !!opp.expectedInvoiceMonth && !!opp.expectedInvoiceYear,
+      hasProjectYear: opp.projectYear != null,
+      hasAwardDate: !!opp.awardDate,
+      hasPurchaseOrderNumber: !!opp.purchaseOrderNumber?.trim(),
+      hasContract: !!opp.contract?.trim(),
     },
     (opp.customFields ?? {}) as Record<string, unknown>,
     customFunnelFields
@@ -265,6 +269,9 @@ export default async function OpportunityDetailPage({
           funnelName={pipelines.find((f) => f.id === opp.pipelineId)?.name ?? null}
           description={opp.description}
           projectYear={opp.projectYear}
+          awardDate={opp.awardDate}
+          purchaseOrderNumber={opp.purchaseOrderNumber}
+          contract={opp.contract}
           isIntercompany={opp.isIntercompany}
           parties={detail.parties}
           partnerResponses={detail.partnerResponses}

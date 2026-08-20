@@ -283,6 +283,8 @@ export const funnels = pgTable(
     control: text("control"),
     /** Award date (maps to Estimated Funnel Close Date on Closed Won). */
     awardDate: date("award_date"),
+    purchaseOrderNumber: text("purchase_order_number"),
+    contract: text("contract"),
     /** Renewal funnel flag (renewal automation is deferred to the projects module). */
     isRenewal: boolean("is_renewal").notNull().default(false),
     /**

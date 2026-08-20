@@ -162,7 +162,7 @@ export function LeadDetailBody({
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
                         d.label === "Phone" ? (
-                          <PhoneNumberDisplay value={record.phone} compact />
+                          <PhoneNumberDisplay value={record.phone} />
                         ) : (
                           d.value
                         )

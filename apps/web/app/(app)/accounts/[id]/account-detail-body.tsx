@@ -328,7 +328,7 @@ export function AccountDetailBody(props: AccountDetailData) {
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
-                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} compact /> : d.value
+                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} /> : d.value
                       ) : addressSub ? (
                         addressSub === "country" ? (
                           <InlineCombobox

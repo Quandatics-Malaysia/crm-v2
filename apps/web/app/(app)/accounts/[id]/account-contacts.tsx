@@ -198,7 +198,7 @@ export function AccountContacts({
       {
         accessorKey: "phone",
         header: "Phone",
-        cell: ({ row }) => <PhoneNumberDisplay value={row.original.phone} />,
+        cell: ({ row }) => <PhoneNumberDisplay value={row.original.phone} compact />,
       },
       {
         id: "primary",

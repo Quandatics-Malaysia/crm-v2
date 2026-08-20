@@ -16,7 +16,7 @@ import {
 } from "@/lib/lookups"
 import { PageBody } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { listActivities } from "@/app/(app)/_shared/activity-actions"
+import { listActivities, type ActivityRow } from "@/app/(app)/_shared/activity-actions"
 import { listOpportunityDocuments } from "@/app/(app)/_shared/attachment-actions"
 import {
   getOpportunity,
@@ -83,6 +83,28 @@ export default async function OpportunityDetailPage({
     listFunnelApprovalHistory(id),
     getEntitledModuleMap(),
   ])
+
+  const activityWithApprovals: ActivityRow[] = [
+    ...activity,
+    ...approvalHistory.map((row): ActivityRow => ({
+      id: `approval-${row.id}`,
+      type: "system",
+      subject: `Approval ${row.status}: ${row.fromStageName ?? "—"} → ${row.targetStageName}`,
+      body: row.reason || null,
+      outcome:
+        row.status === "pending"
+          ? "Pending approval"
+          : `${row.status[0].toUpperCase()}${row.status.slice(1)} by ${row.approverName ?? "Unknown"}`,
+      nextStep: row.decisionNote ? `Decision note: ${row.decisionNote}` : null,
+      dueAt: null,
+      memberName: row.requesterName,
+      occurredAt: row.requestedAt,
+      changes: null,
+    })),
+  ].sort(
+    (a, b) =>
+      new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+  )
 
   // Resolve the project-nature display name for the overview (falls back to the
   // raw code if the picklist entry was renamed/removed).
@@ -295,11 +317,10 @@ export default async function OpportunityDetailPage({
           gate={gate}
           customFieldDefs={customFunnelFields}
           customValues={(opp.customFields ?? {}) as Record<string, string>}
-          activity={activity}
+          activity={activityWithApprovals}
           documents={documents}
           milestones={milestones}
           canManageMilestones={canManageMilestones}
-          approvalHistory={approvalHistory}
         />
 
         <div>

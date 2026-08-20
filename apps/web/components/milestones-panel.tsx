@@ -442,11 +442,6 @@ export function MilestonesPanel({
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Status follows the quotation and invoice workflow. It is shown here for
-        reference and cannot be changed from the milestone schedule.
-      </p>
-
       {onSplit ? (
         <MilestoneSplitDialog
           open={splitOpen}

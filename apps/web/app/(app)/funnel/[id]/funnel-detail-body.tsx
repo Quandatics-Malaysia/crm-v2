@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, PencilIcon, ChevronRight, CopyPlus } from "lucide-react"
+import { Plus, PencilIcon, CopyPlus } from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -62,7 +62,6 @@ import {
 } from "@/app/(app)/opportunities/actions"
 import { createQuotationRevision } from "@/app/(app)/quotations/actions"
 import { showActionError } from "@/lib/show-action-error"
-import type { ApprovalRow } from "@/app/(app)/approvals/actions"
 import type {
   OpportunityDetail,
   OpportunityProjectRow,
@@ -102,52 +101,6 @@ const INVOICE_MONTHS = [
 
 // Status pills render via the app-wide <StatusBadge> tone map; the stage-change
 // source labels come from the shared status-meta module.
-
-/** One stage-approval request, read-only — from/to stage, status, requester
- *  and (once decided) approver + decision note. Mirrors the approvals inbox
- *  cards but with no action affordances (this is a history view). */
-function ApprovalHistoryEntry({ row }: { row: ApprovalRow }) {
-  return (
-    <div className="grid gap-2 rounded-lg border p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-sm">
-          <span className="text-muted-foreground">
-            {row.fromStageName ?? "—"}
-          </span>
-          <ChevronRight className="size-3.5 text-muted-foreground" />
-          <span className="font-medium">{row.targetStageName}</span>
-        </span>
-        <StatusBadge status={row.status} />
-      </div>
-      {row.reason ? (
-        <p className="text-sm text-muted-foreground">{row.reason}</p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          Requested by{" "}
-          <span className="text-foreground">
-            {row.requesterName ?? "Unknown"}
-          </span>{" "}
-          on {formatDate(row.requestedAt)}
-        </span>
-        {row.decidedAt ? (
-          <span>
-            {row.status === "cancelled" ? "Cancelled" : "Decided"} by{" "}
-            <span className="text-foreground">
-              {row.approverName ?? "Unknown"}
-            </span>{" "}
-            on {formatDate(row.decidedAt)}
-          </span>
-        ) : null}
-      </div>
-      {row.decisionNote ? (
-        <p className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
-          Note: {row.decisionNote}
-        </p>
-      ) : null}
-    </div>
-  )
-}
 
 type StageLite = OpportunityDetail["funnelStagesList"][number]
 
@@ -247,8 +200,6 @@ export type FunnelDetailData = {
   milestones: PaymentMilestoneRow[]
   /** Gates the milestones panel's add/edit/reorder/delete affordances. */
   canManageMilestones: boolean
-  /** Every stage-approval request raised for this funnel, any status, newest first. */
-  approvalHistory: ApprovalRow[]
 }
 
 /** Two-column detail: a rich details panel on the left, the clickable stage path
@@ -321,7 +272,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     documents,
     milestones,
     canManageMilestones,
-    approvalHistory,
   } = props
 
   // updateOpportunity is patch-style: send only the changed field.
@@ -1429,10 +1379,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                     Contract
                   </CountTab>
                 ) : null}
-                <CountTab value="history">Stage history</CountTab>
-                <CountTab value="approvals" count={approvalHistory.length}>
-                  Approval history
-                </CountTab>
                 <CountTab value="documents" count={documents.length}>
                   Documents
                 </CountTab>
@@ -1556,20 +1502,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   />
                 </TabsContent>
               ) : null}
-
-              <TabsContent value="approvals" className="mt-4">
-                {approvalHistory.length === 0 ? (
-                  <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                    No approval requests yet.
-                  </p>
-                ) : (
-                  <div className="grid gap-3">
-                    {approvalHistory.map((row) => (
-                      <ApprovalHistoryEntry key={row.id} row={row} />
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
 
               <TabsContent value="documents" className="mt-4">
                 <DocumentsSection

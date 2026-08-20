@@ -295,8 +295,7 @@ export function OpportunitiesBoard({
       return
     }
 
-    // Approval-gated target: open the dialog so the user supplies a reason.
-    // (A high-tier bypass user still moves immediately once they submit.)
+    // Approval-gated target: open dialog. Reason remains optional except Lost/KIV.
     if (toStage.requiresApprovalToEnter) {
       setGated({
         funnelId,
@@ -311,7 +310,11 @@ export function OpportunitiesBoard({
     // success router.refresh() reconciles against the authoritative data.
     React.startTransition(async () => {
       moveCard({ id: funnelId, targetStageId })
-      const res = await advanceStageAction({ funnelId, targetStageId })
+      const res = await advanceStageAction({
+        funnelId,
+        targetStageId,
+        skipPpvvc: true,
+      })
       if (!res.ok) {
         showActionError(res)
         return
@@ -374,6 +377,7 @@ export function OpportunitiesBoard({
           }
           ppvvc={data.find((c) => c.id === gated.funnelId) ?? null}
           canEditPpvvc={canEditPpvvc}
+          skipPpvvc
           open
           onOpenChange={(o) => {
             if (!o) setGated(null)

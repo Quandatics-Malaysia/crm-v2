@@ -61,12 +61,13 @@ const schema = (country: string) =>
   z.object({
     name: z.string().min(1, "Name is required"),
     currency: z.string().length(3, "Currency is required"),
-    code: z
-      .string()
-      .refine(
-        (v) => /^[A-Za-z0-9]{2,6}$/.test((v ?? "").trim()),
-        "Company code is required (2–6 letters/digits)"
-      ),
+    code: z.string().refine(
+      (v) => {
+        const value = v.trim()
+        return value === "" || /^[A-Za-z0-9]{2,6}$/.test(value)
+      },
+      "Account code must be 2–6 letters/digits when provided"
+    ),
     registrationNumber: z.string().optional(),
     parentAccountId: z.string().optional(),
     accountType: z.enum(["client", "reseller"]),
@@ -342,7 +343,7 @@ export function AccountForm({
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel required>Company code</FormLabel>
+                    <FormLabel>Account code</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="TTDC"

@@ -32,7 +32,7 @@ import {
 import { InlinePhoneValue, PhoneNumberDisplay } from "@/components/phone-input"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
-import type { MemberOption } from "@/lib/lookups"
+import type { MemberOption, Option } from "@/lib/lookups"
 import { StageBadge } from "@/app/(app)/funnel/stage-badge"
 import { AccountContacts } from "./account-contacts"
 import {
@@ -62,6 +62,7 @@ export type AccountEditKey =
   | "name"
   | "owner"
   | "industry"
+  | "parent"
   | "phone"
   | "website"
   | "registrationNumber"
@@ -82,6 +83,7 @@ export type AccountDetailData = {
   /** Gates every inline editor (ACCOUNT_UPDATE, resolved server-side). */
   canEdit: boolean
   industries: string[]
+  parentOptions: Option[]
   currencies: string[]
   /** Country picklist for the inline billing-address country combobox. */
   countries: string[]
@@ -113,6 +115,7 @@ export function AccountDetailBody(props: AccountDetailData) {
     record,
     canEdit,
     industries,
+    parentOptions,
     currencies,
     countries,
     members,
@@ -160,6 +163,8 @@ export function AccountDetailBody(props: AccountDetailData) {
   )
   const ownerName =
     memberOptions.find((o) => o.value === record.ownerMemberId)?.label ?? "—"
+  const parentName =
+    parentOptions.find((o) => o.id === record.parentAccountId)?.name ?? "—"
 
   /** Merge one edited billing-address subfield into the structured jsonb. */
   const saveAddress = (sub: AccountAddressKey, next: string) =>
@@ -321,6 +326,7 @@ export function AccountDetailBody(props: AccountDetailData) {
                       key &&
                       !addressSub &&
                       key !== "industry" &&
+                      key !== "parent" &&
                       key !== "owner" &&
                       key !== "currency"
                       ? (key as "name" | "phone" | "website" | "registrationNumber")
@@ -369,6 +375,22 @@ export function AccountDetailBody(props: AccountDetailData) {
                           searchPlaceholder="Search members…"
                           emptyMessage="No members found."
                           title="Click to change owner"
+                        />
+                      ) : key === "parent" ? (
+                        <InlineCombobox
+                          value={record.parentAccountId ?? ""}
+                          display={parentName}
+                          options={parentOptions.map((option) => ({
+                            value: option.id,
+                            label: option.name,
+                          }))}
+                          onSave={(next) =>
+                            saveField({ parentAccountId: next || null })
+                          }
+                          placeholder="No parent account"
+                          searchPlaceholder="Search parent accounts…"
+                          emptyMessage="No parent accounts found."
+                          title="Click to change parent account"
                         />
                       ) : key === "currency" ? (
                         <InlineCombobox

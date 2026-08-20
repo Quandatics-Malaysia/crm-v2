@@ -43,6 +43,28 @@ export function PaymentMilestonesTable({
         ),
       },
       {
+        accessorKey: "quoteNumber",
+        header: "Quotation",
+        cell: ({ row }) =>
+          row.original.quotationId && row.original.quoteNumber ? (
+            <Link href={`/quotations/${row.original.quotationId}`} className="link">
+              <span className="font-mono text-xs">{row.original.quoteNumber}</span>
+            </Link>
+          ) : (
+            <span className="text-muted-foreground">Not linked</span>
+          ),
+      },
+      {
+        accessorKey: "quoteStatus",
+        header: "Quote status",
+        cell: ({ row }) =>
+          row.original.quoteStatus ? (
+            <StatusBadge status={row.original.quoteStatus} />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => <StatusBadge status={row.original.status} />,

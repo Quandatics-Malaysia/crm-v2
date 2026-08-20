@@ -220,9 +220,6 @@ export function OpportunityDetailBody({
         <Card>
           <DetailCardHeader kind="opportunity" eyebrow="Opportunity" />
           <CardContent className="grid gap-3 text-sm">
-            <FieldRow inline label="Code">
-              <span className="font-mono text-xs">{o.code}</span>
-            </FieldRow>
             <FieldRow inline label="Name">
               <span className="font-medium">{o.name}</span>
             </FieldRow>

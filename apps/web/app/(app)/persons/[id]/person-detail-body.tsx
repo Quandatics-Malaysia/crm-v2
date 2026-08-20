@@ -27,7 +27,7 @@ import {
   RelatedCard,
   useSaveField,
 } from "@/components/detail-page"
-import { PhoneNumberDisplay } from "@/components/phone-input"
+import { InlinePhoneValue, PhoneNumberDisplay } from "@/components/phone-input"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
 import { StageBadge } from "@/app/(app)/funnel/stage-badge"
@@ -176,7 +176,7 @@ export function PersonDetailBody({
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
-                        d.value
+                        d.label === "Phone" ? <PhoneNumberDisplay value={record.phone} compact /> : d.value
                       ) : key === "isPrimary" ? (
                         <Switch
                           checked={record.isPrimary ?? false}
@@ -196,16 +196,16 @@ export function PersonDetailBody({
                           emptyMessage="No accounts found."
                           title="Click to change account"
                         />
+                      ) : key === "phone" ? (
+                        <InlinePhoneValue
+                          value={record.phone}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          onSave={(next) => saveField({ phone: next || null })}
+                        />
                       ) : (
                         <InlineValue
                           value={record[key] ?? ""}
-                          display={
-                            key === "phone" ? (
-                              <PhoneNumberDisplay value={record[key]} compact />
-                            ) : (
-                              record[key] || "—"
-                            )
-                          }
+                          display={record[key] || "—"}
                           title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // First name is required — ignore an emptied draft.

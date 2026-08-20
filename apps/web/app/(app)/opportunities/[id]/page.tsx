@@ -90,7 +90,6 @@ export default async function OpportunityDetailPage({
         ]}
       />
       <PageBody>
-        <h2 className="text-lg font-semibold tracking-tight">{o.name}</h2>
         <OpportunityDetailBody
           detail={detail}
           documents={documents}

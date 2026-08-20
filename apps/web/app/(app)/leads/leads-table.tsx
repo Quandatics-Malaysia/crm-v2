@@ -392,7 +392,7 @@ export function LeadsTable({
           canCreate ? (
             <Dialog open={newOpen} onOpenChange={setNewOpen}>
               <DialogTrigger render={<Button size="sm">New lead</Button>} />
-              <DialogContent>
+              <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>New lead</DialogTitle>
                 </DialogHeader>
@@ -413,7 +413,7 @@ export function LeadsTable({
         open={!!editLead}
         onOpenChange={(o) => !o && setEditLead(null)}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit lead</DialogTitle>
           </DialogHeader>

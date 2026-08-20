@@ -15,7 +15,7 @@ test("production deploy uses only a signed source-free release bundle", () => {
   assert.match(workflow, /--password-stdin/)
   assert.match(workflow, /DOCKER_CONFIG/)
   assert.match(workflow, /cosign verify-blob/)
-  assert.match(workflow, /release-images\.yml@refs\/tags/)
+  assert.match(workflow, /release-images\.yml@refs\/heads\/main/)
   assert.match(workflow, /apply-release-manifest\.sh/)
   assert.match(workflow, /"\$CLIENT_DIR\/deploy\.sh"/)
   assert.doesNotMatch(workflow, /actions\/checkout|docker compose|--build|git clone|git fetch/)

@@ -100,7 +100,6 @@ jobs:
           command -v cosign >/dev/null 2>&1 || { echo "cosign is required" >&2; exit 1; }
           cosign verify-blob \
             --bundle "$TEMP_DIR/bundle/client-deployment-bundle.sigstore.json" \
-            --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/tags/${RELEASE_TAG}" \
             --certificate-identity "https://github.com/Super-ERP/crm-v2/.github/workflows/release-images.yml@refs/heads/main" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "$TEMP_DIR/bundle/client-deployment-bundle.tar.gz"

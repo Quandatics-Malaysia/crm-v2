@@ -25,6 +25,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -166,7 +167,9 @@ export function SavedViewMenu({
           }
         />
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Saved views</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Saved views</DropdownMenuLabel>
+          </DropdownMenuGroup>
           <DropdownMenuRadioGroup
             value={selectedId}
             onValueChange={(id) => {

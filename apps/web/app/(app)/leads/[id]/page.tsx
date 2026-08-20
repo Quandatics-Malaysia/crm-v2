@@ -10,7 +10,6 @@ import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
 import { listFunnelsWithStages } from "@/lib/lookups"
 import { formatDate } from "@/lib/format"
 import { getLead } from "../actions"
-import { LeadEditButton } from "./lead-edit-button"
 import { LeadDetailActions } from "./lead-detail-actions"
 import { LeadDetailBody, type LeadDetailSection } from "./lead-detail-body"
 
@@ -140,7 +139,6 @@ export default async function LeadDetailPage({
               </Badge>
             ) : null}
             {!isConverted ? <LeadDetailActions lead={lead} /> : null}
-            <LeadEditButton lead={lead} />
             <Button
               variant="outline"
               nativeButton={false}

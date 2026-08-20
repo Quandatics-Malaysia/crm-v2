@@ -166,7 +166,7 @@ export function LeadsTable({
         header: "Mobile",
         cell: ({ row }) =>
           row.original.phone ? (
-            <PhoneNumberDisplay value={row.original.phone} />
+            <PhoneNumberDisplay value={row.original.phone} compact />
           ) : (
             <span className="text-muted-foreground">—</span>
           ),

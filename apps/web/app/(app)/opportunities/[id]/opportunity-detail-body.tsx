@@ -28,8 +28,8 @@ import {
 import { DocumentsSection } from "@/components/documents-section"
 import { InlineValue } from "@/components/inline-value"
 import { InlineCombobox } from "@/components/inline-combobox"
-import { PpvvcEditor } from "@/components/ppvvc-editor"
-import { formatMoney, formatDate } from "@/lib/format"
+import { OpportunityAnalysis } from "@/components/opportunity-analysis"
+import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   updateOpportunityContainer,
@@ -395,123 +395,13 @@ export function OpportunityDetailBody({
               </TabsContent>
 
               <TabsContent value="analysis" className="mt-4">
-                <Card>
-                  <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <div className="mb-2 text-xs font-medium text-muted-foreground">
-                        PPVVC analysis
-                      </div>
-                      <PpvvcEditor
-                        values={o}
-                        editable={canEdit}
-                        onSave={(values) => updateOpportunityContainer(o.id, values)}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Power Sponsor Contact
-                      </div>
-                      <div className="text-sm">
-                        {canEdit ? (
-                          <InlineCombobox
-                            value={o.powerSponsorContactId ?? ""}
-                            display={detail.powerSponsorContact?.name ?? "—"}
-                            options={contactOptions}
-                            onSave={(next) => saveField({ powerSponsorContactId: next || null })}
-                            placeholder="Optional"
-                            searchPlaceholder="Search contacts…"
-                            emptyMessage="No contacts for this account."
-                            title="Click to change power sponsor"
-                          />
-                        ) : (
-                          detail.powerSponsorContact?.name ?? "—"
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Power Sponsor Designation
-                      </div>
-                      <div className="text-sm">
-                        {detail.powerSponsorContact?.designation || "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Power Sponsor Budget Limit
-                      </div>
-                      <div className="text-sm">
-                        {canEdit ? (
-                          <InlineValue
-                            value={o.powerSponsorBudgetLimit ?? ""}
-                            display={formatMoney(o.powerSponsorBudgetLimit, o.currency)}
-                            formatDraft={(v) => formatMoney(v || "0", o.currency)}
-                            type="number"
-                            title="Click to edit budget limit"
-                            onSave={(next) => saveField({ powerSponsorBudgetLimit: next || null })}
-                          />
-                        ) : (
-                          formatMoney(o.powerSponsorBudgetLimit, o.currency)
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Estimated Budget
-                      </div>
-                      <div className="text-sm">
-                        {canEdit ? (
-                          <InlineValue
-                            value={o.estimatedBudget ?? ""}
-                            display={formatMoney(o.estimatedBudget, o.currency)}
-                            formatDraft={(v) => formatMoney(v || "0", o.currency)}
-                            type="number"
-                            title="Click to edit estimated budget"
-                            onSave={(next) => saveField({ estimatedBudget: next || null })}
-                          />
-                        ) : (
-                          formatMoney(o.estimatedBudget, o.currency)
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Estimated Close Date
-                      </div>
-                      <div className="text-sm">
-                        {canEdit ? (
-                          <InlineValue
-                            value={o.estimatedCloseDate ?? ""}
-                            display={formatDate(o.estimatedCloseDate)}
-                            formatDraft={(v) => (v ? formatDate(v) : "—")}
-                            type="date"
-                            title="Click to edit close date"
-                            onSave={(next) => saveField({ estimatedCloseDate: next || null })}
-                          />
-                        ) : (
-                          formatDate(o.estimatedCloseDate)
-                        )}
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Description
-                      </div>
-                      <div className="text-sm">
-                        {canEdit ? (
-                          <InlineValue
-                            value={o.description ?? ""}
-                            display={o.description || "Add description"}
-                            title="Click to edit description"
-                            onSave={(next) => saveField({ description: next || null })}
-                          />
-                        ) : (
-                          o.description || "—"
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <OpportunityAnalysis
+                  opportunity={o}
+                  contact={detail.powerSponsorContact}
+                  contactOptions={contactOptions}
+                  canEdit={canEdit}
+                  onSave={saveField}
+                />
               </TabsContent>
 
               <TabsContent value="remarks" className="mt-4">

@@ -47,6 +47,11 @@ test("release runs only for version tags with least-privilege publishing permiss
   assert.deepEqual([...new Set(allowedSecrets)], ["secrets.GITHUB_TOKEN"])
 })
 
+test("release validation and quality run in parallel before the manifest gate", () => {
+  assert.equal(workflow.jobs?.["validate-tag"]?.needs, undefined)
+  assert.deepEqual(workflow.jobs?.manifest?.needs, ["build", "validate-tag", "quality"])
+})
+
 test("release quality skips only the duplicate application build", () => {
   const qualityInput = qualityWorkflow.on?.workflow_call?.inputs?.run_build
   assert.deepEqual(qualityInput, {

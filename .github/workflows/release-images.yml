@@ -26,8 +26,9 @@ jobs:
       ref: ${{ github.event.inputs.ref }}
       run_build: false
 
+  # Tag validation is independent of the test suite. Run it in parallel so
+  # release builds can start while quality checks finish.
   validate-tag:
-    needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -220,8 +221,9 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  # Keep quality as a release gate, but do not serialize it before image builds.
   manifest:
-    needs: [build, validate-tag]
+    needs: [build, validate-tag, quality]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

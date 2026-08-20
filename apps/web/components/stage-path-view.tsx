@@ -30,7 +30,7 @@ export type PathStep = {
   label: string
   state: PathStepState
   tone?: PathStepTone
-  /** When true (and onStepClick is set) the segment is a clickable target. */
+  /** When true, the segment can be selected or used as a transition target. */
   clickable?: boolean
   title?: string
 }
@@ -52,18 +52,20 @@ export function StagePathView({
   note,
   hint,
   onStepClick,
+  onStepSelect,
 }: {
   steps: PathStep[]
   note?: PathNote
   hint?: string
   onStepClick?: (id: string) => void
+  onStepSelect?: (id: string) => void
 }) {
   return (
     <div className="grid gap-2.5">
       <div className="flex w-full overflow-x-auto py-0.5">
         {steps.map((s, i) => {
           const last = i === steps.length - 1
-          const clickable = !!s.clickable && !!onStepClick
+          const clickable = !!s.clickable && (!!onStepClick || !!onStepSelect)
           const won =
             s.tone === "won" && (s.state === "done" || s.state === "current")
           return (
@@ -71,7 +73,11 @@ export function StagePathView({
               key={s.id}
               type="button"
               disabled={!clickable}
-              onClick={() => clickable && onStepClick?.(s.id)}
+              onClick={() => {
+                if (!clickable) return
+                onStepSelect?.(s.id)
+                onStepClick?.(s.id)
+              }}
               title={s.title}
               style={{
                 clipPath: clipFor(i, last),

@@ -7,14 +7,6 @@ import {
   type PathStep,
   type PathNote,
 } from "@/components/stage-path-view"
-import type { StageGate, CustomFunnelField } from "@/lib/stage-gate"
-import type { PpvvcPatch } from "@/lib/ppvvc"
-import { StageAdvanceDialog } from "./stage-advance-dialog"
-import {
-  selectableTargets,
-  stagePathActionLabel,
-  stagePathInstruction,
-} from "./stage-transitions"
 
 type Stage = {
   id: string
@@ -28,48 +20,25 @@ type Stage = {
 }
 
 /**
- * Funnel stage path. Builds the OPEN→WON ladder into chevron steps and renders
- * the shared {@link StagePathView}; clicking a legal next stage opens the
- * StageAdvanceDialog pre-seeded with that target (approval-gated and terminal
- * moves still run through the same confirmation/approval flow). A Lost/KIV
- * current stage sits off the ladder and shows as a coloured note.
+ * Funnel stage path. Builds the OPEN→WON ladder into chevron steps and lets the
+ * detail panel inspect any stage. Stage movement remains owned by the page-level
+ * transition dialog, so selecting a stage never mutates the Funnel.
  */
 export function StagePath({
-  funnelId,
   currentStageId,
   stages,
-  interactive,
-  gate,
-  customFieldDefs = [],
-  customValues = {},
-  ppvvc,
-  canEditPpvvc = false,
+  onStageSelect,
 }: {
-  funnelId: string
   currentStageId: string
   stages: Stage[]
-  /** When false, the path is read-only (terminal deal, pending approval, or no permission). */
-  interactive: boolean
-  /** Resolved per-stage entry gate (preset + custom field completeness). */
-  gate?: StageGate
-  /** Tenant custom-field definitions, so advancing can collect required fields. */
-  customFieldDefs?: CustomFunnelField[]
-  /** The funnel's current custom-field values. */
-  customValues?: Record<string, string>
-  /** Authoritative Opportunity PPVVC values for inline stage editing. */
-  ppvvc?: PpvvcPatch | null
-  canEditPpvvc?: boolean
+  onStageSelect?: (id: string) => void
 }) {
-  const [target, setTarget] = React.useState<string | null>(null)
-
-  const { steps, note, hint } = React.useMemo(() => {
+  const { steps, note } = React.useMemo(() => {
     const ladder = stages
       .filter((s) => s.kind === "OPEN" || s.kind === "WON")
       .sort((a, b) => a.sortOrder - b.sortOrder)
     const currentIdx = ladder.findIndex((s) => s.id === currentStageId)
     const current = stages.find((s) => s.id === currentStageId)
-    const selectable = selectableTargets(stages, currentStageId)
-    const selectableIds = new Set(selectable.map((s) => s.id))
     const steps: PathStep[] = ladder.map((s, i) => {
       const state =
         currentIdx >= 0 && i < currentIdx
@@ -77,17 +46,13 @@ export function StagePath({
           : i === currentIdx
             ? "current"
             : "upcoming"
-      const clickable = interactive && selectableIds.has(s.id)
       return {
         id: s.id,
         label: s.name,
         state,
         tone: s.kind === "WON" ? "won" : "default",
-        clickable,
-        title:
-          clickable && current
-            ? stagePathActionLabel(current, s)
-            : undefined,
+        clickable: !!onStageSelect,
+        title: onStageSelect ? `View ${s.name} fields` : undefined,
       }
     })
 
@@ -97,40 +62,16 @@ export function StagePath({
     else if (current?.kind === "PARKED")
       note = { label: `KIV — ${current.name}`, tone: "parked" }
 
-    const hint = interactive && !note && current
-      ? stagePathInstruction(current, selectable)
-      : undefined
-
-    return { steps, note, hint }
-  }, [stages, currentStageId, interactive])
+    return { steps, note }
+  }, [stages, currentStageId, onStageSelect])
 
   return (
     <>
       <StagePathView
         steps={steps}
         note={note}
-        hint={hint}
-        onStepClick={interactive ? setTarget : undefined}
+        onStepSelect={onStageSelect}
       />
-      {interactive ? (
-        // Keyed by target so each click remounts the dialog with a fresh seed.
-        <StageAdvanceDialog
-          key={target ?? "none"}
-          funnelId={funnelId}
-          currentStageId={currentStageId}
-          stages={stages}
-          open={target !== null}
-          onOpenChange={(o) => {
-            if (!o) setTarget(null)
-          }}
-          initialTargetStageId={target ?? undefined}
-          gate={gate}
-          customFieldDefs={customFieldDefs}
-          customValues={customValues}
-          ppvvc={ppvvc}
-          canEditPpvvc={canEditPpvvc}
-        />
-      ) : null}
     </>
   )
 }

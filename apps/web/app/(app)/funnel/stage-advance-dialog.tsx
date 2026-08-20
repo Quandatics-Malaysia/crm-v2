@@ -102,6 +102,7 @@ export function StageAdvanceDialog({
   opportunityName,
   ppvvc,
   canEditPpvvc = false,
+  skipPpvvc = false,
 }: {
   funnelId: string
   currentStageId: string
@@ -126,6 +127,7 @@ export function StageAdvanceDialog({
   /** Authoritative Opportunity PPVVC values, shown inline for gated moves. */
   ppvvc?: PpvvcPatch | null
   canEditPpvvc?: boolean
+  skipPpvvc?: boolean
 }) {
   const router = useRouter()
   const [openState, setOpenState] = React.useState(false)
@@ -180,9 +182,9 @@ export function StageAdvanceDialog({
   const requiredKeys = React.useMemo(
     () =>
       requiredKeysForStages(enteredStages, {
-        skipPpvvcForWonTransition: target?.kind === "WON",
+        skipPpvvcForWonTransition: skipPpvvc || target?.kind === "WON",
       }),
-    [enteredStages, target?.kind]
+    [enteredStages, skipPpvvc, target?.kind]
   )
   const relevantPpvvcFields = React.useMemo(
     () => getPpvvcFieldsForRequiredKeys(requiredKeys),
@@ -229,8 +231,9 @@ export function StageAdvanceDialog({
   // Details panel.
   const missingPresets = missing.filter((m) => isPresetFieldKey(m.key))
   const isTerminal = target ? requiresCloseRemarks(target.kind) : false
-  // A written reason is required for approval-gated AND terminal (Lost/KIV) moves.
-  const needsReason = !rollback && (needsApproval || isTerminal)
+  // Only terminal (Lost/KIV) moves require a written reason; approval context is optional.
+  const needsReason = !rollback && isTerminal
+  const showReason = !rollback && (needsApproval || isTerminal)
   const blocked = missing.length > 0 || (needsReason && !reason.trim())
 
   const stageLabel = React.useCallback(
@@ -275,6 +278,7 @@ export function StageAdvanceDialog({
         targetStageId,
         reason: reason.trim() || undefined,
         customFields: Object.keys(values).length > 0 ? values : undefined,
+        skipPpvvc,
       })
       if (!res.ok) {
         showActionError(res)
@@ -518,20 +522,20 @@ export function StageAdvanceDialog({
               </div>
             ) : null}
 
-            {!rollback && needsReason ? (
+            {showReason ? (
               <div className="grid gap-2">
                 <Label htmlFor="advance-reason">
                   {isTerminal && target
                     ? closeRemarksLabel(target.kind)
-                    : "Reason"}{" "}
-                  <span className="text-destructive">*</span>
+                    : "Reason (optional)"}{" "}
+                  {isTerminal ? <span className="text-destructive">*</span> : null}
                 </Label>
                 <Textarea
                   id="advance-reason"
                   placeholder={
                     isTerminal
                       ? "Why is this funnel being closed? (recorded on the stage history)"
-                      : "Why should this advance be approved?"
+                    : "Add context for the approver (optional)"
                   }
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}

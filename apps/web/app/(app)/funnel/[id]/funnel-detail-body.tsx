@@ -252,7 +252,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
     funnelId,
     currentStageId,
     stages,
-    interactive,
     name,
     accountId,
     accountName,
@@ -499,12 +498,17 @@ export function FunnelDetailBody(props: FunnelDetailData) {
 
   const milestoneValueCeiling = quotedAmount ?? estimatedAmount ?? null
 
-  const currentStage = stages.find((stage) => stage.id === currentStageId)
-  const stageRequirements = requirementsFromKeys(
-    currentStage?.requiredFields,
-    gate
-  )
-  const missingStageRequirements = stageRequirements.filter((requirement) => !requirement.ok)
+  const [viewStage, setViewStage] = React.useState({
+    sourceStageId: currentStageId,
+    stageId: currentStageId,
+  })
+  const viewStageId =
+    viewStage.sourceStageId === currentStageId
+      ? viewStage.stageId
+      : currentStageId
+  const selectedStage = stages.find((stage) => stage.id === viewStageId)
+  const stageRequirements = requirementsFromKeys(selectedStage?.requiredFields, gate)
+  const filledStageRequirements = stageRequirements.filter((requirement) => requirement.ok)
   const customFieldByKey = new Map(customFieldDefs.map((field) => [field.key, field]))
   const powerSponsor = persons.find(
     (person) => person.id === container?.powerSponsorContactId
@@ -1174,23 +1178,18 @@ export function FunnelDetailBody(props: FunnelDetailData) {
         <Card>
           <CardContent className="grid gap-4 pt-6">
             <StagePath
-              funnelId={funnelId}
               currentStageId={currentStageId}
               stages={stages}
-              interactive={interactive}
-              gate={gate}
-              customFieldDefs={customFieldDefs}
-              customValues={customValues}
-              ppvvc={container}
-              canEditPpvvc={canEdit}
+              onStageSelect={(stageId) =>
+                setViewStage({ sourceStageId: currentStageId, stageId })
+              }
             />
-            <p className="text-sm font-semibold">Sales Stage: {stageName}</p>
-            <div className="grid gap-6 border-t pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.95fr)]">
+            <p className="text-sm font-semibold">Sales Stage: {selectedStage?.name ?? stageName}</p>
+            <div className="border-t pt-4">
               <section className="grid gap-3">
-                <h2 className="text-base font-semibold">Key Fields</h2>
-                {stageRequirements.length > 0 ? (
+                {filledStageRequirements.length > 0 ? (
                   <div className="grid gap-0 divide-y rounded-md border px-3">
-                    {stageRequirements.map((requirement) => (
+                    {filledStageRequirements.map((requirement) => (
                       <React.Fragment key={requirement.key}>
                         {stageField(requirement.key, requirement.label)}
                       </React.Fragment>
@@ -1198,30 +1197,7 @@ export function FunnelDetailBody(props: FunnelDetailData) {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No additional fields configured for this stage.
-                  </p>
-                )}
-              </section>
-              <section className="grid content-start gap-3 lg:border-l lg:pl-6">
-                <h2 className="text-base font-semibold">Guidance for Success</h2>
-                {currentStage?.kind === "WON" && missingStageRequirements.length === 0 ? (
-                  <p className="text-sm">
-                    Great work! You&apos;ve closed a successful deal.
-                  </p>
-                ) : missingStageRequirements.length > 0 ? (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      In order to proceed to this stage, fill in the following fields:
-                    </p>
-                    <ul className="list-disc space-y-1 pl-5 text-sm">
-                      {missingStageRequirements.map((requirement) => (
-                        <li key={requirement.key}>{requirement.label}</li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Required fields complete. This stage is ready for the next step.
+                    No fields filled for this stage.
                   </p>
                 )}
               </section>

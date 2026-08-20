@@ -173,7 +173,7 @@ async function createApprovalRequest(
   ctx: ServerContext,
   opp: OppRow,
   target: StageRow,
-  reason: string
+  reason?: string
 ): Promise<{ approvalRequestId: string }> {
   if (!ctx.memberId) throw new Error("No member context")
 
@@ -199,7 +199,9 @@ async function createApprovalRequest(
       requesterMemberId: ctx.memberId,
       fromStageId: opp.currentStageId,
       targetStageId: target.id,
-      reason: reason.trim(),
+      // Approval requests need an audit label, but requester does not need to
+      // write a reason unless closing Lost/KIV.
+      reason: reason?.trim() || "Stage advance requested",
       status: "pending",
       approverMemberId: approver,
     })
@@ -292,12 +294,15 @@ function requiredKeysForTransition(
   allStages: StageRow[],
   from: StageRow,
   target: StageRow,
-  customFieldDefs: CustomFunnelField[]
+  customFieldDefs: CustomFunnelField[],
+  skipPpvvc = false
 ): string[] {
   const customKeys = new Set(customFieldDefs.map((field) => field.key))
   return requiredKeysForStages(
     stagesEnteredBy(allStages, from.id, target.id),
-    { skipPpvvcForWonTransition: target.kind === "WON" }
+    {
+      skipPpvvcForWonTransition: skipPpvvc || target.kind === "WON",
+    }
   ).filter((key) => customKeys.has(key) || isPresetFieldKey(key))
 }
 
@@ -488,6 +493,8 @@ export async function requestStageAdvance(
     /** Custom-field values captured in the advance dialog, merged onto the
      *  funnel before the entry gate is evaluated. */
     customFields?: Record<string, string>
+    /** Kanban moves do not require PPVVC completion before stage change. */
+    skipPpvvc?: boolean
   }
 ): Promise<AdvanceOutcome> {
   return runInTenant(ctx.tenantId, async (tx) => {
@@ -565,7 +572,8 @@ export async function requestStageAdvance(
       allStages,
       from,
       target,
-      customFieldDefs
+      customFieldDefs,
+      input.skipPpvvc
     )
     const missing = rollback ? [] : missingFromKeys(requiredKeys, stageGate)
     if (!rollback && missing.length > 0) {
@@ -604,9 +612,6 @@ export async function requestStageAdvance(
       )
       return { moved: true }
     }
-
-    if (!input.reason || !input.reason.trim())
-      throw new Error("A reason is required for this approval")
 
     const { approvalRequestId } = await createApprovalRequest(
       tx,

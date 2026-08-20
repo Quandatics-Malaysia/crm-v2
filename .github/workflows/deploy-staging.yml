@@ -46,13 +46,67 @@ jobs:
             echo "deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
-  deploy-staging:
+  build-images:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'
-    runs-on: self-hosted
-    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: web
+            repository: crm-web
+            target: runner
+          - name: migrator
+            repository: crm-migrator
+            target: migrator
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      IMAGE_NAMESPACE: ghcr.io/super-erp
+    steps:
+      - name: Check out the tested commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push staging image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.repository }}:sha-${{ env.DEPLOY_SHA }}
+          provenance: false
+          cache-from: type=gha,scope=staging-${{ matrix.name }},ghtoken=${{ secrets.GITHUB_TOKEN }},repository=${{ github.repository }}
+          cache-to: type=gha,mode=max,scope=staging-${{ matrix.name }},timeout=20m,ignore-error=true
+
+  deploy-staging:
+    needs: [changes, build-images]
+    if: needs.changes.outputs.deploy == 'true' && needs.build-images.result == 'success'
+    runs-on: self-hosted
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+      WEB_IMAGE: ghcr.io/super-erp/crm-web:sha-${{ github.event.workflow_run.head_sha }}
+      MIGRATOR_IMAGE: ghcr.io/super-erp/crm-migrator:sha-${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -105,18 +159,22 @@ jobs:
               crm-staging-db-1 \
               sh -ceu 'psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER ROLE postgres PASSWORD '\''$TARGET_PASSWORD'\'';" >/dev/null'
           fi
-      # Phase 1: bring the whole stack + tunnel up. web boots with the current
+      # Phase 1: pull the GitHub-built images and bring the whole stack + tunnel
+      # up. web boots with the current
       # (possibly stale) BETTER_AUTH_URL; phase 2 repoints it to the live tunnel
       # URL so Better Auth trusts the public origin (else login -> INVALID_ORIGIN).
-      - name: Rebuild and start the staging stack (+ public tunnel)
+      - name: Pull and start the staging stack (+ public tunnel)
         run: |
+          set -euo pipefail
           DIR="${STAGING_DIR:-$HOME/crm-v2-staging}"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           compose=(docker compose \
             -p crm-staging \
             -f "$DIR/docker-compose.yaml" \
+            -f "$DIR/docker-compose.staging-images.yaml" \
             -f "$DIR/docker-compose.staging-tunnel.yaml" \
             --env-file "$DIR/.env.staging")
-          if ! "${compose[@]}" up -d --build migrate web caddy tunnel; then
+          if ! "${compose[@]}" up -d --pull always --no-build migrate web caddy tunnel; then
             echo "Migration/startup failed. Container status:"
             "${compose[@]}" ps -a
             echo "Migration logs:"
@@ -145,9 +203,10 @@ jobs:
           docker compose \
             -p crm-staging \
             -f "$DIR/docker-compose.yaml" \
+            -f "$DIR/docker-compose.staging-images.yaml" \
             -f "$DIR/docker-compose.staging-tunnel.yaml" \
             --env-file "$DIR/.env.staging" \
-            up -d --force-recreate --no-deps web
+            up -d --pull always --force-recreate --no-deps web
       - name: Health check (via the public tunnel URL)
         run: |
           URL="${{ steps.url.outputs.STAGING_URL }}"

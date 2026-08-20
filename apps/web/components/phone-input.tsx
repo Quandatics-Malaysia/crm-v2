@@ -110,6 +110,7 @@ export function PhoneInput({
   error,
   className,
   disabled,
+  standalone = false,
 }: {
   value?: string
   onChange?: (value: string) => void
@@ -121,6 +122,8 @@ export function PhoneInput({
   error?: string
   className?: string
   disabled?: boolean
+  /** Render without react-hook-form context for controlled standalone usage. */
+  standalone?: boolean
 }) {
   const initialCountry = normalizePhoneCountry(defaultCountry) ?? "MY"
   const [country, setCountry] = React.useState<string>(initialCountry)
@@ -172,6 +175,41 @@ export function PhoneInput({
   )
   const hasError = touched && !isEmpty && !isValid
 
+  const input = (
+    <PhoneInputInner
+      value={displayValue}
+      onChange={onChange}
+      country={country}
+      onCountryChange={handleCountryChange}
+      placeholder={placeholder}
+      disabled={disabled}
+      hasError={hasError || !!error}
+      flag={FLAG_EMOJI[country] ?? "🌐"}
+      onBlur={() => setTouched(true)}
+    />
+  )
+  const message = (hasError || error)
+    ? (error ?? "Enter a valid phone number for the selected country.")
+    : null
+
+  // Company-profile and other controlled displays can use PhoneInput without
+  // a react-hook-form provider. FormItem/FormControl/FormMessage call
+  // useFormContext internally, so keep those primitives behind this opt-in.
+  if (standalone) {
+    return (
+      <div className={cn("grid gap-2", className)}>
+        {label ? (
+          <label className="text-sm font-medium">
+            {label}
+            {required && <span className="ml-0.5 text-destructive">*</span>}
+          </label>
+        ) : null}
+        {input}
+        {message ? <p className="text-sm text-destructive">{message}</p> : null}
+      </div>
+    )
+  }
+
   return (
     <FormItem className={cn("flex flex-col", className)}>
       {label && (
@@ -180,22 +218,8 @@ export function PhoneInput({
           {required && <span className="text-destructive ml-0.5">*</span>}
         </FormLabel>
       )}
-      <FormControl>
-        <PhoneInputInner
-          value={displayValue}
-          onChange={onChange}
-          country={country}
-          onCountryChange={handleCountryChange}
-          placeholder={placeholder}
-          disabled={disabled}
-          hasError={hasError || !!error}
-          flag={FLAG_EMOJI[country] ?? "🌐"}
-          onBlur={() => setTouched(true)}
-        />
-      </FormControl>
-      {(hasError || error) && (
-        <FormMessage>{error ?? "Enter a valid phone number for the selected country."}</FormMessage>
-      )}
+      <FormControl>{input}</FormControl>
+      {message ? <FormMessage>{message}</FormMessage> : null}
     </FormItem>
   )
 }

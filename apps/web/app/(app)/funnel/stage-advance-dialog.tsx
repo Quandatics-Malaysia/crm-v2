@@ -334,7 +334,7 @@ export function StageAdvanceDialog({
       {isControlled && !trigger ? null : (
         <DialogTrigger render={trigger ?? <Button>Advance stage</Button>} />
       )}
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="w-full sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{rollback ? "Move back" : "Advance stage"}</DialogTitle>
           <DialogDescription>
@@ -403,7 +403,7 @@ export function StageAdvanceDialog({
                 onValueChange={(v) => setTargetStageId((v as string) ?? "")}
                 items={stageItems}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Pick a stage…" />
                 </SelectTrigger>
                 <SelectContent>

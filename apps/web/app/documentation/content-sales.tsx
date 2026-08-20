@@ -280,7 +280,7 @@ export const funnelForecastPage: DocPage = {
       <H2>PPVVC</H2>
       <P>
         The Opportunity owns the authoritative five-field value model:{" "}
-        <B>1 Pain, 2 Power, 3 Vision, 4 Value, 5 Control</B>. Editing from an
+        <B>1 Power Sponsor, 2 Pain, 3 Vision, 4 Value, 5 Control</B>. Editing from an
         Opportunity or Funnel synchronizes the Opportunity and all live child
         Funnels in one transaction. Funnel cards show compact complete/missing
         badges; stage dialogs expose only the requirements for the entered

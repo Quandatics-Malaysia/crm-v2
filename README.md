@@ -37,8 +37,8 @@ architecture directory.
 - Accounts require a Settings-configured ISO currency. Leads omit Funnel/Stage;
   conversion uses the default Sales Funnel and first open 0E stage.
 - Opportunities use generated ORGCODEOPP-YYYY-NNNN code/name values. PPVVC is
-  authoritative on the Opportunity in Pain, Power, Vision, Value, Control
-  order and synchronizes live child Funnels. Project code is allocated once,
+  authoritative on the Opportunity in Power Sponsor, Pain, Vision, Value,
+  Control order and synchronizes live child Funnels. Project code is allocated once,
   on first entry to 4A; no Project record is created by that transition.
 - Funnel rollback is allowed to nonterminal stages without gates; forward
   movement revalidates requirements. Closed Won and Closed Lost are terminal.

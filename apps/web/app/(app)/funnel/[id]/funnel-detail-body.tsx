@@ -508,7 +508,6 @@ export function FunnelDetailBody(props: FunnelDetailData) {
       : currentStageId
   const selectedStage = stages.find((stage) => stage.id === viewStageId)
   const stageRequirements = requirementsFromKeys(selectedStage?.requiredFields, gate)
-  const filledStageRequirements = stageRequirements.filter((requirement) => requirement.ok)
   const customFieldByKey = new Map(customFieldDefs.map((field) => [field.key, field]))
   const powerSponsor = persons.find(
     (person) => person.id === container?.powerSponsorContactId
@@ -1185,23 +1184,20 @@ export function FunnelDetailBody(props: FunnelDetailData) {
               }
             />
             <p className="text-sm font-semibold">Sales Stage: {selectedStage?.name ?? stageName}</p>
-            <div className="border-t pt-4">
-              <section className="grid gap-3">
-                {filledStageRequirements.length > 0 ? (
-                  <div className="grid gap-0 divide-y rounded-md border px-3">
-                    {filledStageRequirements.map((requirement) => (
-                      <React.Fragment key={requirement.key}>
-                        {stageField(requirement.key, requirement.label)}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No fields filled for this stage.
-                  </p>
-                )}
-              </section>
-            </div>
+            <Separator />
+            {stageRequirements.length > 0 ? (
+              <div className="grid gap-3">
+                {stageRequirements.map((requirement) => (
+                  <React.Fragment key={requirement.key}>
+                    {stageField(requirement.key, requirement.label)}
+                  </React.Fragment>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No fields configured for this stage.
+              </p>
+            )}
           </CardContent>
         </Card>
 

@@ -13,10 +13,6 @@ import { getPerson } from "../actions"
 import { PersonEditButton } from "./person-edit-button"
 import { PersonDetailBody, type PersonDetailSection } from "./person-detail-body"
 
-function fullName(p: { firstName: string; lastName: string | null }) {
-  return [p.firstName, p.lastName].filter(Boolean).join(" ")
-}
-
 export default async function PersonDetailPage({
   params,
 }: {
@@ -31,8 +27,6 @@ export default async function PersonDetailPage({
 
   if (!data) notFound()
   const { person, accountName, funnels, projects } = data
-
-  const name = fullName(person) || "Unnamed contact"
 
   const [activity, documents] = await Promise.all([
     listEntityTimeline("person", id),

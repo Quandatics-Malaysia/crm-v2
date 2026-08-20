@@ -140,19 +140,16 @@ export function StageAdvanceDialog({
   const from = ordered.find((s) => s.id === currentStageId)
   const rollback = !!from && !!target && isRollbackTransition(from, target)
   const needsApproval = !!from && !!target && requiresApprovalForTransition(from, target)
+  const targetId = target?.id
+  const targetKind = target?.kind
 
   // Advancing to a stage checks every earlier stage, including the current one.
-  const requiredStages = React.useMemo(
-    () => (target ? stagesRequiredBefore(ordered, currentStageId, target.id) : []),
-    [ordered, currentStageId, target]
-  )
-  const requiredKeys = React.useMemo(
-    () =>
-      requiredKeysForStages(requiredStages, {
-        skipPpvvcForWonTransition: skipPpvvc || target?.kind === "WON",
-      }),
-    [requiredStages, skipPpvvc, target?.kind]
-  )
+  const requiredStages = targetId
+    ? stagesRequiredBefore(ordered, currentStageId, targetId)
+    : []
+  const requiredKeys = requiredKeysForStages(requiredStages, {
+    skipPpvvcForWonTransition: skipPpvvc || targetKind === "WON",
+  })
   const missing = missingFromKeys(
     requiredKeys,
     gate ?? { satisfied: {}, labels: {} }

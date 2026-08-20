@@ -286,7 +286,6 @@ export default async function OpportunityDetailPage({
           stageKind={stage.kind}
           stageProbability={stage.probability}
           quotations={detail.quotations}
-          history={detail.history}
           projects={relatedProjects}
           products={relatedProducts}
           costs={dealCosts}

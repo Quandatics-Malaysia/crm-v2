@@ -104,12 +104,6 @@ export function LeadDetailBody({
   const canUpdate = perms.has(PERMISSIONS.LEAD_UPDATE)
   const revalidate = `/leads/${leadId}`
 
-  // Field-level change log — a subset of the activity timeline (update rows
-  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
-  const changes = React.useMemo(
-    () => activity.filter((a) => a.type === "update"),
-    [activity]
-  )
 
   // Converted/disqualified leads are terminal — their status is locked.
   const terminal = status === "converted" || status === "disqualified"

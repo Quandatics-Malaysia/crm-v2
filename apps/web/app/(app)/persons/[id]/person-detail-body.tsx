@@ -88,12 +88,6 @@ export function PersonDetailBody({
   const [tab, setTab] = React.useState("pipelines")
   const revalidate = `/persons/${personId}`
 
-  // Field-level change log — a subset of the activity timeline (update rows
-  // only), surfaced in its own tab so edits aren't lost in the note/call noise.
-  const changes = React.useMemo(
-    () => activity.filter((a) => a.type === "update"),
-    [activity]
-  )
 
   const saveField = useSaveField((patch: Partial<PersonInput>) =>
     updatePerson(personId, { ...record, ...patch })

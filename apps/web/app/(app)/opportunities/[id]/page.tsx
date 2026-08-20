@@ -16,7 +16,6 @@ import { getOpportunity } from "../actions"
 import { listPersonsWithAccount } from "@/app/(app)/funnel/actions"
 import { OpportunityForm } from "@/app/(app)/funnel/opportunity-form"
 import { listEntityAttachments } from "@/app/(app)/_shared/attachment-actions"
-import { listChanges } from "@/app/(app)/_shared/change-actions"
 import { OpportunityDetailBody } from "./opportunity-detail-body"
 
 export default async function OpportunityDetailPage({
@@ -39,7 +38,6 @@ export default async function OpportunityDetailPage({
     customFunnelFields,
     entities,
     currencies,
-    changes,
     modules,
   ] = await Promise.all([
     requireContext(),
@@ -52,7 +50,6 @@ export default async function OpportunityDetailPage({
     listCustomFunnelFields(),
     listEntities(),
     listCurrencies(),
-    listChanges("opportunity", id),
     getEntitledModuleMap(),
   ])
   if (!detail) notFound()
@@ -102,7 +99,6 @@ export default async function OpportunityDetailPage({
           persons={persons}
           canEdit={canUpdate}
           initialTab={tab}
-          changes={changes}
         />
       </PageBody>
     </>

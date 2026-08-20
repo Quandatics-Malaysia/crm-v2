@@ -19,7 +19,7 @@ import {
   useSaveField,
 } from "@/components/detail-page"
 import { InlineValue } from "@/components/inline-value"
-import { PhoneNumberDisplay } from "@/components/phone-input"
+import { InlinePhoneValue, PhoneNumberDisplay } from "@/components/phone-input"
 import { usePermissions } from "@/components/command-palette"
 import { PERMISSIONS } from "@/lib/permissions"
 import { type ProgressStep } from "@/components/stage-progress"
@@ -161,18 +161,24 @@ export function LeadDetailBody({
                   return (
                     <FieldRow key={d.label} label={d.label}>
                       {!key ? (
-                        d.value
+                        d.label === "Phone" ? (
+                          <PhoneNumberDisplay value={record.phone} compact />
+                        ) : (
+                          d.value
+                        )
+                      ) : key === "phone" ? (
+                        <InlinePhoneValue
+                          value={record.phone}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
+                          onSave={(next) => saveField({ phone: next || null })}
+                        />
                       ) : (
                         <InlineValue
                           value={record[key] ?? ""}
                           display={
-                            key === "phone" ? (
-                              <PhoneNumberDisplay value={record[key]} />
-                            ) : (
-                              record[key] || "—"
-                            )
+                            record[key] || "—"
                           }
-                            title={`Click to edit ${d.label.toLowerCase()}`}
+                          title={`Click to edit ${d.label.toLowerCase()}`}
                           onSave={(next) => {
                             // Name + email are required on leads — ignore an emptied draft.
                             if (key === "name" || key === "email") {

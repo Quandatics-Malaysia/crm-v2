@@ -10,7 +10,7 @@ describe("migration journal", () => {
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 84,
+      idx: 85,
       tag: "0085_funnel_stage_field_map",
     })
   })
@@ -21,14 +21,14 @@ describe("migration journal", () => {
     ) as { entries: Array<{ idx: number; tag: string }> }
 
     expect(journal.entries.slice(-8).map(({ idx, tag }) => ({ idx, tag }))).toEqual([
-      { idx: 77, tag: "0077_account_currency" },
       { idx: 78, tag: "0078_opportunity_name_project_code" },
       { idx: 79, tag: "0079_product_taxonomy_quote_defaults" },
       { idx: 80, tag: "0080_quotation_content_fields" },
       { idx: 81, tag: "0081_quotation_approval" },
       { idx: 82, tag: "0082_quotation_revisions" },
       { idx: 83, tag: "0083_payment_milestone_decoupling" },
-      { idx: 84, tag: "0085_funnel_stage_field_map" },
+      { idx: 84, tag: "0084_operator_alerts" },
+      { idx: 85, tag: "0085_funnel_stage_field_map" },
     ])
   })
 

@@ -594,6 +594,13 @@
 			"idx": 84,
 			"version": "7",
 			"when": 1786975208000,
+			"tag": "0084_operator_alerts",
+			"breakpoints": true
+		},
+		{
+			"idx": 85,
+			"version": "7",
+			"when": 1786975209000,
 			"tag": "0085_funnel_stage_field_map",
 			"breakpoints": true
 		}

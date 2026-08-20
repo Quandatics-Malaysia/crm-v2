@@ -55,16 +55,6 @@ export function PaymentMilestonesTable({
           ),
       },
       {
-        accessorKey: "quoteStatus",
-        header: "Quote status",
-        cell: ({ row }) =>
-          row.original.quoteStatus ? (
-            <StatusBadge status={row.original.quoteStatus} />
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-      },
-      {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => <StatusBadge status={row.original.status} />,

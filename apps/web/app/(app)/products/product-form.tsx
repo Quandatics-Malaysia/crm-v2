@@ -24,7 +24,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -183,13 +182,10 @@ export function ProductForm({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="grid max-h-[75vh] gap-5 overflow-y-auto px-1"
+            className="grid max-h-[75vh] gap-4 overflow-y-auto px-1"
           >
-            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <h3 className="text-sm font-medium">Basics</h3>
-                <p className="text-xs text-muted-foreground">Identify this product in the catalogue.</p>
-              </div>
+            <section className="grid gap-4 rounded-lg border bg-muted/20 p-4">
+              <h3 className="text-base font-medium">Basics</h3>
               <FormField
                 control={form.control}
                 name="name"
@@ -205,11 +201,8 @@ export function ProductForm({
               />
             </section>
 
-            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <h3 className="text-sm font-medium">Classification</h3>
-                <p className="text-xs text-muted-foreground">Use your product taxonomy to organise the catalogue.</p>
-              </div>
+            <section className="grid gap-4 rounded-lg border bg-muted/20 p-4">
+              <h3 className="text-base font-medium">Classification</h3>
               <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
@@ -226,7 +219,7 @@ export function ProductForm({
                       items={codeItems}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue placeholder="Select a product category" />
                         </SelectTrigger>
                       </FormControl>
@@ -255,7 +248,7 @@ export function ProductForm({
                       disabled={subcategoryItems.length === 1}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue placeholder="Select a subcategory" />
                         </SelectTrigger>
                       </FormControl>
@@ -274,11 +267,8 @@ export function ProductForm({
               </div>
             </section>
 
-            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <h3 className="text-sm font-medium">Pricing</h3>
-                <p className="text-xs text-muted-foreground">Set the default unit and price used for new quotations.</p>
-              </div>
+            <section className="grid gap-4 rounded-lg border bg-muted/20 p-4">
+              <h3 className="text-base font-medium">Pricing</h3>
               <div className="grid gap-4 sm:grid-cols-3">
               <FormField
                 control={form.control}
@@ -305,7 +295,7 @@ export function ProductForm({
                       items={currencyItems.map((c) => ({ value: c, label: c }))}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue placeholder="Pick a currency…" />
                         </SelectTrigger>
                       </FormControl>
@@ -337,43 +327,20 @@ export function ProductForm({
               </div>
             </section>
 
-            <section className="grid gap-3 rounded-lg border bg-muted/20 p-4">
-              <div>
-                <h3 className="text-sm font-medium">Notes</h3>
-                <p className="text-xs text-muted-foreground">Add useful context for your team.</p>
-              </div>
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={3}
-                        placeholder="HRDF Claimable RM10,500"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </section>
-
             <FormField
               control={form.control}
               name="isActive"
               render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border bg-muted/20 p-4">
-                  <div className="grid gap-0.5">
+                  <div>
                     <FormLabel>Active</FormLabel>
-                    <p className="text-xs text-muted-foreground">
-                      Inactive products are hidden from the quotation picker.
-                    </p>
                   </div>
                   <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    <Switch
+                      className="w-8 shrink-0"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
                   </FormControl>
                 </FormItem>
               )}

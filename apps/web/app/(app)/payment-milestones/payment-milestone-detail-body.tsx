@@ -93,12 +93,6 @@ export function PaymentMilestoneDetailBody({
                 {formatMoney(milestone.amount)}
               </div>
             )}
-            <div className="grid gap-1">
-              <StatusBadge status={milestone.status} />
-              <p className="text-xs text-muted-foreground">
-                Updated from the quotation and invoice workflow.
-              </p>
-            </div>
           </CardContent>
         </Card>
 
@@ -207,18 +201,6 @@ export function PaymentMilestoneDetailBody({
                       "—"
                     )}
             </FieldRow>
-                  <FieldRow label="Quotation status">
-                    {milestone.quoteStatus ? (
-                      <StatusBadge status={milestone.quoteStatus} />
-                    ) : (
-                      "—"
-                    )}
-                  </FieldRow>
-                  <FieldRow label="Quotation total">
-                    {milestone.quoteTotal
-                      ? formatMoney(milestone.quoteTotal, milestone.quoteCurrency ?? undefined)
-                      : "—"}
-                  </FieldRow>
                   <FieldRow label="Due date">
                     {canManage ? (
                       <InlineValue

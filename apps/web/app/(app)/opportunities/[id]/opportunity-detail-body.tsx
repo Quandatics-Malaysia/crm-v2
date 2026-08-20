@@ -308,11 +308,6 @@ export function OpportunityDetailBody({
                 {formatMoney(o.totalEstimatedFunnelAmount, o.currency)}
               </span>
             </FieldRow>
-            <FieldRow inline label="Funnels">
-              <Badge variant="secondary" className="tabular-nums">
-                {detail.funnels.length}
-              </Badge>
-            </FieldRow>
           </CardContent>
         </Card>
 

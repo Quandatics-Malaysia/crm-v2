@@ -35,16 +35,12 @@ export type PaymentMilestoneRow = typeof paymentMilestones.$inferSelect
 export type PaymentMilestoneListItem = PaymentMilestoneRow & {
   funnelName: string | null
   quoteNumber: string | null
-  quoteStatus: string | null
 }
 
 /** A single milestone plus its resolved funnel name + quote number. */
 export type PaymentMilestoneDetail = PaymentMilestoneRow & {
   funnelName: string | null
   quoteNumber: string | null
-  quoteStatus: string | null
-  quoteTotal: string | null
-  quoteCurrency: string | null
 }
 
 /** Resolve product metadata from the quotation line that owns the milestone.
@@ -93,7 +89,6 @@ export async function listPaymentMilestones(): Promise<
         m: paymentMilestones,
         funnelName: funnels.name,
         quoteNumber: quotations.quoteNumber,
-        quoteStatus: quotations.status,
       })
       .from(paymentMilestones)
       .leftJoin(funnels, eq(paymentMilestones.funnelId, funnels.id))
@@ -104,7 +99,6 @@ export async function listPaymentMilestones(): Promise<
       ...r.m,
       funnelName: r.funnelName,
       quoteNumber: r.quoteNumber,
-      quoteStatus: r.quoteStatus,
     }))
   })
 }
@@ -138,9 +132,6 @@ export async function getPaymentMilestone(
         m: paymentMilestones,
         funnelName: funnels.name,
         quoteNumber: quotations.quoteNumber,
-        quoteStatus: quotations.status,
-        quoteTotal: quotations.total,
-        quoteCurrency: quotations.currency,
       })
       .from(paymentMilestones)
       .leftJoin(funnels, eq(paymentMilestones.funnelId, funnels.id))
@@ -153,9 +144,6 @@ export async function getPaymentMilestone(
       ...row.m,
       funnelName: row.funnelName,
       quoteNumber: row.quoteNumber,
-      quoteStatus: row.quoteStatus,
-      quoteTotal: row.quoteTotal,
-      quoteCurrency: row.quoteCurrency,
       ...product,
     }
   })

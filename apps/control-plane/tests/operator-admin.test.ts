@@ -400,6 +400,6 @@ describe("contract editing and entitlement controls form", () => {
     expect(page.status).toBe(200)
     const html = await page.text()
     expect(html).toContain("Edit commercial terms")
-    expect(html).toContain("Entitlement controls")
+    expect(html).toContain("Advanced subscription controls")
   })
 })

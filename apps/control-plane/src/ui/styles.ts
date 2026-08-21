@@ -127,6 +127,17 @@ export const OPERATOR_STYLES = `
 .table-actions form { margin: 0; }
 .table-actions button { min-block-size: 2.25rem; padding-inline: var(--operator-space-2); }
 .secondary-section { border-block-start: var(--operator-border); padding-block-start: var(--operator-space-8); }
+.contract-workspace { align-items: start; display: grid; gap: var(--operator-space-8); grid-template-columns: 12rem minmax(0, 1fr); }
+.contract-main { min-inline-size: 0; }
+.context-sidebar { position: sticky; inset-block-start: var(--operator-space-4); }
+.context-sidebar-label { color: var(--operator-colour-muted); font-size: 0.8125rem; font-weight: 800; letter-spacing: 0.06em; margin-block-end: var(--operator-space-2); text-transform: uppercase; }
+.context-sidebar nav { border-inline-start: var(--operator-border); display: grid; gap: var(--operator-space-1); }
+.context-sidebar a { padding: var(--operator-space-2) var(--operator-space-3); text-decoration: none; }
+.context-sidebar a:hover { background: #eef2f7; }
+.collapsible-panel { border: var(--operator-border); border-radius: var(--operator-radius); background: var(--operator-colour-surface); }
+.collapsible-panel summary { cursor: pointer; font-size: 1.25rem; font-weight: 800; padding: var(--operator-space-4) var(--operator-space-6); }
+.collapsible-panel summary::marker { color: var(--operator-colour-accent); }
+.collapsible-panel-content { border-block-start: var(--operator-border); display: grid; gap: var(--operator-space-4); padding: var(--operator-space-6); }
 .inline-actions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--operator-space-4); margin-block-end: var(--operator-space-3); }
 .command-actions { display: flex; flex-wrap: wrap; gap: var(--operator-space-3); }
 .command-actions form { margin: 0; }
@@ -141,5 +152,9 @@ export const OPERATOR_STYLES = `
   .data-list-row { grid-template-columns: 1fr; }
   .summary-cards, .form-grid { grid-template-columns: 1fr; }
   .module-fieldset { grid-column: auto; }
+  .contract-workspace { grid-template-columns: 1fr; gap: var(--operator-space-4); }
+  .context-sidebar { position: static; }
+  .context-sidebar nav { border-inline-start: 0; border-block-end: var(--operator-border); display: flex; overflow-x: auto; }
+  .context-sidebar a { white-space: nowrap; }
 }
 `

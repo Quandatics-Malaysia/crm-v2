@@ -54,7 +54,7 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Quotation text defaults</CardTitle>
+        <CardTitle>Quotation defaults</CardTitle>
         <CardDescription>
           Prefills new quotations. You can edit each quotation later.
         </CardDescription>

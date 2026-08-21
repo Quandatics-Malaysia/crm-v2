@@ -82,10 +82,13 @@ services:
       DEMO_MODE: ${DEMO_MODE:-false}
       STORAGE_DRIVER: local
       STORAGE_LOCAL_DIR: /data/uploads
+      GOTENBERG_URL: http://gotenberg:3000
     volumes:
       - appfiles:/data/uploads
     depends_on:
       db:
+        condition: service_healthy
+      gotenberg:
         condition: service_healthy
     networks:
       - frontend
@@ -100,6 +103,22 @@ services:
       retries: 5
       start_period: 40s
     mem_limit: ${WEB_MEMORY_LIMIT:-1g}
+    logging: *default-logging
+    restart: unless-stopped
+
+  gotenberg:
+    image: gotenberg/gotenberg@sha256:9ced40d1b764b4538d79a7597137f42f0c187499d0f283208b227d1e62c55c3f
+    expose:
+      - "3000"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: ${GOTENBERG_MEMORY_LIMIT:-512m}
     logging: *default-logging
     restart: unless-stopped
 

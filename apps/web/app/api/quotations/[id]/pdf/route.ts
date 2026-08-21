@@ -1,5 +1,3 @@
-import { chromium } from "playwright-core"
-
 import { getQuotationDocument } from "@/app/(app)/quotations/actions"
 
 function safeFilename(value: string): string {
@@ -17,38 +15,52 @@ export async function GET(
     return Response.json({ error: "Quotation not found" }, { status: 404 })
   }
 
-  // Render through the web container itself. Navigating through the public
-  // hostname can hairpin through the proxy and lose the authenticated session.
-  const url = new URL(
-    `/quotation-preview/${id}`,
-    `http://127.0.0.1:${process.env.PORT ?? "3000"}`
-  )
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium",
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  })
-
   try {
-    const context = await browser.newContext()
     const cookieHeader = request.headers.get("cookie") ?? ""
-    await context.setExtraHTTPHeaders({ cookie: cookieHeader })
-    const page = await context.newPage()
-    const response = await page.goto(url.toString(), { waitUntil: "networkidle" })
-    if (!response || response.status() >= 400) {
-      throw new Error(`Quotation preview returned HTTP ${response?.status() ?? "no response"}`)
-    }
-    const pdf = await page.pdf({
-      format: "A4",
-      preferCSSPageSize: true,
-      printBackground: true,
-      margin: { top: "0", right: "0", bottom: "0", left: "0" },
-    })
+    const cookies = cookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const separator = part.indexOf("=")
+        return {
+          name: separator >= 0 ? part.slice(0, separator) : part,
+          value: separator >= 0 ? part.slice(separator + 1) : "",
+          domain: "web",
+          path: "/",
+        }
+      })
+      .filter((cookie) => cookie.value.length > 0)
 
-    return new Response(new Uint8Array(pdf), {
+    const form = new FormData()
+    form.set("url", `http://web:3000/quotation-preview/${id}`)
+    form.set("cookies", JSON.stringify(cookies))
+    form.set("paperWidth", "8.27")
+    form.set("paperHeight", "11.69")
+    form.set("marginTop", "0")
+    form.set("marginBottom", "0")
+    form.set("marginLeft", "0")
+    form.set("marginRight", "0")
+    form.set("printBackground", "true")
+    form.set("preferCssPageSize", "true")
+
+    const response = await fetch(
+      `${process.env.GOTENBERG_URL ?? "http://gotenberg:3000"}/forms/chromium/convert/url`,
+      { method: "POST", body: form, signal: AbortSignal.timeout(30_000) }
+    )
+    if (!response.ok) {
+      throw new Error(`Gotenberg returned HTTP ${response.status}: ${await response.text()}`)
+    }
+    const pdf = new Uint8Array(await response.arrayBuffer())
+    if (new TextDecoder().decode(pdf.slice(0, 5)) !== "%PDF-") {
+      throw new Error("Gotenberg returned a non-PDF response")
+    }
+
+    return new Response(pdf, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${safeFilename(document.quotation.quoteNumber)}"`,
-        "Content-Length": String(pdf.byteLength),
+        "Content-Length": String(pdf.length),
         "Cache-Control": "private, no-store",
       },
     })
@@ -58,7 +70,5 @@ export async function GET(
       { error: "Quotation PDF rendering failed" },
       { status: 502, headers: { "Cache-Control": "no-store" } }
     )
-  } finally {
-    await browser.close()
   }
 }

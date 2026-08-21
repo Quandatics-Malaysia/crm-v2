@@ -716,7 +716,7 @@ export function OpportunityForm({
               )}
             />
 
-            {financeEnabled ? (
+            {false && financeEnabled ? (
               <FormField
                 control={form.control}
                 name="isIntercompany"
@@ -740,7 +740,7 @@ export function OpportunityForm({
               />
             ) : null}
 
-            {financeEnabled && form.watch("isIntercompany") ? (
+            {false && financeEnabled && form.watch("isIntercompany") ? (
               <div className="grid gap-3 rounded-lg border p-3">
                 <div className="flex items-center justify-between">
                   <FormLabel>

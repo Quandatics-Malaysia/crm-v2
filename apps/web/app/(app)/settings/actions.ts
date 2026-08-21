@@ -283,7 +283,7 @@ function toView(
     approvalBypassTier: row.approvalBypassTier,
     taxInclusive: row.taxInclusive,
     autoWinOnQuoteAccept: row.autoWinOnQuoteAccept,
-    allowPasswordLogin: row.allowPasswordLogin,
+    allowPasswordLogin: true,
     entityCode: row.entityCode ?? "",
     quoteNextNumber: row.quoteNextNumber,
     quotePadWidth: row.quotePadWidth,
@@ -871,7 +871,9 @@ export async function updateSettings(
         }
       : {}),
     documentationModule: input.documentationModule,
-    allowPasswordLogin: input.allowPasswordLogin,
+    // Password sign-in is always enabled. Keep the legacy column for
+    // compatibility with older tenants and migrations.
+    allowPasswordLogin: true,
     entityCode: entityCode.length > 0 ? entityCode : null,
     defaultCountry: (input.defaultCountry ?? "").trim() || null,
     phonePrefix: (input.phonePrefix ?? "").trim().slice(0, 8) || null,

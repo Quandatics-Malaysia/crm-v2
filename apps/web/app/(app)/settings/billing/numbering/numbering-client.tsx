@@ -255,12 +255,10 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hidden">
           <CardHeader>
             <CardTitle>Sales-order numbering</CardTitle>
-            <CardDescription>
-              Next sales order: <span className="font-mono">{soPreview}</span>
-            </CardDescription>
+            <CardDescription>Next sales order: <span className="font-mono">{soPreview}</span></CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-3">
             <FormField
@@ -326,20 +324,7 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
           </CardHeader>
           <CardContent className="grid gap-5">
             <p className="text-sm text-muted-foreground">
-              Project codes follow{" "}
-              <span className="font-mono">
-                {"{YYYY}-{Entity}-{Account}-{ProjectNature}-{NNN}"}
-              </span>
-              . The running number{" "}
-              <span className="font-mono">NNN</span> is assigned per project and{" "}
-              <span className="font-medium text-foreground">
-                resets to 1 at the start of every year
-              </span>{" "}
-              — there is no single ever-incrementing project number to set here.
-              The entity code comes from General settings, the account code from
-              the account, and the project nature is chosen when the project is
-              created. Only the zero-pad width of the running number is
-              configured below.
+              Project code: <span className="font-mono">{`{YYYY}-{Entity}-{Account}-{Nature}-{NNN}`}</span>. Only NNN padding is set here.
             </p>
             <FormField
               control={form.control}
@@ -359,9 +344,7 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
                       onChange={(e) => field.onChange(e.target.value)}
                     />
                   </FormControl>
-                  <FormDescription>
-                    Digits in the running number, e.g. width 3 → 001.
-                  </FormDescription>
+                  <FormDescription>Digits in NNN. Example: 3 → 001.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -392,6 +375,9 @@ function NumberingForm({ settings }: { settings: TenantSettingsView }) {
  * project that starts with a value. Percents must sum to ≤ 100; the last
  * milestone absorbs cent rounding when the template allocates the full 100%.
  */
+// Kept for compatibility with existing saved templates; the setting is
+// intentionally hidden until the milestone workflow is ready for use.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function MilestoneTemplateCard({
   template,
 }: {
@@ -516,7 +502,6 @@ export function NumberingClient({ settings }: { settings: TenantSettingsView }) 
   return (
     <div className="grid gap-6">
       <NumberingForm settings={settings} />
-      <MilestoneTemplateCard template={settings.milestoneTemplate} />
     </div>
   )
 }

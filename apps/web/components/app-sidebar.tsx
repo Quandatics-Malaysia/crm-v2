@@ -17,8 +17,6 @@ import {
   ReceiptIcon,
   CreditCardIcon,
   TrendingUpIcon,
-  ArrowLeftRightIcon,
-  FileStackIcon,
   ShoppingCartIcon,
   ScrollTextIcon,
   ShieldCheckIcon,
@@ -106,7 +104,6 @@ const NAV_SECTIONS: NavSection[] = [
     // finance_module backend flag is on.
     label: "Finance",
     items: [
-      { title: "Billing", url: "/billing", icon: FileStackIcon, tile: "bg-lime-600", permission: PERMISSIONS.FINANCE_VIEW, module: "finance" },
       { title: "Purchasing", url: "/purchasing", icon: ShoppingCartIcon, tile: "bg-yellow-600", permission: PERMISSIONS.FINANCE_VIEW, module: "finance" },
     ],
   },
@@ -114,7 +111,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Insights",
     items: [
       { title: "Forecast", url: "/forecast", icon: TrendingUpIcon, tile: "bg-emerald-500", permission: PERMISSIONS.FORECAST_VIEW, module: "forecast" },
-      { title: "Intercompany", url: "/intercompany", icon: ArrowLeftRightIcon, tile: "bg-fuchsia-600", permission: PERMISSIONS.INTERCOMPANY_VIEW, module: "finance" },
       { title: "Audit", url: "/audit", icon: ScrollTextIcon, tile: "bg-slate-500", permission: PERMISSIONS.AUDIT_VIEW, module: "audit" },
     ],
   },

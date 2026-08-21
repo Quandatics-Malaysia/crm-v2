@@ -405,8 +405,7 @@ export async function createOpportunity(
       const dealBasis = Number(estimatedAmount ?? 0)
       // Intercompany billing is part of the finance plugin — force it off when
       // that plugin is disabled so no partner rows or mirror are written.
-      const wantsInterco =
-        (await getEntitledModuleMap()).finance && (input.isIntercompany ?? false)
+      const wantsInterco = false
       const parties = await resolvePartyList(
         tx,
         ctx,
@@ -619,11 +618,7 @@ export async function updateOpportunity(
     // possibly-changed basis/allow-list).
     // Intercompany billing belongs to the finance plugin — force it off (and
     // clear any parties) when that plugin is disabled.
-    const effectiveInterco =
-      (await getEntitledModuleMap()).finance &&
-      (input.isIntercompany === undefined
-        ? existing.isIntercompany
-        : !!input.isIntercompany)
+    const effectiveInterco = false
     const nextEstimated =
       input.estimatedAmount === undefined
         ? existing.estimatedAmount

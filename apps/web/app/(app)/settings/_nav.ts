@@ -53,11 +53,6 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: PERMISSIONS.TENANT_SETTINGS,
       },
       {
-        label: "Invoicing",
-        href: "/settings/billing/invoicing",
-        permission: PERMISSIONS.TENANT_SETTINGS,
-      },
-      {
         label: "Tax",
         href: "/settings/billing/tax",
         permission: PERMISSIONS.TAX_VIEW,

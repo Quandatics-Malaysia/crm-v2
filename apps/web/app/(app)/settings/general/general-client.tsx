@@ -626,7 +626,7 @@ function CompanyProfileCard({
           </div>
           <div className="grid gap-1.5 sm:col-span-2">
             <label className="text-xs text-muted-foreground">
-              Quote footer / terms
+              Document footer / terms
             </label>
             <Textarea
               rows={3}

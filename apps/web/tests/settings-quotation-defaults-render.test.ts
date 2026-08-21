@@ -24,7 +24,7 @@ describe("quotation-default settings ownership", () => {
 
     expect(html).toMatch(/<form(?:\s|>)/)
     expect(html).toContain("Quotation defaults")
-    expect(html).toContain("Notes")
+    expect(html).not.toContain("Notes copied to new quotations")
     expect(html).toContain("Delivery")
     expect(html).toContain("Payment Term")
     expect(html).toContain("Save quotation defaults")

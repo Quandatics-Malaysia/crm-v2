@@ -172,8 +172,13 @@ export function EntityQuotationDocument({ doc, template }: { doc: QuotationDocum
       </div>
       <div className="pt-2 text-[9px] font-bold">**Please Quote Our Reference Number When Placing An Order**</div>
       {template === "cc" && doc.preparedBy ? <div className="ml-auto -mt-3 w-[26%] text-[9px]"><div>Prepared by,</div><div className="font-bold">{doc.preparedBy.name}</div><div>{doc.preparedBy.email}</div></div> : null}
+      {doc.company.quoteFooter ? (
+        <section className="mt-6 border-t border-black pt-2 text-[8px]">
+          <div className="font-bold">Terms</div>
+          <div className="whitespace-pre-wrap font-normal">{doc.company.quoteFooter}</div>
+        </section>
+      ) : null}
       <div className="pt-8 text-[8px] italic">This Quotation is computer generated and no signature is required.</div>
-      {template === "cc" ? <footer className="absolute inset-x-[10mm] bottom-[8mm] flex justify-between text-[8px]"><span>{doc.entityName} {doc.company.website ? `w: ${doc.company.website}` : ""} {doc.company.email ? `e: ${doc.company.email}` : ""} {doc.company.phone ? `p: ${doc.company.phone}` : ""}</span><span>1</span></footer> : null}
     </div>
   )
 }

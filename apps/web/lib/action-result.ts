@@ -2,6 +2,7 @@ import "server-only"
 import { humanizeDenial } from "@/lib/permissions"
 import { resolveDenialContact, type DenialContact } from "@/lib/permission-denial"
 import { requireContext } from "@/lib/server-context"
+import { normalizeActionError, type ActionErrorCode } from "@/lib/action-error"
 import {
   LICENSE_READ_ONLY,
   LicenseReadOnlyError,
@@ -23,7 +24,7 @@ export type ActionResult<T = undefined> =
   | {
       ok: false
       error: string
-      code?: typeof LICENSE_READ_ONLY
+      code?: ActionErrorCode | typeof LICENSE_READ_ONLY
       contact?: DenialContact
     }
 
@@ -85,9 +86,11 @@ export function createActionRunner(checkWriteAccess: BusinessWriteAccessCheck): 
         return { ok: false, code: e.code, error: e.message }
       }
       console.error("[action]", e)
-      const rawMessage = e instanceof Error ? e.message : "Something went wrong"
-      const isForbidden = rawMessage.startsWith("FORBIDDEN")
-      const error = humanizeDenial(rawMessage)
+      const normalized = normalizeActionError(e)
+      const isForbidden = normalized.code === "forbidden"
+      const error = humanizeDenial(normalized.message)
+      // Keep the established ActionResult wire shape for compatibility; the
+      // normalized code is an internal classification used by this boundary.
       if (!isForbidden) return { ok: false, error }
       // Best-effort: never let contact resolution itself break the error path.
       let contact: DenialContact | undefined

@@ -33,7 +33,7 @@ export default function SignInPage() {
       setLoading(false)
       toast.error(
         error.message ??
-          "Microsoft sign-in failed — check the Entra app credentials and redirect URI."
+          "Microsoft sign-in failed. Try again or contact your administrator."
       )
     }
   }
@@ -44,7 +44,7 @@ export default function SignInPage() {
     const { error } = await authClient.signIn.email({ email, password })
     setLoading(false)
     if (error) {
-      toast.error(error.message ?? "Invalid email or password")
+      toast.error("Invalid email or password")
       return
     }
     router.push("/dashboard")

@@ -72,7 +72,7 @@ export async function GET(
       return err("forbidden", "Your API key's role lacks permission for this resource", 403, req)
     }
     console.error("api/v1 accounts [id] quotation-template GET error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 
@@ -134,7 +134,7 @@ export async function PATCH(
       return err("forbidden", "Your API key's role lacks permission for this resource", 403, req)
     }
     console.error("api/v1 accounts [id] quotation-template PATCH error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 

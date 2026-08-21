@@ -1,4 +1,5 @@
 import { toast } from "sonner"
+import type { ActionErrorCode } from "@/lib/action-error"
 
 /**
  * Standard failure toast for a mutating Server Action result — replaces the
@@ -9,10 +10,12 @@ import { toast } from "sonner"
 export function showActionError(res: {
   ok: false
   error: string
+  code?: ActionErrorCode | string
   contact?: { name: string; role: string }
 }): void {
   const contactLine = res.contact
     ? ` Contact ${res.contact.name} (${res.contact.role}).`
     : ""
-  toast.error(res.error + contactLine)
+  const message = res.error || "We couldn’t complete this request. Please try again."
+  toast.error(message + contactLine)
 }

@@ -12,6 +12,7 @@ import {
   setDefaultView,
 } from "@/app/(app)/_shared/saved-view-actions"
 import type { SavedView, SavedViewPayload } from "@/lib/saved-views"
+import { showActionError } from "@/lib/show-action-error"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -110,7 +111,7 @@ export function SavedViewMenu({
         return
       }
       if (!result.ok) {
-        toast.error(result.error)
+        showActionError(result)
         return
       }
       setViews((current) => {
@@ -133,7 +134,7 @@ export function SavedViewMenu({
     try {
       const result = await setDefaultView(selected.id)
       if (!result.ok) {
-        toast.error(result.error)
+        showActionError(result)
         return
       }
       setViews((current) =>
@@ -151,7 +152,7 @@ export function SavedViewMenu({
     try {
       const result = await deleteView(selected.id)
       if (!result.ok) {
-        toast.error(result.error)
+        showActionError(result)
         return
       }
       setViews((current) => current.filter((view) => view.id !== selected.id))

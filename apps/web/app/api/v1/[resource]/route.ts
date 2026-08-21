@@ -57,7 +57,7 @@ export async function GET(
       )
     }
     console.error("api/v1 error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 

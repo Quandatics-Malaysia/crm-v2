@@ -16,12 +16,25 @@
 		}
 	}
 
+	@quotation_preview {
+		path_regexp quotation_preview ^/quotations/[^/]+/preview$
+	}
+	@not_quotation_preview {
+		not path_regexp quotation_preview ^/quotations/[^/]+/preview$
+	}
+
 	header {
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		-Server
+	}
+	header @not_quotation_preview {
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+	}
+	header @quotation_preview {
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
 	}
 }

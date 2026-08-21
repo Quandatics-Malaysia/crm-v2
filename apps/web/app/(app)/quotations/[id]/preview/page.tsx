@@ -109,7 +109,7 @@ export default async function QuotationPreviewPage({
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/quotations/${q.id}`} />}>
             <ArrowLeftIcon className="size-4" /> Back to quotation
           </Button>
-          <PrintButton quoteNumber={q.quoteNumber} />
+          <PrintButton quotationId={q.id} quoteNumber={q.quoteNumber} />
         </div>
         <ExternalQuotationDocument doc={doc} template={quotationTemplate} />
       </div>
@@ -123,7 +123,7 @@ export default async function QuotationPreviewPage({
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/quotations/${q.id}`} />}>
             <ArrowLeftIcon className="size-4" /> Back to quotation
           </Button>
-          <PrintButton quoteNumber={q.quoteNumber} />
+          <PrintButton quotationId={q.id} quoteNumber={q.quoteNumber} />
         </div>
         <EntityQuotationDocument doc={doc} template={entityTemplate} />
       </div>
@@ -143,7 +143,7 @@ export default async function QuotationPreviewPage({
           <ArrowLeftIcon className="size-4" />
           Back to quotation
         </Button>
-        <PrintButton quoteNumber={q.quoteNumber} />
+        <PrintButton quotationId={q.id} quoteNumber={q.quoteNumber} />
       </div>
 
       {/* The printable document — A4 page (210×297mm) floating on the desk. */}

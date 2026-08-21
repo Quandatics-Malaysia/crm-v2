@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import type { Metadata } from "next"
 import { ArrowLeftIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -108,7 +109,7 @@ export default async function QuotationPreviewPage({
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/quotations/${q.id}`} />}>
             <ArrowLeftIcon className="size-4" /> Back to quotation
           </Button>
-          <PrintButton />
+          <PrintButton quoteNumber={q.quoteNumber} />
         </div>
         <ExternalQuotationDocument doc={doc} template={quotationTemplate} />
       </div>
@@ -122,7 +123,7 @@ export default async function QuotationPreviewPage({
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/quotations/${q.id}`} />}>
             <ArrowLeftIcon className="size-4" /> Back to quotation
           </Button>
-          <PrintButton />
+          <PrintButton quoteNumber={q.quoteNumber} />
         </div>
         <EntityQuotationDocument doc={doc} template={entityTemplate} />
       </div>
@@ -142,7 +143,7 @@ export default async function QuotationPreviewPage({
           <ArrowLeftIcon className="size-4" />
           Back to quotation
         </Button>
-        <PrintButton />
+        <PrintButton quoteNumber={q.quoteNumber} />
       </div>
 
       {/* The printable document — A4 page (210×297mm) floating on the desk. */}
@@ -393,4 +394,14 @@ export default async function QuotationPreviewPage({
       </div>
     </div>
   )
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  const doc = await getQuotationDocument(id)
+  return { title: doc?.quotation.quoteNumber ?? "Quotation" }
 }

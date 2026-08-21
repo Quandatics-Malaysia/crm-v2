@@ -1340,8 +1340,14 @@ export function QuotationForm({
           </Button>
         </div>
 
+        <iframe
+          title={`${quotation.quoteNumber} quotation preview`}
+          src={`/quotations/${quotation.id}/preview`}
+          className="h-[780px] w-full rounded-lg border bg-muted/40"
+        />
+
         {/* PDF-style A4 document floating on a desk background. */}
-        <div className="flex justify-center rounded-lg bg-muted/40 p-4 sm:p-6">
+        <div className="hidden flex justify-center rounded-lg bg-muted/40 p-4 sm:p-6">
           <div className="w-[210mm] max-w-full min-h-[297mm] overflow-hidden rounded-sm bg-white text-zinc-900 shadow-lg ring-1 ring-zinc-200">
             <div className="h-2 w-full bg-red-600" />
             <div className="grid gap-6 p-[14mm]">

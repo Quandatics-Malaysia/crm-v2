@@ -25,11 +25,29 @@ export async function GET(
 
   try {
     const context = await browser.newContext()
-    await context.setExtraHTTPHeaders({
-      cookie: request.headers.get("cookie") ?? "",
-    })
+    const cookieHeader = request.headers.get("cookie") ?? ""
+    if (cookieHeader) {
+      const origin = new URL(request.url).origin
+      await context.addCookies(
+        cookieHeader
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => {
+            const separator = part.indexOf("=")
+            return {
+              name: separator >= 0 ? part.slice(0, separator) : part,
+              value: separator >= 0 ? part.slice(separator + 1) : "",
+              url: origin,
+            }
+          })
+      )
+    }
     const page = await context.newPage()
-    await page.goto(url.toString(), { waitUntil: "networkidle" })
+    const response = await page.goto(url.toString(), { waitUntil: "networkidle" })
+    if (!response || response.status() >= 400) {
+      throw new Error(`Quotation preview returned HTTP ${response?.status() ?? "no response"}`)
+    }
     const pdf = await page.pdf({
       format: "A4",
       preferCSSPageSize: true,
@@ -41,6 +59,7 @@ export async function GET(
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${safeFilename(document.quotation.quoteNumber)}"`,
+        "Content-Length": String(pdf.byteLength),
         "Cache-Control": "private, no-store",
       },
     })

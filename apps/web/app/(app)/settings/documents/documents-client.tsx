@@ -54,10 +54,9 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Quotation defaults</CardTitle>
+        <CardTitle>Quotation text defaults</CardTitle>
         <CardDescription>
-          Prefill new quotation Notes, Delivery, and Payment Term fields. Values
-          remain editable on each quotation.
+          Prefills new quotations. You can edit each quotation later.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

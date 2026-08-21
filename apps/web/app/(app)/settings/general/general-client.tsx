@@ -20,18 +20,7 @@ import { Button } from "@/components/ui/button"
 import { FileDropzone } from "@/components/file-dropzone"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import {
   Form,
   FormControl,
@@ -44,7 +33,6 @@ import {
 import { PicklistCard } from "@/components/picklist-card"
 import {
   updateSettings,
-  updateIntercompanyPartners,
   updateCurrencies,
   updateCompanyProfile,
   uploadCompanyLogo,
@@ -103,16 +91,13 @@ const generalSchema = z.object({
 type GeneralValues = z.input<typeof generalSchema>
 type GeneralParsed = z.output<typeof generalSchema>
 
-const FINANCE_SWITCHES = new Set(["autoCompleteProjectOnPaid", "intercoAutoMirror"])
+const FINANCE_SWITCHES = new Set(["autoCompleteProjectOnPaid"])
 
 const SWITCHES: {
   name:
     | "taxInclusive"
     | "autoWinOnQuoteAccept"
     | "autoCompleteProjectOnPaid"
-    | "intercoAutoMirror"
-    | "documentationModule"
-    | "allowPasswordLogin"
   label: string
   description: string
 }[] = [
@@ -133,24 +118,6 @@ const SWITCHES: {
     description:
       "Move a project to Completed automatically once every payment milestone is paid (via billing receipts).",
   },
-  {
-    name: "intercoAutoMirror",
-    label: "Auto-mirror intercompany invoices",
-    description:
-      "Issuing a customer invoice on an intercompany project drafts the pair automatically: the partner's sales invoice to you and your purchase invoice from them, for their share.",
-  },
-  {
-    name: "documentationModule",
-    label: "Documentation",
-    description:
-      "Allow the internal documentation site (/documentation — module guides, flow maps, schema reference). It is linked nowhere in the app and only members with the \"View the in-app documentation\" permission (Owner/Admin by default) can open it.",
-  },
-  {
-    name: "allowPasswordLogin",
-    label: "Allow password login",
-    description:
-      "Permit email + password sign-in for this organization. Turning this off requires another sign-in method (e.g. SSO) — with none configured, everyone is locked out.",
-  },
 ]
 
 function GeneralForm({
@@ -161,9 +128,6 @@ function GeneralForm({
   members: TenantMemberView[]
 }) {
   const [isPending, startTransition] = React.useTransition()
-  const [confirmLockout, setConfirmLockout] = React.useState(false)
-  const [pendingValues, setPendingValues] =
-    React.useState<GeneralParsed | null>(null)
 
   const form = useForm<GeneralValues>({
     resolver: zodResolver(generalSchema),
@@ -174,8 +138,6 @@ function GeneralForm({
       approvalBypassTier: settings.approvalBypassTier,
       followUpDueDays: settings.followUpDueDays,
       autoCompleteProjectOnPaid: settings.autoCompleteProjectOnPaid,
-      intercoAutoMirror: settings.intercoAutoMirror,
-      documentationModule: settings.documentationModule,
       staleDealDays:
         settings.staleDealDays == null ? "" : String(settings.staleDealDays),
       leadFollowUpDays:
@@ -187,7 +149,7 @@ function GeneralForm({
       entityCode: settings.entityCode,
       taxInclusive: settings.taxInclusive,
       autoWinOnQuoteAccept: settings.autoWinOnQuoteAccept,
-      allowPasswordLogin: settings.allowPasswordLogin,
+      allowPasswordLogin: true,
     },
   })
 
@@ -211,8 +173,8 @@ function GeneralForm({
         approvalBypassTier: parsed.approvalBypassTier,
         followUpDueDays: parsed.followUpDueDays,
         autoCompleteProjectOnPaid: parsed.autoCompleteProjectOnPaid,
-        intercoAutoMirror: parsed.intercoAutoMirror,
-        documentationModule: parsed.documentationModule,
+        intercoAutoMirror: false,
+        documentationModule: false,
         staleDealDays:
           parsed.staleDealDays === "" ? null : Number(parsed.staleDealDays),
         leadFollowUpDays:
@@ -224,7 +186,7 @@ function GeneralForm({
         entityCode: parsed.entityCode,
         taxInclusive: parsed.taxInclusive,
         autoWinOnQuoteAccept: parsed.autoWinOnQuoteAccept,
-        allowPasswordLogin: parsed.allowPasswordLogin,
+        allowPasswordLogin: true,
       })
       if (!res.ok) {
         showActionError(res)
@@ -238,8 +200,6 @@ function GeneralForm({
         approvalBypassTier: updated.approvalBypassTier,
         followUpDueDays: updated.followUpDueDays,
         autoCompleteProjectOnPaid: updated.autoCompleteProjectOnPaid,
-        intercoAutoMirror: updated.intercoAutoMirror,
-        documentationModule: updated.documentationModule,
         staleDealDays:
           updated.staleDealDays == null ? "" : String(updated.staleDealDays),
         leadFollowUpDays:
@@ -251,7 +211,7 @@ function GeneralForm({
         entityCode: updated.entityCode,
         taxInclusive: updated.taxInclusive,
         autoWinOnQuoteAccept: updated.autoWinOnQuoteAccept,
-        allowPasswordLogin: updated.allowPasswordLogin,
+        allowPasswordLogin: true,
       })
       toast.success("Settings saved")
     })
@@ -260,11 +220,6 @@ function GeneralForm({
   function onSubmit(values: GeneralValues) {
     const parsed = generalSchema.parse(values)
     // Disabling password sign-in can lock out the whole org — confirm first.
-    if (settings.allowPasswordLogin && !parsed.allowPasswordLogin) {
-      setPendingValues(parsed)
-      setConfirmLockout(true)
-      return
-    }
     performSave(parsed)
   }
 
@@ -474,90 +429,6 @@ function GeneralForm({
                 />
               </React.Fragment>
             ))}
-            <Separator className="my-1" />
-            <FormField
-              control={form.control}
-              name="staleDealDays"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
-                  <div className="grid gap-1">
-                    <FormLabel>Stale funnel nudge (days)</FormLabel>
-                    <FormDescription>
-                      Show an open funnel on its owner&apos;s dashboard when it
-                      has had no activity for this long. Empty = off.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={365}
-                      placeholder="off"
-                      className="w-24"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Separator className="my-1" />
-            <FormField
-              control={form.control}
-              name="leadFollowUpDays"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
-                  <div className="grid gap-1">
-                    <FormLabel>Auto lead follow-up (days)</FormLabel>
-                    <FormDescription>
-                      Creating a lead also creates a &ldquo;First contact&rdquo;
-                      follow-up due this many days later. Empty = off.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={365}
-                      placeholder="off"
-                      className="w-24"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Separator className="my-1" />
-            <FormField
-              control={form.control}
-              name="followUpDueDays"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between gap-4 py-2">
-                  <div className="grid gap-1">
-                    <FormLabel>Follow-up window (days)</FormLabel>
-                    <FormDescription>
-                      How far ahead the dashboard looks for follow-ups
-                      &ldquo;due soon&rdquo;.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      className="w-24"
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                      value={String(field.value ?? "")}
-                      onChange={(e) => field.onChange(e.target.value)}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </CardContent>
         </Card>
 
@@ -576,32 +447,6 @@ function GeneralForm({
         </div>
       </form>
 
-      <AlertDialog open={confirmLockout} onOpenChange={setConfirmLockout}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disable password sign-in?</AlertDialogTitle>
-            <AlertDialogDescription>
-              No one will be able to sign in with email + password. Unless another
-              sign-in method (e.g. SSO) is configured for this organization, every
-              member — including you — will be locked out and unable to reach
-              Settings to turn it back on. Continue only if you have an
-              alternative way in.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingValues) performSave(pendingValues)
-                setPendingValues(null)
-              }}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              Disable sign-in
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Form>
   )
 }
@@ -684,8 +529,7 @@ function CompanyProfileCard({
       <CardHeader>
         <CardTitle>Company profile</CardTitle>
         <CardDescription>
-          Printed on customer-facing documents (the quotation): identity block
-          at the top, bank details and footer at the bottom.
+          Company identity, bank details and quotation footer.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
@@ -803,98 +647,12 @@ function CompanyProfileCard({
   )
 }
 
-/**
- * Intercompany partner allow-list. Options are the OTHER entities the current
- * user belongs to (the only candidates `resolveHandlingPartner` accepts);
- * an empty list keeps the legacy "any own entity" behavior.
- */
-function IntercompanyPartnersCard({
-  allowedIds,
-  entities,
-}: {
-  allowedIds: string[]
-  entities: { id: string; name: string }[]
-}) {
-  const [selected, setSelected] = React.useState<Set<string>>(
-    new Set(allowedIds)
-  )
-  const [isPending, startTransition] = React.useTransition()
-
-  const dirty =
-    [...selected].sort().join("|") !== [...allowedIds].sort().join("|")
-
-  function toggle(id: string, on: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (on) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
-
-  function save() {
-    startTransition(async () => {
-      const res = await updateIntercompanyPartners([...selected])
-      if (!res.ok) {
-        showActionError(res)
-        return
-      }
-      setSelected(new Set(res.data.intercompanyPartnerIds))
-      toast.success("Intercompany partners saved")
-    })
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Intercompany partners</CardTitle>
-        <CardDescription>
-          Entities that may be picked as the handling partner on an
-          intercompany funnel. Leave all unchecked to allow any entity you
-          belong to (legacy behavior). Once any are checked, only those are
-          valid partners.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {entities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            You don&apos;t belong to any other entity — there are no candidate
-            partners to allow-list.
-          </p>
-        ) : (
-          <div className="grid gap-2">
-            {entities.map((e) => (
-              <label
-                key={e.id}
-                className="flex items-center gap-2 text-sm"
-              >
-                <Checkbox
-                  checked={selected.has(e.id)}
-                  onCheckedChange={(v) => toggle(e.id, v === true)}
-                />
-                {e.name}
-              </label>
-            ))}
-          </div>
-        )}
-        <div className="flex justify-end">
-          <Button type="button" onClick={save} disabled={isPending || !dirty}>
-            {isPending ? "Saving…" : "Save partners"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function GeneralClient({
   settings,
   members,
-  entities,
 }: {
   settings: TenantSettingsView
   members: TenantMemberView[]
-  entities: { id: string; name: string }[]
 }) {
   return (
     <div className="grid gap-6">
@@ -919,10 +677,6 @@ export function GeneralClient({
         save={updateCurrencies}
       />
 
-      <IntercompanyPartnersCard
-        allowedIds={settings.intercompanyPartnerIds}
-        entities={entities}
-      />
     </div>
   )
 }

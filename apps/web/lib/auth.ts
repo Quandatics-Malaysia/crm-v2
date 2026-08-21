@@ -135,31 +135,10 @@ async function autoJoinByDomain(user: {
  * ANY of their orgs still permits password login.
  */
 async function passwordLoginAllowed(email: string): Promise<boolean> {
-  const [u] = await db
-    .select({ id: schema.user.id })
-    .from(schema.user)
-    .where(sql`lower(${schema.user.email}) = lower(${email})`)
-    .limit(1)
-  if (!u) return true // unknown user — let normal auth fail with its own error
-
-  const memberships = await db
-    .select({ orgId: schema.member.organizationId })
-    .from(schema.member)
-    .where(eq(schema.member.userId, u.id))
-  if (memberships.length === 0) return true // no tenant to consult
-
-  for (const m of memberships) {
-    const allowed = await runInTenant(m.orgId, async (tx) => {
-      const [s] = await tx
-        .select({ allow: schema.tenantSettings.allowPasswordLogin })
-        .from(schema.tenantSettings)
-        .where(eq(schema.tenantSettings.organizationId, m.orgId))
-        .limit(1)
-      return s?.allow ?? false
-    })
-    if (allowed) return true
-  }
-  return false
+  // Password sign-in is a platform invariant; the legacy tenant flag is
+  // retained only for database compatibility and is no longer consulted.
+  void email
+  return true
 }
 
 // A real directory (tenant) GUID is required when Microsoft sign-in is

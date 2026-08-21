@@ -18,13 +18,11 @@ import {
 } from "@/app/(app)/settings/actions"
 import {
   QUOTE_DEFAULT_DELIVERY_MAX,
-  QUOTE_DEFAULT_NOTES_MAX,
   QUOTE_DEFAULT_PAYMENT_TERM_MAX,
 } from "@/app/(app)/settings/constants"
 
 function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
   const initial = {
-    notes: settings.quoteDefaultNotes,
     delivery: settings.quoteDefaultDelivery,
     paymentTerm: settings.quoteDefaultPaymentTerm,
   }
@@ -35,13 +33,15 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
 
   function save() {
     startTransition(async () => {
-      const result = await updateQuoteDefaults(values)
+      const result = await updateQuoteDefaults({
+        notes: settings.quoteDefaultNotes,
+        ...values,
+      })
       if (!result.ok) {
         showActionError(result)
         return
       }
       const next = {
-        notes: result.data.quoteDefaultNotes,
         delivery: result.data.quoteDefaultDelivery,
         paymentTerm: result.data.quoteDefaultPaymentTerm,
       }
@@ -67,17 +67,6 @@ function QuoteDefaultsCard({ settings }: { settings: TenantSettingsView }) {
           save()
         }}
         >
-        <label className="grid gap-2 text-sm font-medium">
-          Notes
-          <Textarea
-            value={values.notes}
-            onChange={(event) => setValues((prev) => ({ ...prev, notes: event.target.value }))}
-            maxLength={QUOTE_DEFAULT_NOTES_MAX}
-            rows={4}
-            placeholder="Notes copied to new quotations"
-          />
-          <span className="text-xs text-muted-foreground">Maximum {QUOTE_DEFAULT_NOTES_MAX} characters.</span>
-        </label>
         <label className="grid gap-2 text-sm font-medium">
           Delivery
           <Textarea

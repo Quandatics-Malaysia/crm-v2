@@ -1329,7 +1329,7 @@ export function QuotationForm({
             nativeButton={false}
             render={
               <Link
-                href={`/quotations/${quotation.id}/preview`}
+                href={`/quotation-preview/${quotation.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
               />
@@ -1342,7 +1342,7 @@ export function QuotationForm({
 
         <iframe
           title={`${quotation.quoteNumber} quotation preview`}
-          src={`/quotations/${quotation.id}/preview`}
+          src={`/quotation-preview/${quotation.id}`}
           className="h-[780px] w-full rounded-lg border bg-muted/40"
         />
 

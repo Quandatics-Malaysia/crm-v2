@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server"
 import { chromium } from "playwright-core"
 
 import { getQuotationDocument } from "@/app/(app)/quotations/actions"
@@ -15,10 +14,10 @@ export async function GET(
   const { id } = await params
   const document = await getQuotationDocument(id)
   if (!document) {
-    return NextResponse.json({ error: "Quotation not found" }, { status: 404 })
+    return Response.json({ error: "Quotation not found" }, { status: 404 })
   }
 
-  const url = new URL(`/quotations/${id}/preview`, request.url)
+  const url = new URL(`/quotation-preview/${id}`, request.url)
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium",
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -38,7 +37,7 @@ export async function GET(
       margin: { top: "0", right: "0", bottom: "0", left: "0" },
     })
 
-    return new NextResponse(pdf as unknown as BodyInit, {
+    return new Response(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${safeFilename(document.quotation.quoteNumber)}"`,

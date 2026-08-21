@@ -69,7 +69,6 @@ CMD ["sh", "-c", "node /app/migrate.mjs && node /app/seed.mjs"]
 # under apps/web/. Entrypoint is apps/web/server.js; public + static are not
 # auto-copied into the standalone tree, so copy them into the nested app path.
 FROM base AS runner
-RUN apk add --no-cache chromium
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY scripts/strip-runtime-package-managers.sh /tmp/strip-runtime-package-managers.sh
 RUN /tmp/strip-runtime-package-managers.sh / --container-root \

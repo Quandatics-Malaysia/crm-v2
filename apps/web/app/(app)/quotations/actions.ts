@@ -118,7 +118,7 @@ export async function getQuotation(id: string): Promise<QuotationDetail | null> 
 
 export type QuotationDocument = {
   quotation: QuotationRow
-  lines: Array<QuotationLineRow & { sku: string | null }>
+  lines: Array<QuotationLineRow & { sku: null }>
   entityName: string
   entityCode: string | null
   entitySlug: string
@@ -190,13 +190,11 @@ export async function getQuotationDocument(
     const lines = await tx
       .select({
         line: quotationLineItems,
-        sku: products.productCode,
       })
       .from(quotationLineItems)
-      .leftJoin(products, eq(quotationLineItems.productId, products.id))
       .where(eq(quotationLineItems.quotationId, id))
       .orderBy(asc(quotationLineItems.sortOrder))
-      .then((rows) => rows.map(({ line, sku }) => ({ ...line, sku })))
+      .then((rows) => rows.map(({ line }) => ({ ...line, sku: null as null })))
 
     let account: QuotationDocument["account"] = null
     let contact: QuotationDocument["contact"] = null

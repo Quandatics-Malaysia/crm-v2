@@ -17,10 +17,10 @@
 	}
 
 	@quotation_preview {
-		path_regexp quotation_preview ^/quotations/[^/]+/preview$
+		path_regexp quotation_preview ^(/quotations/[^/]+/preview|/quotation-preview/[^/]+)$
 	}
 	@not_quotation_preview {
-		not path_regexp quotation_preview ^/quotations/[^/]+/preview$
+		not path_regexp quotation_preview ^(/quotations/[^/]+/preview|/quotation-preview/[^/]+)$
 	}
 
 	header {

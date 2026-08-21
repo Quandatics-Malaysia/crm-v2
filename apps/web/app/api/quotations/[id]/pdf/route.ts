@@ -17,24 +17,12 @@ export async function GET(
 
   try {
     const cookieHeader = request.headers.get("cookie") ?? ""
-    const cookies = cookieHeader
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separator = part.indexOf("=")
-        return {
-          name: separator >= 0 ? part.slice(0, separator) : part,
-          value: separator >= 0 ? part.slice(separator + 1) : "",
-          domain: "web",
-          path: "/",
-        }
-      })
-      .filter((cookie) => cookie.value.length > 0)
-
     const form = new FormData()
     form.set("url", `http://web:3000/quotation-preview/${id}`)
-    form.set("cookies", JSON.stringify(cookies))
+    // Forward the browser session exactly as received. Using Gotenberg's
+    // cookie-object form field forces a synthetic `web` cookie domain and can
+    // make Chromium reject secure/prefix cookies before loading the preview.
+    form.set("extraHttpHeaders", JSON.stringify({ Cookie: cookieHeader }))
     form.set("paperWidth", "8.27")
     form.set("paperHeight", "11.69")
     form.set("marginTop", "0")

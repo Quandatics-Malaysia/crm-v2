@@ -39,7 +39,12 @@ const doc = {
     quoteFooter: null,
     hasLogo: true,
   },
-   account: { name: "Recipient Account", code: "REC", phone: null, address: null },
+   account: {
+    name: "Recipient Account",
+    code: "REC",
+    phone: "+6012 345 6789",
+    address: { line1: "A-08-01", city: "Kuala Lumpur", country: "Malaysia" },
+  },
    contact: { name: "Ada Contact", email: "ada@example.com", phone: "+6012" },
 } as unknown as QuotationDocument
 
@@ -70,12 +75,14 @@ describe("EntityQuotationDocument", () => {
           legacyTemplateCode: null,
           renderMode: "html",
           htmlTemplate:
-            "<p>{{customerContact}}|{{delivery}}|{{paymentTerm}}|{{notes}}</p>",
+            "<p>{{customerContact}}|{{customerAddress}}|{{delivery}}|{{paymentTerm}}|{{notes}}|{{quoteDate}}|{{subtotal}}|{{taxLabel}}|{{companyPhone}}</p>",
           cssTemplate: null,
         },
       })
     )
 
-    expect(html).toContain("Ada Contact|14 days|30 days|Saved customer note")
+    expect(html).toContain(
+      "Ada Contact|A-08-01, Kuala Lumpur, Malaysia|14 days|30 days|Saved customer note|04/08/2026|100.00|SST @ 8%|+603-2857 8098"
+    )
   })
 })

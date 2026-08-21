@@ -446,7 +446,7 @@ function signingKeyId(value: string): string {
   }
 }
 
-function privateSigningJwk(environment: CloudflareBindings): JsonWebKey {
+export function privateSigningJwk(environment: CloudflareBindings): JsonWebKey {
   let parsed: unknown
   try { parsed = JSON.parse(environment.ENTITLEMENT_SIGNING_PRIVATE_JWK) } catch { throw signingConfigurationUnavailable() }
   if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") throw signingConfigurationUnavailable()

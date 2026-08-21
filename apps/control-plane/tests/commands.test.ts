@@ -11,10 +11,13 @@ import {
 import { readCommandEnvelope } from "../src/repos/commands"
 import {
   acknowledgeCommand,
+  cancelCommand,
   claimNextPendingCommand,
   enqueueCommand,
   expireDueCommands,
   getCommandHistory,
+  issueCommand,
+  retryCommand,
 } from "../src/repos/commands"
 
 import { type MutationActor } from "../src/repos/clients"
@@ -102,6 +105,20 @@ beforeEach(async () => {
 })
 
 describe("command enqueue", () => {
+  it("creates a server-signed diagnostic command for an operator", async () => {
+    const result = await issueCommand({
+      database: env.CONTROL_DB,
+      deploymentId,
+      payload: { kind: "diagnostics", includeLogs: false, maxLogBytes: 0, includeContainerStatus: true, requestedAt: new Date("2026-08-19T00:00:00.000Z").toISOString() },
+      actor: operatorActor,
+      signingKeyId: "vendor-key-cmd",
+      signingPrivateJwk: privateJwk,
+      now: new Date("2026-08-19T00:00:00.000Z"),
+    })
+    expect(result.kind).toBe("diagnostics")
+    expect((await readCommandEnvelope(env.CONTROL_DB, result.id))?.state).toBe("pending")
+  })
+
   it("accepts a valid signed envelope and stores both the queue and audit row", async () => {
     const payload = commandPayload()
     const envelope = await signCommand(payload, privateJwk, "vendor-key-cmd")
@@ -135,6 +152,25 @@ describe("command enqueue", () => {
 })
 
 describe("command claim/ack round trip", () => {
+  it("cancels a pending command and retries a completed command", async () => {
+    const candidate = commandPayload({ id: "88888888-4888-4888-8888-888888888888" })
+    const envelope = await signCommand(candidate, privateJwk, "vendor-key-cmd")
+    await enqueueCommand(env.CONTROL_DB, { envelope, actor: operatorActor })
+    await cancelCommand(env.CONTROL_DB, deploymentId, candidate.id, operatorActor)
+    expect((await readCommandEnvelope(env.CONTROL_DB, candidate.id))?.state).toBe("cancelled")
+    const retried = await retryCommand({
+      database: env.CONTROL_DB,
+      deploymentId,
+      commandId: candidate.id,
+      actor: operatorActor,
+      signingKeyId: "vendor-key-cmd",
+      signingPrivateJwk: privateJwk,
+      now: new Date("2026-08-19T00:00:00.000Z"),
+    })
+    expect(retried.id).not.toBe(candidate.id)
+    expect((await readCommandEnvelope(env.CONTROL_DB, retried.id))?.state).toBe("pending")
+  })
+
   it("claims the oldest pending command and updates the state to in_flight", async () => {
     const candidate = commandPayload({ id: "55555555-4555-4555-8555-555555555555" })
     const envelope = await signCommand(candidate, privateJwk, "vendor-key-cmd")

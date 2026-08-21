@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context, type MiddlewareHandler } from "hono"
+import { CommandPayloadSchema, type CommandPayload } from "@crm/control-protocol"
 import { csrf } from "hono/csrf"
 import { HTTPException } from "hono/http-exception"
 
@@ -26,6 +27,7 @@ import {
   setDeploymentStatus,
 } from "../repos/deployments-ops"
 import { issueInstallToken } from "../repos/deployments"
+import { cancelCommand, issueCommand, retryCommand } from "../repos/commands"
 import {
   createOperator,
   listOperators,
@@ -36,9 +38,10 @@ import { getDeploymentWorkspace } from "../repos/onboarding"
 import {
   assignEntitlementSchedule,
   issueEntitlement,
+  privateSigningJwk,
   updateEntitlementControls,
 } from "../repos/entitlements"
-import { ClientList, ClientPage, ContractPage, Dashboard, type OperatorNotice } from "../ui/dashboard"
+import { ClientList, ClientPage, ContractPage, Dashboard, IssuesPage, type OperatorNotice } from "../ui/dashboard"
 import { DeploymentPage, EntitlementReviewPage, InstallTokenResultPage } from "../ui/deployment"
 import { OperatorRosterPage } from "../ui/operators"
 import { OPERATOR_STYLES } from "../ui/styles"
@@ -62,6 +65,9 @@ const OPERATOR_NOTICES = {
   install_token_revoked: { tone: "success", title: "Install token revoked", message: "Pending install tokens for this deployment are superseded." },
   entitlement_controls_updated: { tone: "success", title: "Entitlement controls updated", message: "Contract entitlement controls are applied." },
   contract_updated: { tone: "success", title: "Contract updated", message: "Commercial terms are updated and an entitlement re-issue is required." },
+  command_issued: { tone: "success", title: "Command queued", message: "The deployment agent will pick up the command on its next poll." },
+  command_cancelled: { tone: "success", title: "Command cancelled", message: "The deployment agent will no longer run that command." },
+  command_retried: { tone: "success", title: "Command retried", message: "A new command was queued with a fresh five-minute expiry." },
   changes_saved: { tone: "success", title: "Changes saved", message: "The requested update completed." },
 } as const satisfies Record<string, OperatorNotice>
 
@@ -316,6 +322,10 @@ function htmlSuccessRedirect(context: OperatorContext): string {
   if (operatorRoles) return withNotice("/operator/operators", "operator_roles_updated")
   const deploymentStatus = /^\/operator\/deployments\/([^/]+)\/status$/.exec(pathname)
   if (deploymentStatus) return withNotice(`/operator/deployments/${deploymentStatus[1]}`, "deployment_status_updated")
+  const command = /^\/operator\/deployments\/([^/]+)\/commands$/.exec(pathname)
+  if (command) return withNotice(`/operator/deployments/${command[1]}`, "command_issued")
+  const commandAction = /^\/operator\/deployments\/([^/]+)\/commands\/[^/]+\/(cancel|retry)$/.exec(pathname)
+  if (commandAction) return withNotice(`/operator/deployments/${commandAction[1]}`, commandAction[2] === "cancel" ? "command_cancelled" : "command_retried")
   const tokenRevoke = /^\/operator\/deployments\/([^/]+)\/install-tokens\/revoke$/.exec(pathname)
   if (tokenRevoke) return withNotice(`/operator/deployments/${tokenRevoke[1]}`, "install_token_revoked")
   const contractEdit = /^\/operator\/contracts\/([^/]+)\/edit$/.exec(pathname)
@@ -330,6 +340,29 @@ function actor(context: OperatorContext) {
     operatorId: context.get("operator").operatorId,
     requestId: requestId(context),
   }
+}
+
+function commandPayload(data: MutationData, operator: { roles: ReadonlySet<string> }): CommandPayload {
+  const kind = String(data.kind ?? "")
+  const requestedAt = new Date().toISOString()
+  if (kind === "diagnostics") {
+    return CommandPayloadSchema.parse({ kind, includeLogs: false, maxLogBytes: 0, includeContainerStatus: true, requestedAt })
+  }
+  if (kind === "trigger_backup") {
+    return CommandPayloadSchema.parse({ kind, requestedAt, artifactTag: String(data.artifactTag ?? "manual") })
+  }
+  if (kind === "verify_restore") {
+    return CommandPayloadSchema.parse({ kind, requestedAt, ...(data.artifactTag ? { artifactTag: String(data.artifactTag) } : {}) })
+  }
+  if (kind === "log_stream") {
+    return CommandPayloadSchema.parse({ kind, service: String(data.service ?? "agent"), lines: Number(data.lines ?? 200) })
+  }
+  if (kind === "restart_web" || kind === "restart_gateway") {
+    if (!operator.roles.has("vendor_owner")) throw forbidden("operator_role_forbidden")
+    if (data.confirmation !== kind) throw badRequest("command_confirmation_required")
+    return CommandPayloadSchema.parse({ kind, service: kind === "restart_web" ? "web" : "gateway", reason: String(data.reason ?? "Vendor operator requested restart") })
+  }
+  throw badRequest("command_kind_invalid")
 }
 
 function installTokenExpiry(value: unknown, now = new Date()): string {
@@ -405,6 +438,13 @@ export function createOperatorRoutes() {
       />,
     )
   })
+  routes.get("/issues", async (context) => context.html(
+    <IssuesPage
+      summary={await getDashboardSummary(context.env.CONTROL_DB)}
+      operatorEmail={context.get("operator").email}
+      notice={requestNotice(context)}
+    />,
+  ))
   routes.get("/clients/:clientId", async (context) => {
     const client = await getClientDetail(
       context.env.CONTROL_DB,
@@ -657,6 +697,61 @@ export function createOperatorRoutes() {
       if (data.status === "disabled" && data.confirmation !== "disable_deployment") throw badRequest()
       await setDeploymentStatus(context.env.CONTROL_DB, deploymentId, data.status, actor(context))
       if (isJson(context)) return context.json({ id: deploymentId }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/commands",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "vendor_support"),
+    async (context) => {
+      const data = await mutationData(context)
+      const operator = context.get("operator")
+      const issued = await issueCommand({
+        database: context.env.CONTROL_DB,
+        deploymentId: context.req.param("deploymentId"),
+        payload: commandPayload(data, operator),
+        actor: actor(context),
+        signingKeyId: context.env.ENTITLEMENT_SIGNING_KEY_ID,
+        signingPrivateJwk: privateSigningJwk(context.env),
+      })
+      if (isJson(context)) return context.json(issued, 201)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/commands/:commandId/cancel",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "vendor_support"),
+    async (context) => {
+      const data = await mutationData(context)
+      if (data.confirmation !== "cancel_command") throw badRequest("command_confirmation_required")
+      await cancelCommand(
+        context.env.CONTROL_DB,
+        context.req.param("deploymentId"),
+        context.req.param("commandId"),
+        actor(context),
+      )
+      if (isJson(context)) return context.json({ id: context.req.param("commandId") }, 200)
+      return context.redirect(htmlSuccessRedirect(context), 303)
+    },
+  )
+  routes.post(
+    "/deployments/:deploymentId/commands/:commandId/retry",
+    sameOriginMutation,
+    requireOperatorRole("vendor_owner", "vendor_support"),
+    async (context) => {
+      const data = await mutationData(context)
+      if (data.confirmation !== "retry_command") throw badRequest("command_confirmation_required")
+      const retried = await retryCommand({
+        database: context.env.CONTROL_DB,
+        deploymentId: context.req.param("deploymentId"),
+        commandId: context.req.param("commandId"),
+        actor: actor(context),
+        signingKeyId: context.env.ENTITLEMENT_SIGNING_KEY_ID,
+        signingPrivateJwk: privateSigningJwk(context.env),
+      })
+      if (isJson(context)) return context.json(retried, 201)
       return context.redirect(htmlSuccessRedirect(context), 303)
     },
   )

@@ -7,6 +7,7 @@ import {
 } from "@crm/control-protocol"
 
 import { notFound } from "../http/errors"
+import { getCommandHistory, type CommandHistoryItem } from "./commands"
 
 const HEARTBEAT_FRESHNESS_MS = 30 * 60 * 1_000
 const RECENT_LIMIT = 10
@@ -88,7 +89,13 @@ export interface DeploymentWorkspace {
     occupiedSeats: number
     entitlementVersion: string | null
     configurationVersion: string | null
+    imageDigest: string | null
+    migrationVersion: string | null
+    lastSuccessfulBackupAt: string | null
+    lastRestoreTestAt: string | null
+    agentVersion: string | null
   } | null
+  commandHistory: CommandHistoryItem[]
   recentEntitlements: EntitlementSummary[]
   entitlementHistoryCapped: boolean
   recentAuditEvents: Array<{
@@ -180,7 +187,7 @@ export async function getDeploymentWorkspace(
   if (!deployment) throw notFound()
 
   const today = now.toISOString().slice(0, 10)
-  const [compatibleContracts, contractModules, registrationKey, token, schedule, entitlementRows, heartbeat, auditEvents] = await Promise.all([
+  const [compatibleContracts, contractModules, registrationKey, token, schedule, entitlementRows, heartbeat, auditEvents, commandHistory] = await Promise.all([
     database.prepare(
       "SELECT id, plan_id, status, starts_at, ends_at, seat_limit, entitlement_revision FROM contracts WHERE client_id = ? AND status IN ('active', 'past_due') AND starts_at <= ? AND ends_at >= ? ORDER BY starts_at DESC, id DESC",
     ).bind(deployment.client_id, today, today).all<{
@@ -238,7 +245,7 @@ export async function getDeploymentWorkspace(
       issued_at: string
     }>(),
     database.prepare(
-      "SELECT observed_at, health_status, application_version, occupied_seats, entitlement_version, configuration_version FROM heartbeat_rollups WHERE deployment_id = ? ORDER BY observed_at DESC, id DESC LIMIT 1",
+      "SELECT observed_at, health_status, application_version, occupied_seats, entitlement_version, configuration_version, image_digest, migration_version, last_successful_backup_at, last_restore_test_at, agent_version FROM heartbeat_rollups WHERE deployment_id = ? ORDER BY observed_at DESC, id DESC LIMIT 1",
     ).bind(deploymentId).first<{
       observed_at: string
       health_status: string
@@ -246,6 +253,11 @@ export async function getDeploymentWorkspace(
       occupied_seats: number
       entitlement_version: string | null
       configuration_version: string | null
+      image_digest: string | null
+      migration_version: string | null
+      last_successful_backup_at: string | null
+      last_restore_test_at: string | null
+      agent_version: string | null
     }>(),
     database.prepare(
       "SELECT id, action, outcome, created_at FROM operator_audit_log WHERE target_type = 'deployment' AND target_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -255,6 +267,7 @@ export async function getDeploymentWorkspace(
       outcome: "success" | "denied" | "error"
       created_at: string
     }>(),
+    getCommandHistory(database, deploymentId, 20),
   ])
 
   const entitlements = entitlementRows.results.map((row) => {
@@ -289,6 +302,11 @@ export async function getDeploymentWorkspace(
     occupiedSeats: heartbeat.occupied_seats,
     entitlementVersion: heartbeat.entitlement_version,
     configurationVersion: heartbeat.configuration_version,
+    imageDigest: heartbeat.image_digest,
+    migrationVersion: heartbeat.migration_version,
+    lastSuccessfulBackupAt: heartbeat.last_successful_backup_at,
+    lastRestoreTestAt: heartbeat.last_restore_test_at,
+    agentVersion: heartbeat.agent_version,
   }
   const scheduledContract = schedule === null
     ? undefined
@@ -348,6 +366,7 @@ export async function getDeploymentWorkspace(
     },
     latestEntitlement: latest?.summary ?? null,
     latestHeartbeat,
+    commandHistory,
     recentEntitlements: entitlements.slice(0, RECENT_LIMIT).map(({ summary }) => summary),
     entitlementHistoryCapped: entitlements.length > RECENT_LIMIT,
     recentAuditEvents: auditEvents.results.map((audit) => ({

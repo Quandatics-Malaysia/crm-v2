@@ -16,40 +16,78 @@ export function Dashboard(props: { operatorEmail: string; summary: DashboardSumm
   return (
     <OperatorLayout title="Dashboard" operatorEmail={props.operatorEmail}>
       <PageHeader
-        eyebrow="Operations overview"
-        title="Client portfolio"
-        description="Review customer setup and resolve work that needs an operator."
-        actions={<a class="button-link" href="/operator/clients#new-client">Create client</a>}
+        eyebrow="Vendor operations"
+        title="Overview"
+        description="Monitor customer deployments and issues."
+        actions={<><a class="button-link" href="/operator/issues">View issues</a><a class="button-link button-secondary" href="/operator/clients#new-client">Create client</a></>}
       />
       <NoticePanel notice={props.notice} />
       <div class="summary-cards" aria-label="Portfolio summary">
         <Card title="Clients">
           <p class="summary-value">{summary.activeClientCount}</p>
-          <p>{summary.activeClientCount === 1 ? "active client record" : "active client records"}</p>
+          <p>{summary.activeClientCount === 1 ? "active client" : "active clients"}</p>
         </Card>
         <Card title="Deployments">
           <p class="summary-value">{summary.deploymentCount}</p>
-          <p>{summary.deploymentCount === 1 ? "deployment" : "deployments"}</p>
+          <p>{summary.onlineDeploymentCount} online now</p>
+        </Card>
+        <Card title="Needs attention">
+          <p class="summary-value">{summary.attentionCount}</p>
+          <p>{summary.attentionCount === 1 ? "open issue" : "open issues"}</p>
         </Card>
       </div>
       <section class="dashboard-section" aria-labelledby="attention-heading">
-        <h2 id="attention-heading">Needs attention</h2>
+        <div class="section-heading-row"><div><h2 id="attention-heading">Needs attention</h2><p class="section-description">The next useful action, ordered by urgency.</p></div><a href="/operator/issues">See all issues</a></div>
         {summary.attentionItems.length === 0 ? (
-          <EmptyState title="Nothing needs attention">Contracts and deployments are in a healthy state.</EmptyState>
+          <EmptyState title="Everything is healthy">No customer deployment or contract needs action right now.</EmptyState>
         ) : (
           <div class="attention-list">
             {summary.attentionItems.map((item) => (
               <article class="attention-item">
                 <StatusBadge tone={item.tone}>{item.status}</StatusBadge>
                 <div>
-                  <h3><a href={item.href}>{item.title}</a></h3>
-                  <p>{item.description}</p>
+                  <h3><a href={item.href}>{item.clientName}{item.deploymentKey ? ` · ${item.deploymentKey}` : ""}</a></h3>
+                  <p>{item.title} · {item.description}</p>
                 </div>
               </article>
             ))}
           </div>
         )}
       </section>
+    </OperatorLayout>
+  )
+}
+
+export function IssuesPage(props: { operatorEmail: string; summary: DashboardSummary; notice?: OperatorNotice }) {
+  const { summary } = props
+  return (
+    <OperatorLayout title="Issues" activeNav="issues" operatorEmail={props.operatorEmail}>
+      <PageHeader
+        eyebrow="Operations inbox"
+        title="Issues"
+        description="One queue for customer deployments and contracts that need a decision."
+        actions={<a class="button-link button-secondary" href="/operator">Back to dashboard</a>}
+      />
+      <NoticePanel notice={props.notice} />
+      {summary.attentionItems.length === 0 ? (
+        <EmptyState title="No open issues">All monitored deployments and contracts are healthy.</EmptyState>
+      ) : (
+        <section class="dashboard-section" aria-labelledby="issues-list-heading">
+          <div class="section-heading-row"><div><h2 id="issues-list-heading">Open issues</h2><p class="section-description">Refresh this page after a recovery action.</p></div><p class="issue-count">{summary.attentionCount} total</p></div>
+          <div class="attention-list">
+            {summary.attentionItems.map((item) => (
+              <article class="attention-item">
+                <StatusBadge tone={item.tone}>{item.status}</StatusBadge>
+                <div>
+                  <h3><a href={item.href}>{item.clientName}{item.deploymentKey ? ` · ${item.deploymentKey}` : ""}</a></h3>
+                  <p>{item.title} · {item.description}</p>
+                </div>
+                <a class="text-action" href={item.href}>Open</a>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </OperatorLayout>
   )
 }

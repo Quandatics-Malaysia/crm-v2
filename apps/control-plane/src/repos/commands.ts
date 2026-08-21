@@ -1,4 +1,6 @@
 import {
+  commandTtlBounds,
+  signCommandEnvelope,
   type CommandAck,
   type CommandEnvelope,
   type CommandEnvelopePayload,
@@ -7,7 +9,7 @@ import {
 } from "@crm/control-protocol"
 
 import { prepareOperatorAuditStatement } from "../audit"
-import { badRequest, notFound, SafeHttpError } from "../http/errors"
+import { badRequest, conflict, notFound, SafeHttpError } from "../http/errors"
 import type { MutationActor } from "./clients"
 
 const MAX_COMMAND_QUEUE_BATCH = 16
@@ -65,6 +67,75 @@ export interface CommandHistoryItem {
   errorCode: string | null
   artifactKind: string | null
   enqueuedByOperatorId: string | null
+  state: "pending" | "in_flight" | "acked" | "expired" | "cancelled"
+}
+
+export type CommandRequest = {
+  database: D1Database
+  deploymentId: string
+  payload: CommandPayload
+  actor: MutationActor
+  signingKeyId: string
+  signingPrivateJwk: JsonWebKey
+  now?: Date
+}
+
+/**
+ * Create and queue a server-signed diagnostic command. The private key is
+ * supplied by the Worker binding and never enters a request or rendered page.
+ */
+export async function issueCommand(input: CommandRequest): Promise<{ id: string; createdAt: string; kind: string }> {
+  const now = input.now ?? new Date()
+  const id = crypto.randomUUID()
+  const bounds = commandTtlBounds(now)
+  const payload: CommandEnvelopePayload = {
+    schemaVersion: 1,
+    id,
+    deploymentId: input.deploymentId,
+    payload: CommandPayloadSchema.parse(input.payload),
+    issuedAt: bounds.issuedAt,
+    expiresAt: bounds.expiresAt,
+    agentVersionMin: null,
+  }
+  const envelope = await signCommandEnvelope({
+    payload,
+    keyId: input.signingKeyId,
+    privateKey: input.signingPrivateJwk,
+  })
+  const result = await enqueueCommand(input.database, { envelope, actor: input.actor })
+  return { ...result, kind: payload.payload.kind }
+}
+
+export async function cancelCommand(
+  database: D1Database,
+  deploymentId: string,
+  commandId: string,
+  actor: MutationActor,
+): Promise<void> {
+  const result = await database.prepare(
+    "UPDATE deployment_command_queue SET state = 'cancelled', completed_at = ? WHERE id = ? AND deployment_id = ? AND state IN ('pending', 'in_flight')",
+  ).bind(new Date().toISOString(), commandId, deploymentId).run()
+  if ((result.meta?.changes ?? 0) === 0) {
+    const existing = await readCommandEnvelope(database, commandId)
+    if (existing?.deploymentId !== deploymentId) throw notFound()
+    throw conflict()
+  }
+  await prepareOperatorAuditStatement(database, {
+    operatorId: actor.operatorId,
+    action: "deployment.command.cancel",
+    targetType: "deployment",
+    targetId: deploymentId,
+    outcome: "success",
+    requestId: actor.requestId,
+    metadata: { commandId },
+  }).then(({ statement }) => statement.run())
+}
+
+export async function retryCommand(input: Omit<CommandRequest, "payload"> & { commandId: string }): Promise<{ id: string; createdAt: string; kind: string }> {
+  const existing = await readCommandEnvelope(input.database, input.commandId)
+  if (existing === null || existing.deploymentId !== input.deploymentId) throw notFound()
+  if (existing.state === "pending" || existing.state === "in_flight") throw conflict()
+  return issueCommand({ ...input, payload: existing.payload.payload })
 }
 
 function rowToEntry(row: CommandQueueRow): CommandQueueEntry | null {
@@ -311,7 +382,7 @@ export async function getCommandHistory(
   }
   const bounded = Math.min(Math.max(1, Math.floor(limit)), MAX_COMMAND_QUEUE_BATCH * 4)
   const rows = await database.prepare(
-    `SELECT q.id, q.id AS command_id, q.deployment_id, q.vendor_key_id, q.expected_kind, q.issued_at, q.created_at, q.completed_at, q.ack_outcome, q.ack_error_code, q.artifact_kind, q.operator_id
+    `SELECT q.id, q.id AS command_id, q.deployment_id, q.vendor_key_id, q.expected_kind, q.issued_at, q.created_at, q.completed_at, q.ack_outcome, q.ack_error_code, q.artifact_kind, q.operator_id, q.state
        FROM deployment_command_queue q
       WHERE q.deployment_id = ?
       ORDER BY q.issued_at DESC, q.id DESC
@@ -329,6 +400,7 @@ export async function getCommandHistory(
     ack_error_code: string | null
     artifact_kind: string | null
     operator_id: string | null
+    state: string
   }>()
   return rows.results.map((row) => ({
     id: row.id,
@@ -343,6 +415,7 @@ export async function getCommandHistory(
     errorCode: row.ack_error_code,
     artifactKind: row.artifact_kind,
     enqueuedByOperatorId: row.operator_id,
+    state: row.state as CommandHistoryItem["state"],
   }))
 }
 

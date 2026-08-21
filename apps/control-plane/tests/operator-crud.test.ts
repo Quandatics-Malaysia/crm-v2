@@ -751,13 +751,20 @@ describe("contract and invoice administration", () => {
     const page = await operatorRequest("/operator")
     const html = await page.text()
 
-    expect(html).toContain("Client portfolio")
-    expect(html).toContain('<p class="summary-value">3</p><p>active client records</p>')
-    expect(html).toContain('<p class="summary-value">1</p><p>deployment</p>')
+    expect(html).toContain("Overview")
+    expect(html).toContain('<p class="summary-value">3</p><p>active clients</p>')
+    expect(html).toContain('<p class="summary-value">1</p><p>0 online now</p>')
     expect(html).toContain("Needs attention")
     expect(html).toContain("Contract is past due")
     expect(html).toContain("Deployment is disabled")
     expect(html).toContain('href="/operator/clients#new-client"')
+
+    const issues = await operatorRequest("/operator/issues")
+    expect(issues.status).toBe(200)
+    const issuesHtml = await issues.text()
+    expect(issuesHtml).toContain("Operations inbox")
+    expect(issuesHtml).toContain("Open issues")
+    expect(issuesHtml).toContain('aria-current="page">Issues</a>')
   })
 
   it("bounds operator list pagination", async () => {

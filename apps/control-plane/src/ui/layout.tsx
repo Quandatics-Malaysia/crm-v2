@@ -6,11 +6,11 @@ type Breadcrumb = { label: string; href?: string }
 export function OperatorLayout(props: {
   title: string
   children: Child
-  activeNav?: "dashboard" | "clients" | "operators"
+  activeNav?: "dashboard" | "clients" | "issues" | "operators"
   breadcrumbs?: readonly Breadcrumb[]
   operatorEmail?: string
 }) {
-  const activeNav = props.activeNav ?? (props.title === "Dashboard" ? "dashboard" : props.title === "Operators" ? "operators" : "clients")
+  const activeNav = props.activeNav ?? (props.title === "Dashboard" ? "dashboard" : props.title === "Operators" ? "operators" : props.title === "Issues" ? "issues" : "clients")
   const breadcrumbs = props.breadcrumbs ?? [
     { label: "Dashboard", href: "/operator" },
     { label: props.title },
@@ -32,6 +32,7 @@ export function OperatorLayout(props: {
               <ul>
                 <li><a href="/operator" aria-current={activeNav === "dashboard" ? "page" : undefined}>Dashboard</a></li>
                 <li><a href="/operator/clients" aria-current={activeNav === "clients" ? "page" : undefined}>Clients</a></li>
+                <li><a href="/operator/issues" aria-current={activeNav === "issues" ? "page" : undefined}>Issues</a></li>
                 <li><a href="/operator/operators" aria-current={activeNav === "operators" ? "page" : undefined}>Operators</a></li>
               </ul>
             </nav>

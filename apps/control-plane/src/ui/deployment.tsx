@@ -310,9 +310,76 @@ export function DeploymentPage(props: { workspace: DeploymentWorkspace; operator
             { term: "Health", details: <StatusBadge tone={statusTone(workspace.latestHeartbeat?.healthStatus ?? "never_connected")}>{heartbeatStatus}</StatusBadge> },
             { term: "Observed at (UTC)", details: formatUtc(workspace.latestHeartbeat?.observedAt ?? null) },
             { term: "Application version", details: workspace.latestHeartbeat?.applicationVersion ?? "Not available" },
+            { term: "Agent version", details: workspace.latestHeartbeat?.agentVersion ?? "Not available" },
+            { term: "Image digest", details: workspace.latestHeartbeat?.imageDigest ? <code>{workspace.latestHeartbeat.imageDigest}</code> : "Not available" },
+            { term: "Migration version", details: workspace.latestHeartbeat?.migrationVersion ?? "Not available" },
+            { term: "Entitlement acknowledged", details: workspace.latestHeartbeat?.entitlementVersion ?? "Not available" },
+            { term: "Configuration acknowledged", details: workspace.latestHeartbeat?.configurationVersion ?? "Not available" },
             { term: "Occupied seats", details: workspace.latestHeartbeat?.occupiedSeats === undefined ? "Not available" : String(workspace.latestHeartbeat.occupiedSeats) },
+            { term: "Last successful backup", details: formatUtc(workspace.latestHeartbeat?.lastSuccessfulBackupAt ?? null) },
+            { term: "Last restore test", details: formatUtc(workspace.latestHeartbeat?.lastRestoreTestAt ?? null) },
           ]} />
         </Card>
+      </section>
+
+      <section id="diagnostics" class="workspace-section" aria-labelledby="diagnostics-heading">
+        <div class="section-heading-row"><div><h2 id="diagnostics-heading">Diagnostics</h2><p class="section-description">Compare what the control plane expects with what the deployment last acknowledged.</p></div></div>
+        <Card title="Current state comparison">
+          <DataList items={[
+            { term: "Expected entitlement", details: workspace.schedule?.latestVersion === null || workspace.schedule?.latestVersion === undefined ? "Not issued" : `Version ${workspace.schedule.latestVersion}` },
+            { term: "Reported entitlement", details: workspace.latestHeartbeat?.entitlementVersion ?? "Not reported" },
+            { term: "Expected configuration", details: workspace.schedule?.configurationVersion ?? "Not configured" },
+            { term: "Reported configuration", details: workspace.latestHeartbeat?.configurationVersion ?? "Not reported" },
+            { term: "Expected image", details: workspace.schedule?.approvedImageDigest ? <code>{workspace.schedule.approvedImageDigest}</code> : "Not restricted" },
+            { term: "Reported image", details: workspace.latestHeartbeat?.imageDigest ? <code>{workspace.latestHeartbeat.imageDigest}</code> : "Not reported" },
+          ]} />
+          <p class="field-hint">Diagnostics never expose secrets, signed envelopes, or private keys.</p>
+        </Card>
+        <Card title="Run a diagnostic command" headingLevel={3}>
+          <div class="command-actions">
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="diagnostics" />
+              <Button>Collect diagnostics</Button>
+            </form>
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="log_stream" />
+              <input type="hidden" name="service" value="agent" />
+              <input type="hidden" name="lines" value="200" />
+              <Button variant="secondary">Request agent log tail</Button>
+            </form>
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="trigger_backup" />
+              <input type="hidden" name="artifactTag" value={`manual-${workspace.deployment.deploymentKey}`} />
+              <Button variant="secondary">Trigger backup evidence</Button>
+            </form>
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="verify_restore" />
+              <Button variant="secondary">Verify latest restore</Button>
+            </form>
+          </div>
+          <div class="command-actions command-actions-danger">
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="restart_web" />
+              <input type="hidden" name="reason" value="Vendor operator requested web restart" />
+              <Field name="confirmation" label="Confirm web restart" checkbox checkboxValue="restart_web" required />
+              <Button variant="danger">Restart web service</Button>
+            </form>
+            <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands`}>
+              <input type="hidden" name="kind" value="restart_gateway" />
+              <input type="hidden" name="reason" value="Vendor operator requested gateway restart" />
+              <Field name="confirmation" label="Confirm gateway restart" checkbox checkboxValue="restart_gateway" required />
+              <Button variant="danger">Restart gateway</Button>
+            </form>
+          </div>
+          <p class="field-hint">Commands expire after five minutes and are recorded in the audit timeline. Restart actions require vendor-owner access.</p>
+        </Card>
+      </section>
+
+      <section id="command-history" class="workspace-section" aria-labelledby="command-history-heading">
+        <h2 id="command-history-heading">Command history</h2>
+        {workspace.commandHistory.length === 0 ? <EmptyState title="No commands yet">Diagnostic and recovery commands will appear here.</EmptyState> : (
+          <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Command</th><th scope="col">State</th><th scope="col">Issued</th><th scope="col">Result</th><th scope="col">Artifact</th><th scope="col">Action</th></tr></thead><tbody>{workspace.commandHistory.map((command) => <tr><th scope="row">{titleCase(command.expectedKind)}</th><td><StatusBadge tone={statusTone(command.state)}>{titleCase(command.state)}</StatusBadge></td><td>{formatUtc(command.issuedAt)}</td><td>{command.errorCode ? <code>{command.errorCode}</code> : command.outcome ? titleCase(command.outcome) : "Waiting for agent"}</td><td>{command.artifactKind ? titleCase(command.artifactKind) : "—"}</td><td><div class="table-actions">{command.state === "pending" || command.state === "in_flight" ? <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands/${command.commandId}/cancel`}><input type="hidden" name="confirmation" value="cancel_command" /><Button variant="ghost">Cancel</Button></form> : <form method="post" action={`/operator/deployments/${workspace.deployment.id}/commands/${command.commandId}/retry`}><input type="hidden" name="confirmation" value="retry_command" /><Button variant="ghost">Retry</Button></form>}</div></td></tr>)}</tbody></table></div>
+        )}
       </section>
 
       <section class="workspace-section" aria-labelledby="audit-timeline-heading">

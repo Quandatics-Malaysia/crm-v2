@@ -910,7 +910,7 @@ export async function updateMilestone(
         .from(paymentMilestones)
         .where(eq(paymentMilestones.id, id))
         .limit(1)
-      if (!existing) throw new Error("Milestone not found")
+      if (!existing || !existing.projectId) throw new Error("Milestone not found")
 
       // Lock the project row so concurrent milestone writes serialize against
       // the reconciliation check below (same guard as createMilestone).
@@ -1021,7 +1021,7 @@ export async function deleteMilestone(id: string): Promise<ActionResult<void>> {
         .from(paymentMilestones)
         .where(eq(paymentMilestones.id, id))
         .limit(1)
-      if (!milestone) throw new Error("Milestone not found")
+      if (!milestone || !milestone.projectId) throw new Error("Milestone not found")
 
       const [project] = await tx
         .select({ ownerMemberId: projects.ownerMemberId })

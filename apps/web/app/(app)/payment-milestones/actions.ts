@@ -167,7 +167,6 @@ export type FunnelMilestoneUpdateInput = {
   description?: string | null
   amount?: string | null
   dueDate?: string | null
-  soNumber?: string | null
   status?: string
 }
 
@@ -460,10 +459,6 @@ export async function updateFunnelMilestone(
               input.dueDate === undefined
                 ? existing.dueDate
                 : input.dueDate || null,
-            soNumber:
-              input.soNumber === undefined
-                ? existing.soNumber
-                : input.soNumber || null,
             status: nextStatus,
             updatedAt: new Date(),
           })

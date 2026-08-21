@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { createEntity } from "@/app/(app)/_shared/entity-actions"
+import { showActionError } from "@/lib/show-action-error"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -60,7 +61,7 @@ export function CreateEntityDialog({
         invites: invites.map(({ email, roleName }) => ({ email, roleName })),
       })
       if (!result.ok) {
-        toast.error(result.error)
+        showActionError(result)
         return
       }
       toast.success(`${name.trim()} created`)
@@ -68,8 +69,8 @@ export function CreateEntityDialog({
       reset()
       router.push("/dashboard")
       router.refresh()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create organization")
+    } catch {
+      toast.error("We couldn’t create the organization. Please try again.")
     } finally {
       setBusy(false)
     }

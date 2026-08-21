@@ -17,7 +17,7 @@ import { timestamps, softDelete } from "./_helpers"
  *
  * `productCode` is a value from the tenant's product-code picklist
  * (tenant_settings.product_codes) identifying the product line; `subcategory`
- * is a free-text refinement. Pricing is a single `standardPrice` in `currency`
+ * is a tenant-defined refinement from the product-code settings. Pricing is a single `standardPrice` in `currency`
  * (multi-currency price books are intentionally out of scope for now).
  */
 export const products = pgTable(
@@ -30,7 +30,7 @@ export const products = pgTable(
     name: text("name").notNull(),
     /** Product-line code (value from tenant_settings.product_codes). */
     productCode: text("product_code"),
-    /** Free-text subcategory (e.g. "Data Analytics"). */
+    /** Tenant-defined subcategory code (e.g. "Data Analytics"). */
     subcategory: text("subcategory"),
     /** Unit of measure (e.g. "Day", "Unit", "Licence"). */
     uom: text("uom"),

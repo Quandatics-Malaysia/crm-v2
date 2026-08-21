@@ -180,19 +180,7 @@ export function PaymentMilestoneDetailBody({
                   <FieldRow label="Product subcategory">
                     {milestone.productSubcategory ?? "—"}
                   </FieldRow>
-                  <FieldRow label="SO number">
-                    {canManage ? (
-                      <InlineValue
-                        value={milestone.soNumber ?? ""}
-                        display={milestone.soNumber || "—"}
-                        title="Click to edit SO number"
-                        onSave={(next) => saveField({ soNumber: next || null })}
-                      />
-                    ) : (
-                      milestone.soNumber ?? "—"
-                    )}
-                  </FieldRow>
-            <FieldRow label="Quote">
+                  <FieldRow label="Quote">
                     {milestone.quotationId && milestone.quoteNumber ? (
                       <Link href={`/quotations/${milestone.quotationId}`} className="link">
                         {milestone.quoteNumber}
@@ -200,7 +188,7 @@ export function PaymentMilestoneDetailBody({
                     ) : (
                       "—"
                     )}
-            </FieldRow>
+                  </FieldRow>
                   <FieldRow label="Due date">
                     {canManage ? (
                       <InlineValue

@@ -75,7 +75,7 @@ export function ExternalQuotationDocument({
   return (
     <div className="bg-muted/30 py-6 print:bg-white print:py-0">
       <div
-        id="external-quote-template"
+        id="quote-doc"
         className="mx-auto min-h-[297mm] w-[210mm] max-w-full overflow-hidden bg-white shadow-lg print:min-h-[297mm] print:w-[210mm] print:shadow-none"
         data-template={template.code}
       >

@@ -17,7 +17,12 @@ export async function GET(
     return Response.json({ error: "Quotation not found" }, { status: 404 })
   }
 
-  const url = new URL(`/quotation-preview/${id}`, request.url)
+  // Render through the web container itself. Navigating through the public
+  // hostname can hairpin through the proxy and lose the authenticated session.
+  const url = new URL(
+    `/quotation-preview/${id}`,
+    `http://127.0.0.1:${process.env.PORT ?? "3000"}`
+  )
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium",
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -26,23 +31,7 @@ export async function GET(
   try {
     const context = await browser.newContext()
     const cookieHeader = request.headers.get("cookie") ?? ""
-    if (cookieHeader) {
-      const origin = new URL(request.url).origin
-      await context.addCookies(
-        cookieHeader
-          .split(";")
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .map((part) => {
-            const separator = part.indexOf("=")
-            return {
-              name: separator >= 0 ? part.slice(0, separator) : part,
-              value: separator >= 0 ? part.slice(separator + 1) : "",
-              url: origin,
-            }
-          })
-      )
-    }
+    await context.setExtraHTTPHeaders({ cookie: cookieHeader })
     const page = await context.newPage()
     const response = await page.goto(url.toString(), { waitUntil: "networkidle" })
     if (!response || response.status() >= 400) {
@@ -63,6 +52,12 @@ export async function GET(
         "Cache-Control": "private, no-store",
       },
     })
+  } catch (error) {
+    console.error("[quotation-pdf] render failed", { quotationId: id, error })
+    return Response.json(
+      { error: "Quotation PDF rendering failed" },
+      { status: 502, headers: { "Cache-Control": "no-store" } }
+    )
   } finally {
     await browser.close()
   }

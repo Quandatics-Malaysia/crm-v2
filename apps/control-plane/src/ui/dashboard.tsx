@@ -277,6 +277,16 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
     <OperatorLayout title="Contract" operatorEmail={props.operatorEmail}>
       <PageHeader eyebrow="Billing" title="Contract" description={`${contract.startsAt} to ${contract.endsAt}; ${contract.seatLimit} seats; ${contract.totalCents} cents.`} />
       <NoticePanel notice={props.notice} />
+      <div class="contract-workspace">
+        <aside class="context-sidebar" aria-label="Contract navigation">
+          <p class="context-sidebar-label">Contract</p>
+          <nav>
+            <a href="#contract-terms-heading">Contract terms</a>
+            <a href="#entitlement-controls-heading">Subscription controls</a>
+            <a href="#invoices-heading">Invoices</a>
+          </nav>
+        </aside>
+        <div class="contract-main">
       <section class="workspace-section" aria-labelledby="contract-terms-heading">
         <h2 id="contract-terms-heading">Contract terms</h2>
         <Card title="Edit commercial terms" headingLevel={3}>
@@ -300,9 +310,10 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
         </Card>
       </section>
       <section class="workspace-section" aria-labelledby="entitlement-controls-heading">
-        <h2 id="entitlement-controls-heading">Entitlement controls</h2>
-        <Card title="Subscription control" headingLevel={3}>
-          <p>Changes here also bump the entitlement revision and are picked up by the renewal cycle.</p>
+        <details class="collapsible-panel">
+          <summary id="entitlement-controls-heading">Advanced subscription controls</summary>
+          <div class="collapsible-panel-content">
+          <p class="section-description">Licence status, renewal, suspension, and seat-limit controls. Changes create a new entitlement revision.</p>
           <form class="form-grid" method="post" action={`/operator/contracts/${contract.id}/entitlement-controls`}>
             <Field name="status" label="Subscription status" required options={["active", "past_due", "suspended", "cancelled"].map((value) => ({ value, label: titleCase(value) }))} />
             <Field name="renewalPolicy" label="Renewal policy" required options={["auto_renew", "non_renewing"].map((value) => ({ value, label: titleCase(value) }))} />
@@ -311,7 +322,8 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
             <Field name="effectiveAt" label="Effective at (UTC)" type="datetime-local" hint="Optional future-dated change. Leave empty to apply now." />
             <div><Button type="submit">Save entitlement controls</Button></div>
           </form>
-        </Card>
+          </div>
+        </details>
       </section>
       <section class="workspace-section" aria-labelledby="invoices-heading">
         <h2 id="invoices-heading">Invoices</h2>
@@ -333,6 +345,8 @@ export function ContractPage(props: { contract: ContractDetail; operatorEmail: s
         {contract.invoices.items.length === 0 ? <EmptyState title="No invoices yet">Issue an invoice when this contract is ready for collection.</EmptyState> : <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Invoice</th><th scope="col">Total</th><th scope="col">Status</th></tr></thead><tbody>{contract.invoices.items.map((invoice) => <tr><th scope="row">{invoice.invoiceNumber}</th><td>{invoice.totalCents} {invoice.currency} cents</td><td><StatusBadge tone={statusTone(invoice.status)}>{titleCase(invoice.status)}</StatusBadge></td></tr>)}</tbody></table></div>}
         <CollectionPager basePath={`/operator/contracts/${contract.id}`} name="invoices" collection={contract.invoices} preserved={{ invoices: contract.invoices }} />
       </section>
+        </div>
+      </div>
     </OperatorLayout>
   )
 }

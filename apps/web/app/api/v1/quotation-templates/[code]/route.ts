@@ -48,7 +48,7 @@ export async function GET(
       return err("forbidden", "Your API key's role lacks permission for this resource", 403, req)
     }
     console.error("api/v1 quotation-templates GET error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 
@@ -140,7 +140,7 @@ export async function PATCH(
       }
     }
     console.error("api/v1 quotation-templates PATCH error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 
@@ -183,7 +183,7 @@ export async function DELETE(
       return err("forbidden", "Your API key's role lacks permission for this resource", 403, req)
     }
     console.error("api/v1 quotation-templates DELETE error", e)
-    return err("internal", "Internal error", 500, req)
+    return err("internal_error", "Internal error", 500, req)
   }
 }
 
